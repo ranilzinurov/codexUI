@@ -81,6 +81,39 @@ function isAuthorizedByRequestLike(
   return Boolean(token && validTokens.has(token))
 }
 
+function appendVaryCookie(res: Response): void {
+  const current = res.getHeader('Vary')
+  if (typeof current !== 'string' || current.trim().length === 0) {
+    res.setHeader('Vary', 'Cookie')
+    return
+  }
+  if (!current.toLowerCase().split(/,\s*/u).includes('cookie')) {
+    res.setHeader('Vary', current + ', Cookie')
+  }
+}
+
+function markHtmlAuthResponseNoStore(res: Response): void {
+  appendVaryCookie(res)
+  res.setHeader('Cache-Control', 'private, no-store, max-age=0')
+}
+
+function isSecureProxyRequest(req: Request): boolean {
+  if (req.secure) return true
+  const forwardedProto = req.headers['x-forwarded-proto']
+  if (typeof forwardedProto === 'string') {
+    return forwardedProto.split(',').some((value) => value.trim().toLowerCase() === 'https')
+  }
+  if (Array.isArray(forwardedProto)) {
+    return forwardedProto.some((value) => value.trim().toLowerCase() === 'https')
+  }
+  return false
+}
+
+function buildSessionCookie(req: Request, token: string): string {
+  return TOKEN_COOKIE + '=' + token + '; Path=/; HttpOnly; SameSite=Strict' + (isSecureProxyRequest(req) ? '; Secure' : '')
+}
+
+
 const LOGIN_PAGE_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -117,7 +150,7 @@ form.addEventListener('submit',async e=>{
   e.preventDefault();
   errEl.style.display='none';
   const res=await fetch('/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:document.getElementById('pw').value})});
-  if(res.ok){window.location.reload()}else{errEl.style.display='block';document.getElementById('pw').value='';document.getElementById('pw').focus()}
+  if(res.ok){window.location.replace('/')}else{errEl.style.display='block';document.getElementById('pw').value='';document.getElementById('pw').focus()}
 });
 </script>
 </body>
@@ -137,6 +170,7 @@ export function createAuthSession(password: string): AuthSession {
 
   const middleware: RequestHandler = (req: Request, res: Response, next: NextFunction): void => {
     if (isAuthorizedByRequestLike(req.socket.remoteAddress, req.headers.host, req.headers.cookie, validTokens)) {
+      appendVaryCookie(res)
       next()
       return
     }
@@ -152,6 +186,7 @@ export function createAuthSession(password: string): AuthSession {
           const provided = typeof parsed.password === 'string' ? parsed.password : ''
 
           if (!constantTimeCompare(provided, password)) {
+            markHtmlAuthResponseNoStore(res)
             res.status(401).json({ error: 'Invalid password' })
             return
           }
@@ -159,9 +194,11 @@ export function createAuthSession(password: string): AuthSession {
           const token = randomBytes(32).toString('hex')
           validTokens.add(token)
 
-          res.setHeader('Set-Cookie', `${TOKEN_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict`)
+          markHtmlAuthResponseNoStore(res)
+          res.setHeader('Set-Cookie', buildSessionCookie(req, token))
           res.json({ ok: true })
         } catch {
+          markHtmlAuthResponseNoStore(res)
           res.status(400).json({ error: 'Invalid request body' })
         }
       })
@@ -174,13 +211,15 @@ export function createAuthSession(password: string): AuthSession {
       if (constantTimeCompare(provided, password)) {
         const token = randomBytes(32).toString('hex')
         validTokens.add(token)
-        res.setHeader('Set-Cookie', `${TOKEN_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict`)
+        markHtmlAuthResponseNoStore(res)
+        res.setHeader('Set-Cookie', buildSessionCookie(req, token))
         res.redirect(302, '/')
         return
       }
     }
 
     // No valid session — serve login page
+    markHtmlAuthResponseNoStore(res)
     res.setHeader('Content-Type', 'text/html; charset=utf-8')
     res.status(200).send(LOGIN_PAGE_HTML)
   }
