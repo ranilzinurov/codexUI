@@ -371,6 +371,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { safeLocalStorageGetItem, safeLocalStorageRemoveItem, safeLocalStorageSetItem } from '../../browserCompat'
 import type {
   CollaborationModeKind,
   CollaborationModeOption,
@@ -957,7 +958,7 @@ function loadPersistedDraftForThread(threadId: string): ComposerDraftPayload | n
   const normalizedThreadId = threadId.trim()
   if (!normalizedThreadId) return null
   try {
-    const raw = window.localStorage.getItem(getDraftStorageKey(normalizedThreadId))
+    const raw = safeLocalStorageGetItem(getDraftStorageKey(normalizedThreadId))
     if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<ComposerDraftPayload> | string
     if (typeof parsed === 'string') {
@@ -1004,10 +1005,10 @@ function persistDraftForThread(threadId: string, payload: ComposerDraftPayload):
       || payload.fileAttachments.length > 0
       || payload.skills.length > 0
     if (hasContent) {
-      window.localStorage.setItem(getDraftStorageKey(normalizedThreadId), JSON.stringify(payload))
+      safeLocalStorageSetItem(getDraftStorageKey(normalizedThreadId), JSON.stringify(payload))
       return
     }
-    window.localStorage.removeItem(getDraftStorageKey(normalizedThreadId))
+    safeLocalStorageRemoveItem(getDraftStorageKey(normalizedThreadId))
   } catch {
     // Ignore localStorage failures (quota/private mode).
   }

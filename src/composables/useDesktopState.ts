@@ -34,6 +34,7 @@ import {
   type WorkspaceRootsState,
 } from '../api/codexGateway'
 import { normalizeFileChangeStatus, toUiFileChanges } from '../api/normalizers/v2'
+import { safeLocalStorageGetItem, safeLocalStorageRemoveItem, safeLocalStorageSetItem } from '../browserCompat'
 import type {
   CollaborationModeKind,
   CollaborationModeOption,
@@ -86,7 +87,7 @@ function loadReadStateMap(): Record<string, string> {
   if (typeof window === 'undefined') return {}
 
   try {
-    const raw = window.localStorage.getItem(READ_STATE_STORAGE_KEY)
+    const raw = safeLocalStorageGetItem(READ_STATE_STORAGE_KEY)
     if (!raw) return {}
 
     const parsed = JSON.parse(raw) as unknown
@@ -99,7 +100,7 @@ function loadReadStateMap(): Record<string, string> {
 
 function saveReadStateMap(state: Record<string, string>): void {
   if (typeof window === 'undefined') return
-  window.localStorage.setItem(READ_STATE_STORAGE_KEY, JSON.stringify(state))
+  safeLocalStorageSetItem(READ_STATE_STORAGE_KEY, JSON.stringify(state))
 }
 
 function normalizeCollaborationMode(value: unknown): CollaborationModeKind {
@@ -173,7 +174,7 @@ function loadSelectedModelMap(): Record<string, string> {
   if (typeof window === 'undefined') return createStringKeyedRecord<string>()
 
   try {
-    const raw = window.localStorage.getItem(SELECTED_MODEL_BY_CONTEXT_STORAGE_KEY)
+    const raw = safeLocalStorageGetItem(SELECTED_MODEL_BY_CONTEXT_STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as unknown
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return createStringKeyedRecord<string>()
@@ -192,7 +193,7 @@ function loadSelectedModelMap(): Record<string, string> {
     // Fall back to the legacy global preference below.
   }
 
-  const legacyModelId = normalizeStoredModelId(window.localStorage.getItem(LEGACY_SELECTED_MODEL_STORAGE_KEY))
+  const legacyModelId = normalizeStoredModelId(safeLocalStorageGetItem(LEGACY_SELECTED_MODEL_STORAGE_KEY))
   const next = createStringKeyedRecord<string>()
   if (legacyModelId) {
     next[NEW_THREAD_COLLABORATION_MODE_CONTEXT] = legacyModelId
@@ -214,11 +215,11 @@ function saveSelectedModelMap(state: Record<string, string>): void {
   if (typeof window === 'undefined') return
   try {
     if (Object.keys(state).length === 0) {
-      window.localStorage.removeItem(SELECTED_MODEL_BY_CONTEXT_STORAGE_KEY)
+      safeLocalStorageRemoveItem(SELECTED_MODEL_BY_CONTEXT_STORAGE_KEY)
     } else {
-      window.localStorage.setItem(SELECTED_MODEL_BY_CONTEXT_STORAGE_KEY, JSON.stringify(state))
+      safeLocalStorageSetItem(SELECTED_MODEL_BY_CONTEXT_STORAGE_KEY, JSON.stringify(state))
     }
-    window.localStorage.removeItem(LEGACY_SELECTED_MODEL_STORAGE_KEY)
+    safeLocalStorageRemoveItem(LEGACY_SELECTED_MODEL_STORAGE_KEY)
   } catch {
     // Keep in-memory selection working even if localStorage writes fail.
   }
@@ -228,7 +229,7 @@ function loadSelectedCollaborationModeMap(): Record<string, CollaborationModeKin
   if (typeof window === 'undefined') return createStringKeyedRecord<CollaborationModeKind>()
 
   try {
-    const raw = window.localStorage.getItem(COLLABORATION_MODE_STORAGE_KEY)
+    const raw = safeLocalStorageGetItem(COLLABORATION_MODE_STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as unknown
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
@@ -249,7 +250,7 @@ function loadSelectedCollaborationModeMap(): Record<string, CollaborationModeKin
     // Fall back to the legacy global preference below.
   }
 
-  const legacyMode = normalizeCollaborationMode(window.localStorage.getItem(LEGACY_COLLABORATION_MODE_STORAGE_KEY))
+  const legacyMode = normalizeCollaborationMode(safeLocalStorageGetItem(LEGACY_COLLABORATION_MODE_STORAGE_KEY))
   const next = createStringKeyedRecord<CollaborationModeKind>()
   if (legacyMode === 'plan') {
     next[NEW_THREAD_COLLABORATION_MODE_CONTEXT] = 'plan'
@@ -269,11 +270,11 @@ function saveSelectedCollaborationModeMap(state: Record<string, CollaborationMod
   if (typeof window === 'undefined') return
   try {
     if (Object.keys(state).length === 0) {
-      window.localStorage.removeItem(COLLABORATION_MODE_STORAGE_KEY)
+      safeLocalStorageRemoveItem(COLLABORATION_MODE_STORAGE_KEY)
     } else {
-      window.localStorage.setItem(COLLABORATION_MODE_STORAGE_KEY, JSON.stringify(state))
+      safeLocalStorageSetItem(COLLABORATION_MODE_STORAGE_KEY, JSON.stringify(state))
     }
-    window.localStorage.removeItem(LEGACY_COLLABORATION_MODE_STORAGE_KEY)
+    safeLocalStorageRemoveItem(LEGACY_COLLABORATION_MODE_STORAGE_KEY)
   } catch {
     // Keep in-memory mode selection working even if localStorage writes fail.
   }
@@ -306,7 +307,7 @@ function loadThreadScrollStateMap(): Record<string, ThreadScrollState> {
   if (typeof window === 'undefined') return {}
 
   try {
-    const raw = window.localStorage.getItem(SCROLL_STATE_STORAGE_KEY)
+    const raw = safeLocalStorageGetItem(SCROLL_STATE_STORAGE_KEY)
     if (!raw) return {}
 
     const parsed = JSON.parse(raw) as unknown
@@ -328,7 +329,7 @@ function loadThreadScrollStateMap(): Record<string, ThreadScrollState> {
 
 function saveThreadScrollStateMap(state: Record<string, ThreadScrollState>): void {
   if (typeof window === 'undefined') return
-  window.localStorage.setItem(SCROLL_STATE_STORAGE_KEY, JSON.stringify(state))
+  safeLocalStorageSetItem(SCROLL_STATE_STORAGE_KEY, JSON.stringify(state))
 }
 
 function normalizeStoredTokenCount(value: unknown): number | null {
@@ -390,7 +391,7 @@ function loadThreadTokenUsageMap(): Record<string, UiThreadTokenUsage> {
   if (typeof window === 'undefined') return {}
 
   try {
-    const raw = window.localStorage.getItem(THREAD_TOKEN_USAGE_STORAGE_KEY)
+    const raw = safeLocalStorageGetItem(THREAD_TOKEN_USAGE_STORAGE_KEY)
     if (!raw) return {}
 
     const parsed = JSON.parse(raw) as unknown
@@ -412,14 +413,14 @@ function loadThreadTokenUsageMap(): Record<string, UiThreadTokenUsage> {
 
 function saveThreadTokenUsageMap(state: Record<string, UiThreadTokenUsage>): void {
   if (typeof window === 'undefined') return
-  window.localStorage.setItem(THREAD_TOKEN_USAGE_STORAGE_KEY, JSON.stringify(state))
+  safeLocalStorageSetItem(THREAD_TOKEN_USAGE_STORAGE_KEY, JSON.stringify(state))
 }
 
 function loadThreadTerminalOpenMap(): Record<string, boolean> {
   if (typeof window === 'undefined') return {}
 
   try {
-    const raw = window.localStorage.getItem(THREAD_TERMINAL_OPEN_STORAGE_KEY)
+    const raw = safeLocalStorageGetItem(THREAD_TERMINAL_OPEN_STORAGE_KEY)
     if (!raw) return {}
 
     const parsed = JSON.parse(raw) as unknown
@@ -439,29 +440,29 @@ function loadThreadTerminalOpenMap(): Record<string, boolean> {
 
 function saveThreadTerminalOpenMap(state: Record<string, boolean>): void {
   if (typeof window === 'undefined') return
-  window.localStorage.setItem(THREAD_TERMINAL_OPEN_STORAGE_KEY, JSON.stringify(state))
+  safeLocalStorageSetItem(THREAD_TERMINAL_OPEN_STORAGE_KEY, JSON.stringify(state))
 }
 
 function loadSelectedThreadId(): string {
   if (typeof window === 'undefined') return ''
-  const raw = window.localStorage.getItem(SELECTED_THREAD_STORAGE_KEY)
+  const raw = safeLocalStorageGetItem(SELECTED_THREAD_STORAGE_KEY)
   return raw ?? ''
 }
 
 function saveSelectedThreadId(threadId: string): void {
   if (typeof window === 'undefined') return
   if (!threadId) {
-    window.localStorage.removeItem(SELECTED_THREAD_STORAGE_KEY)
+    safeLocalStorageRemoveItem(SELECTED_THREAD_STORAGE_KEY)
     return
   }
-  window.localStorage.setItem(SELECTED_THREAD_STORAGE_KEY, threadId)
+  safeLocalStorageSetItem(SELECTED_THREAD_STORAGE_KEY, threadId)
 }
 
 function loadProjectOrder(): string[] {
   if (typeof window === 'undefined') return []
 
   try {
-    const raw = window.localStorage.getItem(PROJECT_ORDER_STORAGE_KEY)
+    const raw = safeLocalStorageGetItem(PROJECT_ORDER_STORAGE_KEY)
     if (!raw) return []
 
     const parsed = JSON.parse(raw) as unknown
@@ -482,14 +483,14 @@ function loadProjectOrder(): string[] {
 
 function saveProjectOrder(order: string[]): void {
   if (typeof window === 'undefined') return
-  window.localStorage.setItem(PROJECT_ORDER_STORAGE_KEY, JSON.stringify(order))
+  safeLocalStorageSetItem(PROJECT_ORDER_STORAGE_KEY, JSON.stringify(order))
 }
 
 function loadProjectDisplayNames(): Record<string, string> {
   if (typeof window === 'undefined') return {}
 
   try {
-    const raw = window.localStorage.getItem(PROJECT_DISPLAY_NAME_STORAGE_KEY)
+    const raw = safeLocalStorageGetItem(PROJECT_DISPLAY_NAME_STORAGE_KEY)
     if (!raw) return {}
 
     const parsed = JSON.parse(raw) as unknown
@@ -510,7 +511,7 @@ function loadProjectDisplayNames(): Record<string, string> {
 
 function saveProjectDisplayNames(displayNames: Record<string, string>): void {
   if (typeof window === 'undefined') return
-  window.localStorage.setItem(PROJECT_DISPLAY_NAME_STORAGE_KEY, JSON.stringify(displayNames))
+  safeLocalStorageSetItem(PROJECT_DISPLAY_NAME_STORAGE_KEY, JSON.stringify(displayNames))
 }
 
 function mergeProjectOrder(previousOrder: string[], incomingGroups: UiProjectGroup[]): string[] {

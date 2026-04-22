@@ -395,6 +395,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { safeLocalStorageGetItem, safeLocalStorageSetItem } from '../../browserCompat'
 import {
   applyReviewAction,
   getReviewSnapshot,
@@ -581,14 +582,14 @@ function clampFileListWidth(value: number): number {
 
 function loadFileListWidth(): number {
   if (typeof window === 'undefined') return DEFAULT_FILE_LIST_WIDTH
-  const raw = window.localStorage.getItem(REVIEW_FILE_LIST_WIDTH_KEY)
+  const raw = safeLocalStorageGetItem(REVIEW_FILE_LIST_WIDTH_KEY)
   const parsed = raw ? Number(raw) : Number.NaN
   return clampFileListWidth(parsed)
 }
 
 function persistFileListWidth(value: number): void {
   if (typeof window === 'undefined') return
-  window.localStorage.setItem(REVIEW_FILE_LIST_WIDTH_KEY, String(clampFileListWidth(value)))
+  safeLocalStorageSetItem(REVIEW_FILE_LIST_WIDTH_KEY, String(clampFileListWidth(value)))
 }
 
 function onResizerPointerDown(event: PointerEvent): void {

@@ -115,6 +115,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { safeLocalStorageGetItem, safeLocalStorageRemoveItem, safeLocalStorageSetItem } from '../../browserCompat'
 import IconTablerSearch from '../icons/IconTablerSearch.vue'
 import IconTablerChevronRight from '../icons/IconTablerChevronRight.vue'
 import SkillCard from './SkillCard.vue'
@@ -191,7 +192,7 @@ function cacheKey(q: string): string {
 function readCache(key: string): SkillsHubPayload | null {
   if (typeof window === 'undefined') return null
   try {
-    const raw = window.localStorage.getItem(SKILLS_HUB_CACHE_KEY)
+    const raw = safeLocalStorageGetItem(SKILLS_HUB_CACHE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as { byKey?: Record<string, SkillsHubPayload> }
     return parsed.byKey?.[key] ?? null
@@ -203,11 +204,11 @@ function readCache(key: string): SkillsHubPayload | null {
 function writeCache(key: string, payload: SkillsHubPayload): void {
   if (typeof window === 'undefined') return
   try {
-    const raw = window.localStorage.getItem(SKILLS_HUB_CACHE_KEY)
+    const raw = safeLocalStorageGetItem(SKILLS_HUB_CACHE_KEY)
     const parsed = raw ? (JSON.parse(raw) as { byKey?: Record<string, SkillsHubPayload> }) : {}
     const byKey = parsed.byKey ?? {}
     byKey[key] = payload
-    window.localStorage.setItem(SKILLS_HUB_CACHE_KEY, JSON.stringify({ byKey }))
+    safeLocalStorageSetItem(SKILLS_HUB_CACHE_KEY, JSON.stringify({ byKey }))
   } catch {
     // best-effort cache
   }
@@ -216,7 +217,7 @@ function writeCache(key: string, payload: SkillsHubPayload): void {
 function clearCache(): void {
   if (typeof window === 'undefined') return
   try {
-    window.localStorage.removeItem(SKILLS_HUB_CACHE_KEY)
+    safeLocalStorageRemoveItem(SKILLS_HUB_CACHE_KEY)
   } catch {
     // best-effort cache cleanup
   }

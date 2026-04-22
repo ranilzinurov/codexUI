@@ -842,6 +842,7 @@ import type { ReasoningEffort, SpeedMode, ThreadScrollState, UiAccountEntry, UiR
 import type { ComposerDraftPayload, ThreadComposerExposed } from './components/content/ThreadComposer.vue'
 import type { GithubTipsScope, GithubTrendingProject, LocalDirectoryEntry, TelegramStatus, WorktreeBranchOption } from './api/codexGateway'
 import { getFreeModeStatus, setFreeMode, setFreeModeCustomKey, setCustomProvider } from './api/codexGateway'
+import { safeLocalStorageGetItem, safeLocalStorageSetItem, subscribeMediaQueryChange } from './browserCompat'
 import { getPathLeafName, getPathParent, normalizePathForUi } from './pathUtils.js'
 
 const ThreadConversation = defineAsyncComponent(() => import('./components/content/ThreadConversation.vue'))
@@ -1188,6 +1189,7 @@ const browserHostName =
   typeof window !== 'undefined'
     ? (window.location.hostname || window.location.host || 'codexui')
     : 'codexui'
+let stopDarkModeMediaQuerySubscription: (() => void) | null = null
 const pageTitle = computed(() => {
   const threadTitle = selectedThread.value?.title?.trim() ?? ''
   return threadTitle || browserHostName
@@ -1443,7 +1445,9 @@ onMounted(() => {
   window.addEventListener('pageshow', onWindowPageShow)
   window.addEventListener('focus', onWindowFocus)
   applyDarkMode()
-  darkModeMediaQuery?.addEventListener('change', applyDarkMode)
+  if (darkModeMediaQuery) {
+    stopDarkModeMediaQuerySubscription = subscribeMediaQueryChange(darkModeMediaQuery, applyDarkMode)
+  }
   void initialize()
   void loadHomeDirectory()
   void loadWorkspaceRootOptionsState()
@@ -1462,7 +1466,8 @@ onUnmounted(() => {
   document.removeEventListener('visibilitychange', onDocumentVisibilityChange)
   window.removeEventListener('pageshow', onWindowPageShow)
   window.removeEventListener('focus', onWindowFocus)
-  darkModeMediaQuery?.removeEventListener('change', applyDarkMode)
+  stopDarkModeMediaQuerySubscription?.()
+  stopDarkModeMediaQuerySubscription = null
   if (accountStatePollTimer !== null) {
     window.clearInterval(accountStatePollTimer)
     accountStatePollTimer = null
@@ -2694,45 +2699,45 @@ function escapeMarkdownText(value: string): string {
 
 function loadBoolPref(key: string, fallback: boolean): boolean {
   if (typeof window === 'undefined') return fallback
-  const v = window.localStorage.getItem(key)
+  const v = safeLocalStorageGetItem(key)
   if (v === null) return fallback
   return v === '1'
 }
 
 function loadDarkModePref(): 'system' | 'light' | 'dark' {
   if (typeof window === 'undefined') return 'system'
-  const v = window.localStorage.getItem(DARK_MODE_KEY)
+  const v = safeLocalStorageGetItem(DARK_MODE_KEY)
   if (v === 'light' || v === 'dark') return v
   return 'system'
 }
 
 function loadInProgressSendModePref(): 'steer' | 'queue' {
   if (typeof window === 'undefined') return 'steer'
-  const v = window.localStorage.getItem(IN_PROGRESS_SEND_MODE_KEY)
+  const v = safeLocalStorageGetItem(IN_PROGRESS_SEND_MODE_KEY)
   return v === 'queue' ? 'queue' : 'steer'
 }
 
 function loadChatWidthPref(): ChatWidthMode {
   if (typeof window === 'undefined') return 'standard'
-  const value = window.localStorage.getItem(CHAT_WIDTH_KEY)
+  const value = safeLocalStorageGetItem(CHAT_WIDTH_KEY)
   return value === 'standard' || value === 'wide' || value === 'extra-wide' ? value : 'standard'
 }
 
 function toggleSendWithEnter(): void {
   sendWithEnter.value = !sendWithEnter.value
-  window.localStorage.setItem(SEND_WITH_ENTER_KEY, sendWithEnter.value ? '1' : '0')
+  safeLocalStorageSetItem(SEND_WITH_ENTER_KEY, sendWithEnter.value ? '1' : '0')
 }
 
 function cycleInProgressSendMode(): void {
   inProgressSendMode.value = inProgressSendMode.value === 'steer' ? 'queue' : 'steer'
-  window.localStorage.setItem(IN_PROGRESS_SEND_MODE_KEY, inProgressSendMode.value)
+  safeLocalStorageSetItem(IN_PROGRESS_SEND_MODE_KEY, inProgressSendMode.value)
 }
 
 function cycleDarkMode(): void {
   const order: Array<'system' | 'light' | 'dark'> = ['system', 'light', 'dark']
   const idx = order.indexOf(darkMode.value)
   darkMode.value = order[(idx + 1) % order.length]
-  window.localStorage.setItem(DARK_MODE_KEY, darkMode.value)
+  safeLocalStorageSetItem(DARK_MODE_KEY, darkMode.value)
   applyDarkMode()
 }
 
@@ -2740,23 +2745,23 @@ function cycleChatWidth(): void {
   const order: ChatWidthMode[] = ['standard', 'wide', 'extra-wide']
   const idx = order.indexOf(chatWidth.value)
   chatWidth.value = order[(idx + 1) % order.length]
-  window.localStorage.setItem(CHAT_WIDTH_KEY, chatWidth.value)
+  safeLocalStorageSetItem(CHAT_WIDTH_KEY, chatWidth.value)
 }
 
 function toggleDictationClickToToggle(): void {
   dictationClickToToggle.value = !dictationClickToToggle.value
-  window.localStorage.setItem(DICTATION_CLICK_TO_TOGGLE_KEY, dictationClickToToggle.value ? '1' : '0')
+  safeLocalStorageSetItem(DICTATION_CLICK_TO_TOGGLE_KEY, dictationClickToToggle.value ? '1' : '0')
 }
 
 function toggleDictationAutoSend(): void {
   dictationAutoSend.value = !dictationAutoSend.value
-  window.localStorage.setItem(DICTATION_AUTO_SEND_KEY, dictationAutoSend.value ? '1' : '0')
+  safeLocalStorageSetItem(DICTATION_AUTO_SEND_KEY, dictationAutoSend.value ? '1' : '0')
 }
 
 
 function toggleGithubTrendingProjects(): void {
   showGithubTrendingProjects.value = !showGithubTrendingProjects.value
-  window.localStorage.setItem(GITHUB_TRENDING_PROJECTS_KEY, showGithubTrendingProjects.value ? '1' : '0')
+  safeLocalStorageSetItem(GITHUB_TRENDING_PROJECTS_KEY, showGithubTrendingProjects.value ? '1' : '0')
 }
 
 async function onProviderChange(provider: string): Promise<void> {
@@ -2924,12 +2929,12 @@ function onDictationLanguageChange(nextValue: string): void {
   const normalized = normalizeToWhisperLanguage(nextValue.trim())
   const value = normalized || 'auto'
   dictationLanguage.value = value
-  window.localStorage.setItem(DICTATION_LANGUAGE_KEY, value)
+  safeLocalStorageSetItem(DICTATION_LANGUAGE_KEY, value)
 }
 
 function loadDictationLanguagePref(): string {
   if (typeof window === 'undefined') return 'auto'
-  const value = window.localStorage.getItem(DICTATION_LANGUAGE_KEY)?.trim() || 'auto'
+  const value = safeLocalStorageGetItem(DICTATION_LANGUAGE_KEY)?.trim() || 'auto'
   const normalized = normalizeToWhisperLanguage(value)
   return normalized || 'auto'
 }
@@ -2996,17 +3001,17 @@ function applyDarkMode(): void {
 
 function loadSidebarCollapsed(): boolean {
   if (typeof window === 'undefined') return false
-  return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === '1'
+  return safeLocalStorageGetItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === '1'
 }
 
 function saveSidebarCollapsed(value: boolean): void {
   if (typeof window === 'undefined') return
-  window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, value ? '1' : '0')
+  safeLocalStorageSetItem(SIDEBAR_COLLAPSED_STORAGE_KEY, value ? '1' : '0')
 }
 
 function loadAccountsSectionCollapsed(): boolean {
   if (typeof window === 'undefined') return true
-  const value = window.localStorage.getItem(ACCOUNTS_SECTION_COLLAPSED_STORAGE_KEY)
+  const value = safeLocalStorageGetItem(ACCOUNTS_SECTION_COLLAPSED_STORAGE_KEY)
   if (value === null) return true
   return value === '1'
 }
@@ -3014,7 +3019,7 @@ function loadAccountsSectionCollapsed(): boolean {
 function toggleAccountsSectionCollapsed(): void {
   isAccountsSectionCollapsed.value = !isAccountsSectionCollapsed.value
   if (typeof window === 'undefined') return
-  window.localStorage.setItem(
+  safeLocalStorageSetItem(
     ACCOUNTS_SECTION_COLLAPSED_STORAGE_KEY,
     isAccountsSectionCollapsed.value ? '1' : '0',
   )

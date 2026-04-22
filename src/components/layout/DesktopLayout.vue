@@ -31,6 +31,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { safeLocalStorageGetItem, safeLocalStorageSetItem } from '../../browserCompat'
 import { useMobile } from '../../composables/useMobile'
 
 const props = withDefaults(
@@ -59,7 +60,7 @@ function clampSidebarWidth(value: number): number {
 
 function loadSidebarWidth(): number {
   if (typeof window === 'undefined') return DEFAULT_SIDEBAR_WIDTH
-  const raw = window.localStorage.getItem(SIDEBAR_WIDTH_KEY)
+  const raw = safeLocalStorageGetItem(SIDEBAR_WIDTH_KEY)
   const parsed = Number(raw)
   if (!Number.isFinite(parsed)) return DEFAULT_SIDEBAR_WIDTH
   return clampSidebarWidth(parsed)
@@ -82,7 +83,7 @@ const layoutStyle = computed(() => {
 
 function saveSidebarWidth(value: number): void {
   if (typeof window === 'undefined') return
-  window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(value))
+  safeLocalStorageSetItem(SIDEBAR_WIDTH_KEY, String(value))
 }
 
 function onResizeHandleMouseDown(event: MouseEvent): void {

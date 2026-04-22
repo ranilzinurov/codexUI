@@ -498,6 +498,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
+import { safeLocalStorageGetItem, safeLocalStorageSetItem } from '../../browserCompat'
 import {
   deleteThreadAutomation,
   getPinnedThreadState,
@@ -639,7 +640,7 @@ function loadCollapsedState(): Record<string, boolean> {
   if (typeof window === 'undefined') return {}
 
   try {
-    const raw = window.localStorage.getItem(COLLAPSED_STORAGE_KEY)
+    const raw = safeLocalStorageGetItem(COLLAPSED_STORAGE_KEY)
     if (!raw) return {}
     const parsed = JSON.parse(raw) as unknown
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
@@ -652,7 +653,7 @@ function loadCollapsedState(): Record<string, boolean> {
 function loadThreadViewMode(): 'project' | 'chronological' {
   if (typeof window === 'undefined') return 'project'
 
-  const raw = window.localStorage.getItem(THREAD_VIEW_MODE_STORAGE_KEY)
+  const raw = safeLocalStorageGetItem(THREAD_VIEW_MODE_STORAGE_KEY)
   return raw === 'chronological' ? 'chronological' : 'project'
 }
 
@@ -662,14 +663,14 @@ watch(
   collapsedProjects,
   (value) => {
     if (typeof window === 'undefined') return
-    window.localStorage.setItem(COLLAPSED_STORAGE_KEY, JSON.stringify(value))
+    safeLocalStorageSetItem(COLLAPSED_STORAGE_KEY, JSON.stringify(value))
   },
   { deep: true },
 )
 
 watch(threadViewMode, (value) => {
   if (typeof window === 'undefined') return
-  window.localStorage.setItem(THREAD_VIEW_MODE_STORAGE_KEY, value)
+  safeLocalStorageSetItem(THREAD_VIEW_MODE_STORAGE_KEY, value)
 })
 
 const normalizedSearchQuery = computed(() => props.searchQuery.trim().toLowerCase())
