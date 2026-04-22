@@ -173,7 +173,7 @@ Supported server env vars:
 - `CODEXUI_TRANSCRIBE_MODEL`
 - `CODEXUI_TRANSCRIBE_LANGUAGE`
 
-Setup and rollback notes are documented in [documentation/VOICE_TRANSCRIPTION_OVERRIDE.md](documentation/VOICE_TRANSCRIPTION_OVERRIDE.md).
+Setup and rollback notes are documented in [documentation/VOICE_TRANSCRIPTION_OVERRIDE.md](documentation/VOICE_TRANSCRIPTION_OVERRIDE.md). The STT-specific base URL and language overrides only apply when `CODEXUI_TRANSCRIBE_API_KEY` is set.
 
 ---
 

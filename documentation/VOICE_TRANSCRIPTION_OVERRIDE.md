@@ -18,7 +18,7 @@ This is intended as a temporary, easy-to-revert patch.
 - `CODEXUI_TRANSCRIBE_MODEL`
 - `CODEXUI_TRANSCRIBE_LANGUAGE`
 
-If `CODEXUI_TRANSCRIBE_API_KEY` is not set, `codexui` falls back to `OPENAI_API_KEY`.
+If `CODEXUI_TRANSCRIBE_API_KEY` is not set, `codexui` falls back to `OPENAI_API_KEY`. In that fallback mode, `CODEXUI_TRANSCRIBE_BASE_URL` and `CODEXUI_TRANSCRIBE_LANGUAGE` are ignored, so they cannot accidentally override the default OpenAI transcription path.
 
 ## Example: Groq STT
 

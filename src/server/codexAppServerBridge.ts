@@ -2549,7 +2549,8 @@ async function proxyTranscribeViaApiKey(
   rawBody: Buffer,
   incomingContentType: string,
 ): Promise<{ status: number; body: string } | null> {
-  const apiKey = process.env.CODEXUI_TRANSCRIBE_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim()
+  const transcriptionApiKey = process.env.CODEXUI_TRANSCRIBE_API_KEY?.trim()
+  const apiKey = transcriptionApiKey || process.env.OPENAI_API_KEY?.trim()
   if (!apiKey) return null
 
   const parsed = parseMultipartForm(rawBody, incomingContentType)
@@ -2558,11 +2559,11 @@ async function proxyTranscribeViaApiKey(
   }
 
   const candidateBaseUrls = [
-    process.env.CODEXUI_TRANSCRIBE_BASE_URL?.trim(),
+    transcriptionApiKey ? process.env.CODEXUI_TRANSCRIBE_BASE_URL?.trim() : '',
     process.env.OPENAI_BASE_URL?.trim(),
     'https://api.openai.com/v1',
   ].filter((value, index, values): value is string => Boolean(value) && values.indexOf(value) === index)
-  const language = parsed.fields.language?.trim() || process.env.CODEXUI_TRANSCRIBE_LANGUAGE?.trim()
+  const language = parsed.fields.language?.trim() || (transcriptionApiKey ? process.env.CODEXUI_TRANSCRIBE_LANGUAGE?.trim() : '')
 
   let lastResult: { status: number; body: string } | null = null
   for (const baseUrl of candidateBaseUrls) {
@@ -2646,11 +2647,7 @@ class AppServerProcess {
   }
 
   private buildAppServerConfig(): { args: string[]; env: Record<string, string> } {
-    const args = [
-      'app-server',
-      '-c', 'approval_policy="never"',
-      '-c', 'sandbox_mode="danger-full-access"',
-    ]
+    const args = [...this.appServerArgs]
     let extraEnv: Record<string, string> = {}
     const serverPort = parseInt(process.env.CODEXUI_SERVER_PORT ?? '', 10) || undefined
     const statePath = join(getCodexHomeDir(), FREE_MODE_STATE_FILE)
