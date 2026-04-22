@@ -1,5 +1,10 @@
+/* Hosted Safari cache-bust marker: 2026-04-22 */
 @import "tailwindcss";
 @import "highlight.js/styles/github-dark.css";
+
+:root {
+  --hosted-safari-cache-bust: 20260422;
+}
 
 :root.dark {
   color-scheme: dark;

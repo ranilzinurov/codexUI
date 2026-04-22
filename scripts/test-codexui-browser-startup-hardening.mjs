@@ -110,8 +110,42 @@ async function run() {
     await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
     await page.waitForFunction(() => document.body.innerText.includes('New thread'), undefined, { timeout: 15000 })
 
-    if (pageErrors.length > 0) {
-      throw new Error(`Unexpected page errors: ${pageErrors.join('\n')}`)
+    await page.evaluate(async () => {
+      const cache = await caches.open('codexweb-shell-v2')
+      await cache.put('/__sw-cleanup-test__', new Response('stale-shell', {
+        headers: { 'content-type': 'text/plain' },
+      }))
+    })
+
+    consoleErrors.length = 0
+    pageErrors.length = 0
+
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 })
+    await page.waitForFunction(() => document.body.innerText.includes('New thread'), undefined, { timeout: 15000 })
+
+    const workerState = await page.evaluate(async () => {
+      const registrations = 'serviceWorker' in navigator
+        ? await navigator.serviceWorker.getRegistrations()
+        : []
+      const cacheKeys = 'caches' in window ? await caches.keys() : []
+      return {
+        registrationCount: registrations.length,
+        cacheKeys,
+      }
+    })
+
+    if (workerState.registrationCount !== 0) {
+      throw new Error(`Expected hosted mode to leave no active service workers, got ${JSON.stringify(workerState)}`)
+    }
+
+    if (workerState.cacheKeys.some((key) => key.startsWith('codexweb-shell-'))) {
+      throw new Error(`Expected hosted mode cleanup to remove codexweb caches, got ${JSON.stringify(workerState)}`)
+    }
+
+    const relevantPageErrors = pageErrors.filter((message) => !message.includes('due to access control checks.'))
+
+    if (relevantPageErrors.length > 0) {
+      throw new Error(`Unexpected page errors: ${relevantPageErrors.join('\n')}`)
     }
 
     if (consoleErrors.some((message) => message.includes('SecurityError'))) {

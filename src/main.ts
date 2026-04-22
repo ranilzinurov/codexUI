@@ -7,10 +7,34 @@ console.log('Welcome to codexui. npm: https://www.npmjs.com/package/@nervmor/cod
 
 createApp(App).use(router).mount('#app')
 
-if ('serviceWorker' in navigator && import.meta.env.PROD) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch((error) => {
-      console.error('Service worker registration failed.', error)
-    })
-  })
+if (import.meta.env.PROD) {
+  void cleanupHostedServiceWorkers()
+}
+
+async function cleanupHostedServiceWorkers() {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+    return
+  }
+
+  try {
+    const registrations = await navigator.serviceWorker.getRegistrations()
+    await Promise.allSettled(registrations.map((registration) => registration.unregister()))
+  } catch (error) {
+    console.warn('Service worker cleanup failed.', error)
+  }
+
+  if (!('caches' in window)) {
+    return
+  }
+
+  try {
+    const cacheKeys = await caches.keys()
+    await Promise.allSettled(
+      cacheKeys
+        .filter((key) => key.startsWith('codexweb-shell-'))
+        .map((key) => caches.delete(key)),
+    )
+  } catch (error) {
+    console.warn('Cache cleanup failed.', error)
+  }
 }
