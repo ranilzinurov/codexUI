@@ -162,6 +162,19 @@ Bot commands:
 - `/thread <threadId>` map current Telegram chat to an existing thread
 - Any other text message is forwarded to the mapped thread
 
+### Voice Transcription Override (Optional)
+
+If your default Codex auth path does not provide a transcription token, `codexui` can use a separate server-side STT provider for voice input without changing the main Codex provider.
+
+Supported server env vars:
+
+- `CODEXUI_TRANSCRIBE_API_KEY`
+- `CODEXUI_TRANSCRIBE_BASE_URL`
+- `CODEXUI_TRANSCRIBE_MODEL`
+- `CODEXUI_TRANSCRIBE_LANGUAGE`
+
+Setup and rollback notes are documented in [documentation/VOICE_TRANSCRIPTION_OVERRIDE.md](documentation/VOICE_TRANSCRIPTION_OVERRIDE.md).
+
 ---
 
 ## 🧩 Recent Product Features (from main commits)

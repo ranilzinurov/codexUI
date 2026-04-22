@@ -2299,6 +2299,94 @@ function bufferIndexOf(buf: Buffer, needle: Buffer, start = 0): number {
   return -1
 }
 
+type ParsedMultipartForm = {
+  fileName: string
+  fileData: Buffer
+  fileContentType: string
+  fields: Record<string, string>
+}
+
+function parseMultipartForm(body: Buffer, contentType: string): ParsedMultipartForm | null {
+  const boundaryMatch = contentType.match(/boundary=(.+)/i)
+  if (!boundaryMatch) return null
+
+  const boundary = boundaryMatch[1]
+  const boundaryBuf = Buffer.from(`--${boundary}`)
+  const parts: Buffer[] = []
+  let searchStart = 0
+
+  while (searchStart < body.length) {
+    const idx = body.indexOf(boundaryBuf, searchStart)
+    if (idx < 0) break
+    if (searchStart > 0) parts.push(body.subarray(searchStart, idx))
+    searchStart = idx + boundaryBuf.length
+    if (body[searchStart] === 0x0d && body[searchStart + 1] === 0x0a) searchStart += 2
+  }
+
+  const headerSep = Buffer.from('\r\n\r\n')
+  const fields: Record<string, string> = {}
+  let fileName = 'audio.webm'
+  let fileData: Buffer | null = null
+  let fileContentType = 'application/octet-stream'
+
+  for (const part of parts) {
+    const headerEnd = bufferIndexOf(part, headerSep)
+    if (headerEnd < 0) continue
+    const headers = part.subarray(0, headerEnd).toString('utf8')
+    let end = part.length
+    if (end >= 2 && part[end - 2] === 0x0d && part[end - 1] === 0x0a) end -= 2
+    const payload = part.subarray(headerEnd + 4, end)
+
+    const nameMatch = headers.match(/name="([^"]+)"/i)
+    if (!nameMatch) continue
+    const fieldName = nameMatch[1]
+
+    const filenameMatch = headers.match(/filename="([^"]+)"/i)
+    if (filenameMatch) {
+      fileName = filenameMatch[1].replace(/[/\\]/g, '_')
+      fileData = payload
+      const contentTypeMatch = headers.match(/content-type:\s*([^\r\n]+)/i)
+      if (contentTypeMatch) {
+        fileContentType = contentTypeMatch[1].trim()
+      }
+      continue
+    }
+
+    fields[fieldName] = payload.toString('utf8').trim()
+  }
+
+  if (!fileData) return null
+  return { fileName, fileData, fileContentType, fields }
+}
+
+function buildMultipartFormData(
+  fields: Record<string, string>,
+  file: { fieldName: string; fileName: string; contentType: string; data: Buffer },
+): { body: Buffer; contentType: string } {
+  const boundary = `----codexui-${randomBytes(12).toString('hex')}`
+  const chunks: Buffer[] = []
+
+  for (const [name, value] of Object.entries(fields)) {
+    chunks.push(Buffer.from(`--${boundary}\r\n`))
+    chunks.push(Buffer.from(`Content-Disposition: form-data; name="${name}"\r\n\r\n`))
+    chunks.push(Buffer.from(value))
+    chunks.push(Buffer.from('\r\n'))
+  }
+
+  chunks.push(Buffer.from(`--${boundary}\r\n`))
+  chunks.push(Buffer.from(
+    `Content-Disposition: form-data; name="${file.fieldName}"; filename="${file.fileName}"\r\n`,
+  ))
+  chunks.push(Buffer.from(`Content-Type: ${file.contentType}\r\n\r\n`))
+  chunks.push(file.data)
+  chunks.push(Buffer.from(`\r\n--${boundary}--\r\n`))
+
+  return {
+    body: Buffer.concat(chunks),
+    contentType: `multipart/form-data; boundary=${boundary}`,
+  }
+}
+
 function handleFileUpload(req: IncomingMessage, res: ServerResponse): void {
   const chunks: Buffer[] = []
   req.on('data', (chunk: Buffer) => chunks.push(chunk))
@@ -2441,6 +2529,74 @@ async function proxyTranscribe(
   }
 
   return result
+}
+
+function normalizeBaseUrl(url: string): string {
+  return url.replace(/\/+$/, '')
+}
+
+function resolveTranscriptionModel(baseUrl: string): string {
+  const override = process.env.CODEXUI_TRANSCRIBE_MODEL?.trim()
+  if (override) return override
+
+  const normalized = normalizeBaseUrl(baseUrl).toLowerCase()
+  return normalized === 'https://api.openai.com/v1'
+    ? 'gpt-4o-mini-transcribe'
+    : 'openai/gpt-4o-mini-transcribe'
+}
+
+async function proxyTranscribeViaApiKey(
+  rawBody: Buffer,
+  incomingContentType: string,
+): Promise<{ status: number; body: string } | null> {
+  const apiKey = process.env.CODEXUI_TRANSCRIBE_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim()
+  if (!apiKey) return null
+
+  const parsed = parseMultipartForm(rawBody, incomingContentType)
+  if (!parsed) {
+    return { status: 400, body: JSON.stringify({ error: 'Malformed transcription upload payload' }) }
+  }
+
+  const candidateBaseUrls = [
+    process.env.CODEXUI_TRANSCRIBE_BASE_URL?.trim(),
+    process.env.OPENAI_BASE_URL?.trim(),
+    'https://api.openai.com/v1',
+  ].filter((value, index, values): value is string => Boolean(value) && values.indexOf(value) === index)
+  const language = parsed.fields.language?.trim() || process.env.CODEXUI_TRANSCRIBE_LANGUAGE?.trim()
+
+  let lastResult: { status: number; body: string } | null = null
+  for (const baseUrl of candidateBaseUrls) {
+    const fields: Record<string, string> = {
+      model: resolveTranscriptionModel(baseUrl),
+    }
+    if (language) fields.language = language
+
+    const multipart = buildMultipartFormData(fields, {
+      fieldName: 'file',
+      fileName: parsed.fileName,
+      contentType: parsed.fileContentType,
+      data: parsed.fileData,
+    })
+
+    const headers: Record<string, string | number> = {
+      'Content-Type': multipart.contentType,
+      'Content-Length': multipart.body.length,
+      Authorization: `Bearer ${apiKey}`,
+    }
+
+    const url = `${normalizeBaseUrl(baseUrl)}/audio/transcriptions`
+    try {
+      const result = await httpPost(url, headers, multipart.body)
+      if (result.status < 500 && result.status !== 404) {
+        return result
+      }
+      lastResult = result
+    } catch (error) {
+      lastResult = { status: 502, body: JSON.stringify({ error: getErrorMessage(error, 'Transcription proxy failed') }) }
+    }
+  }
+
+  return lastResult ?? { status: 401, body: JSON.stringify({ error: 'No auth token available for transcription' }) }
 }
 
 const STREAM_EVENT_BUFFER_LIMIT = 400
@@ -3826,14 +3982,22 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
       }
 
       if (req.method === 'POST' && url.pathname === '/codex-api/transcribe') {
+        const rawBody = await readRawBody(req)
+        const incomingCt = req.headers['content-type'] ?? 'application/octet-stream'
         const auth = await readCodexAuth()
         if (!auth) {
-          setJson(res, 401, { error: 'No auth token available for transcription' })
+          const fallback = await proxyTranscribeViaApiKey(rawBody, incomingCt)
+          if (!fallback) {
+            setJson(res, 401, { error: 'No auth token available for transcription' })
+            return
+          }
+
+          res.statusCode = fallback.status
+          res.setHeader('Content-Type', 'application/json; charset=utf-8')
+          res.end(fallback.body)
           return
         }
 
-        const rawBody = await readRawBody(req)
-        const incomingCt = req.headers['content-type'] ?? 'application/octet-stream'
         const upstream = await proxyTranscribe(rawBody, incomingCt, auth.accessToken, auth.accountId)
 
         res.statusCode = upstream.status
