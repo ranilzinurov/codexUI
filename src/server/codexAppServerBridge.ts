@@ -504,6 +504,12 @@ function getErrorMessage(payload: unknown, fallback: string): string {
   return fallback
 }
 
+function isAccountRateLimitsUnavailableError(method: string, payload: unknown): boolean {
+  if (method !== 'account/rateLimits/read') return false
+  const normalized = getErrorMessage(payload, '').trim().toLowerCase()
+  return normalized.includes('account authentication required to read rate limits')
+}
+
 function setJson(res: ServerResponse, statusCode: number, payload: unknown): void {
   res.statusCode = statusCode
   res.setHeader('Content-Type', 'application/json; charset=utf-8')
@@ -3762,7 +3768,16 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
           return
         }
 
-        const rpcResult = await appServer.rpc(body.method, body.params ?? null)
+        let rpcResult: unknown
+        try {
+          rpcResult = await appServer.rpc(body.method, body.params ?? null)
+        } catch (error) {
+          if (isAccountRateLimitsUnavailableError(body.method, error)) {
+            setJson(res, 200, { result: null })
+            return
+          }
+          throw error
+        }
         const trimmedResult = trimThreadTurnsInRpcResult(body.method, rpcResult)
         const result = await sanitizeThreadTurnsInlinePayloads(body.method, trimmedResult)
 
