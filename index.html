@@ -12,9 +12,62 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/pwa-192x192.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
     <title>Codex Web</title>
+    <script>
+      (function () {
+        function ping(tag, extra) {
+          var query = '/favicon.ico?diag=' + encodeURIComponent(tag) + '&ts=' + Date.now()
+          if (extra) query += '&msg=' + encodeURIComponent(String(extra).slice(0, 180))
+          var img = new Image()
+          img.src = query
+        }
+        window.__codexDiagPing = ping
+        ping('classic-inline')
+        window.addEventListener('error', function (event) {
+          ping('window-error', event && event.message ? event.message : 'unknown')
+        })
+        window.addEventListener('unhandledrejection', function (event) {
+          var reason = event && 'reason' in event ? event.reason : 'unknown'
+          ping('unhandledrejection', reason)
+        })
+      })()
+    </script>
+    <script type="module">
+      if (window.__codexDiagPing) window.__codexDiagPing('inline-module')
+    </script>
   </head>
   <body class="bg-slate-950">
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
+    <script>
+      (function () {
+        function ping(tag, extra) {
+          if (window.__codexDiagPing) window.__codexDiagPing(tag, extra)
+        }
+        window.addEventListener("DOMContentLoaded", function () {
+          window.setTimeout(function () {
+            if (window.__codexMainStarted) return
+            var moduleScript = document.querySelector('script[type="module"][src]')
+            if (!moduleScript) {
+              ping("module-fallback-missing-src")
+              return
+            }
+            var src = moduleScript.getAttribute("src")
+            if (!src) {
+              ping("module-fallback-empty-src")
+              return
+            }
+            ping("module-fallback-insert", src)
+            var retry = document.createElement("script")
+            retry.type = "module"
+            retry.src = src
+            var crossOrigin = moduleScript.getAttribute("crossorigin")
+            if (crossOrigin !== null) retry.setAttribute("crossorigin", crossOrigin || "anonymous")
+            retry.onload = function () { ping("module-fallback-load") }
+            retry.onerror = function () { ping("module-fallback-error") }
+            document.head.appendChild(retry)
+          }, 2500)
+        })
+      })()
+    </script>
   </body>
 </html>

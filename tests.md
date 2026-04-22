@@ -2911,3 +2911,27 @@ Each local/worktree thread has an integrated xterm terminal that can be toggled 
 #### Rollback/Cleanup
 - Close the terminal session with the `Close` button
 - Stop any processes started inside the terminal before leaving the thread
+
+### Feature: Hosted Safari asset delivery behind nginx
+
+#### Prerequisites
+- Hosted deployment is fronted by nginx over HTTPS.
+- Main frontend assets are published under `/assets/`.
+- The nginx vhost uses the Safari mitigation (`listen ... ssl;` without `http2` and `sendfile off;`).
+- An iPhone or iPad Safari client can reach the hosted URL.
+
+#### Steps
+1. Run `nginx -t` and reload nginx on the host after deploying the updated vhost config.
+2. Open the hosted codexUI URL in Safari on the target iPhone/iPad.
+3. Submit the password form and wait for the main app shell to load.
+4. Inspect nginx access logs while the page loads.
+5. Confirm the main hashed `/assets/index-*.js` and `/assets/index-*.css` requests are delivered once with full body sizes instead of repeated truncated `0`, `65536`, or `139264` byte responses.
+6. Confirm the app proceeds past the loading spinner and reaches normal `/codex-api/*` requests plus websocket `/codex-api/ws`.
+
+#### Expected Results
+- Safari loads the hosted UI after password submit instead of hanging on an endless loading state.
+- The main JS/CSS entry assets are transferred completely.
+- Subsequent API and websocket traffic starts normally after the frontend bootstraps.
+
+#### Rollback/Cleanup
+- Restore the previous nginx listener flags only if another verified transport regression appears and re-test on the same iPhone/iPad client.

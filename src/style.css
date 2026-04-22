@@ -3,7 +3,11 @@
 @import "highlight.js/styles/github-dark.css";
 
 :root {
-  --hosted-safari-cache-bust: 20260422;
+  --hosted-safari-cache-bust: 202604221933;
+}
+
+html::after {
+  content: none;
 }
 
 :root.dark {

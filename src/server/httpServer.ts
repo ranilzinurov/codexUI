@@ -72,6 +72,12 @@ function readWildcardPathParam(value: unknown): string {
   return ''
 }
 
+function markShellHtmlNoStore(res: express.Response): void {
+  res.setHeader('Cache-Control', 'private, no-store, max-age=0')
+  res.setHeader('Pragma', 'no-cache')
+  res.setHeader('Expires', '0')
+}
+
 export function createServer(options: ServerOptions = {}): ServerInstance {
   const app = express()
   const bridge = createCodexBridgeMiddleware()
@@ -222,7 +228,14 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
 
   // 8. Static files from Vue build
   if (hasFrontendAssets) {
-    app.use(express.static(distDir))
+    app.use(express.static(distDir, {
+      index: false,
+      setHeaders: (res, filePath) => {
+        if (filePath === spaEntryFile) {
+          markShellHtmlNoStore(res)
+        }
+      },
+    }))
   }
 
   // 9. SPA fallback
@@ -240,6 +253,8 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
         )
       return
     }
+
+    markShellHtmlNoStore(res)
 
     res.sendFile(spaEntryFile, (error) => {
       if (!error) return

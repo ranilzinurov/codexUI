@@ -52,6 +52,8 @@ cloudflared tunnel --url http://localhost:<port>
 It prints the tunnel URL, terminal QR code, and password together in startup output.  
 Use `--no-tunnel` to disable this behavior.
 
+When password auth is enabled, `codexapp` issues a signed `portal_session` cookie that stays valid for 1 year and survives service restarts unless you change the password.
+
 If you are using a provider or AI gateway that is already authenticated and do not want `codexapp` to force `codex login` during startup, use:
 
 ```bash
@@ -121,6 +123,7 @@ Notes:
 - some minor mobile Safari CSS issues may still exist, but they do not prevent normal use
 - depending on proxying details, authentication behavior may differ from direct remote access
 - if conversations created in the web UI do not immediately appear in the Windows app, restarting the Windows app may refresh them
+- if a public nginx HTTPS deployment works everywhere except a real iPhone Safari session after password submit, and access logs show truncated `/assets/index-*.js` or `/assets/index-*.css` responses, disable `http2` on that TLS vhost and add `sendfile off;`
 
 ---
 
@@ -258,6 +261,7 @@ Setup and rollback notes are documented in [documentation/VOICE_TRANSCRIPTION_OV
 | `npx` fails | Update npm/node, then retry |
 | Termux install fails | `pkg update && pkg upgrade` then reinstall `nodejs` |
 | Can’t open from other device | Check firewall, bind address, and LAN routing |
+| iPhone Safari hangs after password submit on a hosted nginx deployment | If nginx access logs show partial `200` responses for the main `/assets/index-*.js` or `/assets/index-*.css` files, remove `http2` from the TLS listener and set `sendfile off;` for that vhost |
 
 ---
 

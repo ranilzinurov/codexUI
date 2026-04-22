@@ -1,8 +1,10 @@
-import { randomBytes, timingSafeEqual } from 'node:crypto'
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage } from 'node:http'
 import type { RequestHandler, Request, Response, NextFunction } from 'express'
 
 const TOKEN_COOKIE = 'portal_session'
+const SESSION_TTL_SECONDS = 365 * 24 * 60 * 60
+const SESSION_TTL_MS = SESSION_TTL_SECONDS * 1000
 
 function constantTimeCompare(a: string, b: string): boolean {
   const bufA = Buffer.from(a)
@@ -60,11 +62,44 @@ function isTrustedTailscaleRemote(remote: string): boolean {
   return isTrustedTailscaleIPv4(remote) || isTrustedTailscaleIPv6(remote)
 }
 
+function signSessionCookie(secret: string, payload: string): string {
+  return createHmac('sha256', secret).update(payload).digest('hex')
+}
+
+function createSignedSessionToken(secret: string): { token: string; expiresAtMs: number } {
+  const expiresAtMs = Date.now() + SESSION_TTL_MS
+  const payload = String(expiresAtMs) + '.' + randomBytes(16).toString('hex')
+  const signature = signSessionCookie(secret, payload)
+  return {
+    token: payload + '.' + signature,
+    expiresAtMs,
+  }
+}
+
+function isSignedSessionTokenValid(token: string | undefined, secret: string): boolean {
+  if (!token) return false
+  const parts = token.split('.')
+  if (parts.length !== 3) return false
+
+  const [expiresAtRaw, nonce, providedSignature] = parts
+  if (!expiresAtRaw || !nonce || !providedSignature) return false
+  if (!/^\d+$/.test(expiresAtRaw)) return false
+
+  const expiresAtMs = Number.parseInt(expiresAtRaw, 10)
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
+    return false
+  }
+
+  const payload = expiresAtRaw + '.' + nonce
+  const expectedSignature = signSessionCookie(secret, payload)
+  return constantTimeCompare(providedSignature, expectedSignature)
+}
+
 function isAuthorizedByRequestLike(
   remoteAddress: string | undefined,
   hostHeader: string | undefined,
   cookieHeader: string | undefined,
-  validTokens: Set<string>,
+  sessionSecret: string,
 ): boolean {
   const remote = remoteAddress ?? ''
   // SSH reverse tunnels terminate on loopback, so remoteAddress alone is not enough
@@ -78,7 +113,7 @@ function isAuthorizedByRequestLike(
 
   const cookies = parseCookies(cookieHeader)
   const token = cookies[TOKEN_COOKIE]
-  return Boolean(token && validTokens.has(token))
+  return isSignedSessionTokenValid(token, sessionSecret)
 }
 
 function appendVaryCookie(res: Response): void {
@@ -109,10 +144,16 @@ function isSecureProxyRequest(req: Request): boolean {
   return false
 }
 
-function buildSessionCookie(req: Request, token: string): string {
-  return TOKEN_COOKIE + '=' + token + '; Path=/; HttpOnly; SameSite=Strict' + (isSecureProxyRequest(req) ? '; Secure' : '')
+function buildSessionCookie(req: Request, token: string, expiresAtMs: number): string {
+  return TOKEN_COOKIE
+    + '=' + token
+    + '; Path=/'
+    + '; HttpOnly'
+    + '; SameSite=Strict'
+    + '; Max-Age=' + String(SESSION_TTL_SECONDS)
+    + '; Expires=' + new Date(expiresAtMs).toUTCString()
+    + (isSecureProxyRequest(req) ? '; Secure' : '')
 }
-
 
 const LOGIN_PAGE_HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -150,7 +191,7 @@ form.addEventListener('submit',async e=>{
   e.preventDefault();
   errEl.style.display='none';
   const res=await fetch('/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:document.getElementById('pw').value})});
-  if(res.ok){window.location.replace('/')}else{errEl.style.display='block';document.getElementById('pw').value='';document.getElementById('pw').focus()}
+  if(res.ok){const url=new URL(window.location.href);url.pathname='/';url.search='';url.searchParams.set('shell',Date.now().toString(36));window.location.replace(url.toString())}else{errEl.style.display='block';document.getElementById('pw').value='';document.getElementById('pw').focus()}
 });
 </script>
 </body>
@@ -166,10 +207,8 @@ export type AuthSession = {
 }
 
 export function createAuthSession(password: string): AuthSession {
-  const validTokens = new Set<string>()
-
   const middleware: RequestHandler = (req: Request, res: Response, next: NextFunction): void => {
-    if (isAuthorizedByRequestLike(req.socket.remoteAddress, req.headers.host, req.headers.cookie, validTokens)) {
+    if (isAuthorizedByRequestLike(req.socket.remoteAddress, req.headers.host, req.headers.cookie, password)) {
       appendVaryCookie(res)
       next()
       return
@@ -191,11 +230,9 @@ export function createAuthSession(password: string): AuthSession {
             return
           }
 
-          const token = randomBytes(32).toString('hex')
-          validTokens.add(token)
-
+          const { token, expiresAtMs } = createSignedSessionToken(password)
           markHtmlAuthResponseNoStore(res)
-          res.setHeader('Set-Cookie', buildSessionCookie(req, token))
+          res.setHeader('Set-Cookie', buildSessionCookie(req, token, expiresAtMs))
           res.json({ ok: true })
         } catch {
           markHtmlAuthResponseNoStore(res)
@@ -209,10 +246,9 @@ export function createAuthSession(password: string): AuthSession {
     if (req.method === 'GET' && req.path.startsWith('/password=')) {
       const provided = req.path.slice('/password='.length)
       if (constantTimeCompare(provided, password)) {
-        const token = randomBytes(32).toString('hex')
-        validTokens.add(token)
+        const { token, expiresAtMs } = createSignedSessionToken(password)
         markHtmlAuthResponseNoStore(res)
-        res.setHeader('Set-Cookie', buildSessionCookie(req, token))
+        res.setHeader('Set-Cookie', buildSessionCookie(req, token, expiresAtMs))
         res.redirect(302, '/')
         return
       }
@@ -227,7 +263,7 @@ export function createAuthSession(password: string): AuthSession {
   return {
     middleware,
     isRequestAuthorized: (req: IncomingMessage) => (
-      isAuthorizedByRequestLike(req.socket.remoteAddress, req.headers.host, req.headers.cookie, validTokens)
+      isAuthorizedByRequestLike(req.socket.remoteAddress, req.headers.host, req.headers.cookie, password)
     ),
   }
 }
