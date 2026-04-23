@@ -128,6 +128,18 @@ async function run() {
     assert(loginResponse.status === 200, `Expected login page, got HTTP ${loginResponse.status}`)
     assert(loginResponse.body.includes("searchParams.set('shell'"), 'Expected login page to add shell cache-bust query on success')
 
+    const unauthorizedRpc = await request('/codex-api/rpc', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ method: 'thread/list', params: { archived: false, limit: 1, sortKey: 'updated_at', modelProviders: [], cursor: null } }),
+    })
+    const unauthorizedContentType = Array.isArray(unauthorizedRpc.headers['content-type']) ? unauthorizedRpc.headers['content-type'].join(', ') : unauthorizedRpc.headers['content-type'] || ''
+    assert(unauthorizedRpc.status === 401, `Expected unauthorized RPC to return HTTP 401, got HTTP ${unauthorizedRpc.status}`)
+    assert(unauthorizedContentType.includes('application/json'), `Expected unauthorized RPC to return JSON, got "${unauthorizedContentType}"`)
+    assert(!unauthorizedRpc.body.includes('<!DOCTYPE html>'), 'Unauthorized RPC should not return the login HTML page')
+
     const authResponse = await request('/auth/login', {
       method: 'POST',
       headers: {
@@ -180,7 +192,7 @@ async function run() {
     assert(shellAfterRestart.status === 200, `Expected cookie-backed session to survive restart, got HTTP ${shellAfterRestart.status}`)
     assert(shellAfterRestart.body.includes('<div id="app"></div>'), 'Expected restarted server to accept existing signed session cookie')
 
-    console.log('Auth shell cache OK: login cache-bust is present, cookie lives for one year, and session survives restart')
+    console.log('Auth shell cache OK: unauthorized API returns 401 JSON, login cache-bust is present, cookie lives for one year, and session survives restart')
   } finally {
     await stopServerHandle(handle, stderrLogs)
     if (stderrLogs.length > 0) {

@@ -132,6 +132,22 @@ function markHtmlAuthResponseNoStore(res: Response): void {
   res.setHeader('Cache-Control', 'private, no-store, max-age=0')
 }
 
+function isAuthProtectedApiPath(path: string): boolean {
+  return path.startsWith('/codex-api/') || path.startsWith('/codex-local-')
+}
+
+function sendUnauthorizedResponse(req: Request, res: Response): void {
+  markHtmlAuthResponseNoStore(res)
+
+  if (isAuthProtectedApiPath(req.path)) {
+    res.status(401).json({ error: 'Authentication required' })
+    return
+  }
+
+  res.setHeader('Content-Type', 'text/html; charset=utf-8')
+  res.status(200).send(LOGIN_PAGE_HTML)
+}
+
 function isSecureProxyRequest(req: Request): boolean {
   if (req.secure) return true
   const forwardedProto = req.headers['x-forwarded-proto']
@@ -254,10 +270,8 @@ export function createAuthSession(password: string): AuthSession {
       }
     }
 
-    // No valid session — serve login page
-    markHtmlAuthResponseNoStore(res)
-    res.setHeader('Content-Type', 'text/html; charset=utf-8')
-    res.status(200).send(LOGIN_PAGE_HTML)
+    // No valid session
+    sendUnauthorizedResponse(req, res)
   }
 
   return {

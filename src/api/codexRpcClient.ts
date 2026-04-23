@@ -27,6 +27,17 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null
 }
 
+function redirectToLoginOnUnauthorized(status: number): void {
+  if (status !== 401 || typeof window === 'undefined') return
+
+  const loginUrl = new URL(window.location.href)
+  loginUrl.pathname = '/'
+  loginUrl.search = ''
+  loginUrl.hash = ''
+  loginUrl.searchParams.set('login', Date.now().toString(36))
+  window.location.replace(loginUrl.toString())
+}
+
 export async function rpcCall<T>(method: string, params?: unknown): Promise<T> {
   const body: RpcRequestBody = { method, params: params ?? null }
 
@@ -56,6 +67,7 @@ export async function rpcCall<T>(method: string, params?: unknown): Promise<T> {
   }
 
   if (!response.ok) {
+    redirectToLoginOnUnauthorized(response.status)
     const detail = extractErrorMessage(payload, '') || rawText?.slice(0, 500) || ''
     const prefix = `RPC ${method} failed with HTTP ${response.status}`
     throw new CodexApiError(
@@ -90,6 +102,7 @@ export async function fetchRpcMethodCatalog(): Promise<string[]> {
   }
 
   if (!response.ok) {
+    redirectToLoginOnUnauthorized(response.status)
     throw new CodexApiError(
       extractErrorMessage(payload, `Method catalog failed with HTTP ${response.status}`),
       {
@@ -115,6 +128,7 @@ export async function fetchRpcNotificationCatalog(): Promise<string[]> {
   }
 
   if (!response.ok) {
+    redirectToLoginOnUnauthorized(response.status)
     throw new CodexApiError(
       extractErrorMessage(payload, `Notification catalog failed with HTTP ${response.status}`),
       {
@@ -328,6 +342,7 @@ export async function respondServerRequest(body: ServerRequestReplyBody): Promis
   }
 
   if (!response.ok) {
+    redirectToLoginOnUnauthorized(response.status)
     throw new CodexApiError(
       extractErrorMessage(payload, `Server request reply failed with HTTP ${response.status}`),
       {
@@ -350,6 +365,7 @@ export async function fetchPendingServerRequests(): Promise<unknown[]> {
   }
 
   if (!response.ok) {
+    redirectToLoginOnUnauthorized(response.status)
     throw new CodexApiError(
       extractErrorMessage(payload, `Pending server requests failed with HTTP ${response.status}`),
       {
