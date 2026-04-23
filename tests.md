@@ -2935,3 +2935,36 @@ Each local/worktree thread has an integrated xterm terminal that can be toggled 
 
 #### Rollback/Cleanup
 - Restore the previous nginx listener flags only if another verified transport regression appears and re-test on the same iPhone/iPad client.
+
+### Feature: PWA push notifications for completed Codex tasks
+
+#### Feature/Change Name
+Installed PWA clients can subscribe to web push notifications and receive an iPhone notification when a Codex task finishes.
+
+#### Prerequisites/Setup
+1. The app is deployed over HTTPS and reachable from the iPhone.
+2. The iPhone is running iOS with Safari web push support.
+3. Codex Web is added to the Home Screen and opened in standalone PWA mode.
+4. A Codex thread is available so a new task can be started.
+
+#### Steps
+1. Open the installed PWA on the iPhone.
+2. Open the settings panel in the sidebar.
+3. In `Task notifications`, tap `Enable` and allow notifications when iOS prompts.
+4. Tap `Send test`.
+5. Confirm the test notification appears on the iPhone.
+6. Start a real Codex task that will take at least a few seconds.
+7. Send the app to the background or lock the phone before the task completes.
+8. Wait for the task to finish.
+9. Tap the delivered completion notification.
+
+#### Expected Results
+- The settings panel shows `Task notifications` status as `On` after permission is granted.
+- `Send test` produces an iPhone notification from the installed PWA.
+- When Codex emits `turn/completed`, the server sends a web push notification to the subscribed device.
+- Successful turns show `Codex task completed`; failed turns show `Codex task failed` with the error summary when available.
+- Tapping the notification opens the PWA and navigates to the related thread.
+
+#### Rollback/Cleanup
+- In the PWA settings panel, tap `Disable` to unsubscribe the device.
+- Remove the Home Screen app if you no longer want Safari push notifications for this origin.

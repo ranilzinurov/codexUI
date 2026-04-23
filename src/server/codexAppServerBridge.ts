@@ -30,6 +30,7 @@ import { handleOpenRouterProxyRequest } from './openRouterProxy.js'
 import { handleZenProxyRequest } from './zenProxy.js'
 import { handleCustomEndpointProxyRequest } from './customEndpointProxy.js'
 import { ThreadTerminalManager } from './terminalManager.js'
+import { WebPushNotifications } from './webPushNotifications.js'
 import { getSpawnInvocation } from '../utils/commandInvocation.js'
 import {
   resolveCodexCommand,
@@ -3239,10 +3240,11 @@ type SharedBridgeState = {
   terminalManager: ThreadTerminalManager
   methodCatalog: MethodCatalog
   telegramBridge: TelegramThreadBridge
+  pushNotifications: WebPushNotifications
 }
 
 const SHARED_BRIDGE_KEY = '__codexRemoteSharedBridge__'
-const SHARED_BRIDGE_VERSION = 'experimental-api-v2'
+const SHARED_BRIDGE_VERSION = 'experimental-api-v3'
 
 function getSharedBridgeState(): SharedBridgeState {
   const globalScope = globalThis as typeof globalThis & {
@@ -3256,10 +3258,20 @@ function getSharedBridgeState(): SharedBridgeState {
     }
     existing.appServer.dispose()
     existing.terminalManager?.dispose()
+    existing.pushNotifications?.dispose()
   }
 
   const appServer = new AppServerProcess()
   const terminalManager = new ThreadTerminalManager()
+  const pushNotifications = new WebPushNotifications()
+  appServer.onNotification((notification) => {
+    void pushNotifications.handleNotification(notification).catch((error) => {
+      console.warn('[web-push]', 'Notification processing failed', {
+        error: getErrorMessage(error, 'Unknown web push error'),
+        method: notification.method,
+      })
+    })
+  })
   const created: SharedBridgeState = {
     version: SHARED_BRIDGE_VERSION,
     appServer,
@@ -3270,6 +3282,7 @@ function getSharedBridgeState(): SharedBridgeState {
         void rememberTelegramChatId(chatId).catch(() => {})
       },
     }),
+    pushNotifications,
   }
   globalScope[SHARED_BRIDGE_KEY] = created
   return created
@@ -3352,7 +3365,7 @@ async function buildThreadSearchIndex(appServer: AppServerProcess): Promise<Thre
 }
 
 export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
-  const { appServer, terminalManager, methodCatalog, telegramBridge } = getSharedBridgeState()
+  const { appServer, terminalManager, methodCatalog, telegramBridge, pushNotifications } = getSharedBridgeState()
   let threadSearchIndex: ThreadSearchIndex | null = null
   let threadSearchIndexPromise: Promise<ThreadSearchIndex> | null = null
 
@@ -4039,6 +4052,41 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
       if (req.method === 'GET' && url.pathname === '/codex-api/meta/notifications') {
         const methods = await methodCatalog.listNotificationMethods()
         setJson(res, 200, { data: methods })
+        return
+      }
+
+      if (req.method === 'GET' && url.pathname === '/codex-api/push/status') {
+        setJson(res, 200, { data: await pushNotifications.getStatus() })
+        return
+      }
+
+      if (req.method === 'POST' && url.pathname === '/codex-api/push/subscribe') {
+        try {
+          const payload = await readJsonBody(req)
+          setJson(res, 200, { data: await pushNotifications.subscribe(payload) })
+        } catch (error) {
+          setJson(res, 400, { error: getErrorMessage(error, 'Failed to save push subscription.') })
+        }
+        return
+      }
+
+      if (req.method === 'POST' && url.pathname === '/codex-api/push/unsubscribe') {
+        try {
+          const payload = await readJsonBody(req)
+          setJson(res, 200, { data: await pushNotifications.unsubscribe(payload) })
+        } catch (error) {
+          setJson(res, 400, { error: getErrorMessage(error, 'Failed to remove push subscription.') })
+        }
+        return
+      }
+
+      if (req.method === 'POST' && url.pathname === '/codex-api/push/test') {
+        try {
+          const payload = await readJsonBody(req)
+          setJson(res, 200, { data: await pushNotifications.sendTest(payload) })
+        } catch (error) {
+          setJson(res, 400, { error: getErrorMessage(error, 'Failed to send test push notification.') })
+        }
         return
       }
 
@@ -4738,6 +4786,7 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
     threadSearchIndex = null
     telegramBridge.stop()
     terminalManager.dispose()
+    pushNotifications.dispose()
     appServer.dispose()
   }
   middleware.subscribeNotifications = (

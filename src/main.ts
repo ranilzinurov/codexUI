@@ -28,22 +28,27 @@ reportDiag('app-mounted')
 requestAnimationFrame(() => reportDiag('raf-after-mount'))
 setTimeout(() => reportDiag('timeout-1000ms'), 1000)
 
-if (import.meta.env.PROD) {
-  void cleanupHostedServiceWorkers()
+if (typeof window !== 'undefined') {
+  void registerPushServiceWorker()
+  void cleanupLegacyHostedCaches()
 }
 
-async function cleanupHostedServiceWorkers() {
-  if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+async function registerPushServiceWorker() {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !window.isSecureContext) {
     return
   }
 
   try {
-    const registrations = await navigator.serviceWorker.getRegistrations()
-    await Promise.allSettled(registrations.map((registration) => registration.unregister()))
+    await navigator.serviceWorker.register('/sw.js', { scope: '/' })
   } catch (error) {
-    console.warn('Service worker cleanup failed.', error)
+    console.warn('Service worker registration failed.', error)
   }
+}
 
+async function cleanupLegacyHostedCaches() {
+  if (typeof window === 'undefined') {
+    return
+  }
   if (!('caches' in window)) {
     return
   }

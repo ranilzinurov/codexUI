@@ -192,6 +192,7 @@
                 <span class="sidebar-settings-label">GitHub trending projects</span>
                 <span class="sidebar-settings-toggle" :class="{ 'is-on': showGithubTrendingProjects }" />
               </button>
+              <TaskNotificationsSetting />
               <div class="sidebar-settings-row sidebar-settings-row--select" title="Choose the API provider for the Codex backend">
                 <span class="sidebar-settings-label">Provider</span>
                 <select
@@ -808,6 +809,7 @@ import ThreadComposer from './components/content/ThreadComposer.vue'
 import ThreadPendingRequestPanel from './components/content/ThreadPendingRequestPanel.vue'
 import QueuedMessages from './components/content/QueuedMessages.vue'
 import RateLimitStatus from './components/content/RateLimitStatus.vue'
+import TaskNotificationsSetting from './components/content/TaskNotificationsSetting.vue'
 import ComposerDropdown from './components/content/ComposerDropdown.vue'
 import ComposerRuntimeDropdown from './components/content/ComposerRuntimeDropdown.vue'
 import SidebarThreadControls from './components/sidebar/SidebarThreadControls.vue'
