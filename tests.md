@@ -2968,3 +2968,32 @@ Installed PWA clients can subscribe to web push notifications and receive an iPh
 #### Rollback/Cleanup
 - In the PWA settings panel, tap `Disable` to unsubscribe the device.
 - Remove the Home Screen app if you no longer want Safari push notifications for this origin.
+
+### Feature: Detached restart script for managed codexui service
+
+#### Feature/Change Name
+`scripts/restart-codexui-service.sh` schedules a detached transient `systemd-run` job that rebuilds the repo, restarts `codexui.service`, and waits for the HTTP healthcheck without depending on the current browser request surviving the restart.
+
+#### Prerequisites/Setup
+1. `codexui.service` exists under systemd on the host.
+2. The current user can run `sudo systemd-run` and `sudo systemctl restart codexui`.
+3. The repository on disk is the same one used by the service `WorkingDirectory`.
+
+#### Steps
+1. Run `scripts/restart-codexui-service.sh` from the repository root.
+2. Confirm the script returns immediately with a transient unit name and a log path under `/tmp/codexui-restart.log`.
+3. Run `tail -f /tmp/codexui-restart.log`.
+4. Wait for `pnpm run build` to complete.
+5. Wait for the transient unit to restart `codexui.service`.
+6. Confirm the log ends with `service is healthy` and `worker exit status=0`.
+7. Run `systemctl status codexui --no-pager --full`.
+8. Open the hosted Codex UI URL and confirm the app reconnects normally.
+
+#### Expected Results
+- The wrapper exits before the actual restart begins, so it can be launched from a live Codex UI session.
+- The transient worker survives the caller process, rebuilds the repo, restarts `codexui.service`, and waits for the HTTP healthcheck on `127.0.0.1:$CODEXUI_PORT`.
+- After completion, the service is back in `active (running)` state and the hosted UI is reachable again.
+
+#### Rollback/Cleanup
+- If the healthcheck fails, inspect `/tmp/codexui-restart.log` and `systemctl status codexui`.
+- Re-run the script after fixing the underlying build or service issue.
