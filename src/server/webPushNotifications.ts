@@ -1,16 +1,27 @@
-import {
-  createCipheriv,
-  createECDH,
-  createPrivateKey,
-  createSign,
-  generateKeyPairSync,
-  type KeyObject,
-  hkdfSync,
-  randomBytes,
-} from 'node:crypto'
+import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+
+const require = createRequire(import.meta.url)
+
+const webPush = require('web-push') as {
+  generateVAPIDKeys: () => { publicKey: string; privateKey: string }
+  sendNotification: (
+    subscription: unknown,
+    payload?: string,
+    options?: {
+      TTL?: number
+      urgency?: 'very-low' | 'low' | 'normal' | 'high'
+      contentEncoding?: 'aes128gcm' | 'aesgcm'
+      vapidDetails?: {
+        subject: string
+        publicKey: string
+        privateKey: string
+      }
+    },
+  ) => Promise<{ statusCode?: number; body?: string }>
+}
 
 type JsonRecord = Record<string, unknown>
 
@@ -34,19 +45,17 @@ type StoredPushSubscription = PushSubscriptionData & {
 }
 
 type EcKeyJwk = {
-  kty: 'EC'
-  crv: 'P-256'
   x: string
   y: string
   d?: string
 }
 
 type WebPushState = {
-  version: 1
+  version: 2
   vapid: {
     subject: string
-    publicJwk: EcKeyJwk
-    privateJwk: EcKeyJwk
+    publicKey: string
+    privateKey: string
   }
   subscriptions: StoredPushSubscription[]
 }
@@ -61,10 +70,14 @@ type NotificationDeliveryResult = {
   body: string
 }
 
-const WEB_PUSH_STATE_VERSION = 1
-const WEB_PUSH_RECORD_SIZE = 4096
+type NormalizedStateResult = {
+  state: WebPushState
+  didMutate: boolean
+}
+
+const WEB_PUSH_STATE_VERSION = 2
 const WEB_PUSH_TTL_SECONDS = 60
-const DEFAULT_VAPID_SUBJECT = 'mailto:codexui@localhost'
+const DEFAULT_VAPID_SUBJECT = 'mailto:codexui@example.com'
 const MAX_NOTIFICATION_BODY_LENGTH = 160
 const TASK_NOTIFICATION_ICON = '/icons/pwa-192x192.png'
 
@@ -103,6 +116,21 @@ function base64UrlDecode(value: string): Buffer {
   const normalized = value.replace(/-/gu, '+').replace(/_/gu, '/')
   const padding = normalized.length % 4 === 0 ? '' : '='.repeat(4 - (normalized.length % 4))
   return Buffer.from(normalized + padding, 'base64')
+}
+
+function normalizeVapidSubject(value: string): string {
+  const fromEnv = process.env.CODEXUI_VAPID_SUBJECT?.trim() ?? ''
+  if (fromEnv) return fromEnv
+
+  const normalized = value.trim()
+  if (!normalized) return DEFAULT_VAPID_SUBJECT
+  if (/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:\/|$)/iu.test(normalized)) {
+    return DEFAULT_VAPID_SUBJECT
+  }
+  if (/^mailto:[^@]+@localhost$/iu.test(normalized)) {
+    return DEFAULT_VAPID_SUBJECT
+  }
+  return normalized
 }
 
 function normalizePushSubscription(value: unknown): PushSubscriptionData | null {
@@ -155,64 +183,60 @@ function truncateText(value: string, limit: number): string {
   return `${value.slice(0, Math.max(0, limit - 1)).trimEnd()}…`
 }
 
-function toPublicKeyBuffer(jwk: EcKeyJwk): Buffer {
-  return Buffer.concat([
+function publicKeyFromJwk(jwk: EcKeyJwk): string {
+  const x = asString(jwk.x)
+  const y = asString(jwk.y)
+  if (!x || !y) return ''
+  return base64UrlEncode(Buffer.concat([
     Buffer.from([0x04]),
-    base64UrlDecode(jwk.x),
-    base64UrlDecode(jwk.y),
-  ])
+    base64UrlDecode(x),
+    base64UrlDecode(y),
+  ]))
 }
 
-function generateVapidKeys(): { publicJwk: EcKeyJwk; privateJwk: EcKeyJwk } {
-  const { publicKey, privateKey } = generateKeyPairSync('ec', {
-    namedCurve: 'prime256v1',
-  }) as { publicKey: KeyObject; privateKey: KeyObject }
-
-  return {
-    publicJwk: publicKey.export({ format: 'jwk' }) as EcKeyJwk,
-    privateJwk: privateKey.export({ format: 'jwk' }) as EcKeyJwk,
-  }
+function privateKeyFromJwk(jwk: EcKeyJwk): string {
+  const d = asString(jwk.d)
+  return d ? base64UrlEncode(base64UrlDecode(d)) : ''
 }
 
 function createInitialState(): WebPushState {
-  const { publicJwk, privateJwk } = generateVapidKeys()
+  const vapidKeys = webPush.generateVAPIDKeys()
   return {
     version: WEB_PUSH_STATE_VERSION,
     vapid: {
-      subject: process.env.CODEXUI_VAPID_SUBJECT?.trim() || DEFAULT_VAPID_SUBJECT,
-      publicJwk,
-      privateJwk,
+      subject: normalizeVapidSubject(''),
+      publicKey: vapidKeys.publicKey,
+      privateKey: vapidKeys.privateKey,
     },
     subscriptions: [],
   }
 }
 
-function normalizeStoredState(value: unknown): WebPushState | null {
+function normalizeStoredState(value: unknown): NormalizedStateResult | null {
   const record = asRecord(value)
-  if (!record || record.version !== WEB_PUSH_STATE_VERSION) return null
+  if (!record) return null
 
   const vapid = asRecord(record.vapid)
-  const publicJwk = asRecord(vapid?.publicJwk)
-  const privateJwk = asRecord(vapid?.privateJwk)
-  const subject = asString(vapid?.subject) || DEFAULT_VAPID_SUBJECT
-  if (!publicJwk || !privateJwk) return null
+  if (!vapid) return null
 
-  const normalizedPublic: EcKeyJwk = {
-    kty: 'EC',
-    crv: 'P-256',
-    x: asString(publicJwk.x),
-    y: asString(publicJwk.y),
+  const originalSubject = asString(vapid.subject)
+  const subject = normalizeVapidSubject(originalSubject)
+
+  let publicKey = asString(vapid.publicKey)
+  let privateKey = asString(vapid.privateKey)
+  let didMutate = record.version !== WEB_PUSH_STATE_VERSION || subject !== originalSubject
+
+  if (!publicKey || !privateKey) {
+    const publicJwk = asRecord(vapid.publicJwk) as EcKeyJwk | null
+    const privateJwk = asRecord(vapid.privateJwk) as EcKeyJwk | null
+    publicKey = publicKey || (publicJwk ? publicKeyFromJwk(publicJwk) : '')
+    privateKey = privateKey || (privateJwk ? privateKeyFromJwk(privateJwk) : '')
+    if (publicKey && privateKey) {
+      didMutate = true
+    }
   }
 
-  const normalizedPrivate: EcKeyJwk = {
-    kty: 'EC',
-    crv: 'P-256',
-    x: asString(privateJwk.x),
-    y: asString(privateJwk.y),
-    d: asString(privateJwk.d),
-  }
-
-  if (!normalizedPublic.x || !normalizedPublic.y || !normalizedPrivate.x || !normalizedPrivate.y || !normalizedPrivate.d) {
+  if (!publicKey || !privateKey) {
     return null
   }
 
@@ -237,64 +261,17 @@ function normalizeStoredState(value: unknown): WebPushState | null {
     : []
 
   return {
-    version: WEB_PUSH_STATE_VERSION,
-    vapid: {
-      subject,
-      publicJwk: normalizedPublic,
-      privateJwk: normalizedPrivate,
+    state: {
+      version: WEB_PUSH_STATE_VERSION,
+      vapid: {
+        subject,
+        publicKey,
+        privateKey,
+      },
+      subscriptions,
     },
-    subscriptions,
+    didMutate,
   }
-}
-
-function buildJwt(state: WebPushState, audience: string): string {
-  const header = base64UrlEncode(JSON.stringify({ alg: 'ES256', typ: 'JWT' }))
-  const payload = base64UrlEncode(JSON.stringify({
-    aud: audience,
-    exp: Math.floor(Date.now() / 1000) + (12 * 60 * 60),
-    sub: state.vapid.subject,
-  }))
-  const unsignedToken = `${header}.${payload}`
-  const signer = createSign('sha256')
-  signer.update(unsignedToken)
-  signer.end()
-  const signature = signer.sign({
-    key: createPrivateKey({ key: state.vapid.privateJwk as never, format: 'jwk' }),
-    dsaEncoding: 'ieee-p1363',
-  })
-  return `${unsignedToken}.${base64UrlEncode(signature)}`
-}
-
-function encryptPushPayload(subscription: PushSubscriptionData, payload: string): Buffer {
-  const uaPublicKey = base64UrlDecode(subscription.keys.p256dh)
-  const authSecret = base64UrlDecode(subscription.keys.auth)
-  const salt = randomBytes(16)
-
-  const localKey = createECDH('prime256v1')
-  const localPublicKey = localKey.generateKeys()
-  const sharedSecret = localKey.computeSecret(uaPublicKey)
-
-  const info = Buffer.concat([
-    Buffer.from('WebPush: info\u0000', 'utf8'),
-    uaPublicKey,
-    localPublicKey,
-  ])
-  const ikm = Buffer.from(hkdfSync('sha256', sharedSecret, authSecret, info, 32))
-  const contentEncryptionKey = Buffer.from(hkdfSync('sha256', ikm, salt, Buffer.from('Content-Encoding: aes128gcm\u0000', 'utf8'), 16))
-  const nonce = Buffer.from(hkdfSync('sha256', ikm, salt, Buffer.from('Content-Encoding: nonce\u0000', 'utf8'), 12))
-
-  const plaintext = Buffer.concat([Buffer.from(payload, 'utf8'), Buffer.from([0x02])])
-  const cipher = createCipheriv('aes-128-gcm', contentEncryptionKey, nonce)
-  const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()])
-  const tag = cipher.getAuthTag()
-
-  const header = Buffer.alloc(21 + localPublicKey.length)
-  salt.copy(header, 0)
-  header.writeUInt32BE(WEB_PUSH_RECORD_SIZE, 16)
-  header.writeUInt8(localPublicKey.length, 20)
-  localPublicKey.copy(header, 21)
-
-  return Buffer.concat([header, ciphertext, tag])
 }
 
 async function sendWebPushRequest(
@@ -302,27 +279,35 @@ async function sendWebPushRequest(
   subscription: PushSubscriptionData,
   payload: string,
 ): Promise<NotificationDeliveryResult> {
-  const endpoint = new URL(subscription.endpoint)
-  const body = encryptPushPayload(subscription, payload)
-  const requestBody = new Uint8Array(body.byteLength)
-  requestBody.set(body)
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      Authorization: `vapid t=${buildJwt(state, endpoint.origin)}, k=${base64UrlEncode(toPublicKeyBuffer(state.vapid.publicJwk))}`,
-      'Content-Encoding': 'aes128gcm',
-      'Content-Length': String(body.byteLength),
-      'Content-Type': 'application/octet-stream',
-      TTL: String(WEB_PUSH_TTL_SECONDS),
-      Urgency: 'normal',
-    },
-    body: requestBody,
-  })
+  try {
+    const response = await webPush.sendNotification(subscription, payload, {
+      TTL: WEB_PUSH_TTL_SECONDS,
+      urgency: 'high',
+      contentEncoding: 'aes128gcm',
+      vapidDetails: {
+        subject: state.vapid.subject,
+        publicKey: state.vapid.publicKey,
+        privateKey: state.vapid.privateKey,
+      },
+    })
 
-  return {
-    ok: response.ok,
-    status: response.status,
-    body: truncateText(await response.text(), 600),
+    return {
+      ok: true,
+      status: typeof response.statusCode === 'number' ? response.statusCode : 201,
+      body: truncateText(typeof response.body === 'string' ? response.body : '', 600),
+    }
+  } catch (error) {
+    const failed = error as { statusCode?: number; body?: string }
+    const body = typeof failed.body === 'string'
+      ? failed.body
+      : error instanceof Error
+        ? error.message
+        : String(error)
+    return {
+      ok: false,
+      status: typeof failed.statusCode === 'number' ? failed.statusCode : 0,
+      body: truncateText(body, 600),
+    }
   }
 }
 
@@ -340,10 +325,13 @@ export class WebPushNotifications {
       const statePath = getWebPushStatePath()
       try {
         const raw = await readFile(statePath, 'utf8')
-        const parsed = normalizeStoredState(JSON.parse(raw) as unknown)
-        if (parsed) {
-          this.state = parsed
-          return parsed
+        const normalized = normalizeStoredState(JSON.parse(raw) as unknown)
+        if (normalized) {
+          this.state = normalized.state
+          if (normalized.didMutate) {
+            await this.persistState(normalized.state)
+          }
+          return normalized.state
         }
       } catch {
         // Fall back to a fresh state file.
@@ -393,7 +381,7 @@ export class WebPushNotifications {
     const state = await this.ensureState()
     return {
       supported: true,
-      vapidPublicKey: base64UrlEncode(toPublicKeyBuffer(state.vapid.publicJwk)),
+      vapidPublicKey: state.vapid.publicKey,
       subject: state.vapid.subject,
       subscriptionCount: state.subscriptions.length,
     }
@@ -528,18 +516,17 @@ export class WebPushNotifications {
 
     const staleEndpoints = new Set<string>()
     await Promise.all(state.subscriptions.map(async (subscription) => {
-      try {
-        const result = await sendWebPushRequest(state, subscription, payload)
-        if (!result.ok && (result.status === 404 || result.status === 410)) {
+      const result = await sendWebPushRequest(state, subscription, payload)
+      if (!result.ok) {
+        if (result.status === 404 || result.status === 410) {
           staleEndpoints.add(subscription.endpoint)
         }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
         console.warn('[web-push]', 'Notification delivery failed', {
           endpoint: subscription.endpoint,
           threadId,
           turnId,
-          error: message,
+          status: result.status,
+          error: result.body,
         })
       }
     }))
