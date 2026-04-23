@@ -108,7 +108,17 @@ async function run() {
     })
 
     await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
-    await page.waitForFunction(() => document.body.innerText.includes('New thread'), undefined, { timeout: 15000 })
+    await page.waitForFunction(() => document.body.innerText.includes('Threads'), undefined, { timeout: 15000 })
+
+    const initialStartupState = await page.evaluate(() => ({
+      hash: window.location.hash,
+      threadRows: document.querySelectorAll('.thread-row-item').length,
+      title: document.querySelector('.content-title')?.textContent?.trim() ?? '',
+    }))
+
+    if (initialStartupState.threadRows > 0 && !initialStartupState.hash.startsWith('#/thread/')) {
+      throw new Error(`Expected initial mobile startup to open a thread when thread rows exist, got ${JSON.stringify(initialStartupState)}`)
+    }
 
     await page.evaluate(async () => {
       const cache = await caches.open('codexweb-shell-v2')
@@ -121,7 +131,7 @@ async function run() {
     pageErrors.length = 0
 
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 })
-    await page.waitForFunction(() => document.body.innerText.includes('New thread'), undefined, { timeout: 15000 })
+    await page.waitForFunction(() => document.body.innerText.includes('Threads'), undefined, { timeout: 15000 })
 
     const workerState = await page.evaluate(async () => {
       const registrations = 'serviceWorker' in navigator
@@ -156,7 +166,25 @@ async function run() {
       throw new Error(`Expected home-directory request, got: ${JSON.stringify(apiRequests)}`)
     }
 
-    console.log('Browser hardening OK: startup survives blocked localStorage and legacy media query listeners')
+    await page.goto(`${baseUrl}/?shell=mobile-auth`, { waitUntil: 'domcontentloaded', timeout: 30000 })
+    await page.waitForFunction(() => window.location.search === '', undefined, { timeout: 15000 })
+    await page.waitForTimeout(1500)
+
+    const mobileShellState = await page.evaluate(() => ({
+      hash: window.location.hash,
+      threadRows: document.querySelectorAll('.thread-row-item').length,
+      title: document.querySelector('.content-title')?.textContent?.trim() ?? '',
+    }))
+
+    if (mobileShellState.threadRows > 0 && !mobileShellState.hash.startsWith('#/thread/')) {
+      throw new Error(`Expected mobile shell launch to open a thread when thread rows exist, got ${JSON.stringify(mobileShellState)}`)
+    }
+
+    if (mobileShellState.threadRows > 0 && mobileShellState.title === 'New thread') {
+      throw new Error(`Expected mobile shell launch to leave the new-thread screen when thread rows exist, got ${JSON.stringify(mobileShellState)}`)
+    }
+
+    console.log('Browser hardening OK: startup survives blocked localStorage, clears stale shell state, and opens an existing mobile thread after shell launch when available')
   } finally {
     await browser.close()
     await cleanup(server)
