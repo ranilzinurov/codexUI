@@ -2912,29 +2912,55 @@ Each local/worktree thread has an integrated xterm terminal that can be toggled 
 - Close the terminal session with the `Close` button
 - Stop any processes started inside the terminal before leaving the thread
 
-### Feature: Hosted Safari asset delivery behind nginx
+### Feature: Hosted mobile startup behind nginx without VPN
 
 #### Prerequisites
 - Hosted deployment is fronted by nginx over HTTPS.
-- Main frontend assets are published under `/assets/`.
-- The nginx vhost uses the Safari mitigation (`listen ... ssl;` without `http2` and `sendfile off;`).
-- An iPhone or iPad Safari client can reach the hosted URL.
+- `dist/` is synced into the nginx static root (for example `/var/www/codexui-dist`).
+- nginx serves `/assets/`, `/icons/`, `manifest.webmanifest`, `sw.js`, and Apple touch icons directly from the static root, and proxies only `/`, `/codex-api/`, and `/codex-api/ws` to Node.
+- The TLS vhost uses the transport profile from `docs/deploy/fix-hosted-mobile-access-without-vpn.md` (`http2`, `keepalive_timeout 65`, `gzip on`, `sendfile on`).
+- An iPhone Safari client can reach the hosted URL over mobile data with VPN disabled.
 
 #### Steps
-1. Run `nginx -t` and reload nginx on the host after deploying the updated vhost config.
-2. Open the hosted codexUI URL in Safari on the target iPhone/iPad.
-3. Submit the password form and wait for the main app shell to load.
-4. Inspect nginx access logs while the page loads.
-5. Confirm the main hashed `/assets/index-*.js` and `/assets/index-*.css` requests are delivered once with full body sizes instead of repeated truncated `0`, `65536`, or `139264` byte responses.
-6. Confirm the app proceeds past the loading spinner and reaches normal `/codex-api/*` requests plus websocket `/codex-api/ws`.
+1. Build the app, sync `dist/`, install/reload the nginx config, and restart `codexui`.
+2. Request a current hashed JS asset under `/assets/` and confirm it returns `200` with a JavaScript content type.
+3. Request a missing asset such as `/assets/does-not-exist.js` and confirm nginx returns `404` rather than the SPA HTML shell.
+4. Open the hosted codexUI URL in Safari on the iPhone while using mobile data without VPN.
+5. Submit the password form and wait for the main app shell to load.
+6. Inspect nginx access logs while the page loads.
+7. Confirm the main hashed `/assets/index-*.js` and `/assets/index-*.css` requests are delivered fully, then `/codex-api/*` and `/codex-api/ws` traffic starts normally.
+8. If the mobile home route opens first and threads exist, confirm the thread list drawer is expanded instead of auto-jumping into a thread.
 
 #### Expected Results
-- Safari loads the hosted UI after password submit instead of hanging on an endless loading state.
-- The main JS/CSS entry assets are transferred completely.
-- Subsequent API and websocket traffic starts normally after the frontend bootstraps.
+- Valid hashed assets are served directly by nginx with the correct content type.
+- Missing hashed assets fail as `404` and never fall back to HTML.
+- Safari on mobile data loads the hosted UI without the previous white screen/endless loader.
+- The mobile home route keeps the thread list visible, and transient startup RPC failures no longer strand the client.
 
 #### Rollback/Cleanup
-- Restore the previous nginx listener flags only if another verified transport regression appears and re-test on the same iPhone/iPad client.
+- If the app regresses after a rebuild, re-sync `dist/` before changing nginx again.
+- Restore the previous nginx vhost only after reproducing the regression on the same iPhone/mobile-data path.
+
+### Feature: Explicit CLI host binding for proxy-only or LAN deployments
+
+#### Prerequisites
+- `dist-cli/index.js` is built from this repository.
+- No other process is using the chosen test port.
+
+#### Steps
+1. Run `node dist-cli/index.js --port 6216 --host 127.0.0.1 --no-password --no-tunnel --no-open --no-login`.
+2. Confirm startup output shows `Bind:     http://127.0.0.1:6216` and does not enumerate LAN URLs.
+3. In another shell, confirm `curl http://127.0.0.1:6216/` works.
+4. Stop the server, then run `node dist-cli/index.js --port 6216 --host 0.0.0.0 --no-password --no-tunnel --no-open --no-login`.
+5. Confirm startup output shows `Bind:     http://0.0.0.0:6216` and lists localhost plus any discovered LAN URLs.
+
+#### Expected Results
+- `--host 127.0.0.1` keeps the listener local-only for reverse-proxy deployments.
+- `--host 0.0.0.0` keeps LAN/mobile discovery behavior.
+- The reported `Bind:` value matches the actual listener host.
+
+#### Rollback/Cleanup
+- Stop the temporary test server processes.
 
 ### Feature: PWA push notifications for completed Codex tasks
 

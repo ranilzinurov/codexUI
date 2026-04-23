@@ -6,6 +6,15 @@ type RpcRequestBody = {
   params?: unknown
 }
 
+const RETRYABLE_RPC_METHODS = new Set([
+  'thread/list',
+  'thread/read',
+  'thread/resume',
+])
+
+const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504])
+const RPC_RETRY_DELAYS_MS = [300, 1000, 2500]
+
 export type RpcNotification = {
   method: string
   params: unknown
@@ -27,56 +36,97 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null
 }
 
+function shouldRetryRpcMethod(method: string): boolean {
+  return RETRYABLE_RPC_METHODS.has(method)
+}
+
+function shouldRetryHttpStatus(status: number): boolean {
+  return RETRYABLE_HTTP_STATUSES.has(status)
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+}
+
 export async function rpcCall<T>(method: string, params?: unknown): Promise<T> {
   const body: RpcRequestBody = { method, params: params ?? null }
 
-  let response: Response
-  try {
-    response = await fetch('/codex-api/rpc', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    })
-  } catch (error) {
-    throw new CodexApiError(
-      error instanceof Error ? error.message : `RPC ${method} failed before request was sent`,
-      { code: 'network_error', method },
-    )
-  }
+  const shouldRetry = shouldRetryRpcMethod(method)
+  let attempt = 0
 
-  let payload: unknown = null
-  let rawText: string | null = null
-  try {
-    rawText = await response.text()
-    payload = JSON.parse(rawText)
-  } catch {
-    payload = null
-  }
+  while (true) {
+    let response: Response
+    try {
+      response = await fetch('/codex-api/rpc', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      })
+    } catch (error) {
+      if (shouldRetry && attempt < RPC_RETRY_DELAYS_MS.length) {
+        const retryDelayMs = RPC_RETRY_DELAYS_MS[attempt] ?? RPC_RETRY_DELAYS_MS[RPC_RETRY_DELAYS_MS.length - 1]
+        attempt += 1
+        await delay(retryDelayMs)
+        continue
+      }
+      throw new CodexApiError(
+        error instanceof Error ? error.message : `RPC ${method} failed before request was sent`,
+        { code: 'network_error', method },
+      )
+    }
 
-  if (!response.ok) {
-    const detail = extractErrorMessage(payload, '') || rawText?.slice(0, 500) || ''
-    const prefix = `RPC ${method} failed with HTTP ${response.status}`
-    throw new CodexApiError(
-      detail ? `${prefix}: ${detail}` : prefix,
-      {
-        code: 'http_error',
+    let payload: unknown = null
+    let rawText: string | null = null
+    let didParseJson = false
+    try {
+      rawText = await response.text()
+      payload = JSON.parse(rawText)
+      didParseJson = true
+    } catch {
+      payload = null
+    }
+
+    if (!response.ok) {
+      if (shouldRetry && shouldRetryHttpStatus(response.status) && attempt < RPC_RETRY_DELAYS_MS.length) {
+        const retryDelayMs = RPC_RETRY_DELAYS_MS[attempt] ?? RPC_RETRY_DELAYS_MS[RPC_RETRY_DELAYS_MS.length - 1]
+        attempt += 1
+        await delay(retryDelayMs)
+        continue
+      }
+
+      const detail = extractErrorMessage(payload, '') || rawText?.slice(0, 500) || ''
+      const prefix = `RPC ${method} failed with HTTP ${response.status}`
+      throw new CodexApiError(
+        detail ? `${prefix}: ${detail}` : prefix,
+        {
+          code: 'http_error',
+          method,
+          status: response.status,
+        },
+      )
+    }
+
+    const envelope = payload as RpcEnvelope<T> | null
+    if (!envelope || typeof envelope !== 'object' || !('result' in envelope)) {
+      if (shouldRetry && !didParseJson && attempt < RPC_RETRY_DELAYS_MS.length) {
+        const retryDelayMs = RPC_RETRY_DELAYS_MS[attempt] ?? RPC_RETRY_DELAYS_MS[RPC_RETRY_DELAYS_MS.length - 1]
+        attempt += 1
+        await delay(retryDelayMs)
+        continue
+      }
+
+      throw new CodexApiError(`RPC ${method} returned malformed envelope`, {
+        code: 'invalid_response',
         method,
         status: response.status,
-      },
-    )
+      })
+    }
+    return envelope.result
   }
-
-  const envelope = payload as RpcEnvelope<T> | null
-  if (!envelope || typeof envelope !== 'object' || !('result' in envelope)) {
-    throw new CodexApiError(`RPC ${method} returned malformed envelope`, {
-      code: 'invalid_response',
-      method,
-      status: response.status,
-    })
-  }
-  return envelope.result
 }
 
 export async function fetchRpcMethodCatalog(): Promise<string[]> {

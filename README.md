@@ -123,7 +123,7 @@ Notes:
 - some minor mobile Safari CSS issues may still exist, but they do not prevent normal use
 - depending on proxying details, authentication behavior may differ from direct remote access
 - if conversations created in the web UI do not immediately appear in the Windows app, restarting the Windows app may refresh them
-- if a public nginx HTTPS deployment works everywhere except a real iPhone Safari session after password submit, and access logs show truncated `/assets/index-*.js` or `/assets/index-*.css` responses, disable `http2` on that TLS vhost and add `sendfile off;`
+- for public nginx HTTPS deployments, serve hashed assets directly from nginx and proxy only `/`, `/codex-api/`, and `/codex-api/ws` to Node; the reusable recipe lives in [docs/deploy/fix-hosted-mobile-access-without-vpn.md](docs/deploy/fix-hosted-mobile-access-without-vpn.md)
 
 ---
 
@@ -260,8 +260,8 @@ Setup and rollback notes are documented in [documentation/VOICE_TRANSCRIPTION_OV
 | Port already in use | Run on a free port or stop old process |
 | `npx` fails | Update npm/node, then retry |
 | Termux install fails | `pkg update && pkg upgrade` then reinstall `nodejs` |
-| Can’t open from other device | Check firewall, bind address, and LAN routing |
-| iPhone Safari hangs after password submit on a hosted nginx deployment | If nginx access logs show partial `200` responses for the main `/assets/index-*.js` or `/assets/index-*.css` files, remove `http2` from the TLS listener and set `sendfile off;` for that vhost |
+| Can’t open from other device | Check firewall, bind address, and LAN routing. For proxy-only local deployments, use `--host 127.0.0.1`; for LAN/mobile access, use `--host 0.0.0.0` |
+| iPhone Safari hangs after password submit on a hosted nginx deployment | Rebuild, sync `dist/`, and use the nginx/static-asset layout from [docs/deploy/fix-hosted-mobile-access-without-vpn.md](docs/deploy/fix-hosted-mobile-access-without-vpn.md) so `/assets/*` is served directly by nginx and bad asset paths return `404` instead of HTML |
 
 ---
 

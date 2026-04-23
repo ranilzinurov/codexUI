@@ -3039,9 +3039,9 @@ function onSelectCollaborationMode(mode: 'default' | 'plan'): void {
   setSelectedCollaborationMode(mode)
 }
 
-function getMobileStartupThreadId(): string {
-  if (!isMobile.value || route.name !== 'home') return ''
-  return selectedThread.value?.id ?? projectGroups.value[0]?.threads[0]?.id ?? ''
+function shouldAutoExpandMobileThreadList(): boolean {
+  if (!isMobile.value || route.name !== 'home') return false
+  return projectGroups.value.some((group) => group.threads.length > 0)
 }
 
 async function initialize(): Promise<void> {
@@ -3056,14 +3056,13 @@ async function initialize(): Promise<void> {
   })
   void loadAccountsState({ silent: true })
 
-  const launchProjectOpened = await applyLaunchProjectPathFromUrl()
-  const mobileStartupThreadId = launchProjectOpened ? '' : getMobileStartupThreadId()
-  if (mobileStartupThreadId) {
-    await router.replace({ name: 'thread', params: { threadId: mobileStartupThreadId } })
-  }
+  await applyLaunchProjectPathFromUrl()
 
   hasInitialized.value = true
   await syncThreadSelectionWithRoute()
+  if (shouldAutoExpandMobileThreadList()) {
+    setSidebarCollapsed(false)
+  }
   startPolling()
 }
 

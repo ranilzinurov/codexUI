@@ -512,9 +512,11 @@ function isAccountRateLimitsUnavailableError(method: string, payload: unknown): 
 }
 
 function setJson(res: ServerResponse, statusCode: number, payload: unknown): void {
+  const body = JSON.stringify(payload)
   res.statusCode = statusCode
   res.setHeader('Content-Type', 'application/json; charset=utf-8')
-  res.end(JSON.stringify(payload))
+  res.setHeader('Content-Length', Buffer.byteLength(body))
+  res.end(body)
 }
 
 function logProviderModelDiscoveryWarning(message: string, details: Record<string, unknown>): void {
