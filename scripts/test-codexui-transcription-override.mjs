@@ -78,6 +78,10 @@ async function withCodexUiServer(port, env, callback) {
         CODEXUI_TRANSCRIBE_BASE_URL: '',
         CODEXUI_TRANSCRIBE_MODEL: '',
         CODEXUI_TRANSCRIBE_LANGUAGE: '',
+        GROQ_API_KEY: '',
+        GROQ_STT_MODEL: '',
+        GROQ_STT_LANGUAGE: '',
+        CODEX_HOME: `/tmp/codexui-transcription-test-home-${String(port)}`,
         ...env,
       },
     },
@@ -173,6 +177,35 @@ async function run() {
     }
     if (!requests[0].body.includes('name="language"') || !requests[0].body.includes('\r\n\r\nru\r\n')) {
       throw new Error('Expected override language when client payload does not provide one')
+    }
+
+    requests.length = 0
+    await withCodexUiServer(6215, {
+      OPENAI_API_KEY: 'default-key',
+      OPENAI_BASE_URL: `http://127.0.0.1:${String(upstreamPort)}/openai`,
+      GROQ_API_KEY: 'groq-key',
+      CODEXUI_TRANSCRIBE_BASE_URL: `http://127.0.0.1:${String(upstreamPort)}/groq`,
+    }, async (baseUrl) => {
+      const parsed = await runTranscribe(baseUrl)
+      if (!parsed || parsed.text !== 'ok') {
+        throw new Error(`Unexpected transcription response with Groq key: ${JSON.stringify(parsed)}`)
+      }
+    })
+
+    if (requests.length !== 1) {
+      throw new Error(`Expected exactly one upstream request with Groq key, got ${String(requests.length)}`)
+    }
+    if (requests[0].url !== '/groq/audio/transcriptions') {
+      throw new Error(`Expected Groq transcription base URL, got ${requests[0].url}`)
+    }
+    if (requests[0].authorization !== 'Bearer groq-key') {
+      throw new Error(`Unexpected auth header with Groq key: ${requests[0].authorization}`)
+    }
+    if (!requests[0].body.includes('name="model"') || !requests[0].body.includes('\r\n\r\nwhisper-large-v3-turbo\r\n')) {
+      throw new Error('Expected Groq default transcription model')
+    }
+    if (!requests[0].body.includes('name="language"') || !requests[0].body.includes('\r\n\r\nru\r\n')) {
+      throw new Error('Expected Groq default transcription language')
     }
 
     console.log('Transcription override OK: fallback and dedicated STT key routing are correct')
