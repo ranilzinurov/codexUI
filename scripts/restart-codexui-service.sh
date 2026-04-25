@@ -65,12 +65,14 @@ stop_unmanaged_codexui_instances() {
   main_pid="$(systemctl show "${SERVICE_NAME}" -p MainPID --value 2>/dev/null || true)"
 
   local pids=()
+  local port_listener_pids=" "
   mapfile -t pids < <(pgrep -f "${entrypoint}" 2>/dev/null || true)
   if command -v ss >/dev/null 2>&1; then
     local listener_line
     while IFS= read -r listener_line; do
       while [[ "${listener_line}" =~ pid=([0-9]+) ]]; do
         pids+=("${BASH_REMATCH[1]}")
+        port_listener_pids+="${BASH_REMATCH[1]} "
         listener_line="${listener_line#*pid=${BASH_REMATCH[1]}}"
       done
     done < <(ss -H -ltnp "sport = :${port}" 2>/dev/null || true)
@@ -84,12 +86,21 @@ stop_unmanaged_codexui_instances() {
     [[ "${seen_pids}" != *" ${pid} "* ]] || continue
     seen_pids+="${pid} "
     [[ "${pid}" != "$$" ]] || continue
-    [[ "${pid}" != "${main_pid}" ]] || continue
 
     local cmdline
     cmdline="$(tr '\0' ' ' <"/proc/${pid}/cmdline" 2>/dev/null || true)"
     [[ "${cmdline}" == *"${entrypoint}"* ]] || continue
-    if [[ "${cmdline}" == *"--port ${port}"* || "${cmdline}" == *"--port=${port}"* ]]; then
+
+    local cgroup
+    cgroup="$(cat "/proc/${pid}/cgroup" 2>/dev/null || true)"
+    if [[ "${pid}" == "${main_pid}" && "${cgroup}" == *"/${SERVICE_NAME}.service"* ]]; then
+      continue
+    fi
+    if [[ "${cgroup}" == *"/${SERVICE_NAME}.service"* ]]; then
+      continue
+    fi
+
+    if [[ "${port_listener_pids}" == *" ${pid} "* || "${cmdline}" == *"--port ${port}"* || "${cmdline}" == *"--port=${port}"* ]]; then
       stale_pids+=("${pid}")
     fi
   done

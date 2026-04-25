@@ -1,5 +1,5 @@
 import { createServer } from 'node:http'
-import { chmodSync, createWriteStream, existsSync, mkdirSync } from 'node:fs'
+import { chmodSync, createWriteStream, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { readFile, stat, writeFile } from 'node:fs/promises'
 import { homedir, networkInterfaces } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
@@ -29,6 +29,70 @@ import { spawnSyncCommand } from '../utils/commandInvocation.js'
 const program = new Command().name('codexui').description('Web interface for Codex app-server')
 const __dirname = dirname(fileURLToPath(import.meta.url))
 let hasPromptedCloudflaredInstall = false
+const ENV_ASSIGNMENT_PATTERN = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/
+
+function parseEnvFileValue(rawValue: string): string {
+  const value = rawValue.trim()
+  if (value.length < 2) {
+    return value
+  }
+
+  const quote = value[0]
+  if ((quote !== '"' && quote !== "'") || value[value.length - 1] !== quote) {
+    return value
+  }
+
+  const inner = value.slice(1, -1)
+  if (quote === "'") {
+    return inner
+  }
+
+  return inner.replace(/\\(["\\$`nrt])/g, (_, escaped: string) => {
+    switch (escaped) {
+      case 'n':
+        return '\n'
+      case 'r':
+        return '\r'
+      case 't':
+        return '\t'
+      default:
+        return escaped
+    }
+  })
+}
+
+function loadCodexUiEnvFile(): void {
+  const explicitEnvFile = process.env.CODEXUI_ENV_FILE?.trim()
+  const envFile = explicitEnvFile || join(process.env.HOME?.trim() || homedir(), '.config', 'codexui', 'env')
+  if (!existsSync(envFile)) {
+    return
+  }
+
+  try {
+    const raw = readFileSync(envFile, 'utf8')
+    for (const line of raw.split(/\r?\n/)) {
+      const trimmed = line.trim()
+      if (!trimmed || trimmed.startsWith('#')) {
+        continue
+      }
+
+      const match = trimmed.match(ENV_ASSIGNMENT_PATTERN)
+      if (!match) {
+        continue
+      }
+
+      const [, key, rawValue] = match
+      if (process.env[key] !== undefined) {
+        continue
+      }
+
+      process.env[key] = parseEnvFileValue(rawValue)
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`[env] Could not load ${envFile}: ${message}`)
+  }
+}
 
 function getCodexHomePath(): string {
   return process.env.CODEX_HOME?.trim() || join(homedir(), '.codex')
@@ -503,6 +567,7 @@ async function startServer(options: {
   approvalPolicy?: string
   projectPath?: string
 }) {
+  loadCodexUiEnvFile()
   const version = await readCliVersion()
   const projectPath = options.projectPath?.trim() ?? ''
   if (projectPath.length > 0) {
