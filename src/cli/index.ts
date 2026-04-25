@@ -259,6 +259,17 @@ function resolvePassword(input: string | boolean): string | undefined {
   if (typeof input === 'string') {
     return input
   }
+  const envPassword = process.env.CODEXUI_PASSWORD?.trim()
+  if (envPassword) {
+    return envPassword
+  }
+  const basicAuthPassword = process.env.CODEXUI_BASIC_PASSWORD?.trim()
+  if (basicAuthPassword) {
+    return basicAuthPassword
+  }
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('CODEXUI_PASSWORD or CODEXUI_BASIC_PASSWORD must be set in production')
+  }
   return generatePassword()
 }
 
@@ -398,10 +409,11 @@ async function startCloudflaredTunnel(command: string, localPort: number): Promi
 
 function listenWithFallback(server: ReturnType<typeof createServer>, startPort: number, host: string): Promise<number> {
   return new Promise((resolve, reject) => {
+    const allowPortFallback = process.env.NODE_ENV !== 'production'
     const attempt = (port: number) => {
       const onError = (error: NodeJS.ErrnoException) => {
         server.off('listening', onListening)
-        if (error.code === 'EADDRINUSE' || error.code === 'EACCES') {
+        if (allowPortFallback && (error.code === 'EADDRINUSE' || error.code === 'EACCES')) {
           attempt(port + 1)
           return
         }
@@ -562,7 +574,7 @@ async function startServer(options: {
     lines.push(`  Requested port ${String(requestedPort)} was unavailable; using ${String(port)}.`)
   }
 
-  if (password) {
+  if (password && process.env.NODE_ENV !== 'production') {
     lines.push(`  Password: ${password}`)
   }
   const tunnelQrUrl = tunnelUrl ? buildTunnelAutologinUrl(tunnelUrl, password) : null

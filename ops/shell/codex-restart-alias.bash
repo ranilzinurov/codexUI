@@ -7,7 +7,7 @@ codex() {
         local restart_script="${repo_root}/scripts/restart-codexui-service.sh"
 
         if [ -x "$restart_script" ]; then
-            "$restart_script"
+            "$restart_script" --follow
             return $?
         fi
 

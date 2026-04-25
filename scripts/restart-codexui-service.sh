@@ -13,6 +13,7 @@ RUN_AS_GROUP="${CODEXUI_RUN_AS_GROUP:-$(id -gn "${RUN_AS_USER}")}"
 RUN_AS_HOME="${CODEXUI_RUN_AS_HOME:-}"
 RUN_AS_PATH="${CODEXUI_RUN_AS_PATH:-${PATH}}"
 RESTART_UNIT_NAME="${CODEXUI_RESTART_UNIT_NAME:-codexui-restart-$(date +%s)}"
+FOLLOW_RESTART_PROGRESS=0
 
 if [[ -z "${RUN_AS_HOME}" ]]; then
   RUN_AS_HOME="$(getent passwd "${RUN_AS_USER}" | cut -d: -f6 || true)"
@@ -22,6 +23,10 @@ export PATH="${RUN_AS_PATH}"
 
 log() {
   printf '[restart] %s %s\n' "$(date -u +%FT%TZ)" "$*"
+}
+
+progress() {
+  printf '%s\n' "$*"
 }
 
 read_port() {
@@ -61,11 +66,23 @@ stop_unmanaged_codexui_instances() {
 
   local pids=()
   mapfile -t pids < <(pgrep -f "${entrypoint}" 2>/dev/null || true)
+  if command -v ss >/dev/null 2>&1; then
+    local listener_line
+    while IFS= read -r listener_line; do
+      while [[ "${listener_line}" =~ pid=([0-9]+) ]]; do
+        pids+=("${BASH_REMATCH[1]}")
+        listener_line="${listener_line#*pid=${BASH_REMATCH[1]}}"
+      done
+    done < <(ss -H -ltnp "sport = :${port}" 2>/dev/null || true)
+  fi
 
   local stale_pids=()
+  local seen_pids=" "
   local pid
   for pid in "${pids[@]}"; do
     [[ -n "${pid}" ]] || continue
+    [[ "${seen_pids}" != *" ${pid} "* ]] || continue
+    seen_pids+="${pid} "
     [[ "${pid}" != "$$" ]] || continue
     [[ "${pid}" != "${main_pid}" ]] || continue
 
@@ -103,6 +120,90 @@ stop_unmanaged_codexui_instances() {
 
   log "force killing unmanaged codexui process(es) on port ${port}: ${stale_pids[*]}"
   kill -KILL "${stale_pids[@]}" 2>/dev/null || true
+}
+
+wait_for_restart_healthcheck() {
+  local port="$1"
+
+  log "waiting for healthcheck"
+  if wait_for_service "${port}"; then
+    return 0
+  fi
+
+  log "healthcheck failed; cleaning stale codexui listener(s) on port ${port} and retrying restart"
+  stop_unmanaged_codexui_instances "${port}"
+  log "retrying ${SERVICE_NAME}"
+  restart_service
+
+  log "waiting for healthcheck after retry"
+  wait_for_service "${port}"
+}
+
+follow_restart_progress() {
+  local timeout_seconds="${CODEXUI_RESTART_FOLLOW_TIMEOUT:-300}"
+  local deadline=$((SECONDS + timeout_seconds))
+  local position=0
+  local line_count
+  local line
+
+  progress "Перезапуск ${SERVICE_NAME} запланирован ⏳"
+  progress "Сборка ожидаем ⏳"
+
+  while (( SECONDS < deadline )); do
+    if [[ -f "${DETACH_LOG}" ]]; then
+      line_count="$(wc -l <"${DETACH_LOG}" | tr -d '[:space:]')"
+      line_count="${line_count:-0}"
+
+      if (( line_count > position )); then
+        while IFS= read -r line; do
+          case "${line}" in
+            *"build started"*)
+              progress "Сборка началась ⏳"
+              ;;
+            *"build finished"*)
+              progress "Сборка завершена ✅"
+              ;;
+            *"terminating unmanaged codexui process"*|*"force killing unmanaged codexui process"*)
+              progress "Старые процессы останавливаем ⏳"
+              ;;
+            *"restarting ${SERVICE_NAME}"*)
+              progress "Сервис ${SERVICE_NAME} перезапускаем ⏳"
+              ;;
+            *"waiting for healthcheck"*)
+              progress "Сервис ${SERVICE_NAME} ожидаем ⏳"
+              ;;
+            *"healthcheck failed; cleaning stale codexui listener"*)
+              progress "Healthcheck не прошёл, чистим порт и пробуем ещё раз ⏳"
+              ;;
+            *"service is healthy"*)
+              progress "Сервис ${SERVICE_NAME} перезапущен ✅"
+              ;;
+            *"service failed healthcheck"*)
+              progress "Сервис ${SERVICE_NAME} не прошёл healthcheck ❌"
+              progress "Лог: ${DETACH_LOG}"
+              return 1
+              ;;
+            *"worker exit status=0"*)
+              progress "Перезапуск завершён ✅"
+              return 0
+              ;;
+            *"worker exit status="*)
+              progress "Перезапуск завершился с ошибкой ❌"
+              progress "Лог: ${DETACH_LOG}"
+              return 1
+              ;;
+          esac
+        done < <(tail -n "+$((position + 1))" "${DETACH_LOG}")
+        position="${line_count}"
+      fi
+    fi
+
+    sleep 1
+  done
+
+  progress "Перезапуск ещё выполняется ⏳"
+  progress "Лог: ${DETACH_LOG}"
+  return 124
 }
 
 restart_service() {
@@ -164,8 +265,7 @@ run_worker() {
   log "restarting ${SERVICE_NAME}"
   restart_service
 
-  log "waiting for healthcheck"
-  if ! wait_for_service "${port}"; then
+  if ! wait_for_restart_healthcheck "${port}"; then
     log "service failed healthcheck"
     systemctl status "${SERVICE_NAME}" --no-pager --full || true
     exit 1
@@ -205,7 +305,11 @@ schedule_worker() {
     echo "  unit: ${RESTART_UNIT_NAME}"
     echo "  service: ${SERVICE_NAME}"
     echo "  log: ${DETACH_LOG}"
-    echo "Use: tail -f ${DETACH_LOG}"
+    if [[ "${FOLLOW_RESTART_PROGRESS}" == "1" ]]; then
+      follow_restart_progress
+    else
+      echo "Use: tail -f ${DETACH_LOG}"
+    fi
     return 0
   fi
 
@@ -213,11 +317,30 @@ schedule_worker() {
   echo "Scheduled fallback restart worker."
   echo "  service: ${SERVICE_NAME}"
   echo "  log: ${DETACH_LOG}"
+  if [[ "${FOLLOW_RESTART_PROGRESS}" == "1" ]]; then
+    follow_restart_progress
+  fi
 }
 
-if [[ "${1:-}" == "--worker" ]]; then
-  run_worker
-  exit 0
-fi
+while [[ "${#}" -gt 0 ]]; do
+  case "${1}" in
+    --worker)
+      run_worker
+      exit 0
+      ;;
+    --follow)
+      FOLLOW_RESTART_PROGRESS=1
+      shift
+      ;;
+    --no-follow)
+      FOLLOW_RESTART_PROGRESS=0
+      shift
+      ;;
+    *)
+      echo "unknown restart option: ${1}" >&2
+      exit 2
+      ;;
+  esac
+done
 
 schedule_worker

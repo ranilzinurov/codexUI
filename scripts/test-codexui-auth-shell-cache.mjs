@@ -57,12 +57,15 @@ function request(path, { method = 'GET', headers = {}, body = '' } = {}) {
 function spawnServerProcess() {
   const server = spawn(
     'node',
-    ['dist-cli/index.js', '--port', String(port), '--password', password, '--no-tunnel', '--no-open', '--no-login'],
+    ['dist-cli/index.js', '--port', String(port), '--no-tunnel', '--no-open', '--no-login'],
     {
       cwd: rootDir,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: {
         ...process.env,
+        NODE_ENV: 'production',
+        CODEXUI_PASSWORD: password,
+        CODEXUI_BASIC_PASSWORD: password,
         OPENAI_API_KEY: 'test-key',
         OPENAI_BASE_URL: 'http://127.0.0.1:20128/v1',
       },
@@ -192,7 +195,7 @@ async function run() {
     assert(shellAfterRestart.status === 200, `Expected cookie-backed session to survive restart, got HTTP ${shellAfterRestart.status}`)
     assert(shellAfterRestart.body.includes('<div id="app"></div>'), 'Expected restarted server to accept existing signed session cookie')
 
-    console.log('Auth shell cache OK: unauthorized API returns 401 JSON, login cache-bust is present, cookie lives for one year, and session survives restart')
+    console.log('Auth shell cache OK: env password is stable, unauthorized API returns 401 JSON, login cache-bust is present, cookie lives for one year, and session survives restart')
   } finally {
     await stopServerHandle(handle, stderrLogs)
     if (stderrLogs.length > 0) {
