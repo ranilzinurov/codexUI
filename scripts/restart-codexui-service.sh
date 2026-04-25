@@ -5,8 +5,8 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_PATH="${SCRIPT_DIR}/$(basename -- "${BASH_SOURCE[0]}")"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 SERVICE_NAME="${CODEXUI_SERVICE_NAME:-codexui}"
-ENV_FILE="${CODEXUI_ENV_FILE:-${HOME}/.config/codexui/codexui.env}"
-DEFAULT_PORT="${CODEXUI_PORT:-5901}"
+ENV_FILE="${CODEXUI_ENV_FILE:-${HOME}/.config/codexui/env}"
+DEFAULT_PORT="${CODEXUI_PORT:-5900}"
 DETACH_LOG="${CODEXUI_RESTART_LOG:-/tmp/codexui-restart.log}"
 RUN_AS_USER="${CODEXUI_RUN_AS_USER:-${SUDO_USER:-${USER}}}"
 RUN_AS_GROUP="${CODEXUI_RUN_AS_GROUP:-$(id -gn "${RUN_AS_USER}")}"
@@ -53,6 +53,85 @@ wait_for_service() {
   return 1
 }
 
+stop_unmanaged_codexui_instances() {
+  local port="$1"
+  local entrypoint="${REPO_ROOT}/dist-cli/index.js"
+  local main_pid
+  main_pid="$(systemctl show "${SERVICE_NAME}" -p MainPID --value 2>/dev/null || true)"
+
+  local pids=()
+  mapfile -t pids < <(pgrep -f "${entrypoint}" 2>/dev/null || true)
+
+  local stale_pids=()
+  local pid
+  for pid in "${pids[@]}"; do
+    [[ -n "${pid}" ]] || continue
+    [[ "${pid}" != "$$" ]] || continue
+    [[ "${pid}" != "${main_pid}" ]] || continue
+
+    local cmdline
+    cmdline="$(tr '\0' ' ' <"/proc/${pid}/cmdline" 2>/dev/null || true)"
+    [[ "${cmdline}" == *"${entrypoint}"* ]] || continue
+    if [[ "${cmdline}" == *"--port ${port}"* || "${cmdline}" == *"--port=${port}"* ]]; then
+      stale_pids+=("${pid}")
+    fi
+  done
+
+  if [[ "${#stale_pids[@]}" -eq 0 ]]; then
+    return 0
+  fi
+
+  log "terminating unmanaged codexui process(es) on port ${port}: ${stale_pids[*]}"
+  kill -TERM "${stale_pids[@]}" 2>/dev/null || true
+
+  local attempt
+  for ((attempt=1; attempt<=10; attempt+=1)); do
+    local alive_pids=()
+    for pid in "${stale_pids[@]}"; do
+      if kill -0 "${pid}" 2>/dev/null; then
+        alive_pids+=("${pid}")
+      fi
+    done
+
+    if [[ "${#alive_pids[@]}" -eq 0 ]]; then
+      return 0
+    fi
+
+    stale_pids=("${alive_pids[@]}")
+    sleep 1
+  done
+
+  log "force killing unmanaged codexui process(es) on port ${port}: ${stale_pids[*]}"
+  kill -KILL "${stale_pids[@]}" 2>/dev/null || true
+}
+
+restart_service() {
+  if [[ "$(id -u)" -eq 0 ]]; then
+    systemctl restart "${SERVICE_NAME}"
+    return 0
+  fi
+
+  if sudo -n true >/dev/null 2>&1; then
+    sudo systemctl restart "${SERVICE_NAME}"
+    return 0
+  fi
+
+  local restart_policy
+  restart_policy="$(systemctl show "${SERVICE_NAME}" -p Restart --value 2>/dev/null || true)"
+  local main_pid
+  main_pid="$(systemctl show "${SERVICE_NAME}" -p MainPID --value 2>/dev/null || true)"
+  local service_user
+  service_user="$(systemctl show "${SERVICE_NAME}" -p User --value 2>/dev/null || true)"
+
+  if [[ "${restart_policy}" == "always" && "${service_user}" == "$(id -un)" && "${main_pid}" =~ ^[0-9]+$ && "${main_pid}" != "0" ]]; then
+    log "no passwordless sudo; terminating main pid ${main_pid} and relying on Restart=always"
+    kill -TERM "${main_pid}"
+    return 0
+  fi
+
+  sudo systemctl restart "${SERVICE_NAME}"
+}
+
 run_build() {
   if [[ "$(id -u)" -eq 0 ]]; then
     /usr/sbin/runuser -u "${RUN_AS_USER}" -- env HOME="${RUN_AS_HOME}" PATH="${RUN_AS_PATH}" pnpm run build
@@ -81,12 +160,9 @@ run_worker() {
   run_build
 
   log "build finished"
+  stop_unmanaged_codexui_instances "${port}"
   log "restarting ${SERVICE_NAME}"
-  if [[ "$(id -u)" -eq 0 ]]; then
-    systemctl restart "${SERVICE_NAME}"
-  else
-    sudo systemctl restart "${SERVICE_NAME}"
-  fi
+  restart_service
 
   log "waiting for healthcheck"
   if ! wait_for_service "${port}"; then
@@ -104,7 +180,8 @@ schedule_worker() {
   : > "${DETACH_LOG}"
   chmod 0644 "${DETACH_LOG}" || true
 
-  sudo systemd-run \
+  if sudo -n true >/dev/null 2>&1; then
+    sudo systemd-run \
     --unit "${RESTART_UNIT_NAME}" \
     --description "Detached rebuild and restart for ${SERVICE_NAME}" \
     --collect \
@@ -124,11 +201,18 @@ schedule_worker() {
     -E CODEXUI_RESTART_UNIT_NAME="${RESTART_UNIT_NAME}" \
     /bin/bash "${SCRIPT_PATH}" --worker
 
-  echo "Scheduled detached restart worker."
-  echo "  unit: ${RESTART_UNIT_NAME}"
+    echo "Scheduled detached restart worker."
+    echo "  unit: ${RESTART_UNIT_NAME}"
+    echo "  service: ${SERVICE_NAME}"
+    echo "  log: ${DETACH_LOG}"
+    echo "Use: tail -f ${DETACH_LOG}"
+    return 0
+  fi
+
+  nohup /bin/bash "${SCRIPT_PATH}" --worker >/dev/null 2>&1 &
+  echo "Scheduled fallback restart worker."
   echo "  service: ${SERVICE_NAME}"
   echo "  log: ${DETACH_LOG}"
-  echo "Use: tail -f ${DETACH_LOG}"
 }
 
 if [[ "${1:-}" == "--worker" ]]; then
