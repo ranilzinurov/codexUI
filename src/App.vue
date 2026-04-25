@@ -819,6 +819,7 @@ import IconTablerTerminal from './components/icons/IconTablerTerminal.vue'
 import IconTablerX from './components/icons/IconTablerX.vue'
 import { useDesktopState } from './composables/useDesktopState'
 import { useMobile } from './composables/useMobile'
+import { useTaskNotificationClientPresence } from './composables/useTaskNotificationClientPresence'
 import {
   checkoutGitBranch,
   configureTelegramBot,
@@ -1060,6 +1061,7 @@ const {
 const route = useRoute()
 const router = useRouter()
 const { isMobile } = useMobile()
+useTaskNotificationClientPresence(selectedThreadId)
 const homeThreadComposerRef = ref<ThreadComposerExposed | null>(null)
 const threadComposerRef = ref<ThreadComposerExposed | null>(null)
 const threadConversationRef = ref<{ jumpToLatest: () => void } | null>(null)

@@ -70,6 +70,16 @@ type NotificationDeliveryResult = {
   body: string
 }
 
+type BrowserClientState = {
+  clientId: string
+  threadId: string
+  active: boolean
+  visible: boolean
+  focused: boolean
+  userAgent: string
+  updatedAtMs: number
+}
+
 type NormalizedStateResult = {
   state: WebPushState
   didMutate: boolean
@@ -77,6 +87,7 @@ type NormalizedStateResult = {
 
 const WEB_PUSH_STATE_VERSION = 2
 const WEB_PUSH_TTL_SECONDS = 60
+const ACTIVE_BROWSER_CLIENT_TTL_MS = 45_000
 const DEFAULT_VAPID_SUBJECT = 'mailto:codexui@example.com'
 const MAX_NOTIFICATION_BODY_LENGTH = 160
 const TASK_NOTIFICATION_ICON = '/icons/pwa-192x192.png'
@@ -316,6 +327,7 @@ export class WebPushNotifications {
   private loadPromise: Promise<WebPushState> | null = null
   private writePromise: Promise<void> = Promise.resolve()
   private readonly threadContextById = new Map<string, ThreadNotificationContext>()
+  private readonly browserClientStateById = new Map<string, BrowserClientState>()
 
   private async ensureState(): Promise<WebPushState> {
     if (this.state) return this.state
@@ -377,13 +389,77 @@ export class WebPushNotifications {
     return threadId ? `Thread ${threadId.slice(0, 8)}` : 'Current thread'
   }
 
-  async getStatus(): Promise<{ supported: true; vapidPublicKey: string; subject: string; subscriptionCount: number }> {
+  private pruneInactiveBrowserClients(nowMs = Date.now()): void {
+    for (const [clientId, state] of this.browserClientStateById) {
+      if (nowMs - state.updatedAtMs > ACTIVE_BROWSER_CLIENT_TTL_MS) {
+        this.browserClientStateById.delete(clientId)
+      }
+    }
+  }
+
+  private hasActiveBrowserClientForThread(threadId: string): boolean {
+    this.pruneInactiveBrowserClients()
+    if (!threadId) return false
+
+    for (const state of this.browserClientStateById.values()) {
+      if (!state.active || !state.visible || !state.focused) continue
+      if (state.threadId === threadId) return true
+    }
+
+    return false
+  }
+
+  private activeBrowserClientCount(): number {
+    this.pruneInactiveBrowserClients()
+    let count = 0
+    for (const state of this.browserClientStateById.values()) {
+      if (state.active && state.visible && state.focused) count += 1
+    }
+    return count
+  }
+
+  async getStatus(): Promise<{
+    supported: true
+    vapidPublicKey: string
+    subject: string
+    subscriptionCount: number
+    activeBrowserClientCount: number
+  }> {
     const state = await this.ensureState()
     return {
       supported: true,
       vapidPublicKey: state.vapid.publicKey,
       subject: state.vapid.subject,
       subscriptionCount: state.subscriptions.length,
+      activeBrowserClientCount: this.activeBrowserClientCount(),
+    }
+  }
+
+  updateClientState(payload: unknown, userAgent = ''): { activeBrowserClientCount: number } {
+    const body = asRecord(payload)
+    const clientId = asString(body?.clientId)
+    if (!clientId) {
+      throw new Error('Expected clientId.')
+    }
+
+    const visible = body?.visible === true
+    const focused = body?.focused === true
+    const active = body?.active === true && visible && focused
+    const threadId = asString(body?.threadId)
+
+    this.pruneInactiveBrowserClients()
+    this.browserClientStateById.set(clientId, {
+      clientId,
+      threadId,
+      active,
+      visible,
+      focused,
+      userAgent,
+      updatedAtMs: Date.now(),
+    })
+
+    return {
+      activeBrowserClientCount: this.activeBrowserClientCount(),
     }
   }
 
@@ -489,6 +565,10 @@ export class WebPushNotifications {
 
     const params = asRecord(notification.params)
     const threadId = asString(params?.threadId)
+    if (this.hasActiveBrowserClientForThread(threadId)) {
+      return
+    }
+
     const turn = asRecord(params?.turn)
     const turnId = asString(turn?.id)
     const status = asString(turn?.status)
@@ -540,5 +620,6 @@ export class WebPushNotifications {
 
   dispose(): void {
     this.threadContextById.clear()
+    this.browserClientStateById.clear()
   }
 }

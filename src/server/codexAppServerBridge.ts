@@ -4113,6 +4113,17 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         return
       }
 
+      if (req.method === 'POST' && url.pathname === '/codex-api/push/client-state') {
+        try {
+          const payload = await readJsonBody(req)
+          const userAgent = typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : ''
+          setJson(res, 200, { data: pushNotifications.updateClientState(payload, userAgent) })
+        } catch (error) {
+          setJson(res, 400, { error: getErrorMessage(error, 'Failed to update push client state.') })
+        }
+        return
+      }
+
       if (req.method === 'POST' && url.pathname === '/codex-api/push/test') {
         try {
           const payload = await readJsonBody(req)

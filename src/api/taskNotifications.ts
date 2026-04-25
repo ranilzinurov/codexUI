@@ -14,6 +14,7 @@ export type TaskNotificationStatus = {
   vapidPublicKey: string
   subject: string
   subscriptionCount: number
+  activeBrowserClientCount?: number
 }
 
 type JsonEnvelope<T> = {
@@ -117,4 +118,14 @@ export async function sendTaskNotificationTest(payload: {
   subscription: SerializablePushSubscription
 }): Promise<void> {
   await postJson('/codex-api/push/test', payload)
+}
+
+export async function updateTaskNotificationClientState(payload: {
+  clientId: string
+  threadId: string | null
+  active: boolean
+  visible: boolean
+  focused: boolean
+}): Promise<void> {
+  await postJson('/codex-api/push/client-state', payload)
 }

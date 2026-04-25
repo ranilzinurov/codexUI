@@ -2995,6 +2995,34 @@ Installed PWA clients can subscribe to web push notifications and receive an iPh
 - In the PWA settings panel, tap `Disable` to unsubscribe the device.
 - Remove the Home Screen app if you no longer want Safari push notifications for this origin.
 
+### Feature: Suppress iPhone task push while the desktop thread tab is active
+
+#### Feature/Change Name
+Focused desktop web tabs report active thread presence so completed-task web push is skipped for that thread.
+
+#### Prerequisites/Setup
+1. The app is deployed over HTTPS and reachable from both desktop browser and iPhone PWA.
+2. The iPhone PWA has `Task notifications` enabled.
+3. A desktop browser is opened to the same Codex Web instance.
+4. A Codex thread is available for a task that takes at least a few seconds.
+
+#### Steps
+1. On desktop, open the target thread and keep the browser tab visible and focused.
+2. Start a Codex task in that thread.
+3. Wait for the task to complete without switching away from the desktop tab.
+4. Confirm no iPhone completion push arrives for that task.
+5. Start another Codex task in the same thread.
+6. Switch the desktop tab to the background or focus another application before completion.
+7. Wait for the task to complete.
+
+#### Expected Results
+- While the desktop tab is visible, focused, and selected on the completing thread, `turn/completed` does not send an iPhone web push.
+- After the tab is hidden, blurred, closed, or its heartbeat expires, completed tasks send the normal iPhone web push.
+- `Send test` still sends a test notification regardless of desktop tab activity.
+
+#### Rollback/Cleanup
+- In the iPhone PWA settings panel, tap `Disable` to unsubscribe the test device if needed.
+
 ### Feature: Detached restart script for managed codexui service
 
 #### Feature/Change Name
