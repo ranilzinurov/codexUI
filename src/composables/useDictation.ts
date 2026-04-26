@@ -7,6 +7,19 @@ const DICTATION_BAR_GAP = 2
 const MAX_WAVEFORM_SAMPLES = 256
 const DICTATION_MEDIA_CONSTRAINTS: MediaStreamConstraints = { audio: { channelCount: 1 } }
 
+function readTrimmedString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function readTranscriptionError(value: unknown): string {
+  const direct = readTrimmedString(value)
+  if (direct) return direct
+
+  if (!value || typeof value !== 'object') return ''
+  const record = value as Record<string, unknown>
+  return readTrimmedString(record.message) || readTranscriptionError(record.error)
+}
+
 export function useDictation(options: {
   onTranscript: (text: string) => void
   getLanguage?: () => string
@@ -218,7 +231,7 @@ export function useDictation(options: {
       const ext = mimeType.split(/[/;]/)[1] ?? 'webm'
       const formData = new FormData()
       formData.append('file', blob, `codex.${ext}`)
-      const selectedLanguage = options.getLanguage?.().trim() ?? ''
+      const selectedLanguage = readTrimmedString(options.getLanguage?.())
       if (selectedLanguage && selectedLanguage.toLowerCase() !== 'auto') {
         formData.append('language', selectedLanguage)
       }
@@ -232,20 +245,20 @@ export function useDictation(options: {
       })
 
       const responseText = await response.text()
-      let data: { text?: string; error?: string } | null = null
+      let data: { text?: unknown; error?: unknown } | null = null
       try {
-        data = responseText.trim() ? (JSON.parse(responseText) as { text?: string; error?: string }) : null
+        data = responseText.trim() ? (JSON.parse(responseText) as { text?: unknown; error?: unknown }) : null
       } catch {
         data = null
       }
 
       if (!response.ok) {
-        const jsonError = data?.error?.trim()
+        const jsonError = readTranscriptionError(data?.error)
         const textError = responseText.trim()
         throw new Error(jsonError || textError || `Transcription failed: ${response.status}`)
       }
 
-      const text = (data?.text ?? '').trim()
+      const text = readTrimmedString(data?.text)
       if (text.length > 0) {
         options.onTranscript(text)
       } else {

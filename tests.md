@@ -3136,3 +3136,26 @@ Voice transcription can be forced to OpenAI with `CODEXUI_TRANSCRIBE_PROVIDER=op
 #### Rollback/Cleanup
 - Unset `CODEXUI_TRANSCRIBE_PROVIDER` to return to automatic provider selection.
 - Unset `CODEXUI_TRANSCRIBE_MODEL` if a temporary model override was used.
+
+### Feature: Voice transcription API error display
+
+#### Feature/Change Name
+Voice dictation surfaces upstream transcription API errors even when the provider returns an object-shaped `error` payload.
+
+#### Prerequisites/Setup
+1. Start Codex UI with `CODEXUI_TRANSCRIBE_PROVIDER=openai`.
+2. Use an invalid or expired transcription API key in a local test environment, or point `OPENAI_BASE_URL` at a mock server that returns `{ "error": { "message": "invalid key" } }` with a 401 status.
+3. Open a Codex thread with the composer microphone button visible.
+
+#### Steps
+1. Start dictation from the composer microphone button.
+2. Speak briefly and stop recording.
+3. Wait for transcription to fail.
+
+#### Expected Results
+- The composer shows the provider error message from `error.message`.
+- The UI does not show `_e.trim is not a function` or another secondary JavaScript error.
+- A successful transcription response with string `text` still appends the transcript normally.
+
+#### Rollback/Cleanup
+- Restore a valid transcription API key or return `CODEXUI_TRANSCRIBE_PROVIDER` to the previous provider.
