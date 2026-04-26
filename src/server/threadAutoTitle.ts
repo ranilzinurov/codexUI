@@ -21,6 +21,7 @@ const RETRY_DELAYS_MS = [1_000, 3_000, 8_000]
 const MAX_SOURCE_TEXT_LENGTH = 4_000
 const MAX_TITLE_LENGTH = 72
 const MAX_TITLE_WORDS = 10
+const MAX_REMEMBERED_THREAD_IDS = 5_000
 
 const GENERIC_LINE_PATTERNS = [
   /^(yes|yeah|sure|done|ready|ok|okay|got it)[.!:,\s-]*$/iu,
@@ -199,30 +200,6 @@ function scoreCandidate(candidate: Candidate, userKeywords: Set<string>): number
   return score
 }
 
-function maybeBuildKnownIntentTitle(userText: string, assistantText: string): string {
-  const combined = `${userText}\n${assistantText}`.toLowerCase()
-  if (
-    /(iphone|айфон|push|пуш)/iu.test(combined) &&
-    /(active|focus|focused|tab|window|desktop|активн|фокус|вкладк|окн|комп)/iu.test(combined)
-  ) {
-    return /[а-яё]/iu.test(combined)
-      ? 'Не отправлять iPhone push при активной вкладке'
-      : 'Suppress iPhone push when desktop thread is active'
-  }
-
-  if (
-    /(thread|тред|сесси)/iu.test(combined) &&
-    /(rename|renamed|title|name|назван|переимен)/iu.test(combined) &&
-    /(first|перв|user|assistant|ответ|сообщени)/iu.test(combined)
-  ) {
-    return /[а-яё]/iu.test(combined)
-      ? 'Автопереименование тредов по первой переписке'
-      : 'Auto rename threads from the first exchange'
-  }
-
-  return ''
-}
-
 function limitTitle(value: string): string {
   const words = value.split(/\s+/u).filter(Boolean)
   let limited = words.slice(0, MAX_TITLE_WORDS).join(' ')
@@ -244,8 +221,6 @@ function finalizeTitle(value: string): string {
 export function generateThreadTitleFromConversation(userText: string, assistantText: string): string {
   const user = compactSourceText(userText)
   const assistant = compactSourceText(assistantText)
-  const knownIntentTitle = maybeBuildKnownIntentTitle(user, assistant)
-  if (knownIntentTitle) return knownIntentTitle
 
   const userKeywords = extractKeywords(user)
   const candidates = [
@@ -320,6 +295,7 @@ function extractThreadId(notification: RpcNotification): string {
 export class ThreadAutoTitleManager {
   private readonly inFlightThreadIds = new Set<string>()
   private readonly completedThreadIds = new Set<string>()
+  private readonly completedThreadIdOrder: string[] = []
   private readonly retryTimersByThreadId = new Map<string, ReturnType<typeof setTimeout>>()
 
   constructor(private readonly appServer: AppServerRpc) {}
@@ -359,7 +335,7 @@ export class ThreadAutoTitleManager {
 
       const existingName = readString(thread.name)
       if (existingName) {
-        this.completedThreadIds.add(threadId)
+        this.rememberCompleted(threadId)
         return
       }
 
@@ -376,7 +352,7 @@ export class ThreadAutoTitleManager {
         threadId,
         name: title,
       })
-      this.completedThreadIds.add(threadId)
+      this.rememberCompleted(threadId)
     } catch (error) {
       if (attempt + 1 < RETRY_DELAYS_MS.length) {
         nextAttempt = attempt + 1
@@ -394,6 +370,16 @@ export class ThreadAutoTitleManager {
     }
   }
 
+  private rememberCompleted(threadId: string): void {
+    if (this.completedThreadIds.has(threadId)) return
+    this.completedThreadIds.add(threadId)
+    this.completedThreadIdOrder.push(threadId)
+    while (this.completedThreadIdOrder.length > MAX_REMEMBERED_THREAD_IDS) {
+      const oldestThreadId = this.completedThreadIdOrder.shift()
+      if (oldestThreadId) this.completedThreadIds.delete(oldestThreadId)
+    }
+  }
+
   dispose(): void {
     for (const timer of this.retryTimersByThreadId.values()) {
       clearTimeout(timer)
@@ -401,5 +387,6 @@ export class ThreadAutoTitleManager {
     this.retryTimersByThreadId.clear()
     this.inFlightThreadIds.clear()
     this.completedThreadIds.clear()
+    this.completedThreadIdOrder.length = 0
   }
 }

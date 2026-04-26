@@ -3026,7 +3026,7 @@ Focused desktop web tabs report active thread presence so completed-task web pus
 ### Feature: Automatic thread names from the first exchange
 
 #### Feature/Change Name
-Codex UI listens for the first completed turn of an unnamed thread, summarizes the first user message plus first assistant response, and writes the generated name through `thread/name/set`.
+Codex UI listens for the first completed turn of an unnamed thread, derives a concise title from the first user message plus first assistant response, and writes the generated name through `thread/name/set`.
 
 #### Prerequisites/Setup
 1. App server is running from this repository.
