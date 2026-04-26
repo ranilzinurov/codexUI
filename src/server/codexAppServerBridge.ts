@@ -31,6 +31,7 @@ import { handleZenProxyRequest } from './zenProxy.js'
 import { handleCustomEndpointProxyRequest } from './customEndpointProxy.js'
 import { ThreadTerminalManager } from './terminalManager.js'
 import { WebPushNotifications } from './webPushNotifications.js'
+import { ThreadAutoTitleManager } from './threadAutoTitle.js'
 import { getSpawnInvocation } from '../utils/commandInvocation.js'
 import {
   resolveCodexCommand,
@@ -3264,10 +3265,11 @@ type SharedBridgeState = {
   methodCatalog: MethodCatalog
   telegramBridge: TelegramThreadBridge
   pushNotifications: WebPushNotifications
+  threadAutoTitleManager: ThreadAutoTitleManager
 }
 
 const SHARED_BRIDGE_KEY = '__codexRemoteSharedBridge__'
-const SHARED_BRIDGE_VERSION = 'experimental-api-v3'
+const SHARED_BRIDGE_VERSION = 'experimental-api-v4'
 
 function getSharedBridgeState(): SharedBridgeState {
   const globalScope = globalThis as typeof globalThis & {
@@ -3282,11 +3284,13 @@ function getSharedBridgeState(): SharedBridgeState {
     existing.appServer.dispose()
     existing.terminalManager?.dispose()
     existing.pushNotifications?.dispose()
+    existing.threadAutoTitleManager?.dispose()
   }
 
   const appServer = new AppServerProcess()
   const terminalManager = new ThreadTerminalManager()
   const pushNotifications = new WebPushNotifications()
+  const threadAutoTitleManager = new ThreadAutoTitleManager(appServer)
   appServer.onNotification((notification) => {
     void pushNotifications.handleNotification(notification).catch((error) => {
       console.warn('[web-push]', 'Notification processing failed', {
@@ -3294,6 +3298,7 @@ function getSharedBridgeState(): SharedBridgeState {
         method: notification.method,
       })
     })
+    threadAutoTitleManager.handleNotification(notification)
   })
   const created: SharedBridgeState = {
     version: SHARED_BRIDGE_VERSION,
@@ -3306,6 +3311,7 @@ function getSharedBridgeState(): SharedBridgeState {
       },
     }),
     pushNotifications,
+    threadAutoTitleManager,
   }
   globalScope[SHARED_BRIDGE_KEY] = created
   return created
@@ -3388,7 +3394,7 @@ async function buildThreadSearchIndex(appServer: AppServerProcess): Promise<Thre
 }
 
 export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
-  const { appServer, terminalManager, methodCatalog, telegramBridge, pushNotifications } = getSharedBridgeState()
+  const { appServer, terminalManager, methodCatalog, telegramBridge, pushNotifications, threadAutoTitleManager } = getSharedBridgeState()
   let threadSearchIndex: ThreadSearchIndex | null = null
   let threadSearchIndexPromise: Promise<ThreadSearchIndex> | null = null
 
@@ -4831,6 +4837,7 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
     telegramBridge.stop()
     terminalManager.dispose()
     pushNotifications.dispose()
+    threadAutoTitleManager.dispose()
     appServer.dispose()
   }
   middleware.subscribeNotifications = (

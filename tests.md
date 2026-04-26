@@ -3023,6 +3023,31 @@ Focused desktop web tabs report active thread presence so completed-task web pus
 #### Rollback/Cleanup
 - In the iPhone PWA settings panel, tap `Disable` to unsubscribe the test device if needed.
 
+### Feature: Automatic thread names from the first exchange
+
+#### Feature/Change Name
+Codex UI listens for the first completed turn of an unnamed thread, summarizes the first user message plus first assistant response, and writes the generated name through `thread/name/set`.
+
+#### Prerequisites/Setup
+1. App server is running from this repository.
+2. The thread list is visible in Codex UI.
+3. A new chat can be started from the home view.
+
+#### Steps
+1. Start a new thread with a concrete feature request that takes long enough to produce an assistant response.
+2. Wait for the first assistant response to complete.
+3. Watch the sidebar row for that thread.
+4. Refresh the page and find the same thread in the sidebar.
+5. Manually rename another new thread before its first response completes, then wait for completion.
+
+#### Expected Results
+- The first unnamed thread is renamed to a concise generated title after `turn/completed`.
+- The title remains after refresh because it is written to Codex app-server via `thread/name/set`.
+- The manually renamed thread keeps the manual title and is not overwritten by automatic naming.
+
+#### Rollback/Cleanup
+- Manually rename any test threads back to their preferred names, or archive the test threads.
+
 ### Feature: Detached restart script for managed codexui service
 
 #### Feature/Change Name
