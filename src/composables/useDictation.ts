@@ -7,61 +7,6 @@ const DICTATION_BAR_GAP = 2
 const MAX_WAVEFORM_SAMPLES = 256
 const DICTATION_MEDIA_CONSTRAINTS: MediaStreamConstraints = { audio: { channelCount: 1 } }
 
-let dictationSessionStream: MediaStream | null = null
-let dictationSessionStreamRequest: Promise<MediaStream> | null = null
-let dictationReleaseHandlersRegistered = false
-
-function getAudioTracks(stream: MediaStream | null): MediaStreamTrack[] {
-  return stream?.getAudioTracks() ?? []
-}
-
-function isUsableAudioStream(stream: MediaStream | null): stream is MediaStream {
-  return getAudioTracks(stream).some((track) => track.readyState === 'live')
-}
-
-function setAudioInputEnabled(stream: MediaStream | null, enabled: boolean): void {
-  for (const track of getAudioTracks(stream)) {
-    if (track.readyState === 'live') {
-      track.enabled = enabled
-    }
-  }
-}
-
-function releaseDictationSessionStream(): void {
-  for (const track of getAudioTracks(dictationSessionStream)) {
-    track.stop()
-  }
-  dictationSessionStream = null
-  dictationSessionStreamRequest = null
-}
-
-function registerDictationReleaseHandlers(): void {
-  if (dictationReleaseHandlersRegistered || typeof window === 'undefined') return
-  dictationReleaseHandlersRegistered = true
-  window.addEventListener('pagehide', releaseDictationSessionStream)
-  window.addEventListener('beforeunload', releaseDictationSessionStream)
-}
-
-async function acquireDictationSessionStream(): Promise<MediaStream> {
-  if (isUsableAudioStream(dictationSessionStream)) {
-    return dictationSessionStream
-  }
-  if (dictationSessionStreamRequest) {
-    return dictationSessionStreamRequest
-  }
-
-  registerDictationReleaseHandlers()
-  dictationSessionStreamRequest = navigator.mediaDevices.getUserMedia(DICTATION_MEDIA_CONSTRAINTS)
-    .then((stream) => {
-      dictationSessionStream = stream
-      return stream
-    })
-    .finally(() => {
-      dictationSessionStreamRequest = null
-    })
-  return dictationSessionStreamRequest
-}
-
 export function useDictation(options: {
   onTranscript: (text: string) => void
   getLanguage?: () => string
@@ -207,8 +152,7 @@ export function useDictation(options: {
     stopRequestedBeforeStart = false
 
     try {
-      mediaStream = await acquireDictationSessionStream()
-      setAudioInputEnabled(mediaStream, true)
+      mediaStream = await navigator.mediaDevices.getUserMedia(DICTATION_MEDIA_CONSTRAINTS)
       chunks = []
       mediaRecorder = new MediaRecorder(mediaStream)
       mediaRecorder.ondataavailable = (e) => {
@@ -227,7 +171,7 @@ export function useDictation(options: {
         stopRecording()
       }
     } catch (error) {
-      cleanup({ releaseStream: true })
+      cleanup()
       state.value = 'idle'
       options.onError?.(error)
     } finally {
@@ -322,7 +266,7 @@ export function useDictation(options: {
     }
   }
 
-  function cleanup(options: { releaseStream?: boolean } = {}) {
+  function cleanup() {
     stopWaveformCapture()
     resetWaveformDisplay()
     if (mediaRecorder) {
@@ -338,11 +282,7 @@ export function useDictation(options: {
       mediaRecorder = null
     }
     if (mediaStream) {
-      if (options.releaseStream) {
-        releaseDictationSessionStream()
-      } else {
-        setAudioInputEnabled(mediaStream, false)
-      }
+      mediaStream.getTracks().forEach((track) => track.stop())
       mediaStream = null
     }
     chunks = []

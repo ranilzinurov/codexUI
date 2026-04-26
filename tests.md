@@ -3081,10 +3081,10 @@ Codex UI listens for the first completed turn of an unnamed thread, derives a co
 - If the healthcheck fails, inspect `/tmp/codexui-restart.log` and `systemctl status codexui`.
 - Re-run the script after fixing the underlying build or service issue.
 
-### Feature: Session-scoped iPhone dictation microphone access
+### Feature: Per-recording iPhone dictation microphone access
 
 #### Feature/Change Name
-Voice dictation reuses the granted microphone stream while the PWA session is loaded, but disables the microphone input after each stopped recording so iOS no longer shows active capture.
+Voice dictation releases the microphone stream after each stopped recording so the iOS system microphone privacy indicator clears when dictation is idle.
 
 #### Prerequisites/Setup
 1. The app is deployed over HTTPS and opened as an installed PWA on iPhone.
@@ -3097,15 +3097,14 @@ Voice dictation reuses the granted microphone stream while the PWA session is lo
 3. Stop dictation and wait for transcription to finish or for the composer to return to idle.
 4. Confirm the iOS microphone privacy indicator clears shortly after Stop.
 5. Start dictation again in the same loaded PWA session.
-6. Wait at least two minutes, then start dictation again without closing the PWA.
+6. Stop dictation again and confirm the indicator clears again.
 7. Fully close the PWA, reopen it, and start dictation again.
 
 #### Expected Results
-- The first dictation in a new PWA/browser session may show the normal iOS microphone prompt.
-- Stopping dictation disables the microphone input and clears the active microphone indicator shortly afterward.
-- Later dictation attempts in the same loaded standalone PWA session reuse the existing stream when iOS keeps it live.
+- Each dictation start requests a fresh browser microphone stream.
+- Stopping dictation stops the active stream tracks and clears the active microphone indicator shortly afterward.
 - Dictation still records and transcribes audio normally after repeated start/stop cycles.
-- Closing/reopening or force-quitting the PWA may require iOS to prompt again; that persistence is controlled by WebKit/iOS site permission behavior, not Codex UI state.
+- iOS may show the normal microphone permission prompt again depending on WebKit/iOS site permission behavior.
 
 #### Rollback/Cleanup
 - Stop any active dictation.
