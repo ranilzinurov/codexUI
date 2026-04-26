@@ -61,11 +61,22 @@ function readAudioInputInfo(stream: MediaStream): DictationAudioInputInfo | null
 }
 
 function createDictationMediaRecorder(stream: MediaStream): MediaRecorder {
-  try {
-    return new MediaRecorder(stream, resolveMediaRecorderOptions())
-  } catch {
-    return new MediaRecorder(stream)
+  const preferredOptions = resolveMediaRecorderOptions()
+  const candidateOptions = [
+    preferredOptions,
+    preferredOptions.mimeType ? { mimeType: preferredOptions.mimeType } : null,
+    { audioBitsPerSecond: DICTATION_AUDIO_BITS_PER_SECOND },
+  ].filter((options): options is MediaRecorderOptions => Boolean(options))
+
+  for (const options of candidateOptions) {
+    try {
+      return new MediaRecorder(stream, options)
+    } catch {
+      // Try the next compatible option set.
+    }
   }
+
+  return new MediaRecorder(stream)
 }
 
 export function useDictation(options: {

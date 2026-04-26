@@ -187,7 +187,7 @@
                 <span class="sidebar-settings-label">Auto send dictation</span>
                 <span class="sidebar-settings-toggle" :class="{ 'is-on': dictationAutoSend }" />
               </button>
-              <div class="sidebar-settings-row sidebar-settings-dictation-input" :title="SETTINGS_HELP.dictationLastInput">
+              <div class="sidebar-settings-row sidebar-settings-dictation-input" :title="dictationLastInputLabel">
                 <span class="sidebar-settings-label">Last mic</span>
                 <span class="sidebar-settings-value sidebar-settings-value--truncate">{{ dictationLastInputLabel }}</span>
               </div>
@@ -2954,8 +2954,8 @@ function loadDictationLastInputLabel(): string {
 function classifyDictationInput(label: string): string {
   const normalized = label.toLowerCase()
   if (/airpods|bluetooth|beats|headset|hands-free|buds/u.test(normalized)) return 'Bluetooth'
-  if (/iphone|ipad|built-?in|internal|default/u.test(normalized)) return 'Built-in'
-  if (/usb|external|dock|studio|microphone/u.test(normalized)) return 'External'
+  if (/iphone|ipad|macbook|built-?in|internal/u.test(normalized)) return 'Built-in'
+  if (/usb|external|dock|studio|yeti|rode|shure/u.test(normalized)) return 'External'
   return 'Unknown'
 }
 
