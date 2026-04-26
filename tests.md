@@ -3051,3 +3051,31 @@ Focused desktop web tabs report active thread presence so completed-task web pus
 #### Rollback/Cleanup
 - If the healthcheck fails, inspect `/tmp/codexui-restart.log` and `systemctl status codexui`.
 - Re-run the script after fixing the underlying build or service issue.
+
+### Feature: Session-scoped iPhone dictation microphone access
+
+#### Feature/Change Name
+Voice dictation reuses the granted microphone stream for the current PWA/browser session instead of requesting a fresh stream after every recording.
+
+#### Prerequisites/Setup
+1. The app is deployed over HTTPS and opened as an installed PWA on iPhone.
+2. iOS microphone access for the site is not permanently blocked.
+3. A Codex thread is open and the composer microphone button is visible.
+
+#### Steps
+1. Tap or hold the composer microphone button to start dictation.
+2. Allow microphone access when iOS prompts.
+3. Stop dictation and wait for transcription to finish or for the composer to return to idle.
+4. Start dictation again in the same PWA session.
+5. Repeat dictation start/stop several times without closing the PWA.
+6. Fully close the PWA, reopen it, and start dictation again.
+
+#### Expected Results
+- The first dictation in a new PWA/browser session may show the normal iOS microphone prompt.
+- Later dictation attempts in the same open session start without another microphone prompt.
+- Dictation still records and transcribes audio normally after repeated start/stop cycles.
+- Closing/reopening the PWA may require iOS to prompt again, depending on system permission state.
+
+#### Rollback/Cleanup
+- Stop any active dictation.
+- If iOS permission state needs to be reset, change microphone access for the site in Safari/iOS settings.
