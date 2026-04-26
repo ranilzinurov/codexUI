@@ -3040,12 +3040,14 @@ Codex UI listens for the first completed turn of an unnamed thread, derives a co
 4. Refresh the page and find the same thread in the sidebar.
 5. Manually rename another new thread before its first response completes, then wait for completion.
 6. Start one thread with a Russian first message and one with an English first message, then wait for both first responses to complete.
+7. Start a Russian thread whose first message begins with a Russian question, then includes a pasted English terminal/banner log before the assistant replies.
 
 #### Expected Results
 - The first unnamed thread is renamed to a concise generated title after `turn/completed`.
 - The title remains after refresh because it is written to Codex app-server via `thread/name/set`.
 - The manually renamed thread keeps the manual title and is not overwritten by automatic naming.
 - Generated titles prefer the same language/script as the first user message.
+- Pasted English logs or terminal output inside a Russian first message do not cause an English generated title; the title stays Russian and is derived from the leading user request.
 
 #### Rollback/Cleanup
 - Manually rename any test threads back to their preferred names, or archive the test threads.

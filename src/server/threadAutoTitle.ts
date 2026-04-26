@@ -15,6 +15,7 @@ type TitleSource = {
 type Candidate = {
   text: string
   source: 'assistant' | 'user'
+  sourceIndex: number
 }
 
 type PreferredTitleScript = 'cyrillic' | 'latin' | ''
@@ -43,8 +44,11 @@ const ACTION_WORDS = [
   'generate',
   'implement',
   'implemented',
+  'reboot',
   'rename',
   'renamed',
+  'restart',
+  'server',
   'suppress',
   'title',
   'update',
@@ -57,7 +61,9 @@ const ACTION_WORDS = [
   'исправил',
   'название',
   'переимен',
+  'перезагруз',
   'реализовал',
+  'сервер',
   'сделал',
   'сгенер',
   'тред',
@@ -160,6 +166,7 @@ function splitCandidateSentences(text: string): string[] {
 
 function stripIntentPrefix(value: string): string {
   return normalizeSpaces(value
+    .replace(/^(yes|yeah|sure|ok|okay|done|ready|no|да|нет|ок|окей|конечно)[,.:;!\s-]+/iu, '')
     .replace(/^(please|can you|could you|i need to|we need to|need to|let'?s|make it so that)\s+/iu, '')
     .replace(/^(смотри|слушай|короче|так|итак|мне нужно|нужно|надо|давай|сделай|можно ли|разве нельзя)\s+/iu, '')
     .replace(/^(i implemented|implemented|i added|added|i fixed|fixed|i updated|updated)\s+/iu, '')
@@ -177,7 +184,7 @@ function extractCandidates(text: string, source: Candidate['source']): Candidate
     .map(stripIntentPrefix)
     .filter((line) => !isGenericLine(line))
     .filter((line) => line.length >= 12 && line.length <= 260)
-    .map((line) => ({ text: line, source }))
+    .map((line, sourceIndex) => ({ text: line, source, sourceIndex }))
 }
 
 function extractKeywords(value: string): Set<string> {
@@ -200,6 +207,24 @@ function detectPreferredTitleScript(value: string): PreferredTitleScript {
   return ''
 }
 
+function detectPreferredTitleScriptFromUserPrompt(userText: string): PreferredTitleScript {
+  for (const line of splitCandidateSentences(userText).map(stripIntentPrefix)) {
+    if (isGenericLine(line)) continue
+    const script = detectPreferredTitleScript(line)
+    if (script) return script
+  }
+  return detectPreferredTitleScript(userText)
+}
+
+function selectCandidatesForPreferredScript(
+  candidates: Candidate[],
+  preferredScript: PreferredTitleScript,
+): Candidate[] {
+  if (!preferredScript) return candidates
+  const matching = candidates.filter((candidate) => detectPreferredTitleScript(candidate.text) === preferredScript)
+  return matching.length > 0 ? matching : candidates
+}
+
 function scoreCandidate(
   candidate: Candidate,
   userKeywords: Set<string>,
@@ -207,6 +232,9 @@ function scoreCandidate(
 ): number {
   const lower = candidate.text.toLowerCase()
   let score = candidate.source === 'assistant' ? 20 : 10
+  if (candidate.source === 'user' && candidate.sourceIndex === 0) {
+    score += 15
+  }
   const candidateScript = detectPreferredTitleScript(candidate.text)
   if (preferredScript && candidateScript === preferredScript) {
     score += 35
@@ -248,11 +276,11 @@ export function generateThreadTitleFromConversation(userText: string, assistantT
   const assistant = compactSourceText(assistantText)
 
   const userKeywords = extractKeywords(user)
-  const preferredScript = detectPreferredTitleScript(user)
-  const candidates = [
+  const preferredScript = detectPreferredTitleScriptFromUserPrompt(user)
+  const candidates = selectCandidatesForPreferredScript([
     ...extractCandidates(assistant, 'assistant'),
     ...extractCandidates(user, 'user'),
-  ]
+  ], preferredScript)
 
   const best = candidates
     .map((candidate) => ({
