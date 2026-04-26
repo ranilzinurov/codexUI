@@ -17,6 +17,8 @@ type Candidate = {
   source: 'assistant' | 'user'
 }
 
+type PreferredTitleScript = 'cyrillic' | 'latin' | ''
+
 const RETRY_DELAYS_MS = [1_000, 3_000, 8_000]
 const MAX_SOURCE_TEXT_LENGTH = 4_000
 const MAX_TITLE_LENGTH = 72
@@ -185,9 +187,32 @@ function extractKeywords(value: string): Set<string> {
   return new Set(words.filter((word) => word.length > 3 && !STOP_WORDS.has(word)))
 }
 
-function scoreCandidate(candidate: Candidate, userKeywords: Set<string>): number {
+function countMatches(value: string, pattern: RegExp): number {
+  return value.match(pattern)?.length ?? 0
+}
+
+function detectPreferredTitleScript(value: string): PreferredTitleScript {
+  const cyrillicCount = countMatches(value, /[А-Яа-яЁё]/gu)
+  const latinCount = countMatches(value, /[A-Za-z]/gu)
+  if (cyrillicCount === 0 && latinCount === 0) return ''
+  if (cyrillicCount >= Math.max(4, latinCount * 1.5)) return 'cyrillic'
+  if (latinCount >= Math.max(4, cyrillicCount * 1.5)) return 'latin'
+  return ''
+}
+
+function scoreCandidate(
+  candidate: Candidate,
+  userKeywords: Set<string>,
+  preferredScript: PreferredTitleScript,
+): number {
   const lower = candidate.text.toLowerCase()
   let score = candidate.source === 'assistant' ? 20 : 10
+  const candidateScript = detectPreferredTitleScript(candidate.text)
+  if (preferredScript && candidateScript === preferredScript) {
+    score += 35
+  } else if (preferredScript && candidateScript && candidateScript !== preferredScript) {
+    score -= 35
+  }
   for (const action of ACTION_WORDS) {
     if (lower.includes(action)) score += 8
   }
@@ -223,6 +248,7 @@ export function generateThreadTitleFromConversation(userText: string, assistantT
   const assistant = compactSourceText(assistantText)
 
   const userKeywords = extractKeywords(user)
+  const preferredScript = detectPreferredTitleScript(user)
   const candidates = [
     ...extractCandidates(assistant, 'assistant'),
     ...extractCandidates(user, 'user'),
@@ -231,7 +257,7 @@ export function generateThreadTitleFromConversation(userText: string, assistantT
   const best = candidates
     .map((candidate) => ({
       candidate,
-      score: scoreCandidate(candidate, userKeywords),
+      score: scoreCandidate(candidate, userKeywords, preferredScript),
     }))
     .sort((first, second) => second.score - first.score)[0]?.candidate
 
