@@ -27,6 +27,29 @@ function setAudioInputEnabled(stream: MediaStream | null, enabled: boolean): voi
   }
 }
 
+function isAppleTouchDevice(): boolean {
+  if (typeof navigator === 'undefined') return false
+  return /iP(?:hone|ad|od)/i.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+}
+
+function isStandalonePwa(): boolean {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false
+  const standaloneNavigator = navigator as Navigator & { standalone?: boolean }
+  return standaloneNavigator.standalone === true
+    || (typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches)
+}
+
+function shouldKeepCaptureActiveBetweenRecordings(): boolean {
+  return isAppleTouchDevice() && isStandalonePwa()
+}
+
+function pauseDictationSessionStream(stream: MediaStream | null): void {
+  // iOS standalone PWAs may re-prompt after capture becomes inactive.
+  if (shouldKeepCaptureActiveBetweenRecordings()) return
+  setAudioInputEnabled(stream, false)
+}
+
 function releaseDictationSessionStream(): void {
   for (const track of getAudioTracks(dictationSessionStream)) {
     track.stop()
@@ -326,6 +349,13 @@ export function useDictation(options: {
     stopWaveformCapture()
     resetWaveformDisplay()
     if (mediaRecorder) {
+      if (mediaRecorder.state !== 'inactive') {
+        try {
+          mediaRecorder.stop()
+        } catch {
+          // Ignore recorder shutdown errors during cancellation cleanup.
+        }
+      }
       mediaRecorder.ondataavailable = null
       mediaRecorder.onstop = null
       mediaRecorder = null
@@ -334,7 +364,7 @@ export function useDictation(options: {
       if (options.releaseStream) {
         releaseDictationSessionStream()
       } else {
-        setAudioInputEnabled(mediaStream, false)
+        pauseDictationSessionStream(mediaStream)
       }
       mediaStream = null
     }

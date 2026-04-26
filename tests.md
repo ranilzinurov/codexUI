@@ -3080,7 +3080,7 @@ Codex UI listens for the first completed turn of an unnamed thread, derives a co
 ### Feature: Session-scoped iPhone dictation microphone access
 
 #### Feature/Change Name
-Voice dictation reuses the granted microphone stream for the current PWA/browser session instead of requesting a fresh stream after every recording.
+Voice dictation keeps the granted iOS standalone PWA microphone capture alive between recordings so later dictation starts do not trigger repeated prompts in the same open app session.
 
 #### Prerequisites/Setup
 1. The app is deployed over HTTPS and opened as an installed PWA on iPhone.
@@ -3092,13 +3092,15 @@ Voice dictation reuses the granted microphone stream for the current PWA/browser
 2. Allow microphone access when iOS prompts.
 3. Stop dictation and wait for transcription to finish or for the composer to return to idle.
 4. Start dictation again in the same PWA session.
-5. Repeat dictation start/stop several times without closing the PWA.
-6. Fully close the PWA, reopen it, and start dictation again.
+5. Wait at least two minutes, then start dictation again without closing the PWA.
+6. Repeat dictation start/stop several times without closing the PWA.
+7. Fully close the PWA, reopen it, and start dictation again.
 
 #### Expected Results
 - The first dictation in a new PWA/browser session may show the normal iOS microphone prompt.
-- Later dictation attempts in the same open session start without another microphone prompt.
+- Later dictation attempts in the same open standalone PWA session start without another microphone prompt, including after a multi-minute pause.
 - Dictation still records and transcribes audio normally after repeated start/stop cycles.
+- iOS may continue showing its microphone privacy indicator while the PWA remains open because the live capture is intentionally kept warm.
 - Closing/reopening the PWA may require iOS to prompt again, depending on system permission state.
 
 #### Rollback/Cleanup
