@@ -3109,3 +3109,30 @@ Voice dictation releases the microphone stream after each stopped recording so t
 #### Rollback/Cleanup
 - Stop any active dictation.
 - If iOS permission state needs to be reset, change microphone access for the site in Safari/iOS settings.
+
+### Feature: Selectable OpenAI/Groq voice transcription provider
+
+#### Feature/Change Name
+Voice transcription can be forced to OpenAI with `CODEXUI_TRANSCRIBE_PROVIDER=openai` while existing Groq environment variables remain configured.
+
+#### Prerequisites/Setup
+1. Build the project with `pnpm run build`.
+2. Have an OpenAI API key available in the server environment as `OPENAI_API_KEY`.
+3. Optional: keep `GROQ_API_KEY`, `GROQ_STT_MODEL`, and `GROQ_STT_LANGUAGE` set to confirm they do not take over when OpenAI is selected.
+
+#### Steps
+1. Start the app with `CODEXUI_TRANSCRIBE_PROVIDER=openai` and `OPENAI_API_KEY` set.
+2. Leave any existing Groq STT environment variables set.
+3. Open a Codex thread and use the composer microphone dictation button.
+4. Stop recording and wait for transcription to finish.
+5. Restart the app with `CODEXUI_TRANSCRIBE_PROVIDER=groq` and a valid Groq key if Groq behavior should be checked.
+6. Repeat the same microphone dictation flow.
+
+#### Expected Results
+- With `CODEXUI_TRANSCRIBE_PROVIDER=openai`, `/codex-api/transcribe` sends the audio to the OpenAI transcription endpoint and uses the default `gpt-4o-mini-transcribe` model unless `CODEXUI_TRANSCRIBE_MODEL` overrides it.
+- Existing Groq variables do not force Groq routing, model, or default language while OpenAI is selected.
+- With `CODEXUI_TRANSCRIBE_PROVIDER=groq`, the previous Groq STT route remains available and defaults to `whisper-large-v3-turbo` unless overridden.
+
+#### Rollback/Cleanup
+- Unset `CODEXUI_TRANSCRIBE_PROVIDER` to return to automatic provider selection.
+- Unset `CODEXUI_TRANSCRIBE_MODEL` if a temporary model override was used.

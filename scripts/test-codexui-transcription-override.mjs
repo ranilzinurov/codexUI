@@ -74,6 +74,7 @@ async function withCodexUiServer(port, env, callback) {
         ...process.env,
         OPENAI_API_KEY: '',
         OPENAI_BASE_URL: '',
+        CODEXUI_TRANSCRIBE_PROVIDER: '',
         CODEXUI_TRANSCRIBE_API_KEY: '',
         CODEXUI_TRANSCRIBE_BASE_URL: '',
         CODEXUI_TRANSCRIBE_MODEL: '',
@@ -177,6 +178,37 @@ async function run() {
     }
     if (!requests[0].body.includes('name="language"') || !requests[0].body.includes('\r\n\r\nru\r\n')) {
       throw new Error('Expected override language when client payload does not provide one')
+    }
+
+    requests.length = 0
+    await withCodexUiServer(6216, {
+      OPENAI_API_KEY: 'default-key',
+      OPENAI_BASE_URL: `http://127.0.0.1:${String(upstreamPort)}/openai`,
+      CODEXUI_TRANSCRIBE_PROVIDER: 'openai',
+      GROQ_API_KEY: 'groq-key',
+      GROQ_STT_MODEL: 'whisper-large-v3-turbo',
+      GROQ_STT_LANGUAGE: 'ru',
+    }, async (baseUrl) => {
+      const parsed = await runTranscribe(baseUrl)
+      if (!parsed || parsed.text !== 'ok') {
+        throw new Error(`Unexpected transcription response with OpenAI provider selected: ${JSON.stringify(parsed)}`)
+      }
+    })
+
+    if (requests.length !== 1) {
+      throw new Error(`Expected exactly one upstream request with OpenAI provider selected, got ${String(requests.length)}`)
+    }
+    if (requests[0].url !== '/openai/audio/transcriptions') {
+      throw new Error(`Expected OPENAI_BASE_URL with OpenAI provider selected, got ${requests[0].url}`)
+    }
+    if (requests[0].authorization !== 'Bearer default-key') {
+      throw new Error(`Unexpected auth header with OpenAI provider selected: ${requests[0].authorization}`)
+    }
+    if (!requests[0].body.includes('name="model"') || !requests[0].body.includes('\r\n\r\nopenai/gpt-4o-mini-transcribe\r\n')) {
+      throw new Error('Expected OpenAI transcription model when OpenAI provider is selected')
+    }
+    if (requests[0].body.includes('name="language"')) {
+      throw new Error('Did not expect Groq default language when OpenAI provider is selected')
     }
 
     requests.length = 0

@@ -2549,15 +2549,22 @@ function isGroqTranscriptionBaseUrl(baseUrl: string): boolean {
   return normalizeBaseUrl(baseUrl).toLowerCase() === 'https://api.groq.com/openai/v1'
 }
 
+type TranscriptionProvider = 'auto' | 'openai' | 'groq'
+
+function resolveTranscriptionProvider(): TranscriptionProvider {
+  const provider = process.env.CODEXUI_TRANSCRIBE_PROVIDER?.trim().toLowerCase()
+  if (provider === 'openai' || provider === 'groq') return provider
+  return 'auto'
+}
+
 function resolveTranscriptionModel(baseUrl: string, prefersGroqModel = false): string {
   const override = process.env.CODEXUI_TRANSCRIBE_MODEL?.trim()
   if (override) return override
 
-  const groqOverride = process.env.GROQ_STT_MODEL?.trim()
-  if (groqOverride) return groqOverride
-
   const normalized = normalizeBaseUrl(baseUrl).toLowerCase()
-  if (prefersGroqModel || isGroqTranscriptionBaseUrl(baseUrl)) return 'whisper-large-v3-turbo'
+  if (prefersGroqModel || isGroqTranscriptionBaseUrl(baseUrl)) {
+    return process.env.GROQ_STT_MODEL?.trim() || 'whisper-large-v3-turbo'
+  }
 
   return normalized === 'https://api.openai.com/v1'
     ? 'gpt-4o-mini-transcribe'
@@ -2570,7 +2577,10 @@ async function proxyTranscribeViaApiKey(
 ): Promise<{ status: number; body: string } | null> {
   const transcriptionApiKey = process.env.CODEXUI_TRANSCRIBE_API_KEY?.trim()
   const groqApiKey = process.env.GROQ_API_KEY?.trim()
-  const apiKey = transcriptionApiKey || groqApiKey || process.env.OPENAI_API_KEY?.trim()
+  const openAiApiKey = process.env.OPENAI_API_KEY?.trim()
+  const provider = resolveTranscriptionProvider()
+  const useGroqProvider = provider === 'groq' || (provider === 'auto' && Boolean(groqApiKey) && !transcriptionApiKey)
+  const apiKey = transcriptionApiKey || (useGroqProvider ? groqApiKey : openAiApiKey)
   if (!apiKey) return null
 
   const parsed = parseMultipartForm(rawBody, incomingContentType)
@@ -2578,9 +2588,9 @@ async function proxyTranscribeViaApiKey(
     return { status: 400, body: JSON.stringify({ error: 'Malformed transcription upload payload' }) }
   }
 
-  const usesDedicatedTranscriptionKey = Boolean(transcriptionApiKey || groqApiKey)
+  const usesDedicatedTranscriptionKey = Boolean(transcriptionApiKey || useGroqProvider)
   const candidateBaseUrls = (
-    groqApiKey && !transcriptionApiKey
+    useGroqProvider
       ? [
           process.env.CODEXUI_TRANSCRIBE_BASE_URL?.trim(),
           'https://api.groq.com/openai/v1',
@@ -2594,12 +2604,12 @@ async function proxyTranscribeViaApiKey(
   const language =
     parsed.fields.language?.trim() ||
     (usesDedicatedTranscriptionKey ? process.env.CODEXUI_TRANSCRIBE_LANGUAGE?.trim() : '') ||
-    (groqApiKey ? process.env.GROQ_STT_LANGUAGE?.trim() || 'ru' : '')
+    (useGroqProvider ? process.env.GROQ_STT_LANGUAGE?.trim() || 'ru' : '')
 
   let lastResult: { status: number; body: string } | null = null
   for (const baseUrl of candidateBaseUrls) {
     const fields: Record<string, string> = {
-      model: resolveTranscriptionModel(baseUrl, Boolean(groqApiKey && !transcriptionApiKey)),
+      model: resolveTranscriptionModel(baseUrl, useGroqProvider),
     }
     if (language) fields.language = language
 

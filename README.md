@@ -172,9 +172,13 @@ If your default Codex auth path does not provide a transcription token, `codexui
 Supported server env vars:
 
 - `CODEXUI_TRANSCRIBE_API_KEY`
+- `CODEXUI_TRANSCRIBE_PROVIDER` (`auto`, `openai`, or `groq`)
 - `CODEXUI_TRANSCRIBE_BASE_URL`
 - `CODEXUI_TRANSCRIBE_MODEL`
 - `CODEXUI_TRANSCRIBE_LANGUAGE`
+
+Set `CODEXUI_TRANSCRIBE_PROVIDER=openai` to test OpenAI transcription while leaving existing Groq environment variables in place.
+OpenAI uses `gpt-4o-mini-transcribe` by default.
 
 Setup and rollback notes are documented in [documentation/VOICE_TRANSCRIPTION_OVERRIDE.md](documentation/VOICE_TRANSCRIPTION_OVERRIDE.md). The STT-specific base URL and language overrides only apply when `CODEXUI_TRANSCRIBE_API_KEY` is set.
 
