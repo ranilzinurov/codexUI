@@ -382,7 +382,7 @@ import type {
   UiThreadTokenUsage,
   UiTokenUsageBreakdown,
 } from '../../types/codex'
-import { useDictation } from '../../composables/useDictation'
+import { useDictation, type DictationAudioInputInfo } from '../../composables/useDictation'
 import { useMobile } from '../../composables/useMobile'
 import { searchComposerFiles, uploadFile, type ComposerFileSuggestion } from '../../api/codexGateway'
 import IconTablerArrowUp from '../icons/IconTablerArrowUp.vue'
@@ -452,6 +452,7 @@ const emit = defineEmits<{
   'update:selected-model': [modelId: string]
   'update:selected-reasoning-effort': [effort: ReasoningEffort | '']
   'update:selected-speed-mode': [mode: SpeedMode]
+  'dictation-input-updated': [info: DictationAudioInputInfo]
 }>()
 
 type SelectedImage = {
@@ -499,6 +500,9 @@ const {
   cancel: cancelDictation,
 } = useDictation({
   getLanguage: () => props.dictationLanguage ?? 'auto',
+  onAudioInput: (info) => {
+    emit('dictation-input-updated', info)
+  },
   onTranscript: (text) => {
     draft.value = draft.value ? `${draft.value}\n${text}` : text
     dictationFeedback.value = ''

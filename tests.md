@@ -3159,3 +3159,29 @@ Voice dictation surfaces upstream transcription API errors even when the provide
 
 #### Rollback/Cleanup
 - Restore a valid transcription API key or return `CODEXUI_TRANSCRIBE_PROVIDER` to the previous provider.
+
+### Feature: Dictation recorder quality and microphone diagnostics
+
+#### Feature/Change Name
+Voice dictation prefers a browser-supported compressed speech recording format and records the last microphone label reported by the browser.
+
+#### Prerequisites/Setup
+1. Open Codex UI in a browser or installed PWA with microphone permission available.
+2. Optional: connect Bluetooth headphones such as AirPods before starting dictation.
+3. Open the sidebar settings panel.
+
+#### Steps
+1. Start voice dictation from the composer microphone button.
+2. Stop dictation after a short phrase.
+3. Open sidebar settings and inspect the `Last mic` row.
+4. Repeat with Bluetooth headphones connected and disconnected.
+
+#### Expected Results
+- Dictation still records and transcribes normally.
+- The recorder uses the first supported format from the preferred list with a speech-oriented audio bitrate.
+- The settings panel shows the last browser-reported microphone label and basic track settings when available.
+- If iOS/WebKit hides the physical route, the row still shows `Unnamed microphone` or the best label provided by the browser instead of interrupting dictation.
+
+#### Rollback/Cleanup
+- Disconnect test Bluetooth devices if they were connected.
+- Clear browser local storage key `codex-web-local.dictation-last-input.v1` if the diagnostic value should be reset.

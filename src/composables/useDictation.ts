@@ -6,6 +6,21 @@ const DICTATION_BAR_WIDTH = 3
 const DICTATION_BAR_GAP = 2
 const MAX_WAVEFORM_SAMPLES = 256
 const DICTATION_MEDIA_CONSTRAINTS: MediaStreamConstraints = { audio: { channelCount: 1 } }
+const DICTATION_AUDIO_BITS_PER_SECOND = 64000
+const DICTATION_MIME_TYPE_CANDIDATES = [
+  'audio/webm;codecs=opus',
+  'audio/ogg;codecs=opus',
+  'audio/mp4;codecs=mp4a.40.2',
+  'audio/mp4',
+]
+
+export type DictationAudioInputInfo = {
+  label: string
+  deviceId: string
+  groupId: string
+  sampleRate: number | null
+  channelCount: number | null
+}
 
 function readTrimmedString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
@@ -20,9 +35,43 @@ function readTranscriptionError(value: unknown): string {
   return readTrimmedString(record.message) || readTranscriptionError(record.error)
 }
 
+function resolveMediaRecorderOptions(): MediaRecorderOptions {
+  const options: MediaRecorderOptions = {
+    audioBitsPerSecond: DICTATION_AUDIO_BITS_PER_SECOND,
+  }
+  if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') {
+    return options
+  }
+
+  const mimeType = DICTATION_MIME_TYPE_CANDIDATES.find((candidate) => MediaRecorder.isTypeSupported(candidate))
+  return mimeType ? { ...options, mimeType } : options
+}
+
+function readAudioInputInfo(stream: MediaStream): DictationAudioInputInfo | null {
+  const track = stream.getAudioTracks()[0]
+  if (!track) return null
+  const settings = track.getSettings()
+  return {
+    label: track.label.trim(),
+    deviceId: readTrimmedString(settings.deviceId),
+    groupId: readTrimmedString(settings.groupId),
+    sampleRate: typeof settings.sampleRate === 'number' ? settings.sampleRate : null,
+    channelCount: typeof settings.channelCount === 'number' ? settings.channelCount : null,
+  }
+}
+
+function createDictationMediaRecorder(stream: MediaStream): MediaRecorder {
+  try {
+    return new MediaRecorder(stream, resolveMediaRecorderOptions())
+  } catch {
+    return new MediaRecorder(stream)
+  }
+}
+
 export function useDictation(options: {
   onTranscript: (text: string) => void
   getLanguage?: () => string
+  onAudioInput?: (info: DictationAudioInputInfo) => void
   onEmpty?: () => void
   onError?: (error: unknown) => void
 }) {
@@ -166,8 +215,10 @@ export function useDictation(options: {
 
     try {
       mediaStream = await navigator.mediaDevices.getUserMedia(DICTATION_MEDIA_CONSTRAINTS)
+      const audioInputInfo = readAudioInputInfo(mediaStream)
+      if (audioInputInfo) options.onAudioInput?.(audioInputInfo)
       chunks = []
-      mediaRecorder = new MediaRecorder(mediaStream)
+      mediaRecorder = createDictationMediaRecorder(mediaStream)
       mediaRecorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunks.push(e.data)
       }

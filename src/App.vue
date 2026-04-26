@@ -187,6 +187,10 @@
                 <span class="sidebar-settings-label">Auto send dictation</span>
                 <span class="sidebar-settings-toggle" :class="{ 'is-on': dictationAutoSend }" />
               </button>
+              <div class="sidebar-settings-row sidebar-settings-dictation-input" :title="SETTINGS_HELP.dictationLastInput">
+                <span class="sidebar-settings-label">Last mic</span>
+                <span class="sidebar-settings-value sidebar-settings-value--truncate">{{ dictationLastInputLabel }}</span>
+              </div>
 
               <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.githubTrendingProjects" @click="toggleGithubTrendingProjects">
                 <span class="sidebar-settings-label">GitHub trending projects</span>
@@ -718,7 +722,8 @@
                   @update:selected-collaboration-mode="onSelectCollaborationMode"
                   @update:selected-model="onSelectModel"
                   @update:selected-reasoning-effort="onSelectReasoningEffort"
-                  @update:selected-speed-mode="onSelectSpeedMode" />
+                  @update:selected-speed-mode="onSelectSpeedMode"
+                  @dictation-input-updated="onDictationInputUpdated" />
               </div>
             </div>
           </template>
@@ -788,6 +793,7 @@
                     @submit="onSubmitThreadMessage" @update:selected-model="onSelectModel"
                     @update:selected-reasoning-effort="onSelectReasoningEffort"
                     @update:selected-speed-mode="onSelectSpeedMode"
+                    @dictation-input-updated="onDictationInputUpdated"
                     @interrupt="onInterruptTurn" />
                 </div>
               </template>
@@ -843,6 +849,7 @@ import {
 } from './api/codexGateway'
 import type { ReasoningEffort, SpeedMode, ThreadScrollState, UiAccountEntry, UiRateLimitWindow, UiServerRequest, UiServerRequestReply, UiThreadTokenUsage } from './types/codex'
 import type { ComposerDraftPayload, ThreadComposerExposed } from './components/content/ThreadComposer.vue'
+import type { DictationAudioInputInfo } from './composables/useDictation'
 import type { GithubTipsScope, GithubTrendingProject, LocalDirectoryEntry, TelegramStatus, WorktreeBranchOption } from './api/codexGateway'
 import { getFreeModeStatus, setFreeMode, setFreeModeCustomKey, setCustomProvider } from './api/codexGateway'
 import { safeLocalStorageGetItem, safeLocalStorageSetItem, subscribeMediaQueryChange } from './browserCompat'
@@ -864,6 +871,7 @@ const SETTINGS_HELP = {
   chatWidth: 'Choose how wide the conversation column and composer can grow on desktop screens.',
   dictationClickToToggle: 'Use click-to-start and click-to-stop dictation instead of hold-to-talk.',
   dictationAutoSend: 'Automatically send transcribed dictation when recording stops.',
+  dictationLastInput: 'Last microphone reported by the browser after dictation starts.',
 
   githubTrendingProjects: 'Show or hide GitHub trending project cards on the new thread screen.',
   dictationLanguage: 'Choose transcription language or keep auto-detect.',
@@ -1115,6 +1123,7 @@ const DARK_MODE_KEY = 'codex-web-local.dark-mode.v1'
 const DICTATION_CLICK_TO_TOGGLE_KEY = 'codex-web-local.dictation-click-to-toggle.v1'
 const DICTATION_AUTO_SEND_KEY = 'codex-web-local.dictation-auto-send.v1'
 const DICTATION_LANGUAGE_KEY = 'codex-web-local.dictation-language.v1'
+const DICTATION_LAST_INPUT_KEY = 'codex-web-local.dictation-last-input.v1'
 
 const GITHUB_TRENDING_PROJECTS_KEY = 'codex-web-local.github-trending-projects.v1'
 const CHAT_WIDTH_KEY = 'codex-web-local.chat-width.v1'
@@ -1127,6 +1136,7 @@ const dictationClickToToggle = ref(loadBoolPref(DICTATION_CLICK_TO_TOGGLE_KEY, f
 const dictationAutoSend = ref(loadBoolPref(DICTATION_AUTO_SEND_KEY, true))
 const dictationLanguage = ref(loadDictationLanguagePref())
 const dictationLanguageOptions = computed(() => buildDictationLanguageOptions())
+const dictationLastInputLabel = ref(loadDictationLastInputLabel())
 
 const showGithubTrendingProjects = ref(loadBoolPref(GITHUB_TRENDING_PROJECTS_KEY, false))
 const freeModeEnabled = ref(false)
@@ -2936,6 +2946,31 @@ function onDictationLanguageChange(nextValue: string): void {
   safeLocalStorageSetItem(DICTATION_LANGUAGE_KEY, value)
 }
 
+function loadDictationLastInputLabel(): string {
+  if (typeof window === 'undefined') return 'Not recorded'
+  return safeLocalStorageGetItem(DICTATION_LAST_INPUT_KEY)?.trim() || 'Not recorded'
+}
+
+function classifyDictationInput(label: string): string {
+  const normalized = label.toLowerCase()
+  if (/airpods|bluetooth|beats|headset|hands-free|buds/u.test(normalized)) return 'Bluetooth'
+  if (/iphone|ipad|built-?in|internal|default/u.test(normalized)) return 'Built-in'
+  if (/usb|external|dock|studio|microphone/u.test(normalized)) return 'External'
+  return 'Unknown'
+}
+
+function onDictationInputUpdated(info: DictationAudioInputInfo): void {
+  const label = info.label.trim() || 'Unnamed microphone'
+  const category = classifyDictationInput(label)
+  const details = [
+    info.sampleRate ? `${String(info.sampleRate)} Hz` : '',
+    info.channelCount ? `${String(info.channelCount)} ch` : '',
+  ].filter(Boolean).join(', ')
+  const value = `${category}: ${label}${details ? ` (${details})` : ''}`
+  dictationLastInputLabel.value = value
+  safeLocalStorageSetItem(DICTATION_LAST_INPUT_KEY, value)
+}
+
 function loadDictationLanguagePref(): string {
   if (typeof window === 'undefined') return 'auto'
   const value = safeLocalStorageGetItem(DICTATION_LANGUAGE_KEY)?.trim() || 'auto'
@@ -3964,6 +3999,13 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
   @apply text-xs text-zinc-500 bg-zinc-100 rounded px-1.5 py-0.5;
 }
 
+.sidebar-settings-value--truncate {
+  @apply max-w-40 truncate text-right;
+}
+
+.sidebar-settings-dictation-input {
+  @apply cursor-default;
+}
 
 .sidebar-settings-toggle {
   @apply relative w-9 h-5 rounded-full bg-zinc-300 transition-colors shrink-0;
