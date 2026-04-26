@@ -2545,8 +2545,13 @@ function normalizeBaseUrl(url: string): string {
   return url.replace(/\/+$/, '')
 }
 
+const OPENAI_TRANSCRIPTION_BASE_URL = 'https://api.openai.com/v1'
+const GROQ_TRANSCRIPTION_BASE_URL = 'https://api.groq.com/openai/v1'
+const OPENAI_TRANSCRIPTION_MODEL = 'whisper-1'
+const GROQ_TRANSCRIPTION_MODEL = 'whisper-large-v3-turbo'
+
 function isGroqTranscriptionBaseUrl(baseUrl: string): boolean {
-  return normalizeBaseUrl(baseUrl).toLowerCase() === 'https://api.groq.com/openai/v1'
+  return normalizeBaseUrl(baseUrl).toLowerCase() === GROQ_TRANSCRIPTION_BASE_URL
 }
 
 type TranscriptionProvider = 'auto' | 'openai' | 'groq'
@@ -2561,14 +2566,17 @@ function resolveTranscriptionModel(baseUrl: string, prefersGroqModel = false): s
   const override = process.env.CODEXUI_TRANSCRIBE_MODEL?.trim()
   if (override) return override
 
-  const normalized = normalizeBaseUrl(baseUrl).toLowerCase()
   if (prefersGroqModel || isGroqTranscriptionBaseUrl(baseUrl)) {
-    return process.env.GROQ_STT_MODEL?.trim() || 'whisper-large-v3-turbo'
+    return process.env.GROQ_STT_MODEL?.trim() || GROQ_TRANSCRIPTION_MODEL
   }
 
-  return normalized === 'https://api.openai.com/v1'
-    ? 'gpt-4o-mini-transcribe'
-    : 'openai/gpt-4o-mini-transcribe'
+  return OPENAI_TRANSCRIPTION_MODEL
+}
+
+function uniqueNonEmptyValues(values: Array<string | undefined>): string[] {
+  return values
+    .map((value) => value?.trim())
+    .filter((value, index, filteredValues): value is string => Boolean(value) && filteredValues.indexOf(value) === index)
 }
 
 async function proxyTranscribeViaApiKey(
@@ -2589,18 +2597,16 @@ async function proxyTranscribeViaApiKey(
   }
 
   const usesDedicatedTranscriptionKey = Boolean(transcriptionApiKey || useGroqProvider)
-  const candidateBaseUrls = (
-    useGroqProvider
-      ? [
-          process.env.CODEXUI_TRANSCRIBE_BASE_URL?.trim(),
-          'https://api.groq.com/openai/v1',
-        ]
-      : [
-          transcriptionApiKey ? process.env.CODEXUI_TRANSCRIBE_BASE_URL?.trim() : '',
-          process.env.OPENAI_BASE_URL?.trim(),
-          'https://api.openai.com/v1',
-        ]
-  ).filter((value, index, values): value is string => Boolean(value) && values.indexOf(value) === index)
+  const candidateBaseUrls = useGroqProvider
+    ? uniqueNonEmptyValues([
+        process.env.CODEXUI_TRANSCRIBE_BASE_URL,
+        GROQ_TRANSCRIPTION_BASE_URL,
+      ])
+    : uniqueNonEmptyValues([
+        transcriptionApiKey ? process.env.CODEXUI_TRANSCRIBE_BASE_URL : undefined,
+        process.env.OPENAI_BASE_URL,
+        OPENAI_TRANSCRIPTION_BASE_URL,
+      ])
   const language =
     parsed.fields.language?.trim() ||
     (usesDedicatedTranscriptionKey ? process.env.CODEXUI_TRANSCRIBE_LANGUAGE?.trim() : '') ||

@@ -3129,7 +3129,7 @@ Voice transcription can be forced to OpenAI with `CODEXUI_TRANSCRIBE_PROVIDER=op
 6. Repeat the same microphone dictation flow.
 
 #### Expected Results
-- With `CODEXUI_TRANSCRIBE_PROVIDER=openai`, `/codex-api/transcribe` sends the audio to the OpenAI transcription endpoint and uses the default `gpt-4o-mini-transcribe` model unless `CODEXUI_TRANSCRIBE_MODEL` overrides it.
+- With `CODEXUI_TRANSCRIBE_PROVIDER=openai`, `/codex-api/transcribe` sends the audio to the OpenAI transcription endpoint and uses the default `whisper-1` model unless `CODEXUI_TRANSCRIBE_MODEL` overrides it.
 - Existing Groq variables do not force Groq routing, model, or default language while OpenAI is selected.
 - With `CODEXUI_TRANSCRIBE_PROVIDER=groq`, the previous Groq STT route remains available and defaults to `whisper-large-v3-turbo` unless overridden.
 

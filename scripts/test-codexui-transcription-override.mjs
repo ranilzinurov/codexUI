@@ -204,7 +204,7 @@ async function run() {
     if (requests[0].authorization !== 'Bearer default-key') {
       throw new Error(`Unexpected auth header with OpenAI provider selected: ${requests[0].authorization}`)
     }
-    if (!requests[0].body.includes('name="model"') || !requests[0].body.includes('\r\n\r\nopenai/gpt-4o-mini-transcribe\r\n')) {
+    if (!requests[0].body.includes('name="model"') || !requests[0].body.includes('\r\n\r\nwhisper-1\r\n')) {
       throw new Error('Expected OpenAI transcription model when OpenAI provider is selected')
     }
     if (requests[0].body.includes('name="language"')) {

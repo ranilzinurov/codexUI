@@ -178,7 +178,7 @@ Supported server env vars:
 - `CODEXUI_TRANSCRIBE_LANGUAGE`
 
 Set `CODEXUI_TRANSCRIBE_PROVIDER=openai` to test OpenAI transcription while leaving existing Groq environment variables in place.
-OpenAI uses `gpt-4o-mini-transcribe` by default.
+OpenAI uses `whisper-1` by default.
 
 Setup and rollback notes are documented in [documentation/VOICE_TRANSCRIPTION_OVERRIDE.md](documentation/VOICE_TRANSCRIPTION_OVERRIDE.md). The STT-specific base URL and language overrides only apply when `CODEXUI_TRANSCRIBE_API_KEY` is set.
 

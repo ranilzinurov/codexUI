@@ -26,9 +26,8 @@ In that fallback mode, `CODEXUI_TRANSCRIBE_BASE_URL` and `CODEXUI_TRANSCRIBE_LAN
 In `auto` mode, an existing `GROQ_API_KEY` keeps the Groq STT path active unless `CODEXUI_TRANSCRIBE_API_KEY` is set.
 Set `CODEXUI_TRANSCRIBE_PROVIDER=openai` to force OpenAI transcription while leaving Groq environment variables in place.
 
-For OpenAI transcription, the default model is `gpt-4o-mini-transcribe`.
-At the time this was added, OpenAI lists it at `$0.003 / minute`, while `whisper-1` is listed at `$0.006 / minute`.
-Override with `CODEXUI_TRANSCRIBE_MODEL=whisper-1` if you specifically want the older Whisper model.
+For OpenAI transcription, the default model is `whisper-1`.
+Override with `CODEXUI_TRANSCRIBE_MODEL=gpt-4o-mini-transcribe` if you want the lower-priced OpenAI transcription model later.
 
 ## Example: OpenAI STT while keeping Groq env vars
 
