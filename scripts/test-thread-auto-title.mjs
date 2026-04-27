@@ -15,6 +15,13 @@ function assertEqual(actual, expected, label) {
   }
 }
 
+function restoreEnv(snapshot) {
+  for (const [key, value] of Object.entries(snapshot)) {
+    if (value === undefined) delete process.env[key]
+    else process.env[key] = value
+  }
+}
+
 async function loadTitleGenerator() {
   const sourcePath = join(rootDir, 'src/server/threadAutoTitle.ts')
   const source = await readFile(sourcePath, 'utf8')
@@ -86,6 +93,7 @@ async function runModelTitleTest(generateThreadTitleFromConversationWithModel) {
   const previousEnv = {
     CODEXUI_THREAD_TITLE_API_KEY: process.env.CODEXUI_THREAD_TITLE_API_KEY,
     CODEXUI_THREAD_TITLE_BASE_URL: process.env.CODEXUI_THREAD_TITLE_BASE_URL,
+    CODEXUI_THREAD_TITLE_LLM: process.env.CODEXUI_THREAD_TITLE_LLM,
     CODEXUI_THREAD_TITLE_MODEL: process.env.CODEXUI_THREAD_TITLE_MODEL,
     CODEXUI_THREAD_TITLE_REASONING_EFFORT: process.env.CODEXUI_THREAD_TITLE_REASONING_EFFORT,
     CODEXUI_THREAD_TITLE_TIMEOUT_MS: process.env.CODEXUI_THREAD_TITLE_TIMEOUT_MS,
@@ -95,6 +103,7 @@ async function runModelTitleTest(generateThreadTitleFromConversationWithModel) {
     const port = await listen(server)
     process.env.CODEXUI_THREAD_TITLE_API_KEY = 'title-test-key'
     process.env.CODEXUI_THREAD_TITLE_BASE_URL = `http://127.0.0.1:${String(port)}/v1`
+    process.env.CODEXUI_THREAD_TITLE_LLM = 'on'
     process.env.CODEXUI_THREAD_TITLE_MODEL = 'gpt-5.5'
     process.env.CODEXUI_THREAD_TITLE_REASONING_EFFORT = 'low'
     process.env.CODEXUI_THREAD_TITLE_TIMEOUT_MS = '3000'
@@ -118,11 +127,37 @@ async function runModelTitleTest(generateThreadTitleFromConversationWithModel) {
       throw new Error('Expected compact title instruction')
     }
   } finally {
-    for (const [key, value] of Object.entries(previousEnv)) {
-      if (value === undefined) delete process.env[key]
-      else process.env[key] = value
-    }
+    restoreEnv(previousEnv)
     await new Promise((resolve) => server.close(resolve))
+  }
+}
+
+async function runModelTitleDisabledTest(generateThreadTitleFromConversationWithModel) {
+  const previousEnv = {
+    CODEXUI_THREAD_TITLE_API_KEY: process.env.CODEXUI_THREAD_TITLE_API_KEY,
+    CODEXUI_THREAD_TITLE_LLM: process.env.CODEXUI_THREAD_TITLE_LLM,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  }
+
+  try {
+    delete process.env.CODEXUI_THREAD_TITLE_API_KEY
+    delete process.env.OPENAI_API_KEY
+    process.env.CODEXUI_THREAD_TITLE_LLM = 'on'
+    assertEqual(
+      await generateThreadTitleFromConversationWithModel('Create a tracker task', 'Done.'),
+      '',
+      'Model title generation should no-op without an API key',
+    )
+
+    process.env.CODEXUI_THREAD_TITLE_API_KEY = 'unused-key'
+    process.env.CODEXUI_THREAD_TITLE_LLM = 'off'
+    assertEqual(
+      await generateThreadTitleFromConversationWithModel('Create a tracker task', 'Done.'),
+      '',
+      'Model title generation should respect the off switch',
+    )
+  } finally {
+    restoreEnv(previousEnv)
   }
 }
 
@@ -160,6 +195,7 @@ async function run() {
     }
 
     await runModelTitleTest(generateThreadTitleFromConversationWithModel)
+    await runModelTitleDisabledTest(generateThreadTitleFromConversationWithModel)
 
     console.log('Thread auto-title tests OK')
   } finally {
