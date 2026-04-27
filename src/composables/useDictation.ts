@@ -16,6 +16,7 @@ const DICTATION_BAR_GAP = 2
 const MAX_WAVEFORM_SAMPLES = 256
 const DICTATION_MEDIA_CONSTRAINTS: MediaStreamConstraints = { audio: { channelCount: 1 } }
 const DICTATION_AUDIO_BITS_PER_SECOND = 64000
+const DICTATION_STOP_GRACE_MS = 500
 const DICTATION_MIME_TYPE_CANDIDATES = [
   'audio/webm;codecs=opus',
   'audio/ogg;codecs=opus',
@@ -104,6 +105,8 @@ export function useDictation(options: {
   let waveformSamples: number[] = []
   let isStartingRecording = false
   let stopRequestedBeforeStart = false
+  let isStoppingRecording = false
+  let stopGraceTimeout: number | null = null
   let transcribeAbortController: AbortController | null = null
   let pendingTranscription: StoredDictationRecording | null = null
 
@@ -272,6 +275,7 @@ export function useDictation(options: {
       startWaveformCapture(mediaStream)
       mediaRecorder.start(250)
       state.value = 'recording'
+      isStoppingRecording = false
       if (stopRequestedBeforeStart) {
         stopRecording()
       }
@@ -290,14 +294,26 @@ export function useDictation(options: {
       return
     }
     if (state.value !== 'recording' || !mediaRecorder) return
-    if (mediaRecorder.state !== 'inactive') {
-      state.value = 'transcribing'
+    if (mediaRecorder.state === 'inactive' || isStoppingRecording) return
+
+    isStoppingRecording = true
+    state.value = 'transcribing'
+    stopGraceTimeout = window.setTimeout(() => {
+      stopGraceTimeout = null
+      if (!mediaRecorder || mediaRecorder.state === 'inactive') return
       try {
         mediaRecorder.requestData()
       } catch {
         // Some browsers do not allow requestData in every recorder state.
       }
       mediaRecorder.stop()
+    }, DICTATION_STOP_GRACE_MS)
+  }
+
+  function clearStopGraceTimeout(): void {
+    if (stopGraceTimeout) {
+      window.clearTimeout(stopGraceTimeout)
+      stopGraceTimeout = null
     }
   }
 
@@ -366,6 +382,8 @@ export function useDictation(options: {
   }
 
   function cleanup() {
+    clearStopGraceTimeout()
+    isStoppingRecording = false
     stopWaveformCapture()
     resetWaveformDisplay()
     if (mediaRecorder) {

@@ -3228,3 +3228,29 @@ Voice dictation saves the completed recording before upload, retries transient t
 - Restore the normal network connection and transcription provider configuration.
 - If a test recording remains saved, click the microphone button in that same thread after restoring the provider so it can transcribe and clear.
 - Browser storage can be cleared for the site to remove any intentionally stranded local test recording.
+
+### Feature: Dictation stop tail capture
+
+#### Feature/Change Name
+Voice dictation keeps recording for a short grace period after Stop before flushing the final browser recorder data, reducing lost final words or sentences on mobile/PWA browsers.
+
+#### Prerequisites/Setup
+1. Open Codex UI in a browser or installed PWA with microphone permission available.
+2. Open a Codex thread with the composer microphone button visible.
+3. Use a working transcription provider.
+
+#### Steps
+1. Start voice dictation from the composer microphone button.
+2. Say a phrase where the final words come immediately before pressing Stop, for example: "Please write this down, final sentence alpha beta gamma."
+3. Press Stop immediately after the last word.
+4. Wait for transcription to finish.
+5. Repeat the test several times on the target mobile device or PWA.
+
+#### Expected Results
+- The composer enters transcribing state immediately after Stop, but the recorder waits briefly before finalizing the audio.
+- The resulting transcription includes the final words more consistently than an immediate stop.
+- The saved-transcription retry behavior still works if the upload fails after the delayed finalization.
+
+#### Rollback/Cleanup
+- Stop any active dictation.
+- Clear any intentionally stranded local test recording from browser storage if a failure test left one behind.
