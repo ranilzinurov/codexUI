@@ -406,6 +406,12 @@ After each feature implementation session that uses this skill:
 - App-server RPC for rename uses method `thread/name/set` with params `{ threadId, name }` (not `threadName`).
 - `thread/name/updated` realtime notification carries `{ threadId, threadName }`, so parity implementations should handle both request/response naming differences (`name` on write, `threadName` on notification).
 
+## Findings: Automatic Thread Title Generation (2026-04-27)
+
+- Official Codex App Server docs document `thread/name/set` as the stable way to set or update a user-facing thread name for loaded or persisted threads.
+- The public app-server protocol docs and generated schemas in this repo do not expose a dedicated `thread/name/generate` or automatic title-summarization RPC; title generation remains a client responsibility before calling `thread/name/set`.
+- OpenAI API docs for GPT-5.5 recommend `reasoning.effort` selection via the Responses API; for short title generation, `low` is a reasonable latency/cost-focused setting with a small `max_output_tokens` cap.
+
 ## Findings: Local Parity Fallback (2026-03-27)
 
 - In this workspace, `/Applications/Codex.app/Contents/Resources/app.asar` was not present, so Codex.app-first inspection could not run.

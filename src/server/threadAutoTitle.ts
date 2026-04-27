@@ -12,6 +12,21 @@ type TitleSource = {
   assistantText: string
 }
 
+type ResponsesApiOutputContent = {
+  type?: string
+  text?: string
+}
+
+type ResponsesApiOutputItem = {
+  type?: string
+  content?: ResponsesApiOutputContent[]
+}
+
+type ResponsesApiPayload = {
+  output_text?: string
+  output?: ResponsesApiOutputItem[]
+}
+
 type Candidate = {
   text: string
   source: 'assistant' | 'user'
@@ -30,6 +45,10 @@ const MAX_TITLE_LENGTH = 72
 const MAX_TITLE_WORDS = 10
 const MAX_REMEMBERED_THREAD_IDS = 5_000
 const MAX_COUNTERPARTY_WORDS = 3
+const DEFAULT_TITLE_MODEL = 'gpt-5.5'
+const DEFAULT_TITLE_REASONING_EFFORT = 'low'
+const DEFAULT_TITLE_TIMEOUT_MS = 8_000
+const TITLE_MODEL_MAX_OUTPUT_TOKENS = 80
 
 const GENERIC_LINE_PATTERNS = [
   /^(yes|yeah|sure|done|ready|ok|okay|got it)[.!:,\s-]*$/iu,
@@ -422,6 +441,110 @@ function finalizeTitle(value: string): string {
   return `${limited.charAt(0).toLocaleUpperCase()}${limited.slice(1)}`
 }
 
+function normalizeBaseUrl(value: string): string {
+  return value.replace(/\/+$/u, '')
+}
+
+function parsePositiveInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value?.trim() ?? '', 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+function shouldUseModelTitleGeneration(): boolean {
+  const value = process.env.CODEXUI_THREAD_TITLE_LLM?.trim().toLowerCase()
+  return value !== '0' && value !== 'false' && value !== 'off'
+}
+
+function readThreadTitleApiKey(): string {
+  return process.env.CODEXUI_THREAD_TITLE_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim() || ''
+}
+
+function readThreadTitleBaseUrl(): string {
+  return normalizeBaseUrl(
+    process.env.CODEXUI_THREAD_TITLE_BASE_URL?.trim() ||
+    process.env.OPENAI_BASE_URL?.trim() ||
+    'https://api.openai.com/v1',
+  )
+}
+
+function readThreadTitleModel(): string {
+  return process.env.CODEXUI_THREAD_TITLE_MODEL?.trim() || DEFAULT_TITLE_MODEL
+}
+
+function readThreadTitleReasoningEffort(): string {
+  return process.env.CODEXUI_THREAD_TITLE_REASONING_EFFORT?.trim() || DEFAULT_TITLE_REASONING_EFFORT
+}
+
+function buildModelTitleInput(userText: string, assistantText: string): string {
+  return [
+    'First user message:',
+    userText || '(empty)',
+    '',
+    'First assistant message:',
+    assistantText || '(empty)',
+  ].join('\n')
+}
+
+function extractResponseText(payload: ResponsesApiPayload): string {
+  if (typeof payload.output_text === 'string') return payload.output_text
+  const parts = payload.output
+    ?.flatMap((item) => item.content ?? [])
+    .map((content) => content.text ?? '')
+    .filter(Boolean) ?? []
+  return parts.join(' ')
+}
+
+function cleanModelTitle(value: string): string {
+  return finalizeTitle(value
+    .replace(/^["'“”«»]+|["'“”«»]+$/gu, '')
+    .replace(/^title\s*:\s*/iu, '')
+    .replace(/^название\s*:\s*/iu, ''))
+}
+
+export async function generateThreadTitleFromConversationWithModel(
+  userText: string,
+  assistantText: string,
+): Promise<string> {
+  if (!shouldUseModelTitleGeneration()) return ''
+
+  const apiKey = readThreadTitleApiKey()
+  if (!apiKey) return ''
+
+  const user = compactSourceText(userText)
+  const assistant = compactSourceText(assistantText)
+  const model = readThreadTitleModel()
+  const effort = readThreadTitleReasoningEffort()
+  const timeoutMs = parsePositiveInteger(process.env.CODEXUI_THREAD_TITLE_TIMEOUT_MS, DEFAULT_TITLE_TIMEOUT_MS)
+  const response = await fetch(`${readThreadTitleBaseUrl()}/responses`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      reasoning: { effort },
+      instructions: [
+        'Create a concise chat thread title from the first user message and first assistant reply.',
+        'Use the same language as the user. Return only the title, without quotes or punctuation.',
+        'Use 3 to 7 words. Summarize the intent; do not copy or truncate the original message.',
+      ].join(' '),
+      input: buildModelTitleInput(user, assistant),
+      max_output_tokens: TITLE_MODEL_MAX_OUTPUT_TOKENS,
+      store: false,
+    }),
+    signal: AbortSignal.timeout(timeoutMs),
+  })
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '')
+    throw new Error(`thread title model request failed (${response.status}): ${body.slice(0, 300)}`)
+  }
+
+  const payload = await response.json() as ResponsesApiPayload
+  return cleanModelTitle(extractResponseText(payload))
+}
+
 export function generateThreadTitleFromConversation(userText: string, assistantText: string): string {
   const user = compactSourceText(userText)
   const assistant = compactSourceText(assistantText)
@@ -553,7 +676,18 @@ export class ThreadAutoTitleManager {
         return
       }
 
-      const title = generateThreadTitleFromConversation(source.userText, source.assistantText)
+      let title = ''
+      try {
+        title = await generateThreadTitleFromConversationWithModel(source.userText, source.assistantText)
+      } catch (error) {
+        console.warn('[thread-title]', 'Model title generation failed; falling back to local title', {
+          threadId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+      if (!title) {
+        title = generateThreadTitleFromConversation(source.userText, source.assistantText)
+      }
       if (!title) return
 
       await this.appServer.rpc('thread/name/set', {

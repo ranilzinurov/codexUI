@@ -3035,12 +3035,13 @@ Focused desktop web tabs report active thread presence so completed-task web pus
 ### Feature: Automatic thread names from the first exchange
 
 #### Feature/Change Name
-Codex UI listens for the first completed turn of an unnamed thread, derives a concise title from the first user message plus first assistant response, and writes the generated name through `thread/name/set`.
+Codex UI listens for the first completed turn of an unnamed thread, asks a low-effort title model to summarize the first user message plus first assistant response, and writes the generated name through `thread/name/set`. If model title generation is unavailable, it falls back to the local title generator.
 
 #### Prerequisites/Setup
 1. App server is running from this repository.
 2. The thread list is visible in Codex UI.
 3. A new chat can be started from the home view.
+4. For model-generated titles, `OPENAI_API_KEY` or `CODEXUI_THREAD_TITLE_API_KEY` is configured. Optional overrides: `CODEXUI_THREAD_TITLE_MODEL`, `CODEXUI_THREAD_TITLE_REASONING_EFFORT`, `CODEXUI_THREAD_TITLE_BASE_URL`, `CODEXUI_THREAD_TITLE_LLM=off`.
 
 #### Steps
 1. Start a new thread with a concrete feature request that takes long enough to produce an assistant response.
@@ -3058,7 +3059,7 @@ Codex UI listens for the first completed turn of an unnamed thread, derives a co
 - The manually renamed thread keeps the manual title and is not overwritten by automatic naming.
 - Generated titles prefer the same language/script as the first user message.
 - Pasted English logs or terminal output inside a Russian first message do not cause an English generated title; the title stays Russian and is derived from the leading user request.
-- Tracker-task requests are summarized by intent instead of truncated from the first message; the example request should become `Задача в трекер для Бубуки` or an equivalently short semantic title.
+- Tracker-task requests are summarized by intent instead of truncated from the first message; the example request should become a short semantic title such as `Задача в трекер для Бубуки`.
 
 #### Rollback/Cleanup
 - Manually rename any test threads back to their preferred names, or archive the test threads.

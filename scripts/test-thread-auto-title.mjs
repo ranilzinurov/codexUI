@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createServer } from 'node:http'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -31,12 +32,106 @@ async function loadTitleGenerator() {
   const module = await import(pathToFileURL(tempModulePath).href)
   return {
     generateThreadTitleFromConversation: module.generateThreadTitleFromConversation,
+    generateThreadTitleFromConversationWithModel: module.generateThreadTitleFromConversationWithModel,
     cleanup: () => rm(tempDir, { force: true, recursive: true }),
   }
 }
 
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = []
+    req.on('data', (chunk) => chunks.push(chunk))
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')))
+      } catch (error) {
+        reject(error)
+      }
+    })
+    req.on('error', reject)
+  })
+}
+
+function listen(server) {
+  return new Promise((resolve, reject) => {
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address()
+      if (!address || typeof address === 'string') {
+        reject(new Error('Could not bind test server'))
+        return
+      }
+      resolve(address.port)
+    })
+  })
+}
+
+async function runModelTitleTest(generateThreadTitleFromConversationWithModel) {
+  const requests = []
+  const server = createServer(async (req, res) => {
+    try {
+      requests.push({
+        method: req.method,
+        url: req.url,
+        authorization: req.headers.authorization,
+        body: await readJsonBody(req),
+      })
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ output_text: '"Задача в трекер для Бубуки."' }))
+    } catch (error) {
+      res.writeHead(500, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }))
+    }
+  })
+
+  const previousEnv = {
+    CODEXUI_THREAD_TITLE_API_KEY: process.env.CODEXUI_THREAD_TITLE_API_KEY,
+    CODEXUI_THREAD_TITLE_BASE_URL: process.env.CODEXUI_THREAD_TITLE_BASE_URL,
+    CODEXUI_THREAD_TITLE_MODEL: process.env.CODEXUI_THREAD_TITLE_MODEL,
+    CODEXUI_THREAD_TITLE_REASONING_EFFORT: process.env.CODEXUI_THREAD_TITLE_REASONING_EFFORT,
+    CODEXUI_THREAD_TITLE_TIMEOUT_MS: process.env.CODEXUI_THREAD_TITLE_TIMEOUT_MS,
+  }
+
+  try {
+    const port = await listen(server)
+    process.env.CODEXUI_THREAD_TITLE_API_KEY = 'title-test-key'
+    process.env.CODEXUI_THREAD_TITLE_BASE_URL = `http://127.0.0.1:${String(port)}/v1`
+    process.env.CODEXUI_THREAD_TITLE_MODEL = 'gpt-5.5'
+    process.env.CODEXUI_THREAD_TITLE_REASONING_EFFORT = 'low'
+    process.env.CODEXUI_THREAD_TITLE_TIMEOUT_MS = '3000'
+
+    const title = await generateThreadTitleFromConversationWithModel(
+      'поставь задачу в трекере дождаться от Бубуки 3002 руб',
+      'Готово, задача создана.',
+    )
+    assertEqual(title, 'Задача в трекер для Бубуки', 'Model title response should be sanitized')
+
+    const request = requests[0]
+    if (!request) throw new Error('Expected one title model request')
+    assertEqual(request.method, 'POST', 'Model title request method')
+    assertEqual(request.url, '/v1/responses', 'Model title request path')
+    assertEqual(request.authorization, 'Bearer title-test-key', 'Model title request auth')
+    assertEqual(request.body.model, 'gpt-5.5', 'Model title request model')
+    assertEqual(request.body.reasoning?.effort, 'low', 'Model title request reasoning effort')
+    assertEqual(request.body.max_output_tokens, 80, 'Model title max output tokens')
+    assertEqual(request.body.store, false, 'Model title request should not store responses')
+    if (!String(request.body.instructions).includes('Use 3 to 7 words')) {
+      throw new Error('Expected compact title instruction')
+    }
+  } finally {
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+    await new Promise((resolve) => server.close(resolve))
+  }
+}
+
 async function run() {
-  const { generateThreadTitleFromConversation, cleanup } = await loadTitleGenerator()
+  const {
+    generateThreadTitleFromConversation,
+    generateThreadTitleFromConversationWithModel,
+    cleanup,
+  } = await loadTitleGenerator()
   try {
     assertEqual(
       generateThreadTitleFromConversation(
@@ -63,6 +158,8 @@ async function run() {
     if (!/[А-Яа-яЁё]/u.test(russianTitle)) {
       throw new Error(`Russian-leading prompt should keep a Russian title, got "${russianTitle}"`)
     }
+
+    await runModelTitleTest(generateThreadTitleFromConversationWithModel)
 
     console.log('Thread auto-title tests OK')
   } finally {
