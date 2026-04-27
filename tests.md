@@ -2183,12 +2183,12 @@ Toggle "Free mode" in settings to use free OpenRouter models without an OpenAI A
 1. Right-click (or long-press) a thread in the sidebar to open the context menu.
 2. Click **Delete thread**.
 3. Confirm no secondary confirmation dialog appears.
-4. Confirm the selected thread is immediately archived/removed from the visible thread list.
+4. Confirm the selected thread is immediately archived/removed from the visible thread list without reloading the page.
 5. Repeat with a pinned thread and confirm the pinned row is removed.
 6. Repeat with a thread that has heartbeat automation and confirm the thread is archived and the automation chip no longer appears.
 
 #### Expected Results
-- The menu action archives the thread immediately after clicking **Delete thread**.
+- The menu action archives the thread immediately after clicking **Delete thread**, and the sidebar updates without a page reload.
 - Pinned state is cleaned up for the removed thread.
 - Attached heartbeat automation is deleted before archiving when present; archive still proceeds if automation cleanup fails.
 

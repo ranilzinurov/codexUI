@@ -945,6 +945,46 @@ function mergeThreadGroups(
   return areGroupArraysEqual(previous, mergedGroups) ? previous : mergedGroups
 }
 
+function removeThreadFromGroups(groups: UiProjectGroup[], threadId: string): UiProjectGroup[] {
+  if (!threadId) return groups
+
+  let changed = false
+  const nextGroups: UiProjectGroup[] = []
+  for (const group of groups) {
+    const nextThreads = group.threads.filter((thread) => thread.id !== threadId)
+    if (nextThreads.length !== group.threads.length) {
+      changed = true
+    }
+    if (nextThreads.length > 0) {
+      nextGroups.push(nextThreads === group.threads ? group : { ...group, threads: nextThreads })
+    } else if (group.threads.length > 0) {
+      changed = true
+    }
+  }
+
+  return changed ? nextGroups : groups
+}
+
+function filterThreadGroupsByExcludedIds(groups: UiProjectGroup[], excludedThreadIds: Set<string>): UiProjectGroup[] {
+  if (excludedThreadIds.size === 0) return groups
+
+  let changed = false
+  const nextGroups: UiProjectGroup[] = []
+  for (const group of groups) {
+    const nextThreads = group.threads.filter((thread) => !excludedThreadIds.has(thread.id))
+    if (nextThreads.length !== group.threads.length) {
+      changed = true
+    }
+    if (nextThreads.length > 0) {
+      nextGroups.push(nextThreads === group.threads ? group : { ...group, threads: nextThreads })
+    } else if (group.threads.length > 0) {
+      changed = true
+    }
+  }
+
+  return changed ? nextGroups : groups
+}
+
 function mergeIncomingWithLocalInProgressThreads(
   previous: UiProjectGroup[],
   incoming: UiProjectGroup[],
@@ -1140,6 +1180,7 @@ export function useDesktopState() {
   let shouldAutoScrollOnNextAgentEvent = false
   const pendingTurnStartsById = new Map<string, TurnStartedInfo>()
   const fallbackRetryInFlightThreadIds = new Set<string>()
+  const locallyArchivedThreadIds = new Set<string>()
 
 
   const allThreads = computed(() => flattenThreads(projectGroups.value))
@@ -3570,7 +3611,10 @@ export function useDesktopState() {
   }
 
   function applyThreadGroups(groups: UiProjectGroup[], rootsState: WorkspaceRootsState | null): void {
-    const visibleGroups = filterGroupsByWorkspaceRoots(groups, rootsState)
+    const visibleGroups = filterThreadGroupsByExcludedIds(
+      filterGroupsByWorkspaceRoots(groups, rootsState),
+      locallyArchivedThreadIds,
+    )
 
     const nextProjectOrder = mergeProjectOrder(projectOrder.value, visibleGroups)
     if (!areStringArraysEqual(projectOrder.value, nextProjectOrder)) {
@@ -3877,14 +3921,31 @@ export function useDesktopState() {
   }
 
   async function archiveThreadById(threadId: string) {
+    const previousSourceGroups = sourceGroups.value
+    const previousProjectGroups = projectGroups.value
+    const previousLoadedThreadListGroups = loadedThreadListGroups
+    const previousSelectedThreadId = selectedThreadId.value
+
     try {
+      locallyArchivedThreadIds.add(threadId)
+      loadedThreadListGroups = removeThreadFromGroups(loadedThreadListGroups, threadId)
+      sourceGroups.value = removeThreadFromGroups(sourceGroups.value, threadId)
+      projectGroups.value = removeThreadFromGroups(projectGroups.value, threadId)
+      const flatThreads = flattenThreads(projectGroups.value)
+      if (selectedThreadId.value === threadId) {
+        setSelectedThreadId(flatThreads[0]?.id ?? '')
+      }
+
       await archiveThread(threadId)
       await loadThreads()
-
-      if (selectedThreadId.value === threadId) {
-        await loadMessages(selectedThreadId.value)
-      }
     } catch (unknownError) {
+      locallyArchivedThreadIds.delete(threadId)
+      loadedThreadListGroups = previousLoadedThreadListGroups
+      sourceGroups.value = previousSourceGroups
+      projectGroups.value = previousProjectGroups
+      if (selectedThreadId.value !== previousSelectedThreadId) {
+        setSelectedThreadId(previousSelectedThreadId)
+      }
       error.value = unknownError instanceof Error ? unknownError.message : 'Unknown application error'
     }
   }
