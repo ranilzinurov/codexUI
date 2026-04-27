@@ -19,12 +19,17 @@ type Candidate = {
 }
 
 type PreferredTitleScript = 'cyrillic' | 'latin' | ''
+type CounterpartyReference = {
+  name: string
+  relation: 'for' | 'about'
+}
 
 const RETRY_DELAYS_MS = [1_000, 3_000, 8_000]
 const MAX_SOURCE_TEXT_LENGTH = 4_000
 const MAX_TITLE_LENGTH = 72
 const MAX_TITLE_WORDS = 10
 const MAX_REMEMBERED_THREAD_IDS = 5_000
+const MAX_COUNTERPARTY_WORDS = 3
 
 const GENERIC_LINE_PATTERNS = [
   /^(yes|yeah|sure|done|ready|ok|okay|got it)[.!:,\s-]*$/iu,
@@ -93,6 +98,7 @@ const STOP_WORDS = new Set([
   'в',
   'вот',
   'для',
+  'за',
   'если',
   'как',
   'когда',
@@ -114,6 +120,27 @@ const STOP_WORDS = new Set([
   'этот',
   'чтобы',
 ])
+
+const COUNTERPARTY_STOP_WORDS = new Set([
+  'it',
+  'me',
+  'them',
+  'us',
+  'you',
+  'завтра',
+  'меня',
+  'нас',
+  'него',
+  'нее',
+  'неё',
+  'них',
+  'руб',
+  'рублей',
+  'рубля',
+  'сегодня',
+])
+
+const COUNTERPARTY_PREPOSITION_PATTERN = '(от|От|для|Для|по|По|у|У|к|К|from|From|for|For|about|About|with|With)'
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -192,6 +219,130 @@ function extractKeywords(value: string): Set<string> {
     .toLowerCase()
     .match(/[\p{L}\p{N}][\p{L}\p{N}#+-]{2,}/gu) ?? []
   return new Set(words.filter((word) => word.length > 3 && !STOP_WORDS.has(word)))
+}
+
+function extractQuotedSegments(value: string): string[] {
+  return Array.from(value.matchAll(/["“«„]([^"“”«»„]{3,180})["”»]/gu))
+    .map((match) => normalizeSpaces(match[1] ?? ''))
+    .filter(Boolean)
+}
+
+function looksLikeRussianTrackerTask(value: string): boolean {
+  const lower = stripMarkdown(value).toLowerCase()
+  return /(?:^|[^\p{L}\p{N}_])задач[а-яё]*/iu.test(lower) &&
+    /(?:^|[^\p{L}\p{N}_])(?:трекер[а-яё]*|рабоч(?:их|ие|ую|ая)?\s+задач[а-яё]*)/iu.test(lower)
+}
+
+function looksLikeEnglishTrackerTask(value: string): boolean {
+  const lower = stripMarkdown(value).toLowerCase()
+  return /\b(?:task|todo|ticket)s?\b/iu.test(lower) &&
+    /\b(?:tracker|work\s+tasks?|task\s+tracker)\b/iu.test(lower)
+}
+
+function cleanCounterpartyName(value: string): string {
+  const cleaned = normalizeSpaces(value
+    .replace(/[()[\]{}"“”«».,:;!?]+/gu, ' ')
+    .replace(/\b(?:rub|rubles?|руб(?:лей|ля)?)\b/giu, ' '))
+  const words = cleaned.split(/\s+/u).filter(Boolean)
+  const limitedWords: string[] = []
+
+  for (const word of words) {
+    const normalized = word.toLowerCase()
+    if (COUNTERPARTY_STOP_WORDS.has(normalized)) break
+    if (/^\d+([.,]\d+)?$/u.test(word)) break
+    limitedWords.push(word)
+    if (limitedWords.length >= MAX_COUNTERPARTY_WORDS) break
+  }
+
+  return limitedWords.join(' ')
+}
+
+function toCounterpartyRelation(preposition: string): CounterpartyReference['relation'] {
+  const normalized = preposition.toLowerCase()
+  return normalized === 'по' || normalized === 'about' ? 'about' : 'for'
+}
+
+function isAllowedCounterpartyName(value: string): boolean {
+  const normalized = value.toLowerCase()
+  return normalized.length > 0 && !COUNTERPARTY_STOP_WORDS.has(normalized)
+}
+
+function extractCounterpartyReference(value: string): CounterpartyReference | null {
+  const text = stripMarkdown(value)
+  const properNamePattern = new RegExp(
+    `(?:^|[^\\p{L}\\p{N}_])${COUNTERPARTY_PREPOSITION_PATTERN}\\s+([A-ZА-ЯЁ][\\p{L}\\p{N}._-]*(?:\\s+[A-ZА-ЯЁ][\\p{L}\\p{N}._-]*){0,2})`,
+    'gu',
+  )
+  for (const match of text.matchAll(properNamePattern)) {
+    const name = cleanCounterpartyName(match[2] ?? '')
+    if (isAllowedCounterpartyName(name)) {
+      return {
+        name,
+        relation: toCounterpartyRelation(match[1] ?? ''),
+      }
+    }
+  }
+
+  const plainNamePattern = new RegExp(
+    `(?:^|[^\\p{L}\\p{N}_])${COUNTERPARTY_PREPOSITION_PATTERN}\\s+([\\p{L}][\\p{L}._-]{2,})`,
+    'gu',
+  )
+  for (const match of text.matchAll(plainNamePattern)) {
+    const name = cleanCounterpartyName(match[2] ?? '')
+    if (isAllowedCounterpartyName(name)) {
+      return {
+        name,
+        relation: toCounterpartyRelation(match[1] ?? ''),
+      }
+    }
+  }
+
+  return null
+}
+
+function titleWithCounterparty(baseTitle: string, reference: CounterpartyReference | null, script: PreferredTitleScript): string {
+  if (!reference) return baseTitle
+  if (script === 'latin') {
+    const preposition = reference.relation === 'about' ? 'about' : 'for'
+    return `${baseTitle} ${preposition} ${reference.name}`
+  }
+
+  const preposition = reference.relation === 'about' ? 'по' : 'для'
+  return `${baseTitle} ${preposition} ${reference.name}`
+}
+
+function findCounterpartyReference(userText: string, assistantText: string): CounterpartyReference | null {
+  const searchTexts = [
+    ...extractQuotedSegments(userText),
+    userText,
+    assistantText,
+  ]
+
+  for (const text of searchTexts) {
+    const reference = extractCounterpartyReference(text)
+    if (reference) return reference
+  }
+
+  return null
+}
+
+function deriveTrackerTaskTitle(
+  userText: string,
+  assistantText: string,
+  preferredScript: PreferredTitleScript,
+): string {
+  const russianTrackerTask = looksLikeRussianTrackerTask(userText)
+  const englishTrackerTask = looksLikeEnglishTrackerTask(userText)
+  if (!russianTrackerTask && !englishTrackerTask) return ''
+
+  const script = preferredScript || (russianTrackerTask ? 'cyrillic' : 'latin')
+  const baseTitle = script === 'latin' ? 'Tracker task' : 'Задача в трекер'
+  const counterparty = findCounterpartyReference(userText, assistantText)
+  return finalizeTitle(titleWithCounterparty(baseTitle, counterparty, script))
+}
+
+function deriveSemanticTitle(userText: string, assistantText: string, preferredScript: PreferredTitleScript): string {
+  return deriveTrackerTaskTitle(userText, assistantText, preferredScript)
 }
 
 function countMatches(value: string, pattern: RegExp): number {
@@ -275,8 +426,11 @@ export function generateThreadTitleFromConversation(userText: string, assistantT
   const user = compactSourceText(userText)
   const assistant = compactSourceText(assistantText)
 
-  const userKeywords = extractKeywords(user)
   const preferredScript = detectPreferredTitleScriptFromUserPrompt(user)
+  const semanticTitle = deriveSemanticTitle(user, assistant, preferredScript)
+  if (semanticTitle) return semanticTitle
+
+  const userKeywords = extractKeywords(user)
   const candidates = selectCandidatesForPreferredScript([
     ...extractCandidates(assistant, 'assistant'),
     ...extractCandidates(user, 'user'),

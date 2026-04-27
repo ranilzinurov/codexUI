@@ -40,7 +40,7 @@
     "build:frontend": "vue-tsc --noEmit && vite build",
     "build:cli": "tsup",
     "build": "pnpm run build:frontend && pnpm run build:cli",
-    "test": "pnpm run build && node scripts/test-codexui-runtime-config.mjs && node scripts/test-codexui-transcription-override.mjs && node scripts/test-codexui-auth-shell-cache.mjs && node scripts/test-codexui-browser-startup-hardening.mjs",
+    "test": "pnpm run build && node scripts/test-thread-auto-title.mjs && node scripts/test-codexui-runtime-config.mjs && node scripts/test-codexui-transcription-override.mjs && node scripts/test-codexui-auth-shell-cache.mjs && node scripts/test-codexui-browser-startup-hardening.mjs",
     "preview": "vite preview",
     "prepublishOnly": "pnpm run build",
     "profile:browser": "node scripts/profile-browser-runtime.cjs",

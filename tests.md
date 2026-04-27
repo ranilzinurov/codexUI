@@ -3050,6 +3050,7 @@ Codex UI listens for the first completed turn of an unnamed thread, derives a co
 5. Manually rename another new thread before its first response completes, then wait for completion.
 6. Start one thread with a Russian first message and one with an English first message, then wait for both first responses to complete.
 7. Start a Russian thread whose first message begins with a Russian question, then includes a pasted English terminal/banner log before the assistant replies.
+8. Start a Russian thread with a tracker-task request such as: `поставь мне (Ранил З.) задачу в рабочих задачах в трекере "Дождаться от Бубуки 3002 руб" на завтра`.
 
 #### Expected Results
 - The first unnamed thread is renamed to a concise generated title after `turn/completed`.
@@ -3057,6 +3058,7 @@ Codex UI listens for the first completed turn of an unnamed thread, derives a co
 - The manually renamed thread keeps the manual title and is not overwritten by automatic naming.
 - Generated titles prefer the same language/script as the first user message.
 - Pasted English logs or terminal output inside a Russian first message do not cause an English generated title; the title stays Russian and is derived from the leading user request.
+- Tracker-task requests are summarized by intent instead of truncated from the first message; the example request should become `Задача в трекер для Бубуки` or an equivalently short semantic title.
 
 #### Rollback/Cleanup
 - Manually rename any test threads back to their preferred names, or archive the test threads.
