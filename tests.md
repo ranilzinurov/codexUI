@@ -2172,37 +2172,46 @@ Toggle "Free mode" in settings to use free OpenRouter models without an OpenAI A
 - Run `bash scripts/fix-codex-thread-filter.sh --restore` to undo.
 - Backup is stored at `/Applications/Codex.app/Contents/Resources/app.asar.bak`.
 
-### Fix: Delete/rename thread dialog height cap
+### Feature: Delete thread without confirmation
+
+#### Prerequisites
+- App is running from this repository.
+- At least one disposable thread exists.
+
+#### Steps
+
+1. Right-click (or long-press) a thread in the sidebar to open the context menu.
+2. Click **Delete thread**.
+3. Confirm no secondary confirmation dialog appears.
+4. Confirm the selected thread is immediately archived/removed from the visible thread list.
+5. Repeat with a pinned thread and confirm the pinned row is removed.
+6. Repeat with a thread that has heartbeat automation and confirm the thread is archived and the automation chip no longer appears.
+
+#### Expected Results
+- The menu action archives the thread immediately after clicking **Delete thread**.
+- Pinned state is cleaned up for the removed thread.
+- Attached heartbeat automation is deleted before archiving when present; archive still proceeds if automation cleanup fails.
+
+#### Rollback/Cleanup
+- Restore any archived test thread from archived threads if needed.
+- Recreate any removed test automation if needed.
+
+### Fix: Rename thread dialog height cap
 
 #### Prerequisites
 - App is running from this repository.
 - At least one thread exists with a long title (can be achieved by renaming a thread to a very long string).
 
-#### Steps — Delete button visibility
-
-1. Right-click (or long-press) a thread in the sidebar to open the context menu.
-2. Click **Delete**.
-3. Verify the confirmation dialog appears and the **Delete** / **Cancel** buttons are fully visible without scrolling the page.
-4. Repeat with a thread whose title is very long (50+ characters); confirm buttons remain visible.
-5. On a small viewport (e.g. browser DevTools device emulation at 375 × 667), repeat steps 1–4 and confirm the dialog never exceeds the screen height.
-
-#### Steps — Long title wrapping
-
-6. Rename a thread to a string with no spaces (e.g. `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`).
-7. Open the Delete dialog for that thread.
-8. Verify the long title in the subtitle area wraps onto multiple lines rather than overflowing or being clipped horizontally.
-9. If the title is long enough to fill the subtitle area, verify a vertical scrollbar appears within the subtitle, and the title, input, and buttons remain visible outside the scroll area.
-
 #### Steps — Rename dialog
 
-10. Open the Rename dialog for a thread with a long title.
-11. Confirm the rename input field, title text, and **Save** / **Cancel** buttons are all fully visible.
-12. Type a very long string into the rename input and confirm it does not push the buttons off screen.
+1. Open the Rename dialog for a thread with a long title.
+2. Confirm the rename input field, title text, and **Save** / **Cancel** buttons are all fully visible.
+3. Type a very long string into the rename input and confirm it does not push the buttons off screen.
+4. On a small viewport (e.g. browser DevTools device emulation at 375 × 667), repeat steps 1–3 and confirm the dialog never exceeds the screen height.
 
 #### Expected Results
 - Dialog is capped at 90 vh; action buttons are always pinned at the bottom.
-- Long unbroken thread titles wrap within the subtitle area; no horizontal clipping.
-- Vertical scrollbar appears in the subtitle region if the title exceeds available height.
+- Long unbroken thread titles remain visible in the input area without horizontal clipping.
 
 #### Rollback/Cleanup
 - Rename any test threads back to original names if desired.

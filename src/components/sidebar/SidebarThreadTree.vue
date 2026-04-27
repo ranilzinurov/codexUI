@@ -386,7 +386,7 @@
         <button class="thread-menu-item" type="button" @click="openRenameThreadDialog(openThreadMenuThread.id, openThreadMenuThread.title)">
           Rename thread
         </button>
-        <button class="thread-menu-item thread-menu-item-danger" type="button" @click="openDeleteThreadDialog(openThreadMenuThread.id, openThreadMenuThread.title)">
+        <button class="thread-menu-item thread-menu-item-danger" type="button" @click="deleteThread(openThreadMenuThread.id)">
           Delete thread
         </button>
       </div>
@@ -409,28 +409,6 @@
           <div class="rename-thread-actions">
             <button class="rename-thread-button" type="button" @click="closeRenameThreadDialog">Cancel</button>
             <button class="rename-thread-button rename-thread-button-primary" type="button" @click="submitRenameThread">Save</button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
-
-    <Teleport to="body">
-      <div v-if="deleteThreadDialogVisible" class="rename-thread-overlay" @click.self="closeDeleteThreadDialog">
-        <div class="rename-thread-panel" role="dialog" aria-modal="true" aria-label="Delete thread">
-          <h3 class="rename-thread-title">{{ deleteThreadHasAutomation ? 'Archive chat and remove automation?' : 'Delete thread?' }}</h3>
-          <p class="rename-thread-subtitle">
-            <template v-if="deleteThreadHasAutomation">
-              This will archive the thread "{{ deleteThreadTitle }}" and remove the attached heartbeat automation.
-            </template>
-            <template v-else>
-              This will archive the thread "{{ deleteThreadTitle }}". You can find it later in archived threads.
-            </template>
-          </p>
-          <div class="rename-thread-actions">
-            <button class="rename-thread-button" type="button" @click="closeDeleteThreadDialog">Cancel</button>
-            <button class="rename-thread-button rename-thread-button-danger" type="button" @click="submitDeleteThread">
-              {{ deleteThreadHasAutomation ? 'Archive and remove' : 'Delete' }}
-            </button>
           </div>
         </div>
       </div>
@@ -587,9 +565,6 @@ const renameThreadDialogVisible = ref(false)
 const renameThreadDialogThreadId = ref('')
 const renameThreadDraft = ref('')
 const renameThreadInputRef = ref<HTMLInputElement | null>(null)
-const deleteThreadDialogVisible = ref(false)
-const deleteThreadDialogThreadId = ref('')
-const deleteThreadTitle = ref('')
 const automationByThreadId = ref<Record<string, UiThreadAutomation>>({})
 const automationDialogVisible = ref(false)
 const automationDialogThreadId = ref('')
@@ -766,8 +741,6 @@ onMounted(async () => {
   }
   hasLoadedPinnedThreadState = true
 })
-
-const deleteThreadHasAutomation = computed(() => threadHasAutomation(deleteThreadDialogThreadId.value))
 
 const threadProjectNameById = computed(() => {
   const map = new Map<string, string>()
@@ -1003,22 +976,9 @@ function submitRenameThread(): void {
   closeRenameThreadDialog()
 }
 
-function openDeleteThreadDialog(threadId: string, currentTitle: string): void {
-  deleteThreadDialogThreadId.value = threadId
-  deleteThreadTitle.value = currentTitle
-  deleteThreadDialogVisible.value = true
-  closeThreadMenu()
-}
-
-function closeDeleteThreadDialog(): void {
-  deleteThreadDialogVisible.value = false
-  deleteThreadDialogThreadId.value = ''
-  deleteThreadTitle.value = ''
-}
-
-async function submitDeleteThread(): Promise<void> {
-  const threadId = deleteThreadDialogThreadId.value
+async function deleteThread(threadId: string): Promise<void> {
   if (!threadId) return
+  closeThreadMenu()
   if (threadHasAutomation(threadId)) {
     try {
       await deleteThreadAutomation(threadId)
@@ -1031,7 +991,6 @@ async function submitDeleteThread(): Promise<void> {
   }
   pinnedThreadIds.value = pinnedThreadIds.value.filter((id) => id !== threadId)
   emit('archive', threadId)
-  closeDeleteThreadDialog()
 }
 
 function openAutomationDialog(threadId: string): void {
