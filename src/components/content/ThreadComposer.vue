@@ -1,7 +1,7 @@
 <template>
   <form class="thread-composer" @submit.prevent="onSubmit(isTurnInProgress ? activeInProgressMode : 'steer')">
-    <p v-if="dictationErrorText" class="thread-composer-dictation-error">
-      {{ dictationErrorText }}
+    <p v-if="dictationStatusText" class="thread-composer-dictation-error">
+      {{ dictationStatusText }}
     </p>
 
     <div
@@ -492,16 +492,22 @@ const isDragActive = ref(false)
 const {
   state: dictationState,
   isSupported: isDictationSupported,
+  hasPendingTranscription,
   recordingDurationMs,
   waveformCanvasRef: dictationWaveformCanvasRef,
   startRecording,
   stopRecording,
   toggleRecording,
   cancel: cancelDictation,
+  refreshPendingTranscription,
 } = useDictation({
+  getStorageKey: () => `thread:${props.activeThreadId || 'unassigned'}`,
   getLanguage: () => props.dictationLanguage ?? 'auto',
   onAudioInput: (info) => {
     emit('dictation-input-updated', info)
+  },
+  onRetry: (attempt, maxAttempts) => {
+    dictationFeedback.value = `Retrying transcription (${attempt}/${maxAttempts})...`
   },
   onTranscript: (text) => {
     draft.value = draft.value ? `${draft.value}\n${text}` : text
@@ -625,11 +631,18 @@ const activeInProgressMode = ref<'steer' | 'queue'>(inProgressMode.value)
 const isDictationRecording = computed(() => dictationState.value === 'recording')
 const dictationButtonLabel = computed(() => {
   if (dictationState.value === 'recording') return 'Stop dictation'
+  if (dictationState.value === 'transcribing') return 'Transcribing dictation'
+  if (hasPendingTranscription.value) return 'Retry saved dictation transcription'
   return props.dictationClickToToggle ? 'Click to dictate' : 'Hold to dictate'
 })
-const dictationErrorText = computed(() =>
-  dictationState.value === 'idle' ? dictationFeedback.value.trim() : '',
-)
+const dictationStatusText = computed(() => {
+  if (dictationState.value === 'transcribing') {
+    return dictationFeedback.value.trim() || 'Transcribing dictation...'
+  }
+  if (dictationState.value !== 'idle') return ''
+  if (dictationFeedback.value.trim()) return dictationFeedback.value.trim()
+  return hasPendingTranscription.value ? 'Saved dictation is waiting. Click the mic to retry transcription.' : ''
+})
 const attachmentFeedbackText = computed(() => {
   const stats = attachmentBatchStats.value
   if (stats) {
@@ -1709,6 +1722,7 @@ watch(
   () => props.activeThreadId,
   (nextThreadId) => {
     cancelDictation()
+    void refreshPendingTranscription()
     if (lastActiveThreadId) {
       persistDraftForThread(lastActiveThreadId, getCurrentDraftPayload())
     }

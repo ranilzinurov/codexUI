@@ -3197,3 +3197,34 @@ Voice dictation prefers a browser-supported compressed speech recording format a
 #### Rollback/Cleanup
 - Disconnect test Bluetooth devices if they were connected.
 - Clear browser local storage key `codex-web-local.dictation-last-input.v1` if the diagnostic value should be reset.
+
+### Feature: Reliable saved voice transcription retry
+
+#### Feature/Change Name
+Voice dictation saves the completed recording before upload, retries transient transcription failures, and keeps a saved recording available for manual retry until text or a confirmed empty transcription is received.
+
+#### Prerequisites/Setup
+1. Open Codex UI in a browser or installed PWA with microphone permission available.
+2. Open a Codex thread with the composer microphone button visible.
+3. For failure testing, be ready to temporarily make `/codex-api/transcribe` fail by disabling the network connection or pointing the transcription provider at an unavailable/mock endpoint.
+
+#### Steps
+1. Start voice dictation from the composer microphone button.
+2. Speak a short phrase and stop recording.
+3. During transcription, temporarily interrupt the network or make the transcription endpoint return a retryable error such as HTTP 500 or 429.
+4. Wait for the composer to finish its automatic retry attempts.
+5. Restore the network or transcription endpoint.
+6. Click the microphone button again in the same thread.
+7. Repeat the flow in a second thread to confirm saved recordings do not cross thread boundaries.
+
+#### Expected Results
+- The completed audio is saved before upload starts.
+- Transient transcription failures retry automatically before surfacing an error.
+- If transcription still fails, the composer shows that the recording was saved and that clicking the mic retries transcription.
+- After the retry succeeds, the transcript is appended to the draft and the saved recording is cleared.
+- Switching threads does not retry or append a saved recording from another thread.
+
+#### Rollback/Cleanup
+- Restore the normal network connection and transcription provider configuration.
+- If a test recording remains saved, click the microphone button in that same thread after restoring the provider so it can transcribe and clear.
+- Browser storage can be cleared for the site to remove any intentionally stranded local test recording.
