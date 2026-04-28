@@ -1,5 +1,8 @@
 const TRANSCRIPTION_MAX_ATTEMPTS = 3
 const TRANSCRIPTION_RETRY_DELAYS_MS = [800, 1800]
+const TRANSCRIPTION_ATTEMPT_BASE_TIMEOUT_MS = 60_000
+const TRANSCRIPTION_ATTEMPT_TIMEOUT_PER_MB_MS = 30_000
+const TRANSCRIPTION_ATTEMPT_MAX_TIMEOUT_MS = 180_000
 const DB_NAME = 'codex-web-local-dictation'
 const DB_VERSION = 1
 const RECORDING_STORE = 'recordings'
@@ -174,6 +177,13 @@ class TranscriptionRequestError extends Error {
   }
 }
 
+function getAttemptTimeoutMs(recording: StoredDictationRecording): number {
+  const sizeMb = recording.blob.size / (1024 * 1024)
+  const scaledTimeoutMs =
+    TRANSCRIPTION_ATTEMPT_BASE_TIMEOUT_MS + Math.ceil(Math.max(0, sizeMb)) * TRANSCRIPTION_ATTEMPT_TIMEOUT_PER_MB_MS
+  return Math.min(TRANSCRIPTION_ATTEMPT_MAX_TIMEOUT_MS, scaledTimeoutMs)
+}
+
 export function isDictationTranscriptionAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
 }
@@ -185,6 +195,50 @@ function isRetryableTranscriptionError(error: unknown): boolean {
   return error.status === 408 || error.status === 409 || error.status === 425 || error.status === 429 || error.status >= 500
 }
 
+async function fetchTranscriptionWithTimeout(
+  recording: StoredDictationRecording,
+  formData: FormData,
+  parentSignal: AbortSignal,
+): Promise<Response> {
+  if (parentSignal.aborted) {
+    throw createAbortError(parentSignal)
+  }
+
+  const requestAbortController = new AbortController()
+  let timedOut = false
+  let abortedByParent = false
+  const timeoutMs = getAttemptTimeoutMs(recording)
+  const timeout = window.setTimeout(() => {
+    timedOut = true
+    requestAbortController.abort()
+  }, timeoutMs)
+  const abortFromParent = () => {
+    abortedByParent = true
+    requestAbortController.abort()
+  }
+  parentSignal.addEventListener('abort', abortFromParent, { once: true })
+
+  try {
+    return await fetch('/codex-api/transcribe', {
+      method: 'POST',
+      body: formData,
+      signal: requestAbortController.signal,
+    })
+  } catch (error) {
+    if (timedOut) {
+      const seconds = Math.round(timeoutMs / 1000)
+      throw new TranscriptionRequestError(`No transcription response after ${seconds} seconds`, 408)
+    }
+    if (abortedByParent || parentSignal.aborted) {
+      throw createAbortError(parentSignal)
+    }
+    throw error
+  } finally {
+    window.clearTimeout(timeout)
+    parentSignal.removeEventListener('abort', abortFromParent)
+  }
+}
+
 async function postTranscription(recording: StoredDictationRecording, signal: AbortSignal): Promise<string> {
   const ext = recording.mimeType.split(/[/;]/)[1] ?? 'webm'
   const formData = new FormData()
@@ -193,11 +247,7 @@ async function postTranscription(recording: StoredDictationRecording, signal: Ab
     formData.append('language', recording.language)
   }
 
-  const response = await fetch('/codex-api/transcribe', {
-    method: 'POST',
-    body: formData,
-    signal,
-  })
+  const response = await fetchTranscriptionWithTimeout(recording, formData, signal)
 
   const responseText = await response.text()
   let data: { text?: unknown; error?: unknown } | null = null

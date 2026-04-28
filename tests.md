@@ -3201,7 +3201,7 @@ Voice dictation prefers a browser-supported compressed speech recording format a
 ### Feature: Reliable saved voice transcription retry
 
 #### Feature/Change Name
-Voice dictation saves the completed recording before upload, retries transient transcription failures, and keeps a saved recording available for manual retry until text or a confirmed empty transcription is received.
+Voice dictation saves the completed recording before upload, retries transient transcription failures or missing responses, and keeps a saved recording available for manual retry until text or a confirmed empty transcription is received.
 
 #### Prerequisites/Setup
 1. Open Codex UI in a browser or installed PWA with microphone permission available.
@@ -3211,7 +3211,7 @@ Voice dictation saves the completed recording before upload, retries transient t
 #### Steps
 1. Start voice dictation from the composer microphone button.
 2. Speak a short phrase and stop recording.
-3. During transcription, temporarily interrupt the network or make the transcription endpoint return a retryable error such as HTTP 500 or 429.
+3. During transcription, temporarily interrupt the network, make the transcription endpoint return a retryable error such as HTTP 500 or 429, or hold the request open without returning a response.
 4. Wait for the composer to finish its automatic retry attempts.
 5. Restore the network or transcription endpoint.
 6. Click the microphone button again in the same thread.
@@ -3219,7 +3219,8 @@ Voice dictation saves the completed recording before upload, retries transient t
 
 #### Expected Results
 - The completed audio is saved before upload starts.
-- Transient transcription failures retry automatically before surfacing an error.
+- Transient transcription failures and missing responses retry automatically before surfacing an error.
+- A hung transcription request is aborted after the per-attempt timeout and retried with the saved audio.
 - If transcription still fails, the composer shows that the recording was saved and that clicking the mic retries transcription.
 - After the retry succeeds, the transcript is appended to the draft and the saved recording is cleared.
 - Switching threads does not retry or append a saved recording from another thread.
