@@ -3255,3 +3255,30 @@ Voice dictation keeps recording for a short grace period after Stop before flush
 #### Rollback/Cleanup
 - Stop any active dictation.
 - Clear any intentionally stranded local test recording from browser storage if a failure test left one behind.
+
+### Feature: Composer textarea grows for long prompts
+
+#### Feature/Change Name
+The thread and home composer textarea auto-expands upward for long prompts and caps the composer near two thirds of the viewport height before enabling textarea scrolling.
+
+#### Prerequisites/Setup
+1. Start Codex UI with `CODEXUI_SANDBOX_MODE=danger-full-access CODEXUI_APPROVAL_POLICY=never pnpm exec vite --host 0.0.0.0 --port 4173`.
+2. Open `http://127.0.0.1:4173/` in a desktop browser.
+3. Have a long multi-line prompt ready, at least 25 lines.
+
+#### Steps
+1. Focus the composer textarea on the home screen.
+2. Paste or type the long multi-line prompt.
+3. Observe the composer height while adding lines.
+4. Continue adding lines until the textarea reaches its maximum height.
+5. Repeat at a narrow mobile viewport such as `375x812`.
+
+#### Expected Results
+- The textarea expands vertically instead of staying at the old short height.
+- The composer grows upward and remains anchored near the bottom of the screen.
+- The full composer shell stops growing around two thirds of the viewport height.
+- After the cap is reached, scrolling happens inside the textarea.
+- No controls overlap the textarea on desktop or mobile.
+
+#### Rollback/Cleanup
+- Clear the composer draft before closing the test thread or browser tab.

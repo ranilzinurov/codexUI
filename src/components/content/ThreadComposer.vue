@@ -116,6 +116,7 @@
           ref="inputRef"
           v-model="draft"
           class="thread-composer-input"
+          rows="1"
           :placeholder="placeholderText"
           :disabled="isInteractionDisabled"
           @input="onInputChange"
@@ -478,6 +479,8 @@ type AttachmentBatchStats = {
 
 const CONTEXT_WINDOW_BASELINE_TOKENS = 12000
 const PASTED_TEXT_FILE_THRESHOLD = 2000
+const COMPOSER_MAX_VIEWPORT_RATIO = 2 / 3
+const COMPOSER_INPUT_MIN_MAX_HEIGHT = 112
 
 const draft = ref('')
 const selectedImages = ref<SelectedImage[]>([])
@@ -551,6 +554,7 @@ let fileMentionDebounceTimer: ReturnType<typeof setTimeout> | null = null
 let isHoldPressActive = false
 let dragDepth = 0
 let attachmentSessionToken = 0
+let composerResizeRaf: number | null = null
 const isAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)
 const DRAFT_STORAGE_PREFIX = 'codex-web-local.thread-draft.v1.'
 let lastActiveThreadId = ''
@@ -928,6 +932,41 @@ function onSubmit(mode: 'steer' | 'queue' = 'steer'): void {
     return
   }
   nextTick(() => inputRef.value?.focus())
+}
+
+function resizeComposerInput(): void {
+  const input = inputRef.value
+  if (!input || typeof window === 'undefined') return
+
+  input.style.height = 'auto'
+
+  const shell = input.closest('.thread-composer-shell') as HTMLElement | null
+  const shellRect = shell?.getBoundingClientRect()
+  const inputRect = input.getBoundingClientRect()
+  const reservedShellHeight = shellRect ? Math.max(0, shellRect.height - inputRect.height) : 0
+  const composerMaxHeight = Math.floor(window.innerHeight * COMPOSER_MAX_VIEWPORT_RATIO)
+  const computedStyle = window.getComputedStyle(input)
+  const minHeight = Number.parseFloat(computedStyle.minHeight) || inputRect.height
+  const maxHeight = Math.max(
+    minHeight,
+    COMPOSER_INPUT_MIN_MAX_HEIGHT,
+    composerMaxHeight - reservedShellHeight,
+  )
+  const nextHeight = Math.min(input.scrollHeight, maxHeight)
+
+  input.style.height = `${Math.max(minHeight, nextHeight)}px`
+  input.style.overflowY = input.scrollHeight > maxHeight ? 'auto' : 'hidden'
+}
+
+function scheduleComposerInputResize(): void {
+  if (typeof window === 'undefined') return
+  if (composerResizeRaf !== null) {
+    window.cancelAnimationFrame(composerResizeRaf)
+  }
+  composerResizeRaf = window.requestAnimationFrame(() => {
+    composerResizeRaf = null
+    resizeComposerInput()
+  })
 }
 
 function setActiveInProgressMode(mode: 'steer' | 'queue'): void {
@@ -1463,6 +1502,7 @@ function onInputPaste(event: ClipboardEvent): void {
 }
 
 function onInputChange(): void {
+  scheduleComposerInputResize()
   if (dictationFeedback.value) {
     dictationFeedback.value = ''
   }
@@ -1697,6 +1737,8 @@ onMounted(() => {
   window.addEventListener('drop', onWindowDragCleanup)
   window.addEventListener('dragend', onWindowDragCleanup)
   window.addEventListener('blur', onWindowDragCleanup)
+  window.addEventListener('resize', scheduleComposerInputResize)
+  scheduleComposerInputResize()
 })
 
 defineExpose<ThreadComposerExposed>({
@@ -1710,9 +1752,14 @@ onBeforeUnmount(() => {
   window.removeEventListener('drop', onWindowDragCleanup)
   window.removeEventListener('dragend', onWindowDragCleanup)
   window.removeEventListener('blur', onWindowDragCleanup)
+  window.removeEventListener('resize', scheduleComposerInputResize)
   window.removeEventListener('pointerup', onDictationPressEnd)
   window.removeEventListener('pointercancel', onDictationPressEnd)
   window.removeEventListener('blur', onDictationPressEnd)
+  if (composerResizeRaf !== null && typeof window !== 'undefined') {
+    window.cancelAnimationFrame(composerResizeRaf)
+    composerResizeRaf = null
+  }
   if (fileMentionDebounceTimer) {
     clearTimeout(fileMentionDebounceTimer)
   }
@@ -1741,6 +1788,10 @@ watch([draft, selectedImages, fileAttachments, selectedSkills], () => {
   if (!lastActiveThreadId) return
   persistDraftForThread(lastActiveThreadId, getCurrentDraftPayload())
 }, { deep: true })
+
+watch([draft, selectedImages, fileAttachments, selectedSkills, folderUploadGroups], () => {
+  scheduleComposerInputResize()
+}, { deep: true, flush: 'post' })
 
 watch(
   () => props.cwd,
@@ -1964,7 +2015,8 @@ watch(
 }
 
 .thread-composer-input {
-  @apply w-full min-w-0 min-h-10 sm:min-h-11 max-h-40 rounded-xl border-0 bg-transparent px-1 py-2 text-sm text-zinc-900 outline-none transition resize-none overflow-y-auto;
+  @apply w-full min-w-0 min-h-10 sm:min-h-11 rounded-xl border-0 bg-transparent px-1 py-2 text-sm text-zinc-900 outline-none transition resize-none overflow-y-hidden;
+  max-height: max(7rem, calc(66dvh - 5.5rem));
 }
 
 .thread-composer-input:focus {
