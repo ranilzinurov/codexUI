@@ -40,6 +40,7 @@ async function loadTitleGenerator() {
   return {
     generateThreadTitleFromConversation: module.generateThreadTitleFromConversation,
     generateThreadTitleFromConversationWithModel: module.generateThreadTitleFromConversationWithModel,
+    ThreadAutoTitleManager: module.ThreadAutoTitleManager,
     cleanup: () => rm(tempDir, { force: true, recursive: true }),
   }
 }
@@ -161,10 +162,67 @@ async function runModelTitleDisabledTest(generateThreadTitleFromConversationWith
   }
 }
 
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function runAttachmentNoiseManagerTest(ThreadAutoTitleManager) {
+  const previousEnv = {
+    CODEXUI_THREAD_TITLE_LLM: process.env.CODEXUI_THREAD_TITLE_LLM,
+    CODEXUI_THREAD_TITLE_API_KEY: process.env.CODEXUI_THREAD_TITLE_API_KEY,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  }
+  const calls = []
+  const appServer = {
+    async rpc(method, params) {
+      calls.push({ method, params })
+      if (method === 'thread/read') {
+        return {
+          thread: {
+            turns: [
+              {
+                items: [
+                  {
+                    type: 'userMessage',
+                    content: '# Files mentioned by the user:\n- /home/rnl1/prog/codexUI/src/server/threadAutoTitle.ts',
+                  },
+                  {
+                    type: 'agentMessage',
+                    text: 'I can inspect the file and explain how automatic thread title generation works.',
+                  },
+                ],
+              },
+            ],
+          },
+        }
+      }
+      return {}
+    },
+  }
+
+  try {
+    process.env.CODEXUI_THREAD_TITLE_LLM = 'off'
+    delete process.env.CODEXUI_THREAD_TITLE_API_KEY
+    delete process.env.OPENAI_API_KEY
+    const manager = new ThreadAutoTitleManager(appServer)
+    manager.handleNotification({ method: 'turn/completed', params: { threadId: 'attachment-only-thread' } })
+    await wait(1300)
+    manager.dispose()
+
+    const renameCall = calls.find((call) => call.method === 'thread/name/set')
+    if (renameCall) {
+      throw new Error(`Attachment-only first turn should not be auto-named, got ${JSON.stringify(renameCall.params)}`)
+    }
+  } finally {
+    restoreEnv(previousEnv)
+  }
+}
+
 async function run() {
   const {
     generateThreadTitleFromConversation,
     generateThreadTitleFromConversationWithModel,
+    ThreadAutoTitleManager,
     cleanup,
   } = await loadTitleGenerator()
   try {
@@ -194,6 +252,15 @@ async function run() {
       throw new Error(`Russian-leading prompt should keep a Russian title, got "${russianTitle}"`)
     }
 
+    const attachmentTitle = generateThreadTitleFromConversation(
+      'Разберись, почему автоназвания тредов плохие и предложи улучшение.\n\n# Files mentioned by the user:\n- /home/rnl1/prog/codexUI/src/server/threadAutoTitle.ts',
+      'Нашёл, что функция берёт только первый userMessage и первый agentMessage, поэтому часто выбирает шум вместо сути.',
+    )
+    if (/files mentioned/iu.test(attachmentTitle) || /threadAutoTitle/iu.test(attachmentTitle)) {
+      throw new Error(`Attachment metadata should not leak into title, got "${attachmentTitle}"`)
+    }
+
+    await runAttachmentNoiseManagerTest(ThreadAutoTitleManager)
     await runModelTitleTest(generateThreadTitleFromConversationWithModel)
     await runModelTitleDisabledTest(generateThreadTitleFromConversationWithModel)
 

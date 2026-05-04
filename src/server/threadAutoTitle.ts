@@ -49,6 +49,7 @@ type CounterpartyReference = {
 
 const RETRY_DELAYS_MS = [1_000, 3_000, 8_000]
 const MAX_SOURCE_TEXT_LENGTH = 4_000
+const MAX_TITLE_CONTEXT_ITEMS = 6
 const MAX_TITLE_LENGTH = 72
 const MAX_TITLE_WORDS = 10
 const MAX_REMEMBERED_THREAD_IDS = 5_000
@@ -58,10 +59,12 @@ const DEFAULT_TITLE_REASONING_EFFORT = 'low'
 const DEFAULT_TITLE_TIMEOUT_MS = 8_000
 const TITLE_MODEL_MAX_OUTPUT_TOKENS = 80
 const TITLE_MODEL_INSTRUCTIONS = [
-  'Create a concise chat thread title from the first user message and first assistant reply.',
+  'Create a concise chat thread title from the early conversation excerpt.',
   'Use the same language as the user. Return only the title, without quotes or punctuation.',
-  'Use 3 to 7 words. Summarize the intent; do not copy or truncate the original message.',
+  'Use 3 to 7 words. Summarize the actual task or topic; do not copy, truncate, or describe attachments.',
 ].join(' ')
+
+const FILES_MENTIONED_HEADING_PATTERN = /^#?\s*files mentioned by the user\s*:?\s*$/iu
 
 const GENERIC_LINE_PATTERNS = [
   /^(yes|yeah|sure|done|ready|ok|okay|got it)[.!:,\s-]*$/iu,
@@ -188,6 +191,30 @@ function normalizeSpaces(value: string): string {
   return value.replace(/\s+/gu, ' ').trim()
 }
 
+function removeFilesMentionedBlocks(value: string): string {
+  const lines = value.split(/\r?\n/u)
+  const kept: string[] = []
+  let skipping = false
+
+  for (const line of lines) {
+    if (FILES_MENTIONED_HEADING_PATTERN.test(line.trim())) {
+      skipping = true
+      continue
+    }
+
+    if (skipping) {
+      if (!line.trim()) {
+        skipping = false
+      }
+      continue
+    }
+
+    kept.push(line)
+  }
+
+  return kept.join('\n')
+}
+
 function stripMarkdown(value: string): string {
   return normalizeSpaces(value
     .replace(/```[\s\S]*?```/gu, ' ')
@@ -199,7 +226,7 @@ function stripMarkdown(value: string): string {
 }
 
 function compactSourceText(value: string): string {
-  const stripped = stripMarkdown(value)
+  const stripped = stripMarkdown(removeFilesMentionedBlocks(value))
   return stripped.length > MAX_SOURCE_TEXT_LENGTH
     ? stripped.slice(0, MAX_SOURCE_TEXT_LENGTH)
     : stripped
@@ -505,10 +532,10 @@ function readThreadTitleModelConfig(): ThreadTitleModelConfig | null {
 
 function buildModelTitleInput(userText: string, assistantText: string): string {
   return [
-    'First user message:',
+    'Early user messages:',
     userText || '(empty)',
     '',
-    'First assistant message:',
+    'Early assistant replies:',
     assistantText || '(empty)',
   ].join('\n')
 }
@@ -636,10 +663,11 @@ function readItemText(item: Record<string, unknown>): string {
   return readString(item.text) || readContentText(item.content)
 }
 
-function readFirstExchange(thread: Record<string, unknown>): TitleSource | null {
+function readEarlyConversationTitleSource(thread: Record<string, unknown>): TitleSource | null {
   const turns = Array.isArray(thread.turns) ? thread.turns : []
-  let userText = ''
-  let assistantText = ''
+  const userTexts: string[] = []
+  const assistantTexts: string[] = []
+  let itemCount = 0
 
   for (const turn of turns) {
     const turnRecord = asRecord(turn)
@@ -648,18 +676,27 @@ function readFirstExchange(thread: Record<string, unknown>): TitleSource | null 
       const item = asRecord(itemValue)
       if (!item) continue
       const itemType = readString(item.type)
-      if (!userText && itemType === 'userMessage') {
-        userText = readItemText(item)
+      if (itemType !== 'userMessage' && itemType !== 'agentMessage') continue
+
+      const text = compactSourceText(readItemText(item))
+      if (!text) continue
+
+      if (itemType === 'userMessage') {
+        userTexts.push(text)
+      } else {
+        assistantTexts.push(text)
       }
-      if (userText && !assistantText && itemType === 'agentMessage') {
-        assistantText = readItemText(item)
-      }
-      if (userText && assistantText) {
-        return { userText, assistantText }
+
+      itemCount += 1
+      if (itemCount >= MAX_TITLE_CONTEXT_ITEMS) {
+        break
       }
     }
+    if (itemCount >= MAX_TITLE_CONTEXT_ITEMS) break
   }
 
+  const userText = userTexts.join('\n')
+  const assistantText = assistantTexts.join('\n')
   return userText && assistantText ? { userText, assistantText } : null
 }
 
@@ -715,7 +752,7 @@ export class ThreadAutoTitleManager {
         return
       }
 
-      const source = readFirstExchange(thread)
+      const source = readEarlyConversationTitleSource(thread)
       if (!source) {
         if (attempt + 1 < RETRY_DELAYS_MS.length) nextAttempt = attempt + 1
         return

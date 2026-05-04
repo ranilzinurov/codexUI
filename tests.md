@@ -3032,10 +3032,10 @@ Focused desktop web tabs report active thread presence so completed-task web pus
 #### Rollback/Cleanup
 - In the iPhone PWA settings panel, tap `Disable` to unsubscribe the test device if needed.
 
-### Feature: Automatic thread names from the first exchange
+### Feature: Automatic thread names from early context
 
 #### Feature/Change Name
-Codex UI listens for the first completed turn of an unnamed thread, asks a low-effort title model to summarize the first user message plus first assistant response, and writes the generated name through `thread/name/set`. If model title generation is unavailable, it falls back to the local title generator.
+Codex UI listens for completed turns of an unnamed thread, asks a low-effort title model to summarize the early conversation context, and writes the generated name through `thread/name/set`. If model title generation is unavailable, it falls back to the local title generator. File attachment metadata such as `Files mentioned by the user` is excluded from title sources.
 
 #### Prerequisites/Setup
 1. App server is running from this repository.
@@ -3052,6 +3052,7 @@ Codex UI listens for the first completed turn of an unnamed thread, asks a low-e
 6. Start one thread with a Russian first message and one with an English first message, then wait for both first responses to complete.
 7. Start a Russian thread whose first message begins with a Russian question, then includes a pasted English terminal/banner log before the assistant replies.
 8. Start a Russian thread with a tracker-task request such as: `поставь мне (Ранил З.) задачу в рабочих задачах в трекере "Дождаться от Бубуки 3002 руб" на завтра`.
+9. Start a new thread by attaching a file with little or no typed text, then continue with a concrete follow-up request and wait for the assistant response to complete.
 
 #### Expected Results
 - The first unnamed thread is renamed to a concise generated title after `turn/completed`.
@@ -3060,6 +3061,8 @@ Codex UI listens for the first completed turn of an unnamed thread, asks a low-e
 - Generated titles prefer the same language/script as the first user message.
 - Pasted English logs or terminal output inside a Russian first message do not cause an English generated title; the title stays Russian and is derived from the leading user request.
 - Tracker-task requests are summarized by intent instead of truncated from the first message; the example request should become a short semantic title such as `Задача в трекер для Бубуки`.
+- The generated title summarizes the early task/topic context instead of leaking attachment metadata such as `Files mentioned by the user` or a file path.
+- An attachment-only first turn does not immediately create a file-metadata title; the thread can be named later from a meaningful follow-up exchange.
 
 #### Rollback/Cleanup
 - Manually rename any test threads back to their preferred names, or archive the test threads.
