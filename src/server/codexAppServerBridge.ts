@@ -2832,6 +2832,7 @@ type CapturedItem = {
 const MERGEABLE_ITEM_TYPES = new Set([
   'commandExecution',
   'fileChange',
+  'collabAgentToolCall',
 ])
 
 class AppServerProcess {

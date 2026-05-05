@@ -656,11 +656,14 @@
         </div>
       </li>
       </template>
-      <li v-if="liveOverlay" class="conversation-item conversation-item-overlay">
+      <li
+        v-if="liveOverlay && (liveOverlay.collabAgents.length === 0 || liveOverlay.reasoningText || liveOverlay.errorText)"
+        class="conversation-item conversation-item-overlay"
+      >
         <div class="message-row">
           <div class="message-stack">
             <article class="live-overlay-inline" aria-live="polite">
-              <p class="live-overlay-label">{{ liveOverlay.activityLabel }}</p>
+              <p v-if="liveOverlay.collabAgents.length === 0" class="live-overlay-label">{{ liveOverlay.activityLabel }}</p>
               <p
                 v-if="liveOverlay.reasoningText"
                 class="live-overlay-reasoning"

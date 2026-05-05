@@ -11,6 +11,8 @@ import type {
   UiFileAttachment,
   UiFileChange,
   UiFileChangeStatus,
+  UiCollabAgentStatus,
+  UiCollabAgentStatusKind,
   UiMessage,
   UiPlanData,
   UiPlanStep,
@@ -29,6 +31,91 @@ function toRawPayload(value: unknown): string {
   } catch {
     return String(value)
   }
+}
+
+function readTrimmedString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function toShortAgentId(value: string): string {
+  const normalized = value.trim()
+  if (!normalized) return 'agent'
+  return normalized.length > 6 ? normalized.slice(0, 6) : normalized
+}
+
+function normalizeCollabAgentStatus(value: unknown): UiCollabAgentStatusKind {
+  if (value === 'running') return 'running'
+  if (value === 'completed') return 'completed'
+  if (value === 'errored') return 'failed'
+  if (value === 'shutdown') return 'shutdown'
+  if (value === 'notFound') return 'notFound'
+  return 'pending'
+}
+
+function normalizeCollabAgentTask(value: string): string {
+  return value.replace(/\s+/gu, ' ').trim()
+}
+
+function collabAgentName(agentId: string, index: number): string {
+  const shortId = toShortAgentId(agentId)
+  if (shortId === 'agent') return `agent ${index + 1}`
+  return `agent ${shortId}`
+}
+
+function collabToolFallbackTask(tool: string): string {
+  if (tool === 'spawnAgent') return 'starting delegated work'
+  if (tool === 'sendInput') return 'receiving follow-up input'
+  if (tool === 'resumeAgent') return 'resuming delegated work'
+  if (tool === 'wait') return 'waiting for delegated result'
+  if (tool === 'closeAgent') return 'closing delegated session'
+  return 'working'
+}
+
+export function normalizeCollabAgentsFromItems(items: unknown[]): UiCollabAgentStatus[] {
+  const byId = new Map<string, UiCollabAgentStatus>()
+
+  for (const rawItem of items) {
+    const item = rawItem && typeof rawItem === 'object' && !Array.isArray(rawItem)
+      ? rawItem as Record<string, unknown>
+      : null
+    if (!item || item.type !== 'collabAgentToolCall') continue
+
+    const tool = readTrimmedString(item.tool)
+    const prompt = normalizeCollabAgentTask(readTrimmedString(item.prompt))
+    const fallbackTask = prompt || collabToolFallbackTask(tool)
+    const receiverThreadIds = Array.isArray(item.receiverThreadIds)
+      ? item.receiverThreadIds.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      : []
+    const states = item.agentsStates && typeof item.agentsStates === 'object' && !Array.isArray(item.agentsStates)
+      ? item.agentsStates as Record<string, unknown>
+      : {}
+
+    receiverThreadIds.forEach((receiverThreadId, index) => {
+      const state = states[receiverThreadId] && typeof states[receiverThreadId] === 'object' && !Array.isArray(states[receiverThreadId])
+        ? states[receiverThreadId] as Record<string, unknown>
+        : null
+      const stateTask = normalizeCollabAgentTask(readTrimmedString(state?.message))
+      byId.set(receiverThreadId, {
+        id: receiverThreadId,
+        name: collabAgentName(receiverThreadId, index),
+        task: stateTask || fallbackTask,
+        status: normalizeCollabAgentStatus(state?.status),
+      })
+    })
+  }
+
+  return Array.from(byId.values()).filter((agent) => agent.task.length > 0 || agent.name.length > 0)
+}
+
+export function normalizeActiveCollabAgentsFromResponse(payload: ThreadReadResponse): UiCollabAgentStatus[] {
+  const turns = Array.isArray(payload.thread.turns) ? payload.thread.turns : []
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const turn = turns[index]
+    if (!isTurnInProgress(turn)) continue
+    const items = Array.isArray(turn.items) ? turn.items : []
+    return normalizeCollabAgentsFromItems(items)
+  }
+  return []
 }
 
 const FILE_ATTACHMENT_LINE = /^##\s+(.+?):\s+(.+?)\s*$/

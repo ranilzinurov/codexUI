@@ -23,6 +23,7 @@ import type {
 import { extractErrorMessage, normalizeCodexApiError } from './codexErrors'
 import {
   readActiveTurnIdFromResponse,
+  normalizeActiveCollabAgentsFromResponse,
   normalizeThreadGroupsV2,
   normalizeThreadMessagesV2,
   readThreadInProgressFromResponse,
@@ -35,6 +36,7 @@ import type {
   CollaborationModeKind,
   CollaborationModeOption,
   UiCreditsSnapshot,
+  UiCollabAgentStatus,
   UiFileChange,
   UiMessage,
   UiProjectGroup,
@@ -540,6 +542,7 @@ async function getThreadDetailV2(threadId: string): Promise<{
   inProgress: boolean
   activeTurnId: string
   turnIndexByTurnId: ThreadTurnIndexById
+  collabAgents: UiCollabAgentStatus[]
 }> {
   const payload = await callRpc<ThreadReadResponse>('thread/read', {
     threadId,
@@ -551,6 +554,7 @@ async function getThreadDetailV2(threadId: string): Promise<{
     inProgress: readThreadInProgressFromResponse(payload),
     activeTurnId: readActiveTurnIdFromResponse(payload),
     turnIndexByTurnId: buildTurnIndexByTurnId(payload),
+    collabAgents: normalizeActiveCollabAgentsFromResponse(payload),
   }
 }
 
@@ -590,6 +594,7 @@ export async function getThreadDetail(threadId: string): Promise<{
   inProgress: boolean
   activeTurnId: string
   turnIndexByTurnId: ThreadTurnIndexById
+  collabAgents: UiCollabAgentStatus[]
 }> {
   try {
     return await getThreadDetailV2(threadId)
@@ -1073,6 +1078,7 @@ export type ResumedThread = {
   inProgress: boolean
   activeTurnId: string
   turnIndexByTurnId: ThreadTurnIndexById
+  collabAgents: UiCollabAgentStatus[]
 }
 
 export async function resumeThread(threadId: string): Promise<ResumedThread> {
@@ -1083,6 +1089,7 @@ export async function resumeThread(threadId: string): Promise<ResumedThread> {
     inProgress: readThreadInProgressFromResponse(payload),
     activeTurnId: readActiveTurnIdFromResponse(payload),
     turnIndexByTurnId: buildTurnIndexByTurnId(payload),
+    collabAgents: normalizeActiveCollabAgentsFromResponse(payload),
   }
 }
 

@@ -34,7 +34,7 @@ import {
   type SkillInfo,
   type WorkspaceRootsState,
 } from '../api/codexGateway'
-import { normalizeFileChangeStatus, toUiFileChanges } from '../api/normalizers/v2'
+import { normalizeCollabAgentsFromItems, normalizeFileChangeStatus, toUiFileChanges } from '../api/normalizers/v2'
 import { safeLocalStorageGetItem, safeLocalStorageRemoveItem, safeLocalStorageSetItem } from '../browserCompat'
 import type {
   CollaborationModeKind,
@@ -45,6 +45,7 @@ import type {
   SpeedMode,
   ThreadScrollState,
   UiFileChange,
+  UiCollabAgentStatus,
   UiLiveOverlay,
   UiMessage,
   UiPlanData,
@@ -845,6 +846,16 @@ function areTurnActivitiesEqual(first?: TurnActivityState, second?: TurnActivity
   return true
 }
 
+function areCollabAgentRowsEqual(first: UiCollabAgentStatus[], second: UiCollabAgentStatus[]): boolean {
+  if (first.length !== second.length) return false
+  for (let index = 0; index < first.length; index += 1) {
+    const a = first[index]
+    const b = second[index]
+    if (a.id !== b.id || a.name !== b.name || a.task !== b.task || a.status !== b.status) return false
+  }
+  return true
+}
+
 function buildTurnSummaryMessage(summary: TurnSummaryState): UiMessage {
   return {
     id: `turn-summary:${summary.turnId}`,
@@ -1081,6 +1092,7 @@ export function useDesktopState() {
   const liveReasoningTextByThreadId = ref<Record<string, string>>({})
   const liveCommandsByThreadId = ref<Record<string, UiMessage[]>>({})
   const liveFileChangeMessagesByThreadId = ref<Record<string, UiMessage[]>>({})
+  const liveCollabAgentsByThreadId = ref<Record<string, UiCollabAgentStatus[]>>({})
   const inProgressById = ref<Record<string, boolean>>({})
   type FileAttachment = { label: string; path: string; fsPath: string }
   type QueuedMessage = {
@@ -1246,13 +1258,15 @@ export function useDesktopState() {
       ? (liveReasoningTextByThreadId.value[threadId] ?? '').trim()
       : ''
     const errorText = (turnErrorByThreadId.value[threadId]?.message ?? '').trim()
+    const collabAgents = isInProgress ? (liveCollabAgentsByThreadId.value[threadId] ?? []) : []
 
-    if (!activity && !reasoningText && !errorText) return null
+    if (!activity && !reasoningText && !errorText && collabAgents.length === 0) return null
     return {
       activityLabel: activity?.label || 'Thinking',
       activityDetails: activity?.details ?? [],
       reasoningText,
       errorText,
+      collabAgents,
     }
   })
   const codexQuota = computed<UiRateLimitSnapshot | null>(() => codexRateLimit.value)
@@ -1457,6 +1471,7 @@ export function useDesktopState() {
         clearLivePlansForThread(threadId)
         setLiveAgentMessagesForThread(threadId, [])
         clearLiveReasoningForThread(threadId)
+        clearLiveCollabAgentsForThread(threadId)
         if (liveCommandsByThreadId.value[threadId]) {
           liveCommandsByThreadId.value = omitKey(liveCommandsByThreadId.value, threadId)
         }
@@ -1816,6 +1831,7 @@ export function useDesktopState() {
     liveReasoningTextByThreadId.value = pruneThreadStateMap(liveReasoningTextByThreadId.value, activeThreadIds)
     liveCommandsByThreadId.value = pruneThreadStateMap(liveCommandsByThreadId.value, activeThreadIds)
     liveFileChangeMessagesByThreadId.value = pruneThreadStateMap(liveFileChangeMessagesByThreadId.value, activeThreadIds)
+    liveCollabAgentsByThreadId.value = pruneThreadStateMap(liveCollabAgentsByThreadId.value, activeThreadIds)
     turnSummaryByThreadId.value = pruneThreadStateMap(turnSummaryByThreadId.value, activeThreadIds)
     turnActivityByThreadId.value = pruneThreadStateMap(turnActivityByThreadId.value, activeThreadIds)
     turnErrorByThreadId.value = pruneThreadStateMap(turnErrorByThreadId.value, activeThreadIds)
@@ -2154,6 +2170,25 @@ export function useDesktopState() {
     setLiveFileChangeMessagesForThread(threadId, next)
   }
 
+  function setLiveCollabAgentsForThread(threadId: string, agents: UiCollabAgentStatus[]): void {
+    if (!threadId) return
+    const previous = liveCollabAgentsByThreadId.value[threadId] ?? []
+    if (areCollabAgentRowsEqual(previous, agents)) return
+    if (agents.length === 0) {
+      liveCollabAgentsByThreadId.value = omitKey(liveCollabAgentsByThreadId.value, threadId)
+      return
+    }
+    liveCollabAgentsByThreadId.value = {
+      ...liveCollabAgentsByThreadId.value,
+      [threadId]: agents,
+    }
+  }
+
+  function clearLiveCollabAgentsForThread(threadId: string): void {
+    if (!threadId || !(threadId in liveCollabAgentsByThreadId.value)) return
+    liveCollabAgentsByThreadId.value = omitKey(liveCollabAgentsByThreadId.value, threadId)
+  }
+
   function setLiveReasoningText(threadId: string, text: string): void {
     if (!threadId) return
     const normalized = text.trim()
@@ -2198,6 +2233,7 @@ export function useDesktopState() {
     if (!threadId) return
     clearLivePlansForThread(threadId)
     clearLiveReasoningForThread(threadId)
+    clearLiveCollabAgentsForThread(threadId)
     setTurnActivityForThread(threadId, null)
     if (threadId === selectedThreadId.value) {
       activeReasoningItemId = ''
@@ -3212,6 +3248,19 @@ export function useDesktopState() {
     }
   }
 
+  function readCollabAgentsUpdate(notification: RpcNotification): { threadId: string; agents: UiCollabAgentStatus[] } | null {
+    if (notification.method !== 'item/started' && notification.method !== 'item/completed') return null
+    const threadId = extractThreadIdFromNotification(notification)
+    if (!threadId) return null
+    const params = asRecord(notification.params)
+    const item = asRecord(params?.item)
+    if (!item || item.type !== 'collabAgentToolCall') return null
+    return {
+      threadId,
+      agents: normalizeCollabAgentsFromItems([item]),
+    }
+  }
+
   function upsertLiveCommand(threadId: string, msg: UiMessage): void {
     const previous = liveCommandsByThreadId.value[threadId] ?? []
     const next = upsertMessage(previous, msg)
@@ -3327,6 +3376,7 @@ export function useDesktopState() {
       }
       clearLivePlansForThread(startedTurn.threadId)
       clearLiveFileChangesForThread(startedTurn.threadId)
+      clearLiveCollabAgentsForThread(startedTurn.threadId)
       setTurnSummaryForThread(startedTurn.threadId, null)
       setTurnErrorForThread(startedTurn.threadId, null)
       setThreadInProgress(startedTurn.threadId, true)
@@ -3423,6 +3473,16 @@ export function useDesktopState() {
         label: 'Planning',
         details: [],
       })
+    }
+
+    const collabAgentsUpdate = readCollabAgentsUpdate(notification)
+    if (collabAgentsUpdate) {
+      const previousAgents = liveCollabAgentsByThreadId.value[collabAgentsUpdate.threadId] ?? []
+      const mergedAgentsById = new Map(previousAgents.map((agent) => [agent.id, agent]))
+      for (const agent of collabAgentsUpdate.agents) {
+        mergedAgentsById.set(agent.id, agent)
+      }
+      setLiveCollabAgentsForThread(collabAgentsUpdate.threadId, Array.from(mergedAgentsById.values()))
     }
 
     if (!notificationThreadId || notificationThreadId !== selectedThreadId.value) return
@@ -3839,7 +3899,7 @@ export function useDesktopState() {
         }
       }
 
-      const { messages: nextMessages, inProgress, activeTurnId, turnIndexByTurnId } = detail
+      const { messages: nextMessages, inProgress, activeTurnId, turnIndexByTurnId, collabAgents } = detail
       markThreadMessagesPersisted(threadId, nextMessages)
       replaceTurnIndexLookupForThread(threadId, turnIndexByTurnId)
       rebindLiveFileChangeTurnIndices(threadId)
@@ -3853,8 +3913,10 @@ export function useDesktopState() {
       if (inProgress) {
         const nextLiveAgent = removeRedundantLiveAgentMessages(previousLiveAgent, nextMessages)
         setLiveAgentMessagesForThread(threadId, nextLiveAgent)
+        setLiveCollabAgentsForThread(threadId, collabAgents)
       } else {
         clearLiveAgentMessagesForThread(threadId)
+        clearLiveCollabAgentsForThread(threadId)
       }
       removeLiveCommandsPersistedIn(threadId, nextMessages)
       removeLiveFileChangesPersistedIn(threadId, nextMessages)
@@ -4099,6 +4161,7 @@ export function useDesktopState() {
       clearLivePlansForThread(forkedThreadId)
       setLiveAgentMessagesForThread(forkedThreadId, [])
       clearLiveReasoningForThread(forkedThreadId)
+      clearLiveCollabAgentsForThread(forkedThreadId)
       if (liveCommandsByThreadId.value[forkedThreadId]) {
         liveCommandsByThreadId.value = omitKey(liveCommandsByThreadId.value, forkedThreadId)
       }
@@ -4531,6 +4594,7 @@ export function useDesktopState() {
       setPersistedMessagesForThread(threadId, nextMessages)
       setLiveAgentMessagesForThread(threadId, [])
       clearLiveReasoningForThread(threadId)
+      clearLiveCollabAgentsForThread(threadId)
       if (liveCommandsByThreadId.value[threadId]) {
         liveCommandsByThreadId.value = omitKey(liveCommandsByThreadId.value, threadId)
       }
@@ -4918,6 +4982,7 @@ export function useDesktopState() {
     liveReasoningTextByThreadId.value = {}
     liveCommandsByThreadId.value = {}
     liveFileChangeMessagesByThreadId.value = {}
+    liveCollabAgentsByThreadId.value = {}
     turnIndexByTurnIdByThreadId.value = {}
     turnActivityByThreadId.value = {}
     turnSummaryByThreadId.value = {}

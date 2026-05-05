@@ -3456,3 +3456,33 @@ Task-completed Web Push notifications resolve the thread display title instead o
 #### Rollback/Cleanup
 - Disable `Task notifications` on the test phone if they are no longer needed.
 - Remove temporary test threads if they were created.
+
+### Feature: Inline collab agent status above composer
+
+#### Feature/Change Name
+Active collab/subagent status is rendered inline above the message composer instead of showing only `Writing response`.
+
+#### Prerequisites/Setup
+1. Start Codex UI with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
+2. Open a thread that can spawn collab agents, or use a Codex CLI/app-server build that emits `collabAgentToolCall` items.
+3. Use a mobile-sized viewport such as `390x844` and a desktop viewport for comparison.
+
+#### Steps
+1. Send a prompt that causes Codex to spawn two or more agents.
+2. While the turn is running, inspect the area immediately above the composer.
+3. Confirm each active agent appears as one row with a colored status dot, agent label, and a parenthesized task summary.
+4. Trigger or simulate dictation transcription while agents are active.
+5. Wait for one agent to complete while another remains running.
+6. Let the turn finish.
+
+#### Expected Results
+- The old standalone `Writing response` row is not shown when collab agent rows are available.
+- Agent rows appear inline above the composer, in the same status stack area as dictation/transcription messages.
+- Dictation and agent statuses stack without overlapping the conversation or composer.
+- Status dots reflect state: running amber, completed green, failed red, pending/shutdown gray, not-found split red/gray.
+- Long task summaries truncate cleanly in parentheses without resizing the composer controls.
+- When the turn completes, the collab agent status rows disappear.
+
+#### Rollback/Cleanup
+- Stop the test turn if it is still running.
+- Restore dictation settings to the preferred state if changed.

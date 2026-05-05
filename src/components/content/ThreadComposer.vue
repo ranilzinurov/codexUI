@@ -1,5 +1,20 @@
 <template>
   <form class="thread-composer" @submit.prevent="onSubmit(isTurnInProgress ? activeInProgressMode : 'steer')">
+    <div v-if="liveCollabAgents.length > 0" class="thread-composer-agent-status" aria-live="polite">
+      <div class="thread-composer-agent-rows">
+        <template v-for="agent in liveCollabAgents" :key="agent.id">
+          <span
+            class="thread-composer-agent-dot"
+            :data-status="agent.status"
+            :title="agentStatusTitle(agent)"
+            aria-hidden="true"
+          />
+          <span class="thread-composer-agent-name" :title="agent.name">{{ agent.name }}</span>
+          <span class="thread-composer-agent-task" :title="agentTaskTitle(agent)">{{ agent.task || 'working' }}</span>
+        </template>
+      </div>
+    </div>
+
     <p v-if="dictationStatusText" class="thread-composer-dictation-error">
       {{ dictationStatusText }}
     </p>
@@ -388,6 +403,8 @@ import type {
   CollaborationModeOption,
   ReasoningEffort,
   SpeedMode,
+  UiCollabAgentStatus,
+  UiLiveOverlay,
   UiRateLimitSnapshot,
   UiRateLimitWindow,
   UiThreadTokenUsage,
@@ -427,6 +444,7 @@ const props = defineProps<{
   skills?: SkillItem[]
   threadTokenUsage?: UiThreadTokenUsage | null
   codexQuota?: UiRateLimitSnapshot | null
+  liveOverlay?: UiLiveOverlay | null
   isTurnInProgress?: boolean
   isStopPending?: boolean
   isInterruptingTurn?: boolean
@@ -473,6 +491,17 @@ const emit = defineEmits<{
   'update:selected-speed-mode': [mode: SpeedMode]
   'dictation-input-updated': [info: DictationAudioInputInfo]
 }>()
+
+const liveCollabAgents = computed<UiCollabAgentStatus[]>(() => props.liveOverlay?.collabAgents ?? [])
+
+function agentStatusTitle(agent: UiCollabAgentStatus): string {
+  return `${agent.name}: ${agent.status}`
+}
+
+function agentTaskTitle(agent: UiCollabAgentStatus): string {
+  const task = agent.task.trim()
+  return task ? `${agent.name}: ${task}` : agent.name
+}
 
 type SelectedImage = {
   id: string
@@ -2299,6 +2328,65 @@ watch(
 
 .thread-composer-dictation-error {
   @apply mb-2 px-1 text-xs text-amber-700;
+}
+
+.thread-composer-agent-status {
+  @apply mb-2 px-1 text-xs;
+}
+
+.thread-composer-agent-rows {
+  display: grid;
+  grid-template-columns: 0.5rem minmax(3.5rem, 0.55fr) minmax(0, 1.45fr);
+  column-gap: 0.4375rem;
+  row-gap: 0.1875rem;
+  align-items: baseline;
+}
+
+.thread-composer-agent-dot {
+  width: 0.40625rem;
+  height: 0.40625rem;
+  margin-top: 0.42em;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+
+.thread-composer-agent-dot[data-status='running'] {
+  background: #f59e0b;
+}
+
+.thread-composer-agent-dot[data-status='completed'] {
+  background: #22c55e;
+}
+
+.thread-composer-agent-dot[data-status='failed'] {
+  background: #ef4444;
+}
+
+.thread-composer-agent-dot[data-status='pending'],
+.thread-composer-agent-dot[data-status='shutdown'] {
+  background: #9ca3af;
+}
+
+.thread-composer-agent-dot[data-status='notFound'] {
+  background: linear-gradient(135deg, #ef4444 0 50%, #9ca3af 50% 100%);
+}
+
+.thread-composer-agent-name {
+  @apply min-w-0 truncate font-semibold text-zinc-700;
+}
+
+.thread-composer-agent-task {
+  @apply min-w-0 truncate text-zinc-500;
+}
+
+.thread-composer-agent-task::before {
+  content: '(';
+  color: rgb(161 161 170);
+}
+
+.thread-composer-agent-task::after {
+  content: ')';
+  color: rgb(161 161 170);
 }
 
 .thread-composer-submit {
