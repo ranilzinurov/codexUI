@@ -3307,3 +3307,33 @@ The thread and home composer textarea auto-expands upward for long prompts and c
 
 #### Rollback/Cleanup
 - Clear the composer draft before closing the test thread or browser tab.
+
+### Feature: Codex CLI slash command autocomplete in composer
+
+#### Feature/Change Name
+Composer `/` autocomplete lists Codex CLI slash commands while `$` remains reserved for skills.
+
+#### Prerequisites/Setup
+1. Start Codex UI with `CODEXUI_SANDBOX_MODE=danger-full-access CODEXUI_APPROVAL_POLICY=never pnpm exec vite --host 0.0.0.0 --port 4173`.
+2. Open `http://127.0.0.1:4173/` in a desktop browser.
+3. Open an existing thread for command execution checks.
+
+#### Steps
+1. Focus the composer and type `/`.
+2. Confirm the command picker appears with Codex CLI commands such as `/model`, `/fast`, `/review`, `/compact`, and `/goal`.
+3. Type `/go`, use ArrowDown/ArrowUp if needed, press Tab or Enter on `/goal`, and confirm it inserts `/goal `.
+4. Type a goal objective after `/goal ` and submit.
+5. Type `/goal` with no arguments and submit.
+6. Type `$` in an empty composer.
+
+#### Expected Results
+- `/` opens the Codex command picker, not the skills picker.
+- Filtering follows the typed command prefix and keyboard selection works.
+- Selecting a command with inline arguments leaves the caret after a trailing space.
+- `/goal <objective>` is intercepted by the UI and sets the app-server thread goal instead of sending raw text to the model.
+- Bare `/goal` reports the current goal state.
+- `$` still opens the skills picker, preserving the existing skills workflow.
+
+#### Rollback/Cleanup
+- Run `/goal clear` in the tested thread if a temporary goal was set.
+- Clear any draft text left in the composer.

@@ -1079,6 +1079,51 @@ export async function renameThread(threadId: string, threadName: string): Promis
   await callRpc('thread/name/set', { threadId, name: threadName })
 }
 
+export type ThreadGoalStatus = 'active' | 'paused' | 'budgetLimited' | 'complete'
+
+export type ThreadGoal = {
+  threadId: string
+  objective: string
+  status: ThreadGoalStatus
+  tokenBudget: number | null
+  tokensUsed: number
+  timeUsedSeconds: number
+  createdAt: number
+  updatedAt: number
+}
+
+export async function setThreadGoalObjective(threadId: string, objective: string): Promise<ThreadGoal> {
+  const payload = await callRpc<{ goal?: ThreadGoal }>('thread/goal/set', {
+    threadId,
+    objective,
+  })
+  if (!payload.goal) throw new Error('thread/goal/set did not return a goal')
+  return payload.goal
+}
+
+export async function setThreadGoalStatus(threadId: string, status: ThreadGoalStatus): Promise<ThreadGoal> {
+  const payload = await callRpc<{ goal?: ThreadGoal }>('thread/goal/set', {
+    threadId,
+    status,
+  })
+  if (!payload.goal) throw new Error('thread/goal/set did not return a goal')
+  return payload.goal
+}
+
+export async function getThreadGoal(threadId: string): Promise<ThreadGoal | null> {
+  const payload = await callRpc<{ goal?: ThreadGoal | null }>('thread/goal/get', { threadId })
+  return payload.goal ?? null
+}
+
+export async function clearThreadGoal(threadId: string): Promise<boolean> {
+  const payload = await callRpc<{ cleared?: boolean }>('thread/goal/clear', { threadId })
+  return payload.cleared === true
+}
+
+export async function startThreadCompaction(threadId: string): Promise<void> {
+  await callRpc('thread/compact/start', { threadId })
+}
+
 export async function rollbackThread(threadId: string, numTurns: number): Promise<UiMessage[]> {
   const payload = await callRpc<ThreadReadResponse>('thread/rollback', { threadId, numTurns })
   return normalizeThreadMessagesV2(payload)
@@ -1793,6 +1838,18 @@ export async function startThreadReview(
   await callRpc('review/start', {
     threadId,
     target,
+    delivery: 'inline',
+  })
+}
+
+export async function startThreadCustomReview(threadId: string, instructions: string): Promise<void> {
+  const normalizedInstructions = instructions.trim()
+  if (!normalizedInstructions) {
+    throw new Error('Custom review instructions are required')
+  }
+  await callRpc('review/start', {
+    threadId,
+    target: { type: 'custom', instructions: normalizedInstructions },
     delivery: 'inline',
   })
 }

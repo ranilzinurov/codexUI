@@ -719,6 +719,7 @@
                   :dictation-click-to-toggle="dictationClickToToggle" :dictation-auto-send="dictationAutoSend"
                   :dictation-language="dictationLanguage"
                   @submit="onSubmitThreadMessage"
+                  @slash-command="onSlashCommand"
                   @update:selected-collaboration-mode="onSelectCollaborationMode"
                   @update:selected-model="onSelectModel"
                   @update:selected-reasoning-effort="onSelectReasoningEffort"
@@ -790,7 +791,7 @@
                     :dictation-click-to-toggle="dictationClickToToggle" :dictation-auto-send="dictationAutoSend"
                     :dictation-language="dictationLanguage"
                     @update:selected-collaboration-mode="onSelectCollaborationMode"
-                    @submit="onSubmitThreadMessage" @update:selected-model="onSelectModel"
+                    @submit="onSubmitThreadMessage" @slash-command="onSlashCommand" @update:selected-model="onSelectModel"
                     @update:selected-reasoning-effort="onSelectReasoningEffort"
                     @update:selected-speed-mode="onSelectSpeedMode"
                     @dictation-input-updated="onDictationInputUpdated"
@@ -845,12 +846,19 @@ import {
   removeAccount,
   refreshAccountsFromAuth,
   searchThreads,
+  clearThreadGoal,
+  getThreadGoal,
+  setThreadGoalObjective,
+  setThreadGoalStatus,
+  startThreadCompaction,
+  startThreadCustomReview,
   switchAccount,
 } from './api/codexGateway'
 import type { ReasoningEffort, SpeedMode, ThreadScrollState, UiAccountEntry, UiRateLimitWindow, UiServerRequest, UiServerRequestReply, UiThreadTokenUsage } from './types/codex'
 import type { ComposerDraftPayload, ThreadComposerExposed } from './components/content/ThreadComposer.vue'
 import type { DictationAudioInputInfo } from './composables/useDictation'
 import type { GithubTipsScope, GithubTrendingProject, LocalDirectoryEntry, TelegramStatus, WorktreeBranchOption } from './api/codexGateway'
+import type { ParsedCodexSlashCommand } from './codexSlashCommands'
 import { getFreeModeStatus, setFreeMode, setFreeModeCustomKey, setCustomProvider } from './api/codexGateway'
 import { safeLocalStorageGetItem, safeLocalStorageSetItem, subscribeMediaQueryChange } from './browserCompat'
 import { getPathLeafName, getPathParent, normalizePathForUi } from './pathUtils.js'
@@ -1032,6 +1040,7 @@ const {
   isInterruptingTurn,
   isSelectedThreadInterruptPending,
   isUpdatingSpeedMode,
+  error,
   refreshAll,
   refreshSkills,
   selectThread,
@@ -2109,6 +2118,137 @@ function onSubmitThreadMessage(payload: { text: string; imageUrls: string[]; fil
     return
   }
   void sendMessageToSelectedThread(text, payload.imageUrls, payload.skills, payload.mode, payload.fileAttachments, queueInsertIndex)
+}
+
+async function onSlashCommand(payload: ParsedCodexSlashCommand): Promise<void> {
+  const command = payload.command.command
+  const args = payload.args.trim()
+  error.value = ''
+
+  try {
+    if (command === 'new' || command === 'clear') {
+      await router.push({ name: 'home' })
+      return
+    }
+
+    if (command === 'plan') {
+      setSelectedCollaborationMode('plan')
+      if (args) {
+        if (isHomeRoute.value) {
+          await submitFirstMessageForNewThread(args)
+        } else {
+          await sendMessageToSelectedThread(args, [], [], 'steer', [])
+        }
+      }
+      return
+    }
+
+    if (command === 'fast') {
+      const normalized = args.toLowerCase()
+      if (normalized === 'status') {
+        error.value = `Fast mode is ${selectedSpeedMode.value === 'fast' ? 'on' : 'off'}.`
+        return
+      }
+      if (normalized === 'on') {
+        await updateSelectedSpeedMode('fast')
+        return
+      }
+      if (normalized === 'off') {
+        await updateSelectedSpeedMode('standard')
+        return
+      }
+      await updateSelectedSpeedMode(selectedSpeedMode.value === 'fast' ? 'standard' : 'fast')
+      return
+    }
+
+    const threadId = selectedThreadId.value.trim()
+    if (!threadId) {
+      error.value = `/${command} requires an existing thread.`
+      return
+    }
+
+    if (command === 'fork') {
+      const nextThreadId = await forkThreadById(threadId)
+      if (nextThreadId) {
+        await router.push({ name: 'thread', params: { threadId: nextThreadId } })
+      }
+      return
+    }
+
+    if (command === 'rename') {
+      if (!args) {
+        error.value = 'Usage: /rename <thread name>'
+        return
+      }
+      await renameThreadById(threadId, args)
+      return
+    }
+
+    if (command === 'compact') {
+      await startThreadCompaction(threadId)
+      await refreshAll({ includeSelectedThreadMessages: true, awaitAncillaryRefreshes: true })
+      return
+    }
+
+    if (command === 'review') {
+      await startThreadCustomReview(threadId, args || 'Review my current changes and find issues.')
+      return
+    }
+
+    if (command === 'goal') {
+      await runGoalSlashCommand(threadId, args)
+      return
+    }
+
+    if (command === 'model') {
+      error.value = 'Use the Model dropdown in the composer. /model picker parity is not implemented in the web UI yet.'
+      return
+    }
+
+    if (command === 'skills') {
+      error.value = 'Skills are selected with $ in the composer or the Skills dropdown.'
+      return
+    }
+
+    if (command === 'mention') {
+      error.value = 'Use @ in the composer to mention files.'
+      return
+    }
+
+    error.value = `/${command} is a Codex CLI command, but this web UI does not have its TUI panel/action yet.`
+  } catch (unknownError) {
+    error.value = unknownError instanceof Error ? unknownError.message : `Failed to run /${command}`
+  }
+}
+
+async function runGoalSlashCommand(threadId: string, args: string): Promise<void> {
+  if (!args) {
+    const goal = await getThreadGoal(threadId)
+    error.value = goal
+      ? `Goal is ${goal.status}: ${goal.objective}`
+      : 'No goal is set. Usage: /goal <objective>'
+    return
+  }
+
+  const normalized = args.toLowerCase()
+  if (normalized === 'clear') {
+    await clearThreadGoal(threadId)
+    error.value = 'Goal cleared.'
+    return
+  }
+  if (normalized === 'pause') {
+    await setThreadGoalStatus(threadId, 'paused')
+    error.value = 'Goal paused.'
+    return
+  }
+  if (normalized === 'resume') {
+    await setThreadGoalStatus(threadId, 'active')
+    error.value = 'Goal resumed.'
+    return
+  }
+
+  await setThreadGoalObjective(threadId, args)
+  error.value = 'Goal set.'
 }
 
 function formatTrendingTipMeta(project: GithubTrendingProject): string {

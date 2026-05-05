@@ -131,6 +131,16 @@
           @select="onSkillPickerSelect"
           @close="closeSkillPicker"
         />
+        <ComposerSlashCommandPicker
+          :commands="slashCommandOptions"
+          :query="slashCommandQuery"
+          :visible="isSlashCommandPickerOpen"
+          :highlighted-index="slashCommandHighlightedIndex"
+          :anchor-bottom="44"
+          :anchor-left="0"
+          @select="onSlashCommandPickerSelect"
+          @highlight="slashCommandHighlightedIndex = $event"
+        />
       </div>
 
       <div
@@ -395,6 +405,13 @@ import IconTablerPlayerStopFilled from '../icons/IconTablerPlayerStopFilled.vue'
 import ComposerDropdown from './ComposerDropdown.vue'
 import ComposerSearchDropdown from './ComposerSearchDropdown.vue'
 import ComposerSkillPicker from './ComposerSkillPicker.vue'
+import ComposerSlashCommandPicker from './ComposerSlashCommandPicker.vue'
+import {
+  CODEX_SLASH_COMMANDS,
+  parseCodexSlashCommand,
+  type CodexSlashCommand,
+  type ParsedCodexSlashCommand,
+} from '../../codexSlashCommands'
 
 type SkillItem = { name: string; description: string; path: string }
 
@@ -448,6 +465,7 @@ export type ThreadComposerExposed = {
 
 const emit = defineEmits<{
   submit: [payload: SubmitPayload]
+  'slash-command': [payload: ParsedCodexSlashCommand]
   interrupt: []
   'update:selected-collaboration-mode': [mode: CollaborationModeKind]
   'update:selected-model': [modelId: string]
@@ -480,6 +498,7 @@ type AttachmentBatchStats = {
 const CONTEXT_WINDOW_BASELINE_TOKENS = 12000
 const PASTED_TEXT_FILE_THRESHOLD = 2000
 const SKILL_TRIGGER_PREFIX = '$'
+const SLASH_COMMAND_TRIGGER_PREFIX = '/'
 const COMPOSER_MAX_VIEWPORT_RATIO = 2 / 3
 const COMPOSER_INPUT_MIN_MAX_HEIGHT = 112
 
@@ -544,6 +563,9 @@ const inputRef = ref<HTMLTextAreaElement | null>(null)
 const { isMobile } = useMobile()
 const isAttachMenuOpen = ref(false)
 const isSkillPickerOpen = ref(false)
+const isSlashCommandPickerOpen = ref(false)
+const slashCommandQuery = ref('')
+const slashCommandHighlightedIndex = ref(0)
 const mentionStartIndex = ref<number | null>(null)
 const mentionQuery = ref('')
 const fileMentionSuggestions = ref<ComposerFileSuggestion[]>([])
@@ -582,6 +604,15 @@ const isPlanModeWaitingForModel = computed(() =>
 )
 
 const skillOptions = computed<SkillItem[]>(() => props.skills ?? [])
+const slashCommandOptions = computed(() => CODEX_SLASH_COMMANDS)
+const filteredSlashCommandOptions = computed(() => {
+  const query = slashCommandQuery.value.toLowerCase().trim()
+  const rows = query
+    ? slashCommandOptions.value.filter((entry) =>
+      entry.command.includes(query) || entry.description.toLowerCase().includes(query))
+    : slashCommandOptions.value
+  return rows.slice(0, 12)
+})
 const selectedSkillPaths = computed(() => selectedSkills.value.map((s) => s.path))
 const skillDropdownOptions = computed(() =>
   (props.skills ?? []).map((s) => ({
@@ -683,7 +714,7 @@ const placeholderText = computed(() =>
     ? 'Select a thread to send a message'
     : isPlanModeWaitingForModel.value
       ? 'Loading models for plan mode...'
-      : `Type a message... (@ for files, ${SKILL_TRIGGER_PREFIX} for skills)`,
+      : `Type a message... (@ for files, / for commands, ${SKILL_TRIGGER_PREFIX} for skills)`,
 )
 const hasSubmitContent = computed(() =>
   draft.value.trim().length > 0 || selectedImages.value.length > 0 || fileAttachments.value.length > 0,
@@ -915,6 +946,18 @@ function buildContextUsageView(
 function onSubmit(mode: 'steer' | 'queue' = 'steer'): void {
   const text = draft.value.trim()
   if (!canSubmit.value) return
+  const slashCommand = parseSubmittableSlashCommand(text)
+  if (slashCommand) {
+    emit('slash-command', slashCommand)
+    clearPersistedDraftForThread(props.activeThreadId)
+    clearDraftState()
+    folderUploadGroups.value = []
+    isAttachMenuOpen.value = false
+    isSkillPickerOpen.value = false
+    closeSlashCommandPicker()
+    closeFileMention()
+    return
+  }
   emit('submit', {
     text,
     imageUrls: selectedImages.value.map((image) => image.url),
@@ -1511,10 +1554,39 @@ function onInputChange(): void {
   if (shouldShowSkillPicker !== isSkillPickerOpen.value) {
     isSkillPickerOpen.value = shouldShowSkillPicker
   }
+  updateSlashCommandPickerState()
   updateFileMentionState()
 }
 
 function onInputKeydown(event: KeyboardEvent): void {
+  if (isSlashCommandPickerOpen.value) {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      closeSlashCommandPicker()
+      return
+    }
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      moveSlashCommandHighlight(1)
+      return
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      moveSlashCommandHighlight(-1)
+      return
+    }
+    if (event.key === 'Enter' || event.key === 'Tab') {
+      event.preventDefault()
+      const selected = filteredSlashCommandOptions.value[slashCommandHighlightedIndex.value]
+      if (selected) {
+        applySlashCommand(selected)
+      } else {
+        closeSlashCommandPicker()
+      }
+      return
+    }
+  }
+
   if (isFileMentionOpen.value) {
     if (event.key === 'Escape') {
       event.preventDefault()
@@ -1576,6 +1648,13 @@ function closeSkillPicker(): void {
   inputRef.value?.focus()
 }
 
+function parseSubmittableSlashCommand(text: string): ParsedCodexSlashCommand | null {
+  if (selectedImages.value.length > 0 || selectedSkills.value.length > 0 || fileAttachments.value.length > 0) {
+    return null
+  }
+  return parseCodexSlashCommand(text)
+}
+
 function isSkillPickerTriggerText(text: string): boolean {
   return text.startsWith(SKILL_TRIGGER_PREFIX)
 }
@@ -1584,6 +1663,52 @@ function clearSkillTriggerDraft(): void {
   if (isSkillPickerTriggerText(draft.value)) {
     draft.value = ''
   }
+}
+
+function updateSlashCommandPickerState(): void {
+  const input = inputRef.value
+  if (!input) {
+    closeSlashCommandPicker()
+    return
+  }
+  const cursor = input.selectionStart ?? draft.value.length
+  const beforeCursor = draft.value.slice(0, cursor)
+  const isSlashOnlyDraft = /^\/[a-z0-9-]*$/i.test(beforeCursor) && beforeCursor === draft.value
+  if (!isSlashOnlyDraft) {
+    closeSlashCommandPicker()
+    return
+  }
+  slashCommandQuery.value = beforeCursor.slice(SLASH_COMMAND_TRIGGER_PREFIX.length)
+  slashCommandHighlightedIndex.value = 0
+  isSlashCommandPickerOpen.value = true
+  isSkillPickerOpen.value = false
+  closeFileMention()
+}
+
+function closeSlashCommandPicker(): void {
+  isSlashCommandPickerOpen.value = false
+  slashCommandQuery.value = ''
+  slashCommandHighlightedIndex.value = 0
+}
+
+function moveSlashCommandHighlight(delta: number): void {
+  const size = filteredSlashCommandOptions.value.length
+  if (size === 0) return
+  slashCommandHighlightedIndex.value = (slashCommandHighlightedIndex.value + delta + size) % size
+}
+
+function applySlashCommand(command: CodexSlashCommand): void {
+  draft.value = command.supportsInlineArgs ? `/${command.command} ` : `/${command.command}`
+  closeSlashCommandPicker()
+  scheduleComposerInputResize()
+  nextTick(() => {
+    inputRef.value?.focus()
+    const input = inputRef.value
+    if (input) {
+      const position = draft.value.length
+      input.setSelectionRange(position, position)
+    }
+  })
 }
 
 function closeFileMention(): void {
@@ -1720,6 +1845,10 @@ function onSkillPickerSelect(skill: SkillItem): void {
   clearSkillTriggerDraft()
   isSkillPickerOpen.value = false
   inputRef.value?.focus()
+}
+
+function onSlashCommandPickerSelect(command: CodexSlashCommand): void {
+  applySlashCommand(command)
 }
 
 function onSkillDropdownToggle(path: string, checked: boolean): void {
