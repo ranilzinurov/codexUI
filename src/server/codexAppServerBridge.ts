@@ -119,6 +119,25 @@ const API_PERF_MS_THRESHOLD_ENV_KEY = 'CODEXUI_API_PERF_MS_THRESHOLD'
 const API_PERF_BODY_MB_THRESHOLD_ENV_KEY = 'CODEXUI_API_PERF_BODY_MB_THRESHOLD'
 const DEFAULT_API_PERF_MS_THRESHOLD = 300
 const DEFAULT_API_PERF_BODY_MB_THRESHOLD = 1
+const RESTART_SCRIPT_PATH = process.env.CODEXUI_RESTART_SCRIPT
+  || '/home/rnl1/prog/codexUI/scripts/restart-codexui-service.sh'
+const RESTART_LOG_PATH = process.env.CODEXUI_RESTART_LOG || '/tmp/codexui-restart.log'
+const RESTART_SCHEDULE_TIMEOUT_MS = 15_000
+
+type RestartStage = 'idle' | 'scheduled' | 'building' | 'restarting' | 'waiting' | 'complete' | 'failed'
+
+type RestartStatus = {
+  available: boolean
+  scriptPath: string
+  logPath: string
+  stage: RestartStage
+  message: string
+  updatedAtIso: string | null
+  startedAtIso: string | null
+  completedAtIso: string | null
+  failed: boolean
+  logTail: string[]
+}
 const MB_DIVISOR = 1024 * 1024
 
 type SessionRecoveredFileChange = {
@@ -518,6 +537,141 @@ function setJson(res: ServerResponse, statusCode: number, payload: unknown): voi
   res.setHeader('Content-Type', 'application/json; charset=utf-8')
   res.setHeader('Content-Length', Buffer.byteLength(body))
   res.end(body)
+}
+
+async function isRestartScriptAvailable(): Promise<boolean> {
+  try {
+    const scriptStat = await stat(RESTART_SCRIPT_PATH)
+    return scriptStat.isFile() && (scriptStat.mode & 0o111) !== 0
+  } catch {
+    return false
+  }
+}
+
+function parseRestartLogStage(lines: string[], logExists: boolean): Pick<RestartStatus, 'stage' | 'message' | 'startedAtIso' | 'completedAtIso' | 'failed'> {
+  let stage: RestartStage = logExists ? 'scheduled' : 'idle'
+  let message = logExists ? 'Restart scheduled.' : 'No restart has been scheduled yet.'
+  let startedAtIso: string | null = null
+  let completedAtIso: string | null = null
+  let failed = false
+
+  for (const line of lines) {
+    const timestamp = /\[restart\]\s+(\S+)/u.exec(line)?.[1] ?? null
+    if (line.includes('build started')) {
+      startedAtIso = startedAtIso ?? timestamp
+      stage = 'building'
+      message = 'Building Codex UI...'
+    } else if (line.includes('build finished')) {
+      stage = 'restarting'
+      message = 'Build finished. Restarting service...'
+    } else if (line.includes('restarting ')) {
+      stage = 'restarting'
+      message = 'Restarting service...'
+    } else if (line.includes('waiting for healthcheck')) {
+      stage = 'waiting'
+      message = 'Waiting for service healthcheck...'
+    } else if (line.includes('healthcheck failed; cleaning stale codexui listener')) {
+      stage = 'waiting'
+      message = 'Healthcheck failed once. Cleaning stale listener and retrying...'
+    } else if (line.includes('service is healthy')) {
+      stage = 'complete'
+      message = 'Service is healthy. Reloading...'
+      completedAtIso = timestamp
+      failed = false
+    } else if (line.includes('service failed healthcheck')) {
+      stage = 'failed'
+      message = 'Service failed healthcheck.'
+      completedAtIso = timestamp
+      failed = true
+    } else if (line.includes('worker exit status=0')) {
+      stage = 'complete'
+      message = 'Restart completed. Reloading...'
+      completedAtIso = timestamp
+      failed = false
+    } else if (line.includes('worker exit status=')) {
+      stage = 'failed'
+      message = 'Restart worker exited with an error.'
+      completedAtIso = timestamp
+      failed = true
+    }
+  }
+
+  return { stage, message, startedAtIso, completedAtIso, failed }
+}
+
+async function getRestartStatus(): Promise<RestartStatus> {
+  const available = await isRestartScriptAvailable()
+  let lines: string[] = []
+  let updatedAtIso: string | null = null
+  let logExists = false
+
+  try {
+    const [logContent, logStat] = await Promise.all([
+      readFile(RESTART_LOG_PATH, 'utf8'),
+      stat(RESTART_LOG_PATH),
+    ])
+    logExists = true
+    lines = logContent.split(/\r?\n/u).filter((line) => line.trim().length > 0)
+    updatedAtIso = logStat.mtime.toISOString()
+  } catch {
+    lines = []
+  }
+
+  const parsed = parseRestartLogStage(lines, logExists)
+  return {
+    available,
+    scriptPath: RESTART_SCRIPT_PATH,
+    logPath: RESTART_LOG_PATH,
+    ...parsed,
+    updatedAtIso,
+    logTail: lines.slice(-20),
+  }
+}
+
+async function scheduleCodexUiRestart(): Promise<{ output: string }> {
+  if (!(await isRestartScriptAvailable())) {
+    throw new Error('Restart script is not available or is not executable.')
+  }
+
+  return await new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn('/bin/bash', [RESTART_SCRIPT_PATH, '--no-follow'], {
+      cwd: dirname(RESTART_SCRIPT_PATH),
+      detached: true,
+      env: {
+        ...process.env,
+        CODEXUI_RESTART_LOG: RESTART_LOG_PATH,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+
+    let output = ''
+    const timeout = setTimeout(() => {
+      child.kill('SIGTERM')
+      rejectPromise(new Error('Restart scheduling timed out.'))
+    }, RESTART_SCHEDULE_TIMEOUT_MS)
+
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', (chunk) => {
+      output += chunk
+    })
+    child.stderr.on('data', (chunk) => {
+      output += chunk
+    })
+    child.on('error', (error) => {
+      clearTimeout(timeout)
+      rejectPromise(error)
+    })
+    child.on('close', (code) => {
+      clearTimeout(timeout)
+      if (code === 0) {
+        resolvePromise({ output: output.trim() })
+        return
+      }
+      rejectPromise(new Error(output.trim() || `Restart script exited with status ${code ?? 'unknown'}.`))
+    })
+    child.unref()
+  })
 }
 
 function logProviderModelDiscoveryWarning(message: string, details: Record<string, unknown>): void {
@@ -3487,6 +3641,30 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
       }
 
       const url = new URL(req.url, 'http://localhost')
+
+      if (req.method === 'GET' && url.pathname === '/codex-api/restart/status') {
+        setJson(res, 200, { data: await getRestartStatus() })
+        return
+      }
+
+      if (req.method === 'POST' && url.pathname === '/codex-api/restart') {
+        try {
+          const scheduled = await scheduleCodexUiRestart()
+          setJson(res, 202, {
+            ok: true,
+            scheduled: true,
+            output: scheduled.output,
+            data: await getRestartStatus(),
+          })
+        } catch (error) {
+          setJson(res, 503, {
+            ok: false,
+            error: getErrorMessage(error, 'Failed to schedule restart.'),
+            data: await getRestartStatus(),
+          })
+        }
+        return
+      }
 
       if (url.pathname === '/codex-api/zen-proxy/v1/responses' && req.method === 'POST') {
         const statePath = join(getCodexHomeDir(), FREE_MODE_STATE_FILE)

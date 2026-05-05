@@ -134,6 +134,21 @@ export type TelegramConfig = {
   allowedUserIds: Array<number | '*'>
 }
 
+export type RestartStage = 'idle' | 'scheduled' | 'building' | 'restarting' | 'waiting' | 'complete' | 'failed'
+
+export type RestartStatus = {
+  available: boolean
+  scriptPath: string
+  logPath: string
+  stage: RestartStage
+  message: string
+  updatedAtIso: string | null
+  startedAtIso: string | null
+  completedAtIso: string | null
+  failed: boolean
+  logTail: string[]
+}
+
 export type GithubTrendingProject = {
   id: number
   fullName: string
@@ -1521,6 +1536,61 @@ export async function setCustomProvider(
     }),
   })
   return await response.json() as { ok: boolean }
+}
+
+function normalizeRestartStatus(value: unknown): RestartStatus {
+  const record = asRecord(value) ?? {}
+  const stageRaw = readString(record.stage)
+  const stage: RestartStage =
+    stageRaw === 'scheduled' ||
+    stageRaw === 'building' ||
+    stageRaw === 'restarting' ||
+    stageRaw === 'waiting' ||
+    stageRaw === 'complete' ||
+    stageRaw === 'failed'
+      ? stageRaw
+      : 'idle'
+
+  return {
+    available: readBoolean(record.available) ?? false,
+    scriptPath: readString(record.scriptPath) ?? '',
+    logPath: readString(record.logPath) ?? '',
+    stage,
+    message: readString(record.message) ?? '',
+    updatedAtIso: readString(record.updatedAtIso),
+    startedAtIso: readString(record.startedAtIso),
+    completedAtIso: readString(record.completedAtIso),
+    failed: readBoolean(record.failed) ?? stage === 'failed',
+    logTail: Array.isArray(record.logTail)
+      ? record.logTail.map((line) => readString(line)).filter((line): line is string => Boolean(line))
+      : [],
+  }
+}
+
+function readRestartStatusEnvelope(payload: unknown): RestartStatus {
+  const record = asRecord(payload)
+  return normalizeRestartStatus(record?.data)
+}
+
+export async function getRestartStatus(): Promise<RestartStatus> {
+  const response = await fetch('/codex-api/restart/status', { cache: 'no-store' })
+  const payload = await readJsonResponse(response)
+  if (!response.ok) {
+    throw new Error(getErrorMessageFromPayload(payload, 'Failed to load restart status'))
+  }
+  return readRestartStatusEnvelope(payload)
+}
+
+export async function scheduleRestart(): Promise<RestartStatus> {
+  const response = await fetch('/codex-api/restart', {
+    method: 'POST',
+    cache: 'no-store',
+  })
+  const payload = await readJsonResponse(response)
+  if (!response.ok) {
+    throw new Error(getErrorMessageFromPayload(payload, 'Failed to schedule restart'))
+  }
+  return readRestartStatusEnvelope(payload)
 }
 
 export async function getAvailableModelIds(options: { includeProviderModels?: boolean } = {}): Promise<string[]> {

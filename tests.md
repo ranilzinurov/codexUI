@@ -3337,3 +3337,35 @@ Composer `/` autocomplete lists Codex CLI slash commands while `$` remains reser
 #### Rollback/Cleanup
 - Run `/goal clear` in the tested thread if a temporary goal was set.
 - Clear any draft text left in the composer.
+
+### Feature: Restart Codex UI from settings
+
+#### Feature/Change Name
+Sidebar settings include a guarded `Restart Codex UI` action that schedules the fixed service restart script, shows a blocking progress overlay, tolerates temporary disconnects, and reloads after the service is healthy.
+
+#### Prerequisites/Setup
+1. Ensure `scripts/restart-codexui-service.sh` exists and is executable.
+2. Start Codex UI with `pnpm run dev -- --host 0.0.0.0 --port 4173` or run the installed service.
+3. Open `http://127.0.0.1:4173/` in a browser.
+
+#### Steps
+1. Request `GET /codex-api/restart/status`.
+2. Open the sidebar settings panel.
+3. Confirm the `Restart Codex UI` row appears only when the restart script is executable.
+4. Click `Restart Codex UI`.
+5. Cancel the browser confirmation.
+6. Click `Restart Codex UI` again and confirm.
+7. Watch the blocking overlay while the service rebuilds and restarts.
+8. Leave the page open until the service responds healthy again.
+
+#### Expected Results
+- The status endpoint returns `available: true` when the script is executable, including `stage`, `message`, `scriptPath`, `logPath`, and recent log lines.
+- Cancelling the browser confirmation does not call the restart endpoint and does not restart the service.
+- Confirming schedules `scripts/restart-codexui-service.sh --no-follow`; the HTTP request returns after scheduling instead of waiting for the full restart.
+- Temporary network failures during restart keep the overlay in a waiting state instead of failing immediately.
+- If the log reports healthcheck failure or worker failure, the overlay shows a failed state with the restart log path.
+- After the status endpoint reports completion, the page reloads automatically.
+
+#### Rollback/Cleanup
+- If the service is left in a failed state, inspect `/tmp/codexui-restart.log` and restart `codexui.service` manually.
+- No browser storage cleanup is required.

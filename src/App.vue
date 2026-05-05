@@ -421,6 +421,17 @@
               <div class="sidebar-settings-rate-limits">
                 <RateLimitStatus :snapshots="accountRateLimitSnapshots" />
               </div>
+              <button
+                v-if="restartStatus?.available"
+                class="sidebar-settings-row sidebar-settings-restart-row"
+                type="button"
+                :disabled="isRestartScheduling || isRestartOverlayVisible"
+                title="Rebuild and restart the Codex UI service"
+                @click="onRestartCodexUi"
+              >
+                <span class="sidebar-settings-label">Restart Codex UI</span>
+                <span class="sidebar-settings-value">{{ isRestartScheduling ? 'Scheduling...' : 'Restart' }}</span>
+              </button>
               <div class="sidebar-settings-build-label" aria-label="Worktree name and version">
                 WT {{ worktreeName }} · v{{ appVersion }}
               </div>
@@ -804,6 +815,22 @@
       </section>
     </template>
   </DesktopLayout>
+  <Teleport to="body">
+    <div v-if="isRestartOverlayVisible" class="restart-overlay" role="alertdialog" aria-modal="true" aria-labelledby="restart-overlay-title">
+      <div class="restart-overlay-panel">
+        <div class="restart-overlay-spinner" :class="{ 'is-complete': restartOverlayStage === 'complete', 'is-failed': restartOverlayStage === 'failed' }" />
+        <div class="restart-overlay-copy">
+          <p id="restart-overlay-title" class="restart-overlay-title">{{ restartOverlayTitle }}</p>
+          <p class="restart-overlay-message">{{ restartOverlayMessage }}</p>
+          <p v-if="restartOverlayNetworkWarning" class="restart-overlay-subtle">{{ restartOverlayNetworkWarning }}</p>
+          <p v-if="restartOverlayError" class="restart-overlay-error">{{ restartOverlayError }}</p>
+        </div>
+        <div v-if="restartOverlayStage === 'failed'" class="restart-overlay-actions">
+          <button class="restart-overlay-action" type="button" @click="closeRestartOverlay">Close</button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -850,6 +877,8 @@ import {
   getThreadGoal,
   setThreadGoalObjective,
   setThreadGoalStatus,
+  getRestartStatus,
+  scheduleRestart,
   startThreadCompaction,
   startThreadCustomReview,
   switchAccount,
@@ -857,7 +886,7 @@ import {
 import type { ReasoningEffort, SpeedMode, ThreadScrollState, UiAccountEntry, UiRateLimitWindow, UiServerRequest, UiServerRequestReply, UiThreadTokenUsage } from './types/codex'
 import type { ComposerDraftPayload, ThreadComposerExposed } from './components/content/ThreadComposer.vue'
 import type { DictationAudioInputInfo } from './composables/useDictation'
-import type { GithubTipsScope, GithubTrendingProject, LocalDirectoryEntry, TelegramStatus, WorktreeBranchOption } from './api/codexGateway'
+import type { GithubTipsScope, GithubTrendingProject, LocalDirectoryEntry, RestartStatus, TelegramStatus, WorktreeBranchOption } from './api/codexGateway'
 import type { ParsedCodexSlashCommand } from './codexSlashCommands'
 import { getFreeModeStatus, setFreeMode, setFreeModeCustomKey, setCustomProvider } from './api/codexGateway'
 import { safeLocalStorageGetItem, safeLocalStorageSetItem, subscribeMediaQueryChange } from './browserCompat'
@@ -1137,6 +1166,8 @@ const DICTATION_LAST_INPUT_KEY = 'codex-web-local.dictation-last-input.v1'
 const GITHUB_TRENDING_PROJECTS_KEY = 'codex-web-local.github-trending-projects.v1'
 const CHAT_WIDTH_KEY = 'codex-web-local.chat-width.v1'
 const MOBILE_RESUME_RELOAD_MIN_HIDDEN_MS = 400
+const RESTART_POLL_INTERVAL_MS = 1_500
+const RESTART_POLL_TIMEOUT_MS = 300_000
 const sendWithEnter = ref(loadBoolPref(SEND_WITH_ENTER_KEY, true))
 const inProgressSendMode = ref<'steer' | 'queue'>(loadInProgressSendModePref())
 const darkMode = ref<'system' | 'light' | 'dark'>(loadDarkModePref())
@@ -1189,6 +1220,15 @@ const telegramStatus = ref<TelegramStatus>({
   allowAllUsers: false,
   lastError: '',
 })
+const restartStatus = ref<RestartStatus | null>(null)
+const isRestartScheduling = ref(false)
+const isRestartOverlayVisible = ref(false)
+const restartOverlayStage = ref<RestartStatus['stage']>('idle')
+const restartOverlayMessage = ref('')
+const restartOverlayError = ref('')
+const restartOverlayNetworkWarning = ref('')
+let restartPollTimer: number | null = null
+let restartPollStartedAtMs = 0
 const mobileHiddenAtMs = ref<number | null>(null)
 const mobileResumeReloadTriggered = ref(false)
 const mobileResumeSyncInProgress = ref(false)
@@ -1460,6 +1500,24 @@ const telegramStatusText = computed(() => {
   const error = telegramStatus.value.lastError ? `, error: ${telegramStatus.value.lastError}` : ''
   return `${base}, ${mapped}${error}`
 })
+const restartOverlayTitle = computed(() => {
+  switch (restartOverlayStage.value) {
+    case 'building':
+      return 'Building Codex UI'
+    case 'restarting':
+      return 'Restarting Codex UI'
+    case 'waiting':
+      return 'Waiting for service'
+    case 'complete':
+      return 'Restart complete'
+    case 'failed':
+      return 'Restart failed'
+    case 'scheduled':
+      return 'Restart scheduled'
+    default:
+      return 'Restarting Codex UI'
+  }
+})
 
 onMounted(() => {
   document.addEventListener('pointerdown', onDocumentPointerDown)
@@ -1477,6 +1535,7 @@ onMounted(() => {
   void refreshDefaultProjectName()
   void refreshTelegramConfig()
   void refreshTelegramStatus()
+  void loadRestartStatus()
   void loadFreeModeStatus()
   if (showGithubTrendingProjects.value) {
     void loadTrendingProjects()
@@ -1499,6 +1558,7 @@ onUnmounted(() => {
     clearTimeout(threadSearchTimer)
     threadSearchTimer = null
   }
+  clearRestartPollTimer()
   stopPolling()
 })
 
@@ -1576,6 +1636,105 @@ async function refreshTelegramConfig(): Promise<void> {
   } catch (error) {
     telegramConfigError.value = error instanceof Error ? error.message : 'Failed to load Telegram configuration'
   }
+}
+
+async function loadRestartStatus(): Promise<void> {
+  try {
+    restartStatus.value = await getRestartStatus()
+  } catch {
+    restartStatus.value = null
+  }
+}
+
+function clearRestartPollTimer(): void {
+  if (restartPollTimer === null) return
+  window.clearInterval(restartPollTimer)
+  restartPollTimer = null
+}
+
+function updateRestartOverlayFromStatus(status: RestartStatus): void {
+  restartStatus.value = status
+  restartOverlayStage.value = status.stage
+  restartOverlayMessage.value = status.message || 'Restart is in progress.'
+  if (status.stage !== 'failed') {
+    restartOverlayError.value = ''
+  }
+}
+
+function startRestartPolling(): void {
+  clearRestartPollTimer()
+  restartPollStartedAtMs = Date.now()
+  restartPollTimer = window.setInterval(() => {
+    void pollRestartStatus()
+  }, RESTART_POLL_INTERVAL_MS)
+  void pollRestartStatus()
+}
+
+async function pollRestartStatus(): Promise<void> {
+  if (!isRestartOverlayVisible.value) {
+    clearRestartPollTimer()
+    return
+  }
+
+  if (Date.now() - restartPollStartedAtMs > RESTART_POLL_TIMEOUT_MS) {
+    clearRestartPollTimer()
+    restartOverlayStage.value = 'failed'
+    restartOverlayMessage.value = 'Restart did not finish within the expected time.'
+    restartOverlayError.value = `Check the restart log manually: ${restartStatus.value?.logPath || '/tmp/codexui-restart.log'}`
+    return
+  }
+
+  try {
+    const status = await getRestartStatus()
+    updateRestartOverlayFromStatus(status)
+    restartOverlayNetworkWarning.value = ''
+
+    if (status.stage === 'failed' || status.failed) {
+      clearRestartPollTimer()
+      restartOverlayStage.value = 'failed'
+      restartOverlayError.value = `Log: ${status.logPath}`
+      return
+    }
+
+    if (status.stage === 'complete') {
+      clearRestartPollTimer()
+      window.setTimeout(() => {
+        window.location.reload()
+      }, 800)
+    }
+  } catch {
+    restartOverlayNetworkWarning.value = 'Server is temporarily unavailable during restart. Waiting for it to come back...'
+  }
+}
+
+async function onRestartCodexUi(): Promise<void> {
+  if (isRestartScheduling.value || isRestartOverlayVisible.value) return
+  const confirmed = window.confirm('Restart Codex UI now? The page will reconnect and reload after the service is healthy.')
+  if (!confirmed) return
+
+  isRestartScheduling.value = true
+  restartOverlayError.value = ''
+  restartOverlayNetworkWarning.value = ''
+  isRestartOverlayVisible.value = true
+  restartOverlayStage.value = 'scheduled'
+  restartOverlayMessage.value = 'Scheduling detached rebuild and restart...'
+
+  try {
+    const status = await scheduleRestart()
+    updateRestartOverlayFromStatus(status)
+    startRestartPolling()
+  } catch (error) {
+    restartOverlayStage.value = 'failed'
+    restartOverlayMessage.value = 'Could not schedule the restart.'
+    restartOverlayError.value = error instanceof Error ? error.message : 'Failed to schedule restart.'
+  } finally {
+    isRestartScheduling.value = false
+  }
+}
+
+function closeRestartOverlay(): void {
+  clearRestartPollTimer()
+  isRestartOverlayVisible.value = false
 }
 
 function parseTelegramAllowedUserIdsInput(value: string): Array<number | '*'> {
@@ -3684,6 +3843,66 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
   @apply fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4;
 }
 
+.restart-overlay {
+  @apply fixed inset-0 z-[80] flex items-center justify-center bg-white/85 px-4 backdrop-blur-sm;
+}
+
+.restart-overlay-panel {
+  @apply flex w-full max-w-md flex-col items-center gap-4 rounded-lg border border-zinc-200 bg-white px-5 py-5 text-center shadow-xl;
+}
+
+.restart-overlay-spinner {
+  @apply h-10 w-10 rounded-full border-2 border-zinc-200 border-t-zinc-900;
+  animation: restart-spin 0.9s linear infinite;
+}
+
+.restart-overlay-spinner.is-complete,
+.restart-overlay-spinner.is-failed {
+  animation: none;
+}
+
+.restart-overlay-spinner.is-complete {
+  @apply border-emerald-500 bg-emerald-50;
+}
+
+.restart-overlay-spinner.is-failed {
+  @apply border-rose-500 bg-rose-50;
+}
+
+.restart-overlay-copy {
+  @apply flex flex-col gap-1;
+}
+
+.restart-overlay-title {
+  @apply m-0 text-base font-semibold text-zinc-900;
+}
+
+.restart-overlay-message {
+  @apply m-0 text-sm leading-5 text-zinc-600;
+}
+
+.restart-overlay-subtle {
+  @apply m-0 text-xs leading-5 text-zinc-500;
+}
+
+.restart-overlay-error {
+  @apply m-0 break-all rounded-md bg-rose-50 px-2.5 py-2 text-xs leading-5 text-rose-700;
+}
+
+.restart-overlay-actions {
+  @apply flex items-center justify-center;
+}
+
+.restart-overlay-action {
+  @apply h-8 rounded-full border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50;
+}
+
+@keyframes restart-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .new-thread-open-folder {
   @apply flex w-full max-w-3xl max-h-[90vh] flex-col gap-2 overflow-y-auto rounded-2xl border border-zinc-200 bg-white px-4 py-4 text-left shadow-xl;
 }
@@ -3964,6 +4183,14 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 
 .sidebar-settings-row {
   @apply flex items-center justify-between w-full px-3 py-2.5 text-sm text-zinc-700 border-0 bg-transparent transition hover:bg-zinc-50 cursor-pointer;
+}
+
+.sidebar-settings-row:disabled {
+  @apply cursor-default opacity-60 hover:bg-transparent;
+}
+
+.sidebar-settings-restart-row {
+  @apply border-t border-zinc-100;
 }
 
 .sidebar-settings-row--select {
