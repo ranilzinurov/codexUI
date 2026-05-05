@@ -3020,6 +3020,7 @@ Installed PWA clients can subscribe to web push notifications and receive an iPh
 - `Send test` produces an iPhone notification from the installed PWA.
 - When Codex emits `turn/completed`, the server sends a web push notification to the subscribed device.
 - Successful turns show `Codex task completed`; failed turns show `Codex task failed` with the error summary when available.
+- Completed subagent turns do not send PWA task notifications; only the parent/orchestrator thread completion sends a task notification.
 - Tapping the notification opens the PWA and navigates to the related thread.
 
 #### Rollback/Cleanup
@@ -3450,6 +3451,7 @@ Task-completed Web Push notifications resolve the thread display title instead o
 #### Expected Results
 - The notification body uses the thread's display title (`name`, `title`, or `preview`) followed by `is ready.`
 - The notification body does not use `Thread <short-id> is ready.` when the thread can be read from the app server.
+- Subagent thread completions are suppressed even when the subagent has its own generated preview/title.
 - Tapping the notification still opens `/#/thread/<threadId>`.
 - The automated regression script reports `Web push notification title tests OK`.
 

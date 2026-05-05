@@ -62,6 +62,7 @@ type WebPushState = {
 
 type ThreadNotificationContext = {
   title: string
+  isSubagent: boolean | null
 }
 
 type ThreadTitleReader = {
@@ -128,6 +129,13 @@ function pickThreadDisplayTitle(thread: JsonRecord | null): string {
   return ''
 }
 
+function isSubagentSource(value: unknown): boolean {
+  if (typeof value === 'string') return false
+  const source = asRecord(value)
+  if (!source) return false
+  return asRecord(source.subAgent) !== null || asRecord(source.subagent) !== null
+}
+
 function readNotificationThreadId(notification: { params: unknown }): string {
   const params = asRecord(notification.params)
   const thread = asRecord(params?.thread)
@@ -140,6 +148,13 @@ function readNotificationThreadTitle(notification: { method: string; params: unk
     return asString(params?.threadName)
   }
   return pickThreadDisplayTitle(asRecord(params?.thread))
+}
+
+function readNotificationThreadIsSubagent(notification: { params: unknown }): boolean | null {
+  const params = asRecord(notification.params)
+  const thread = asRecord(params?.thread)
+  if (!thread || !('source' in thread)) return null
+  return isSubagentSource(thread.source)
 }
 
 function formatFallbackThreadLabel(threadId: string): string {
@@ -411,40 +426,64 @@ export class WebPushNotifications {
     await this.writePromise
   }
 
-  private rememberThreadTitle(threadId: string, title: string): void {
-    if (!threadId || !title) return
-    this.threadContextById.set(threadId, { title })
+  private rememberThreadContextValue(threadId: string, context: Partial<ThreadNotificationContext>): void {
+    if (!threadId) return
+    const existing = this.threadContextById.get(threadId) ?? { title: '', isSubagent: null }
+    const title = context.title?.trim() ?? ''
+    this.threadContextById.set(threadId, {
+      title: title || existing.title,
+      isSubagent: context.isSubagent ?? existing.isSubagent,
+    })
   }
 
   private rememberThreadContext(notification: { method: string; params: unknown }): void {
-    this.rememberThreadTitle(
-      readNotificationThreadId(notification),
-      readNotificationThreadTitle(notification),
-    )
+    const threadId = readNotificationThreadId(notification)
+    const title = readNotificationThreadTitle(notification)
+    const isSubagent = readNotificationThreadIsSubagent(notification)
+    if (!title && isSubagent === null) return
+    this.rememberThreadContextValue(threadId, {
+      ...(title ? { title } : {}),
+      ...(isSubagent !== null ? { isSubagent } : {}),
+    })
   }
 
   private getCachedThreadTitle(threadId: string): string {
     return this.threadContextById.get(threadId)?.title.trim() ?? ''
   }
 
-  private async readThreadTitle(threadId: string): Promise<string> {
-    if (!threadId || !this.threadTitleReader) return ''
+  private getCachedThreadIsSubagent(threadId: string): boolean | null {
+    return this.threadContextById.get(threadId)?.isSubagent ?? null
+  }
+
+  private async readThreadContext(threadId: string): Promise<ThreadNotificationContext | null> {
+    if (!threadId || !this.threadTitleReader) return null
 
     try {
       const response = asRecord(await this.threadTitleReader.rpc('thread/read', { threadId, includeTurns: false }))
-      const title = pickThreadDisplayTitle(asRecord(response?.thread))
-      this.rememberThreadTitle(threadId, title)
-      return title
+      const thread = asRecord(response?.thread)
+      const context = {
+        title: pickThreadDisplayTitle(thread),
+        isSubagent: thread && 'source' in thread ? isSubagentSource(thread.source) : null,
+      } satisfies ThreadNotificationContext
+      this.rememberThreadContextValue(threadId, context)
+      return context
     } catch {
       // Keep notification delivery best-effort if the thread cannot be read.
-      return ''
+      return null
     }
   }
 
   private async resolveThreadLabel(threadId: string): Promise<string> {
     return this.getCachedThreadTitle(threadId)
-      || await this.readThreadTitle(threadId)
+      || (await this.readThreadContext(threadId))?.title
       || formatFallbackThreadLabel(threadId)
+  }
+
+  private async shouldSuppressThreadNotification(threadId: string): Promise<boolean> {
+    if (!threadId) return false
+    const cached = this.getCachedThreadIsSubagent(threadId)
+    if (cached !== null) return cached
+    return (await this.readThreadContext(threadId))?.isSubagent === true
   }
 
   private pruneInactiveBrowserClients(nowMs = Date.now()): void {
@@ -623,6 +662,10 @@ export class WebPushNotifications {
 
     const params = asRecord(notification.params)
     const threadId = asString(params?.threadId)
+    if (await this.shouldSuppressThreadNotification(threadId)) {
+      return
+    }
+
     if (this.hasActiveBrowserClientForThread(threadId)) {
       return
     }
