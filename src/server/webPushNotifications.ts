@@ -64,7 +64,7 @@ type ThreadNotificationContext = {
   title: string
 }
 
-type AppServerReader = {
+type ThreadTitleReader = {
   rpc: (method: string, params: unknown) => Promise<unknown>
 }
 
@@ -113,6 +113,37 @@ function asRecord(value: unknown): JsonRecord | null {
 
 function asString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function pickThreadDisplayTitle(thread: JsonRecord | null): string {
+  const candidates = [
+    thread?.name,
+    thread?.title,
+    thread?.preview,
+  ]
+  for (const candidate of candidates) {
+    const title = asString(candidate)
+    if (title) return title
+  }
+  return ''
+}
+
+function readNotificationThreadId(notification: { params: unknown }): string {
+  const params = asRecord(notification.params)
+  const thread = asRecord(params?.thread)
+  return asString(thread?.id) || asString(params?.threadId)
+}
+
+function readNotificationThreadTitle(notification: { method: string; params: unknown }): string {
+  const params = asRecord(notification.params)
+  if (notification.method === 'thread/name/updated') {
+    return asString(params?.threadName)
+  }
+  return pickThreadDisplayTitle(asRecord(params?.thread))
+}
+
+function formatFallbackThreadLabel(threadId: string): string {
+  return threadId ? `Thread ${threadId.slice(0, 8)}` : 'Current thread'
 }
 
 function asOptionalNumber(value: unknown): number | null {
@@ -333,7 +364,7 @@ export class WebPushNotifications {
   private readonly threadContextById = new Map<string, ThreadNotificationContext>()
   private readonly browserClientStateById = new Map<string, BrowserClientState>()
 
-  constructor(private readonly appServer: AppServerReader | null = null) {}
+  constructor(private readonly threadTitleReader: ThreadTitleReader | null = null) {}
 
   private async ensureState(): Promise<WebPushState> {
     if (this.state) return this.state
@@ -385,58 +416,35 @@ export class WebPushNotifications {
     this.threadContextById.set(threadId, { title })
   }
 
-  private pickThreadTitle(thread: JsonRecord | null): string {
-    const direct = [
-      thread?.name,
-      thread?.title,
-      thread?.preview,
-    ]
-    for (const candidate of direct) {
-      const title = asString(candidate)
-      if (title) return title
-    }
-    return ''
-  }
-
   private rememberThreadContext(notification: { method: string; params: unknown }): void {
-    const params = asRecord(notification.params)
-
-    if (notification.method === 'thread/name/updated') {
-      const threadId = asString(params?.threadId)
-      const title = asString(params?.threadName)
-      this.rememberThreadTitle(threadId, title)
-      return
-    }
-
-    const thread = asRecord(params?.thread)
-    const threadId = asString(thread?.id) || asString(params?.threadId)
-    const title = this.pickThreadTitle(thread)
-    this.rememberThreadTitle(threadId, title)
+    this.rememberThreadTitle(
+      readNotificationThreadId(notification),
+      readNotificationThreadTitle(notification),
+    )
   }
 
-  private formatThreadLabel(threadId: string): string {
-    const knownTitle = this.threadContextById.get(threadId)?.title.trim() ?? ''
-    if (knownTitle) return knownTitle
-    return threadId ? `Thread ${threadId.slice(0, 8)}` : 'Current thread'
+  private getCachedThreadTitle(threadId: string): string {
+    return this.threadContextById.get(threadId)?.title.trim() ?? ''
+  }
+
+  private async readThreadTitle(threadId: string): Promise<string> {
+    if (!threadId || !this.threadTitleReader) return ''
+
+    try {
+      const response = asRecord(await this.threadTitleReader.rpc('thread/read', { threadId, includeTurns: false }))
+      const title = pickThreadDisplayTitle(asRecord(response?.thread))
+      this.rememberThreadTitle(threadId, title)
+      return title
+    } catch {
+      // Keep notification delivery best-effort if the thread cannot be read.
+      return ''
+    }
   }
 
   private async resolveThreadLabel(threadId: string): Promise<string> {
-    const knownTitle = this.threadContextById.get(threadId)?.title.trim() ?? ''
-    if (knownTitle) return knownTitle
-
-    if (threadId && this.appServer) {
-      try {
-        const response = asRecord(await this.appServer.rpc('thread/read', { threadId, includeTurns: false }))
-        const thread = asRecord(response?.thread)
-        const title = this.pickThreadTitle(thread)
-        this.rememberThreadTitle(threadId, title)
-        if (title) return title
-      } catch {
-        // Keep notification delivery best-effort if the thread cannot be read.
-      }
-    }
-
-    return this.formatThreadLabel(threadId)
+    return this.getCachedThreadTitle(threadId)
+      || await this.readThreadTitle(threadId)
+      || formatFallbackThreadLabel(threadId)
   }
 
   private pruneInactiveBrowserClients(nowMs = Date.now()): void {

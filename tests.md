@@ -3437,6 +3437,7 @@ Task-completed Web Push notifications resolve the thread display title instead o
 2. Install/open Codex Web as a PWA on a phone that supports Web Push.
 3. Enable `Task notifications` in Settings.
 4. Ensure at least one named thread exists.
+5. For automated regression coverage, run `node scripts/test-web-push-notifications.mjs` from the repository root.
 
 #### Steps
 1. Open the named thread in Codex Web and confirm its sidebar/header title is human-readable.
@@ -3450,6 +3451,7 @@ Task-completed Web Push notifications resolve the thread display title instead o
 - The notification body uses the thread's display title (`name`, `title`, or `preview`) followed by `is ready.`
 - The notification body does not use `Thread <short-id> is ready.` when the thread can be read from the app server.
 - Tapping the notification still opens `/#/thread/<threadId>`.
+- The automated regression script reports `Web push notification title tests OK`.
 
 #### Rollback/Cleanup
 - Disable `Task notifications` on the test phone if they are no longer needed.
