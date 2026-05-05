@@ -3399,3 +3399,30 @@ Plan-mode `request_user_input` prompts use the active light appearance, and the 
 #### Rollback/Cleanup
 - Restore Appearance to the preferred setting.
 - Close the settings panel before leaving the test browser.
+
+### Feature: Shared unread thread state across devices
+
+#### Feature/Change Name
+Unread thread indicators use shared server-side read state instead of per-browser localStorage only.
+
+#### Prerequisites/Setup
+1. Start Codex UI with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
+2. Open the same Codex UI account from two browser contexts or devices.
+3. Ensure at least one thread has a blue unread indicator in the sidebar.
+
+#### Steps
+1. In the first browser/device, click the unread thread and wait for the conversation to load.
+2. Request `GET /codex-api/thread-read-state` and confirm the thread id appears under `readAtByThreadId`.
+3. In the second browser/device, refresh Codex UI or trigger a thread list refresh.
+4. Inspect the same thread row in the sidebar.
+5. Send or receive a new assistant response in that thread while it is not selected on the second device.
+
+#### Expected Results
+- Opening the thread on the first device removes its unread indicator immediately.
+- The shared read state endpoint records the thread's latest `updatedAtIso` timestamp.
+- After the second device refreshes, the same thread no longer shows the blue unread indicator.
+- A later thread update with a newer `updatedAtIso` makes the indicator appear again on devices where the thread is not selected.
+
+#### Rollback/Cleanup
+- Remove temporary test threads if they were created.
+- To reset shared read markers manually, edit `~/.codex/.codex-global-state.json` and remove the `thread-read-state` entry.

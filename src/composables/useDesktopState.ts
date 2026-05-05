@@ -18,11 +18,13 @@ import {
   revertThreadFileChanges,
   rollbackThread,
   getThreadGroupsPage,
+  getThreadReadState,
   getWorkspaceRootsState,
   setCodexSpeedMode,
   setWorkspaceRootsState,
   getThreadTitleCache,
   persistThreadTitle,
+  persistThreadReadState,
   resumeThread,
 
   startThread,
@@ -100,6 +102,29 @@ function loadReadStateMap(): Record<string, string> {
 function saveReadStateMap(state: Record<string, string>): void {
   if (typeof window === 'undefined') return
   safeLocalStorageSetItem(READ_STATE_STORAGE_KEY, JSON.stringify(state))
+}
+
+function areReadStateMapsEqual(first: Record<string, string>, second: Record<string, string>): boolean {
+  const firstEntries = Object.entries(first)
+  if (firstEntries.length !== Object.keys(second).length) return false
+  return firstEntries.every(([threadId, readAtIso]) => second[threadId] === readAtIso)
+}
+
+function mergeReadStateMaps(
+  first: Record<string, string>,
+  second: Record<string, string>,
+): Record<string, string> {
+  let changed = false
+  const next = { ...first }
+  for (const [threadId, readAtIso] of Object.entries(second)) {
+    if (!threadId || !readAtIso) continue
+    const previous = next[threadId]
+    if (!previous || readAtIso > previous) {
+      next[threadId] = readAtIso
+      changed = true
+    }
+  }
+  return changed ? next : first
 }
 
 function normalizeCollaborationMode(value: unknown): CollaborationModeKind {
@@ -1176,6 +1201,7 @@ export function useDesktopState() {
   let hasLoadedAllThreadPages = false
   let loadedThreadListGroups: UiProjectGroup[] = []
   let hasHydratedWorkspaceRootsState = false
+  let hasUploadedLegacyReadState = false
   let activeReasoningItemId = ''
   let shouldAutoScrollOnNextAgentEvent = false
   const pendingTurnStartsById = new Map<string, TurnStartedInfo>()
@@ -1816,11 +1842,14 @@ export function useDesktopState() {
     const thread = flattenThreads(sourceGroups.value).find((row) => row.id === threadId)
     if (!thread) return
 
-    readStateByThreadId.value = {
-      ...readStateByThreadId.value,
-      [threadId]: thread.updatedAtIso,
+    if (readStateByThreadId.value[threadId] !== thread.updatedAtIso) {
+      readStateByThreadId.value = {
+        ...readStateByThreadId.value,
+        [threadId]: thread.updatedAtIso,
+      }
+      saveReadStateMap(readStateByThreadId.value)
+      void persistThreadReadState({ threadId, readAtIso: thread.updatedAtIso })
     }
-    saveReadStateMap(readStateByThreadId.value)
     if (eventUnreadByThreadId.value[threadId]) {
       eventUnreadByThreadId.value = omitKey(eventUnreadByThreadId.value, threadId)
     }
@@ -3591,6 +3620,28 @@ export function useDesktopState() {
     }
   }
 
+  async function refreshThreadReadState(): Promise<void> {
+    try {
+      const serverState = await getThreadReadState()
+      const serverReadState = serverState.readAtByThreadId ?? {}
+      const merged = mergeReadStateMaps(readStateByThreadId.value, serverReadState)
+      if (!areReadStateMapsEqual(readStateByThreadId.value, merged)) {
+        readStateByThreadId.value = merged
+        saveReadStateMap(merged)
+        applyThreadFlags()
+      }
+
+      if (!hasUploadedLegacyReadState && !areReadStateMapsEqual(serverReadState, merged)) {
+        hasUploadedLegacyReadState = true
+        void persistThreadReadState({ readAtByThreadId: merged })
+      } else {
+        hasUploadedLegacyReadState = true
+      }
+    } catch {
+      // Keep local read markers when shared state is unavailable.
+    }
+  }
+
   async function loadWorkspaceRootsStateForThreadList(): Promise<WorkspaceRootsState | null> {
     try {
       return await getWorkspaceRootsState()
@@ -3702,6 +3753,7 @@ export function useDesktopState() {
         getThreadGroupsPage(),
         loadWorkspaceRootsStateForThreadList(),
         loadThreadTitleCacheIfNeeded(),
+        refreshThreadReadState(),
       ])
       const groups = page.groups
       loadedThreadListGroups = hasLoadedThreads.value

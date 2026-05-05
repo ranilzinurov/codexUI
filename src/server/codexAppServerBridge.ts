@@ -2102,6 +2102,7 @@ type ThreadTitleCache = { titles: Record<string, string>; order: string[] }
 const MAX_THREAD_TITLES = 500
 const EMPTY_THREAD_TITLE_CACHE: ThreadTitleCache = { titles: {}, order: [] }
 const PINNED_THREAD_IDS_KEY = 'pinned-thread-ids'
+const THREAD_READ_STATE_KEY = 'thread-read-state'
 
 type SessionIndexThreadTitleCacheState = {
   fileSignature: string | null
@@ -2135,6 +2136,34 @@ function normalizeThreadTitleCache(value: unknown): ThreadTitleCache {
 
 function normalizePinnedThreadIds(value: unknown): string[] {
   return normalizeStringArray(value)
+}
+
+function normalizeThreadReadState(value: unknown): Record<string, string> {
+  const record = asRecord(value)
+  if (!record) return {}
+
+  const source = asRecord(record.readAtByThreadId) ?? record
+  const next: Record<string, string> = {}
+  for (const [threadId, readAtIso] of Object.entries(source)) {
+    if (typeof threadId !== 'string' || threadId.length === 0) continue
+    if (typeof readAtIso !== 'string' || readAtIso.length === 0) continue
+    next[threadId] = readAtIso
+  }
+  return next
+}
+
+function mergeThreadReadState(
+  current: Record<string, string>,
+  incoming: Record<string, string>,
+): Record<string, string> {
+  const next = { ...current }
+  for (const [threadId, readAtIso] of Object.entries(incoming)) {
+    const previous = next[threadId]
+    if (!previous || readAtIso > previous) {
+      next[threadId] = readAtIso
+    }
+  }
+  return next
 }
 
 function updateThreadTitleCache(cache: ThreadTitleCache, id: string, title: string): ThreadTitleCache {
@@ -2210,52 +2239,36 @@ function mergeThreadTitleCaches(base: ThreadTitleCache, overlay: ThreadTitleCach
 }
 
 async function readThreadTitleCache(): Promise<ThreadTitleCache> {
-  const statePath = getCodexGlobalStatePath()
-  try {
-    const raw = await readFile(statePath, 'utf8')
-    const payload = asRecord(JSON.parse(raw)) ?? {}
-    return normalizeThreadTitleCache(payload['thread-titles'])
-  } catch {
-    return EMPTY_THREAD_TITLE_CACHE
-  }
+  const payload = await readCodexGlobalState()
+  return normalizeThreadTitleCache(payload['thread-titles'])
 }
 
 async function writeThreadTitleCache(cache: ThreadTitleCache): Promise<void> {
-  const statePath = getCodexGlobalStatePath()
-  let payload: Record<string, unknown> = {}
-  try {
-    const raw = await readFile(statePath, 'utf8')
-    payload = asRecord(JSON.parse(raw)) ?? {}
-  } catch {
-    payload = {}
-  }
+  const payload = await readCodexGlobalState()
   payload['thread-titles'] = cache
-  await writeFile(statePath, JSON.stringify(payload), 'utf8')
+  await writeCodexGlobalState(payload)
 }
 
 async function readPinnedThreadIds(): Promise<string[]> {
-  const statePath = getCodexGlobalStatePath()
-  try {
-    const raw = await readFile(statePath, 'utf8')
-    const payload = asRecord(JSON.parse(raw)) ?? {}
-    return normalizePinnedThreadIds(payload[PINNED_THREAD_IDS_KEY])
-  } catch {
-    return []
-  }
+  const payload = await readCodexGlobalState()
+  return normalizePinnedThreadIds(payload[PINNED_THREAD_IDS_KEY])
 }
 
 async function writePinnedThreadIds(threadIds: string[]): Promise<void> {
-  const statePath = getCodexGlobalStatePath()
-  let payload: Record<string, unknown> = {}
-  try {
-    const raw = await readFile(statePath, 'utf8')
-    payload = asRecord(JSON.parse(raw)) ?? {}
-  } catch {
-    payload = {}
-  }
-
+  const payload = await readCodexGlobalState()
   payload[PINNED_THREAD_IDS_KEY] = normalizePinnedThreadIds(threadIds)
-  await writeFile(statePath, JSON.stringify(payload), 'utf8')
+  await writeCodexGlobalState(payload)
+}
+
+async function readThreadReadState(): Promise<Record<string, string>> {
+  const payload = await readCodexGlobalState()
+  return normalizeThreadReadState(payload[THREAD_READ_STATE_KEY])
+}
+
+async function writeThreadReadState(readAtByThreadId: Record<string, string>): Promise<void> {
+  const payload = await readCodexGlobalState()
+  payload[THREAD_READ_STATE_KEY] = { readAtByThreadId: normalizeThreadReadState(readAtByThreadId) }
+  await writeCodexGlobalState(payload)
 }
 
 function getSessionIndexFileSignature(stats: { mtimeMs: number; size: number }): string {
@@ -2334,16 +2347,7 @@ async function readMergedThreadTitleCache(): Promise<ThreadTitleCache> {
 }
 
 async function readWorkspaceRootsState(): Promise<WorkspaceRootsState> {
-  const statePath = getCodexGlobalStatePath()
-  let payload: Record<string, unknown> = {}
-
-  try {
-    const raw = await readFile(statePath, 'utf8')
-    const parsed = JSON.parse(raw) as unknown
-    payload = asRecord(parsed) ?? {}
-  } catch {
-    payload = {}
-  }
+  const payload = await readCodexGlobalState()
 
   return {
     order: normalizeStringArray(payload['electron-saved-workspace-roots']),
@@ -2353,19 +2357,27 @@ async function readWorkspaceRootsState(): Promise<WorkspaceRootsState> {
 }
 
 async function writeWorkspaceRootsState(nextState: WorkspaceRootsState): Promise<void> {
-  const statePath = getCodexGlobalStatePath()
-  let payload: Record<string, unknown> = {}
-  try {
-    const raw = await readFile(statePath, 'utf8')
-    payload = asRecord(JSON.parse(raw)) ?? {}
-  } catch {
-    payload = {}
-  }
-
+  const payload = await readCodexGlobalState()
   payload['electron-saved-workspace-roots'] = normalizeStringArray(nextState.order)
   payload['electron-workspace-root-labels'] = normalizeStringRecord(nextState.labels)
   payload['active-workspace-roots'] = normalizeStringArray(nextState.active)
 
+  await writeCodexGlobalState(payload)
+}
+
+async function readCodexGlobalState(): Promise<Record<string, unknown>> {
+  const statePath = getCodexGlobalStatePath()
+  try {
+    const raw = await readFile(statePath, 'utf8')
+    return asRecord(JSON.parse(raw)) ?? {}
+  } catch {
+    return {}
+  }
+}
+
+async function writeCodexGlobalState(payload: Record<string, unknown>): Promise<void> {
+  const statePath = getCodexGlobalStatePath()
+  await mkdir(dirname(statePath), { recursive: true })
   await writeFile(statePath, JSON.stringify(payload), 'utf8')
 }
 
@@ -4856,6 +4868,12 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         return
       }
 
+      if (req.method === 'GET' && url.pathname === '/codex-api/thread-read-state') {
+        const readAtByThreadId = await readThreadReadState()
+        setJson(res, 200, { data: { readAtByThreadId } })
+        return
+      }
+
       if (req.method === 'GET' && url.pathname === '/codex-api/thread-automations') {
         const automationsByThreadId = await listThreadHeartbeatAutomations()
         setJson(res, 200, { data: automationsByThreadId })
@@ -4913,6 +4931,20 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         const threadIds = normalizePinnedThreadIds(payload?.threadIds)
         await writePinnedThreadIds(threadIds)
         setJson(res, 200, { ok: true })
+        return
+      }
+
+      if (req.method === 'PUT' && url.pathname === '/codex-api/thread-read-state') {
+        const payload = asRecord(await readJsonBody(req))
+        const current = await readThreadReadState()
+        const threadId = typeof payload?.threadId === 'string' ? payload.threadId.trim() : ''
+        const readAtIso = typeof payload?.readAtIso === 'string' ? payload.readAtIso.trim() : ''
+        const incoming = threadId && readAtIso
+          ? { [threadId]: readAtIso }
+          : normalizeThreadReadState(payload?.readAtByThreadId)
+        const next = mergeThreadReadState(current, incoming)
+        await writeThreadReadState(next)
+        setJson(res, 200, { ok: true, data: { readAtByThreadId: next } })
         return
       }
 

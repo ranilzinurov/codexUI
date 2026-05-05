@@ -2369,6 +2369,7 @@ function getErrorMessageFromPayload(payload: unknown, fallback: string): string 
 
 export type ThreadTitleCache = { titles: Record<string, string>; order: string[] }
 export type ThreadPinnedState = { threadIds: string[] }
+export type ThreadReadState = { readAtByThreadId: Record<string, string> }
 
 export async function getThreadTitleCache(): Promise<ThreadTitleCache> {
   try {
@@ -2410,6 +2411,31 @@ export async function persistPinnedThreadIds(threadIds: string[]): Promise<void>
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ threadIds }),
+    })
+  } catch {
+    // Best-effort persist
+  }
+}
+
+export async function getThreadReadState(): Promise<ThreadReadState> {
+  try {
+    const response = await fetch('/codex-api/thread-read-state')
+    if (!response.ok) return { readAtByThreadId: {} }
+    const envelope = (await response.json()) as { data?: ThreadReadState }
+    return envelope.data ?? { readAtByThreadId: {} }
+  } catch {
+    return { readAtByThreadId: {} }
+  }
+}
+
+export async function persistThreadReadState(
+  input: { threadId: string; readAtIso: string } | { readAtByThreadId: Record<string, string> },
+): Promise<void> {
+  try {
+    await fetch('/codex-api/thread-read-state', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
     })
   } catch {
     // Best-effort persist
