@@ -3913,7 +3913,9 @@ export function useDesktopState() {
       if (inProgress) {
         const nextLiveAgent = removeRedundantLiveAgentMessages(previousLiveAgent, nextMessages)
         setLiveAgentMessagesForThread(threadId, nextLiveAgent)
-        setLiveCollabAgentsForThread(threadId, collabAgents)
+        if (collabAgents.length > 0) {
+          setLiveCollabAgentsForThread(threadId, collabAgents)
+        }
       } else {
         clearLiveAgentMessagesForThread(threadId)
         clearLiveCollabAgentsForThread(threadId)

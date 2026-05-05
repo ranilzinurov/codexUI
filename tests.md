@@ -3473,11 +3473,14 @@ Active collab/subagent status is rendered inline above the message composer inst
 3. Confirm each active agent appears as one row with a colored status dot, agent label, and a parenthesized task summary.
 4. Trigger or simulate dictation transcription while agents are active.
 5. Wait for one agent to complete while another remains running.
-6. Let the turn finish.
+6. During the same turn, watch activity changes such as `Thinking`, `Writing response`, and command activity.
+7. Let the turn finish.
 
 #### Expected Results
 - The old standalone `Writing response` row is not shown when collab agent rows are available.
+- Current activity text appears above the agent rows in the composer status stack.
 - Agent rows appear inline above the composer, in the same status stack area as dictation/transcription messages.
+- Agent rows remain visible while the turn is in progress, even when activity changes from thinking to writing and back.
 - Dictation and agent statuses stack without overlapping the conversation or composer.
 - Status dots reflect state: running amber, completed green, failed red, pending/shutdown gray, not-found split red/gray.
 - Long task summaries truncate cleanly in parentheses without resizing the composer controls.

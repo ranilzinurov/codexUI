@@ -1,6 +1,9 @@
 <template>
   <form class="thread-composer" @submit.prevent="onSubmit(isTurnInProgress ? activeInProgressMode : 'steer')">
     <div v-if="liveCollabAgents.length > 0" class="thread-composer-agent-status" aria-live="polite">
+      <p v-if="liveActivityLabel" class="thread-composer-agent-activity">
+        {{ liveActivityLabel }}
+      </p>
       <div class="thread-composer-agent-rows">
         <template v-for="agent in liveCollabAgents" :key="agent.id">
           <span
@@ -493,6 +496,10 @@ const emit = defineEmits<{
 }>()
 
 const liveCollabAgents = computed<UiCollabAgentStatus[]>(() => props.liveOverlay?.collabAgents ?? [])
+const liveActivityLabel = computed(() => {
+  const label = props.liveOverlay?.activityLabel.trim() ?? ''
+  return label && liveCollabAgents.value.length > 0 ? label : ''
+})
 
 function agentStatusTitle(agent: UiCollabAgentStatus): string {
   return `${agent.name}: ${agent.status}`
@@ -2332,6 +2339,10 @@ watch(
 
 .thread-composer-agent-status {
   @apply mb-2 px-1 text-xs;
+}
+
+.thread-composer-agent-activity {
+  @apply mb-1 font-medium text-zinc-500;
 }
 
 .thread-composer-agent-rows {
