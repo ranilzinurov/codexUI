@@ -975,10 +975,44 @@ function onRejectUnknownRequest(request: UiServerRequest): void {
 
 .thread-pending-request {
   @apply w-full max-w-[min(var(--chat-column-max,45rem),100%)] mx-auto;
+  --pending-request-bg: theme(colors.white);
+  --pending-request-border: theme(colors.zinc.200);
+  --pending-request-text: theme(colors.zinc.900);
+  --pending-request-muted: theme(colors.zinc.500);
+  --pending-request-subtle: theme(colors.zinc.600);
+  --pending-request-control-bg: theme(colors.white);
+  --pending-request-control-border: theme(colors.zinc.300);
+  --pending-request-control-hover-bg: theme(colors.zinc.50);
+  --pending-request-control-focus: theme(colors.zinc.400);
+  --pending-request-panel-bg: theme(colors.zinc.50 / 0.85);
+  --pending-request-primary-bg: theme(colors.zinc.900);
+  --pending-request-primary-text: theme(colors.white);
+  --pending-request-primary-hover-bg: theme(colors.zinc.800);
+  --pending-request-error: theme(colors.rose.600);
+}
+
+:global(:root.dark) .thread-pending-request {
+  --pending-request-bg: theme(colors.zinc.900);
+  --pending-request-border: theme(colors.zinc.700);
+  --pending-request-text: theme(colors.zinc.50);
+  --pending-request-muted: theme(colors.zinc.500);
+  --pending-request-subtle: theme(colors.zinc.400);
+  --pending-request-control-bg: theme(colors.zinc.950);
+  --pending-request-control-border: theme(colors.zinc.700);
+  --pending-request-control-hover-bg: theme(colors.zinc.800 / 0.7);
+  --pending-request-control-focus: theme(colors.zinc.500);
+  --pending-request-panel-bg: theme(colors.zinc.900 / 0.75);
+  --pending-request-primary-bg: theme(colors.zinc.100);
+  --pending-request-primary-text: theme(colors.zinc.950);
+  --pending-request-primary-hover-bg: theme(colors.white);
+  --pending-request-error: theme(colors.rose.300);
 }
 
 .thread-pending-request-shell {
-  @apply w-full rounded-[1.75rem] border border-zinc-700 bg-zinc-900 px-4 py-4 sm:px-5 sm:py-4 text-zinc-100 shadow-xl;
+  @apply w-full rounded-[1.75rem] border px-4 py-4 shadow-xl sm:px-5 sm:py-4;
+  background: var(--pending-request-bg);
+  border-color: var(--pending-request-border);
+  color: var(--pending-request-text);
 }
 
 .thread-pending-request-shell--no-top-radius {
@@ -994,20 +1028,27 @@ function onRejectUnknownRequest(request: UiServerRequest): void {
 }
 
 .thread-pending-request-eyebrow {
-  @apply m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-400;
+  @apply m-0 text-[11px] font-semibold uppercase tracking-[0.18em];
+  color: var(--pending-request-subtle);
 }
 
 .thread-pending-request-title {
-  @apply m-0 text-[clamp(0.94rem,2vw,1.2rem)] leading-relaxed text-zinc-50 whitespace-pre-wrap break-words;
+  @apply m-0 text-[clamp(0.94rem,2vw,1.2rem)] leading-relaxed whitespace-pre-wrap break-words;
+  color: var(--pending-request-text);
 }
 
 .thread-pending-request-counter {
-  @apply shrink-0 rounded-full border border-zinc-700 bg-zinc-800 px-2 py-0.5 text-[11px] text-zinc-400;
+  @apply shrink-0 rounded-full border px-2 py-0.5 text-[11px];
+  background: var(--pending-request-panel-bg);
+  border-color: var(--pending-request-border);
+  color: var(--pending-request-subtle);
 }
 
 .thread-pending-request-command-line,
 .thread-pending-request-preview {
-  @apply mt-3 rounded-xl bg-zinc-800/85 px-4 py-3 text-sm font-medium text-zinc-100;
+  @apply mt-3 rounded-xl px-4 py-3 text-sm font-medium;
+  background: var(--pending-request-panel-bg);
+  color: var(--pending-request-text);
 }
 
 .thread-pending-request-preview-code {
@@ -1024,49 +1065,76 @@ function onRejectUnknownRequest(request: UiServerRequest): void {
 }
 
 .thread-pending-request-option {
-  @apply flex h-12 w-full items-center gap-3 rounded-2xl border border-zinc-800 bg-transparent px-4 text-left transition hover:border-zinc-600 hover:bg-zinc-800/70;
+  @apply flex h-12 w-full items-center gap-3 rounded-2xl border bg-transparent px-4 text-left transition;
+  border-color: var(--pending-request-border);
+}
+
+.thread-pending-request-option:hover {
+  background: var(--pending-request-control-hover-bg);
+  border-color: var(--pending-request-control-focus);
 }
 
 .thread-pending-request-option.is-selected {
-  @apply border-zinc-500 bg-zinc-800/95;
-  box-shadow: inset 0 0 0 1px rgba(244, 244, 245, 0.14);
+  background: var(--pending-request-control-hover-bg);
+  border-color: var(--pending-request-control-focus);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pending-request-control-focus) 45%, transparent);
 }
 
 .thread-pending-request-option-index {
-  @apply shrink-0 text-base font-medium leading-none text-zinc-500;
+  @apply shrink-0 text-base font-medium leading-none;
+  color: var(--pending-request-muted);
 }
 
 .thread-pending-request-option-label {
-  @apply min-w-0 truncate text-sm leading-none text-zinc-50;
+  @apply min-w-0 truncate text-sm leading-none;
+  color: var(--pending-request-text);
 }
 
 .thread-pending-request-inline-input {
-  @apply flex h-12 min-w-0 flex-1 items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-800/70 px-4 text-sm text-zinc-400 transition focus-within:border-zinc-500 focus-within:bg-zinc-800/90;
+  @apply flex h-12 min-w-0 flex-1 items-center gap-3 rounded-2xl border px-4 text-sm transition;
+  background: var(--pending-request-panel-bg);
+  border-color: var(--pending-request-border);
+  color: var(--pending-request-subtle);
+}
+
+.thread-pending-request-inline-input:focus-within {
+  background: var(--pending-request-control-bg);
+  border-color: var(--pending-request-control-focus);
 }
 
 .thread-pending-request-inline-input.is-active {
-  @apply text-zinc-100;
+  color: var(--pending-request-text);
 }
 
 .thread-pending-request-inline-control {
-  @apply w-full min-w-0 border-none bg-transparent p-0 text-sm leading-none text-zinc-100 outline-none placeholder:text-zinc-500;
+  @apply w-full min-w-0 border-none bg-transparent p-0 text-sm leading-none outline-none;
+  color: var(--pending-request-text);
+}
+
+.thread-pending-request-inline-control::placeholder {
+  color: var(--pending-request-muted);
 }
 
 .thread-pending-request-question {
-  @apply rounded-2xl border border-zinc-800 bg-zinc-900/75 px-3 py-3;
+  @apply rounded-2xl border px-3 py-3;
+  background: var(--pending-request-panel-bg);
+  border-color: var(--pending-request-border);
 }
 
 .thread-pending-request-question-title {
-  @apply m-0 text-sm font-medium leading-relaxed text-zinc-50;
+  @apply m-0 text-sm font-medium leading-relaxed;
+  color: var(--pending-request-text);
 }
 
 .thread-pending-request-question-text,
 .thread-pending-request-question-description {
-  @apply m-0 mt-1 text-xs leading-relaxed text-zinc-400;
+  @apply m-0 mt-1 text-xs leading-relaxed;
+  color: var(--pending-request-subtle);
 }
 
 .thread-pending-request-validation-error {
-  @apply m-0 mt-3 text-sm leading-relaxed text-rose-300;
+  @apply m-0 mt-3 text-sm leading-relaxed;
+  color: var(--pending-request-error);
 }
 
 .thread-pending-request-question-options,
@@ -1075,7 +1143,14 @@ function onRejectUnknownRequest(request: UiServerRequest): void {
 }
 
 .thread-pending-request-link {
-  @apply inline-flex w-fit items-center rounded-full border border-zinc-700 px-3 py-1.5 text-sm text-zinc-100 transition hover:border-zinc-500 hover:bg-zinc-800;
+  @apply inline-flex w-fit items-center rounded-full border px-3 py-1.5 text-sm transition;
+  border-color: var(--pending-request-control-border);
+  color: var(--pending-request-text);
+}
+
+.thread-pending-request-link:hover {
+  background: var(--pending-request-control-hover-bg);
+  border-color: var(--pending-request-control-focus);
 }
 
 .thread-pending-request-select-wrap {
@@ -1083,30 +1158,38 @@ function onRejectUnknownRequest(request: UiServerRequest): void {
 }
 
 .thread-pending-request-select-label {
-  @apply text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500;
+  @apply text-[11px] font-semibold uppercase tracking-[0.18em];
+  color: var(--pending-request-muted);
 }
 
 .thread-pending-request-select,
 .thread-pending-request-input {
-  @apply h-11 rounded-xl border border-zinc-700 bg-zinc-950 px-3 text-sm text-zinc-100 outline-none;
+  @apply h-11 rounded-xl border px-3 text-sm outline-none;
+  background: var(--pending-request-control-bg);
+  border-color: var(--pending-request-control-border);
+  color: var(--pending-request-text);
 }
 
 .thread-pending-request-select:focus,
 .thread-pending-request-input:focus {
-  @apply border-zinc-500;
-  box-shadow: 0 0 0 1px rgba(244, 244, 245, 0.18);
+  border-color: var(--pending-request-control-focus);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--pending-request-control-focus) 45%, transparent);
 }
 
 .thread-pending-request-input::placeholder {
-  @apply text-zinc-500;
+  color: var(--pending-request-muted);
 }
 
 .thread-pending-request-checkbox-row {
-  @apply flex items-center gap-2 text-sm text-zinc-200;
+  @apply flex items-center gap-2 text-sm;
+  color: var(--pending-request-text);
 }
 
 .thread-pending-request-checkbox {
-  @apply h-4 w-4 rounded border-zinc-600 bg-zinc-950 text-zinc-100;
+  @apply h-4 w-4 rounded;
+  background: var(--pending-request-control-bg);
+  border-color: var(--pending-request-control-border);
+  color: var(--pending-request-text);
 }
 
 .thread-pending-request-checkbox-label {
@@ -1128,11 +1211,24 @@ function onRejectUnknownRequest(request: UiServerRequest): void {
 }
 
 .thread-pending-request-primary {
-  @apply border-zinc-100 bg-zinc-100 text-zinc-950 hover:bg-white;
+  background: var(--pending-request-primary-bg);
+  border-color: var(--pending-request-primary-bg);
+  color: var(--pending-request-primary-text);
+}
+
+.thread-pending-request-primary:hover {
+  background: var(--pending-request-primary-hover-bg);
 }
 
 .thread-pending-request-secondary {
-  @apply border-zinc-700 bg-transparent text-zinc-300 hover:border-zinc-500 hover:bg-zinc-800;
+  @apply bg-transparent;
+  border-color: var(--pending-request-control-border);
+  color: var(--pending-request-subtle);
+}
+
+.thread-pending-request-secondary:hover {
+  background: var(--pending-request-control-hover-bg);
+  border-color: var(--pending-request-control-focus);
 }
 
 @media (max-width: 640px) {

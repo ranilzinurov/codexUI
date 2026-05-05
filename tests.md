@@ -3369,3 +3369,33 @@ Sidebar settings include a guarded `Restart Codex UI` action that schedules the 
 #### Rollback/Cleanup
 - If the service is left in a failed state, inspect `/tmp/codexui-restart.log` and restart `codexui.service` manually.
 - No browser storage cleanup is required.
+
+### Feature: Light pending request panel and full-height settings overlay
+
+#### Feature/Change Name
+Plan-mode `request_user_input` prompts use the active light appearance, and the sidebar settings panel opens as a near full-height overlay above the thread sidebar.
+
+#### Prerequisites/Setup
+1. Start Codex UI with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
+2. Open `http://127.0.0.1:4173/` in a browser.
+3. Set Settings → Appearance to `Light`.
+4. Use a thread that can trigger a plan-mode question with selectable choices.
+
+#### Steps
+1. Enable Plan mode and send a prompt that causes Codex to ask for a choice.
+2. Inspect the pending response panel, including question cards, selects, other-answer inputs, and the Send button.
+3. Open the left sidebar and click `Settings`.
+4. On a mobile-sized viewport such as `375x812`, inspect how far the settings panel extends vertically.
+5. Scroll the settings panel to the bottom and then close it with the Settings button or Escape.
+6. Switch Appearance to `Dark` and repeat the pending response panel check.
+
+#### Expected Results
+- In Light appearance, the pending response panel uses white/zinc light surfaces instead of the dark panel treatment.
+- Selects, inputs, option cards, and buttons remain readable and focus states are visible in Light appearance.
+- In Dark appearance, the pending response panel keeps the previous dark treatment.
+- The settings panel opens from near the top of the sidebar and extends down to the settings footer instead of being capped at about two thirds of the viewport.
+- The settings panel scrolls internally when its content exceeds the available height.
+
+#### Rollback/Cleanup
+- Restore Appearance to the preferred setting.
+- Close the settings panel before leaving the test browser.

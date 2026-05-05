@@ -3553,7 +3553,8 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 @reference "tailwindcss";
 
 .sidebar-root {
-  @apply h-full flex flex-col select-none;
+  @apply relative h-full flex flex-col select-none;
+  isolation: isolate;
 }
 
 .sidebar-root input,
@@ -4063,7 +4064,13 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 }
 
 .sidebar-settings-panel {
-  @apply mb-1 max-h-[min(70vh,36rem)] overflow-y-auto rounded-lg border border-zinc-200 bg-white;
+  @apply absolute z-20 overflow-y-auto rounded-lg border border-zinc-200 bg-white shadow-xl;
+  top: 0.5rem;
+  right: 0.5rem;
+  bottom: 3.75rem;
+  left: 0.5rem;
+  max-height: none;
+  overscroll-behavior: contain;
 }
 
 .sidebar-settings-row {
