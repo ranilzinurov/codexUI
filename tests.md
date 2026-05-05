@@ -3426,3 +3426,31 @@ Unread thread indicators use shared server-side read state instead of per-browse
 #### Rollback/Cleanup
 - Remove temporary test threads if they were created.
 - To reset shared read markers manually, edit `~/.codex/.codex-global-state.json` and remove the `thread-read-state` entry.
+
+### Feature: PWA task notification thread titles
+
+#### Feature/Change Name
+Task-completed Web Push notifications resolve the thread display title instead of falling back to `Thread <id>`.
+
+#### Prerequisites/Setup
+1. Start Codex UI from this repository on an HTTPS-capable or installed-PWA host.
+2. Install/open Codex Web as a PWA on a phone that supports Web Push.
+3. Enable `Task notifications` in Settings.
+4. Ensure at least one named thread exists.
+
+#### Steps
+1. Open the named thread in Codex Web and confirm its sidebar/header title is human-readable.
+2. Restart the Codex UI server so the in-memory push notification thread-title cache is cleared.
+3. Reopen Codex Web, but switch the phone away from the PWA or lock the device so the thread is not focused.
+4. From another browser/device, send a prompt in the same thread and wait for the turn to complete.
+5. Inspect the phone's delivered PWA notification.
+6. Repeat with a newly created thread after its first task completes.
+
+#### Expected Results
+- The notification body uses the thread's display title (`name`, `title`, or `preview`) followed by `is ready.`
+- The notification body does not use `Thread <short-id> is ready.` when the thread can be read from the app server.
+- Tapping the notification still opens `/#/thread/<threadId>`.
+
+#### Rollback/Cleanup
+- Disable `Task notifications` on the test phone if they are no longer needed.
+- Remove temporary test threads if they were created.

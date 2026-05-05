@@ -3471,7 +3471,7 @@ function getSharedBridgeState(): SharedBridgeState {
 
   const appServer = new AppServerProcess()
   const terminalManager = new ThreadTerminalManager()
-  const pushNotifications = new WebPushNotifications()
+  const pushNotifications = new WebPushNotifications(appServer)
   const threadAutoTitleManager = new ThreadAutoTitleManager(appServer)
   appServer.onNotification((notification) => {
     void pushNotifications.handleNotification(notification).catch((error) => {

@@ -64,6 +64,10 @@ type ThreadNotificationContext = {
   title: string
 }
 
+type AppServerReader = {
+  rpc: (method: string, params: unknown) => Promise<unknown>
+}
+
 type NotificationDeliveryResult = {
   ok: boolean
   status: number
@@ -329,6 +333,8 @@ export class WebPushNotifications {
   private readonly threadContextById = new Map<string, ThreadNotificationContext>()
   private readonly browserClientStateById = new Map<string, BrowserClientState>()
 
+  constructor(private readonly appServer: AppServerReader | null = null) {}
+
   private async ensureState(): Promise<WebPushState> {
     if (this.state) return this.state
     if (this.loadPromise) return this.loadPromise
@@ -374,19 +380,63 @@ export class WebPushNotifications {
     await this.writePromise
   }
 
-  private rememberThreadContext(notification: { method: string; params: unknown }): void {
-    if (notification.method !== 'thread/name/updated') return
-    const params = asRecord(notification.params)
-    const threadId = asString(params?.threadId)
-    const title = asString(params?.threadName)
+  private rememberThreadTitle(threadId: string, title: string): void {
     if (!threadId || !title) return
     this.threadContextById.set(threadId, { title })
+  }
+
+  private pickThreadTitle(thread: JsonRecord | null): string {
+    const direct = [
+      thread?.name,
+      thread?.title,
+      thread?.preview,
+    ]
+    for (const candidate of direct) {
+      const title = asString(candidate)
+      if (title) return title
+    }
+    return ''
+  }
+
+  private rememberThreadContext(notification: { method: string; params: unknown }): void {
+    const params = asRecord(notification.params)
+
+    if (notification.method === 'thread/name/updated') {
+      const threadId = asString(params?.threadId)
+      const title = asString(params?.threadName)
+      this.rememberThreadTitle(threadId, title)
+      return
+    }
+
+    const thread = asRecord(params?.thread)
+    const threadId = asString(thread?.id) || asString(params?.threadId)
+    const title = this.pickThreadTitle(thread)
+    this.rememberThreadTitle(threadId, title)
   }
 
   private formatThreadLabel(threadId: string): string {
     const knownTitle = this.threadContextById.get(threadId)?.title.trim() ?? ''
     if (knownTitle) return knownTitle
     return threadId ? `Thread ${threadId.slice(0, 8)}` : 'Current thread'
+  }
+
+  private async resolveThreadLabel(threadId: string): Promise<string> {
+    const knownTitle = this.threadContextById.get(threadId)?.title.trim() ?? ''
+    if (knownTitle) return knownTitle
+
+    if (threadId && this.appServer) {
+      try {
+        const response = asRecord(await this.appServer.rpc('thread/read', { threadId, includeTurns: false }))
+        const thread = asRecord(response?.thread)
+        const title = this.pickThreadTitle(thread)
+        this.rememberThreadTitle(threadId, title)
+        if (title) return title
+      } catch {
+        // Keep notification delivery best-effort if the thread cannot be read.
+      }
+    }
+
+    return this.formatThreadLabel(threadId)
   }
 
   private pruneInactiveBrowserClients(nowMs = Date.now()): void {
@@ -574,7 +624,7 @@ export class WebPushNotifications {
     const status = asString(turn?.status)
     const errorMessage = asString(asRecord(turn?.error)?.message)
 
-    const threadLabel = this.formatThreadLabel(threadId)
+    const threadLabel = await this.resolveThreadLabel(threadId)
     const title = status === 'failed' ? 'Codex task failed' : 'Codex task completed'
     const body = status === 'failed'
       ? truncateText(`${threadLabel}: ${errorMessage || 'The task finished with an error.'}`, MAX_NOTIFICATION_BODY_LENGTH)
