@@ -129,6 +129,28 @@ This file tracks manual regression and feature verification steps.
 #### Rollback/Cleanup
 - Remove the selected skill chip(s) before leaving the thread, if needed.
 
+### Feature: Composer skill invocation uses `$`
+
+#### Prerequisites
+- App is running from this repository.
+- At least one thread exists and can be selected.
+- At least one installed skill is available.
+
+#### Steps
+1. Open an existing thread so the message composer is enabled.
+2. Confirm the composer placeholder mentions `$ for skills`.
+3. Type `$` at the beginning of the composer draft.
+4. Select any skill from the skill picker.
+5. Type `/` at the beginning of an empty composer draft.
+
+#### Expected Results
+- Typing `$` opens the skill picker.
+- Selecting a skill adds a skill chip and clears the standalone `$` trigger from the draft.
+- Typing `/` does not open the skill picker.
+
+#### Rollback/Cleanup
+- Remove the selected skill chip(s) before leaving the thread, if needed.
+
 ### Feature: Skills Hub manual search trigger
 
 #### Prerequisites

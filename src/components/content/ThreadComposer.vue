@@ -125,11 +125,11 @@
         />
         <ComposerSkillPicker
           :skills="skillOptions"
-          :visible="isSlashMenuOpen"
+          :visible="isSkillPickerOpen"
           :anchor-bottom="44"
           :anchor-left="0"
-          @select="onSlashSkillSelect"
-          @close="closeSlashMenu"
+          @select="onSkillPickerSelect"
+          @close="closeSkillPicker"
         />
       </div>
 
@@ -479,6 +479,7 @@ type AttachmentBatchStats = {
 
 const CONTEXT_WINDOW_BASELINE_TOKENS = 12000
 const PASTED_TEXT_FILE_THRESHOLD = 2000
+const SKILL_TRIGGER_PREFIX = '$'
 const COMPOSER_MAX_VIEWPORT_RATIO = 2 / 3
 const COMPOSER_INPUT_MIN_MAX_HEIGHT = 112
 
@@ -542,7 +543,7 @@ const folderPickerInputRef = ref<HTMLInputElement | null>(null)
 const inputRef = ref<HTMLTextAreaElement | null>(null)
 const { isMobile } = useMobile()
 const isAttachMenuOpen = ref(false)
-const isSlashMenuOpen = ref(false)
+const isSkillPickerOpen = ref(false)
 const mentionStartIndex = ref<number | null>(null)
 const mentionQuery = ref('')
 const fileMentionSuggestions = ref<ComposerFileSuggestion[]>([])
@@ -682,7 +683,7 @@ const placeholderText = computed(() =>
     ? 'Select a thread to send a message'
     : isPlanModeWaitingForModel.value
       ? 'Loading models for plan mode...'
-      : 'Type a message... (@ for files, / for skills)',
+      : `Type a message... (@ for files, ${SKILL_TRIGGER_PREFIX} for skills)`,
 )
 const hasSubmitContent = computed(() =>
   draft.value.trim().length > 0 || selectedImages.value.length > 0 || fileAttachments.value.length > 0,
@@ -925,7 +926,7 @@ function onSubmit(mode: 'steer' | 'queue' = 'steer'): void {
   clearDraftState()
   folderUploadGroups.value = []
   isAttachMenuOpen.value = false
-  isSlashMenuOpen.value = false
+  isSkillPickerOpen.value = false
   closeFileMention()
   if (isAndroid || isMobile.value) {
     inputRef.value?.blur()
@@ -991,7 +992,7 @@ function replaceDraftState(payload: ComposerDraftPayload): void {
   attachmentBatchStats.value = null
   pendingAttachmentCount.value = 0
   isAttachMenuOpen.value = false
-  isSlashMenuOpen.value = false
+  isSkillPickerOpen.value = false
   closeFileMention()
   attachmentSessionToken += 1
 }
@@ -1342,7 +1343,7 @@ function attachIncomingFiles(files: FileList | File[] | null | undefined): void 
   if (normalizedFiles.length === 0) return
   beginAttachmentBatch(normalizedFiles.length)
   isAttachMenuOpen.value = false
-  isSlashMenuOpen.value = false
+  isSkillPickerOpen.value = false
   closeFileMention()
   const sessionToken = attachmentSessionToken
   for (const file of normalizedFiles) {
@@ -1506,10 +1507,9 @@ function onInputChange(): void {
   if (dictationFeedback.value) {
     dictationFeedback.value = ''
   }
-  const text = draft.value
-  const shouldShowSlashMenu = text.startsWith('/')
-  if (shouldShowSlashMenu !== isSlashMenuOpen.value) {
-    isSlashMenuOpen.value = shouldShowSlashMenu
+  const shouldShowSkillPicker = isSkillPickerTriggerText(draft.value)
+  if (shouldShowSkillPicker !== isSkillPickerOpen.value) {
+    isSkillPickerOpen.value = shouldShowSkillPicker
   }
   updateFileMentionState()
 }
@@ -1558,10 +1558,10 @@ function onInputKeydown(event: KeyboardEvent): void {
     return
   }
 
-  if (isSlashMenuOpen.value) {
+  if (isSkillPickerOpen.value) {
     if (event.key === 'Escape') {
       event.preventDefault()
-      closeSlashMenu()
+      closeSkillPicker()
       return
     }
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -1571,9 +1571,19 @@ function onInputKeydown(event: KeyboardEvent): void {
   }
 }
 
-function closeSlashMenu(): void {
-  isSlashMenuOpen.value = false
+function closeSkillPicker(): void {
+  isSkillPickerOpen.value = false
   inputRef.value?.focus()
+}
+
+function isSkillPickerTriggerText(text: string): boolean {
+  return text.startsWith(SKILL_TRIGGER_PREFIX)
+}
+
+function clearSkillTriggerDraft(): void {
+  if (isSkillPickerTriggerText(draft.value)) {
+    draft.value = ''
+  }
 }
 
 function closeFileMention(): void {
@@ -1703,12 +1713,12 @@ function isMarkdownFile(path: string): boolean {
   return ext === 'md' || ext === 'mdx'
 }
 
-function onSlashSkillSelect(skill: SkillItem): void {
+function onSkillPickerSelect(skill: SkillItem): void {
   if (!selectedSkills.value.some((s) => s.path === skill.path)) {
     selectedSkills.value = [...selectedSkills.value, skill]
   }
-  draft.value = draft.value.startsWith('/') ? '' : draft.value
-  isSlashMenuOpen.value = false
+  clearSkillTriggerDraft()
+  isSkillPickerOpen.value = false
   inputRef.value?.focus()
 }
 
