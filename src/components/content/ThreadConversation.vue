@@ -531,7 +531,6 @@
                           title="Copy code snippet"
                         >
                           <IconTablerCopy class="icon-svg message-code-copy-icon" />
-                          <span class="message-code-copy-label">Copy</span>
                         </button>
                       </div>
                       <pre class="message-code-pre"><code class="hljs" v-html="renderHighlightedCodeAsHtml(block.language, block.value)"></code></pre>
@@ -2616,8 +2615,6 @@ function setCodeCopyButtonState(button: HTMLButtonElement, copied: boolean): voi
   button.dataset.copied = copied ? 'true' : 'false'
   button.setAttribute('aria-label', copied ? 'Code snippet copied' : 'Copy code snippet')
   button.setAttribute('title', copied ? 'Code snippet copied' : 'Copy code snippet')
-  const label = button.querySelector<HTMLElement>('.message-code-copy-label')
-  if (label) label.textContent = copied ? 'Copied' : 'Copy'
 }
 
 async function copyCodeBlockFromButton(button: HTMLButtonElement): Promise<void> {
@@ -3413,11 +3410,16 @@ function renderMessageBlockAsHtml(block: MessageBlock): string {
   }
   if (block.kind === 'codeBlock') {
     const language = escapeHtml(codeLanguageLabel(block.language))
+    const copyIcon = (
+      `<svg class="icon-svg message-code-copy-icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" aria-hidden="true">` +
+      `<path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2zm-4 4a2 2 0 0 1-2-2V8m4 8h10"></path>` +
+      `</svg>`
+    )
     const toolbar = (
       `<div class="message-code-toolbar">` +
       `<span class="message-code-language">${language}</span>` +
       `<button type="button" class="message-code-copy-button" data-code-copy-button aria-label="Copy code snippet" title="Copy code snippet">` +
-      `<span class="message-code-copy-label">Copy</span>` +
+      copyIcon +
       `</button>` +
       `</div>`
     )
@@ -4534,7 +4536,7 @@ onBeforeUnmount(() => {
 }
 
 .plan-card-markdown :deep(.message-code-copy-button) {
-  @apply inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-amber-200 bg-white/80 px-2 text-[11px] font-medium leading-none text-amber-800 transition hover:border-amber-300 hover:bg-white hover:text-amber-950;
+  @apply inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-amber-200 bg-white/80 text-amber-800 transition hover:border-amber-300 hover:bg-white hover:text-amber-950;
 }
 
 .plan-card-markdown :deep(.message-code-copy-button[data-copied='true']) {
@@ -4728,7 +4730,7 @@ onBeforeUnmount(() => {
 }
 
 .message-code-copy-button {
-  @apply inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-amber-200 bg-white/80 px-2 text-[11px] font-medium leading-none text-amber-800 transition hover:border-amber-300 hover:bg-white hover:text-amber-950;
+  @apply inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-amber-200 bg-white/80 text-amber-800 transition hover:border-amber-300 hover:bg-white hover:text-amber-950;
 }
 
 .message-code-copy-button[data-copied='true'] {
@@ -4737,10 +4739,6 @@ onBeforeUnmount(() => {
 
 .message-code-copy-icon {
   @apply h-3.5 w-3.5;
-}
-
-.message-code-copy-label {
-  @apply leading-none;
 }
 
 .message-code-pre {

@@ -3584,9 +3584,9 @@ Markdown fenced code blocks in chat render with a per-snippet copy button and a 
 
 #### Expected Results
 - Code blocks use a light pastel amber/orange background instead of a black/dark container.
-- Every fenced code block shows a toolbar with a language label; unlabeled fences show `text`.
-- Clicking `Copy` copies only that snippet's code content, not surrounding message text.
-- The button changes to `Copied` briefly and then returns to `Copy`.
+- Every fenced code block shows a toolbar with a language label and an icon-only copy button; unlabeled fences show `text`.
+- Clicking the copy icon copies only that snippet's code content, not surrounding message text.
+- The button briefly changes to its copied state through color and tooltip/accessible label, then returns to its normal copy state.
 - Syntax highlighting remains readable on the light background.
 
 #### Rollback/Cleanup
