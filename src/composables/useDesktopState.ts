@@ -66,6 +66,7 @@ function flattenThreads(groups: UiProjectGroup[]): UiThread[] {
 }
 
 const READ_STATE_STORAGE_KEY = 'codex-web-local.thread-read-state.v1'
+const MANUAL_UNREAD_STORAGE_KEY = 'codex-web-local.thread-manual-unread-state.v1'
 const SCROLL_STATE_STORAGE_KEY = 'codex-web-local.thread-scroll-state.v1'
 const THREAD_TOKEN_USAGE_STORAGE_KEY = 'codex-web-local.thread-token-usage.v1'
 const THREAD_TERMINAL_OPEN_STORAGE_KEY = 'codex-web-local.thread-terminal-open.v1'
@@ -104,6 +105,31 @@ function loadReadStateMap(): Record<string, string> {
 function saveReadStateMap(state: Record<string, string>): void {
   if (typeof window === 'undefined') return
   safeLocalStorageSetItem(READ_STATE_STORAGE_KEY, JSON.stringify(state))
+}
+
+function loadManualUnreadMap(): Record<string, boolean> {
+  if (typeof window === 'undefined') return {}
+
+  try {
+    const raw = safeLocalStorageGetItem(MANUAL_UNREAD_STORAGE_KEY)
+    if (!raw) return {}
+
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+
+    const normalized: Record<string, boolean> = {}
+    for (const [threadId, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (threadId && value === true) normalized[threadId] = true
+    }
+    return normalized
+  } catch {
+    return {}
+  }
+}
+
+function saveManualUnreadMap(state: Record<string, boolean>): void {
+  if (typeof window === 'undefined') return
+  safeLocalStorageSetItem(MANUAL_UNREAD_STORAGE_KEY, JSON.stringify(state))
 }
 
 function areReadStateMapsEqual(first: Record<string, string>, second: Record<string, string>): boolean {
@@ -1116,6 +1142,7 @@ export function useDesktopState() {
   const queuedMessagesByThreadId = ref<Record<string, QueuedMessage[]>>({})
   const queueProcessingByThreadId = ref<Record<string, boolean>>({})
   const eventUnreadByThreadId = ref<Record<string, boolean>>({})
+  const manualUnreadByThreadId = ref<Record<string, boolean>>(loadManualUnreadMap())
   const availableModelIds = ref<string[]>([])
   const availableCollaborationModes = ref<CollaborationModeOption[]>([
     { value: 'default', label: 'Default' },
@@ -1739,7 +1766,8 @@ export function useDesktopState() {
         const isSelected = selectedThreadId.value === thread.id
         const lastReadIso = readStateByThreadId.value[thread.id]
         const unreadByEvent = eventUnreadByThreadId.value[thread.id] === true
-        const unread = !isSelected && !inProgress && (unreadByEvent || lastReadIso !== thread.updatedAtIso)
+        const unreadByManualAction = manualUnreadByThreadId.value[thread.id] === true
+        const unread = !isSelected && !inProgress && (unreadByManualAction || unreadByEvent || lastReadIso !== thread.updatedAtIso)
 
         return {
           ...thread,
@@ -1845,6 +1873,11 @@ export function useDesktopState() {
     persistedUserMessageByThreadId.value = pruneThreadStateMap(persistedUserMessageByThreadId.value, activeThreadIds)
     threadTokenUsageByThreadId.value = pruneThreadStateMap(threadTokenUsageByThreadId.value, activeThreadIds)
     eventUnreadByThreadId.value = pruneThreadStateMap(eventUnreadByThreadId.value, activeThreadIds)
+    const nextManualUnread = pruneThreadStateMap(manualUnreadByThreadId.value, activeThreadIds)
+    if (nextManualUnread !== manualUnreadByThreadId.value) {
+      manualUnreadByThreadId.value = nextManualUnread
+      saveManualUnreadMap(nextManualUnread)
+    }
     inProgressById.value = pruneThreadStateMap(inProgressById.value, activeThreadIds)
     const nextPending: Record<string, UiServerRequest[]> = {}
     for (const [threadId, requests] of Object.entries(pendingServerRequestsByThreadId.value)) {
@@ -1870,6 +1903,23 @@ export function useDesktopState() {
     if (eventUnreadByThreadId.value[threadId]) {
       eventUnreadByThreadId.value = omitKey(eventUnreadByThreadId.value, threadId)
     }
+    if (manualUnreadByThreadId.value[threadId]) {
+      manualUnreadByThreadId.value = omitKey(manualUnreadByThreadId.value, threadId)
+      saveManualUnreadMap(manualUnreadByThreadId.value)
+    }
+    applyThreadFlags()
+  }
+
+  function markThreadAsUnread(threadId: string): void {
+    if (!threadId) return
+    if (!flattenThreads(sourceGroups.value).some((thread) => thread.id === threadId)) return
+    if (manualUnreadByThreadId.value[threadId] === true) return
+
+    manualUnreadByThreadId.value = {
+      ...manualUnreadByThreadId.value,
+      [threadId]: true,
+    }
+    saveManualUnreadMap(manualUnreadByThreadId.value)
     applyThreadFlags()
   }
 
@@ -5071,6 +5121,8 @@ export function useDesktopState() {
     setThreadTerminalOpen,
     toggleSelectedThreadTerminal,
     archiveThreadById,
+    markThreadAsRead,
+    markThreadAsUnread,
     renameThreadById,
     forkThreadById,
     forkThreadFromTurn,

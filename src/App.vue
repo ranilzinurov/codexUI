@@ -63,6 +63,8 @@
             @archive="onArchiveThread" @start-new-thread="onStartNewThread" @rename-project="onRenameProject"
             @browse-thread-files="onBrowseThreadFiles"
             @rename-thread="onRenameThread"
+            @mark-thread-read="onMarkThreadRead"
+            @mark-thread-unread="onMarkThreadUnread"
             @fork-thread="onForkThread"
             @remove-project="onRemoveProject" @reorder-project="onReorderProject"
             @export-thread="onExportThread" />
@@ -1112,6 +1114,8 @@ const {
   setThreadTerminalOpen,
   toggleSelectedThreadTerminal,
   archiveThreadById,
+  markThreadAsRead,
+  markThreadAsUnread,
   forkThreadById,
   renameThreadById,
   forkThreadFromTurn,
@@ -1982,6 +1986,14 @@ async function onRemoveAccount(accountId: string): Promise<void> {
 
 function onArchiveThread(threadId: string): void {
   void archiveThreadById(threadId)
+}
+
+function onMarkThreadRead(threadId: string): void {
+  markThreadAsRead(threadId)
+}
+
+function onMarkThreadUnread(threadId: string): void {
+  markThreadAsUnread(threadId)
 }
 
 async function onForkThread(threadId: string): Promise<void> {

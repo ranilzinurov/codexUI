@@ -386,6 +386,9 @@
         <button class="thread-menu-item" type="button" @click="openRenameThreadDialog(openThreadMenuThread.id, openThreadMenuThread.title)">
           Rename thread
         </button>
+        <button class="thread-menu-item" type="button" @click="toggleThreadUnread(openThreadMenuThread)">
+          {{ openThreadMenuThread.unread ? 'Mark as read' : 'Mark as unread' }}
+        </button>
         <button class="thread-menu-item thread-menu-item-danger" type="button" @click="deleteThread(openThreadMenuThread.id)">
           Delete thread
         </button>
@@ -511,6 +514,8 @@ const emit = defineEmits<{
   'browse-thread-files': [threadId: string]
   'rename-project': [payload: { projectName: string; displayName: string }]
   'rename-thread': [payload: { threadId: string; title: string }]
+  'mark-thread-read': [threadId: string]
+  'mark-thread-unread': [threadId: string]
   'remove-project': [projectName: string]
   'reorder-project': [payload: { projectName: string; toIndex: number }]
   'export-thread': [threadId: string]
@@ -897,6 +902,15 @@ function onExportThread(threadId: string): void {
 
 function onForkThread(threadId: string): void {
   emit('fork-thread', threadId)
+  closeThreadMenu()
+}
+
+function toggleThreadUnread(thread: UiThread): void {
+  if (thread.unread) {
+    emit('mark-thread-read', thread.id)
+  } else {
+    emit('mark-thread-unread', thread.id)
+  }
   closeThreadMenu()
 }
 

@@ -3534,3 +3534,33 @@ Codex UI can be built as a sideloaded iOS Capacitor shell that connects to a rem
 - Delete the app from the iPhone when testing is complete.
 - Clear the `Remote backend` setting to return browser/PWA use to same-origin mode.
 - Remove temporary test threads/files from the backend server.
+
+### Feature: Mark thread as unread from sidebar menu
+
+#### Feature/Change Name
+Thread rows can be marked unread or read from the right-click/three-dot context menu.
+
+#### Prerequisites/Setup
+1. Start Codex UI with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
+2. Open a workspace with at least two existing threads in the sidebar.
+
+#### Steps
+1. Right-click a non-selected thread row, or click its three-dot menu.
+2. Click `Mark as unread`.
+3. Confirm the context menu closes.
+4. Inspect the same thread row in the sidebar.
+5. Open the thread menu again for that row.
+6. Click `Mark as read`.
+7. Mark the thread unread again, then refresh the browser.
+8. Select the unread thread.
+
+#### Expected Results
+- The thread menu contains `Mark as unread` for read threads.
+- After clicking it, the thread row shows the existing blue unread indicator.
+- For unread threads, the same menu action changes to `Mark as read`.
+- `Mark as read` removes the unread indicator.
+- Manual unread state survives a browser refresh.
+- Selecting the unread thread clears the manual unread indicator.
+
+#### Rollback/Cleanup
+- Select or mark read any test thread that was intentionally left unread.
