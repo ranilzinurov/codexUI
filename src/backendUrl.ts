@@ -129,6 +129,15 @@ export function resolveBackendHttpUrl(input: string): string {
   return backend.toString()
 }
 
+function isConfiguredBackendRoutedUrl(input: string): boolean {
+  const backendBaseUrl = getConfiguredBackendUrl()
+  if (!backendBaseUrl || typeof window === 'undefined') return false
+  const parsed = parseUrl(input, window.location.href)
+  if (!parsed || !isRoutedBackendPath(parsed.pathname)) return false
+  const backend = parseUrl(backendBaseUrl)
+  return Boolean(backend && parsed.origin !== backend.origin)
+}
+
 export function resolveBackendWebSocketUrl(input: string): string {
   const backendBaseUrl = getConfiguredBackendUrl()
   if (!backendBaseUrl || typeof window === 'undefined') return input
@@ -163,7 +172,15 @@ export function installBackendRequestRouting(): void {
 
   const originalFetch = window.fetch.bind(window)
   window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
-    return originalFetch(resolveFetchInput(input), init)
+    const inputUrl = typeof input === 'string' || input instanceof URL
+      ? input.toString()
+      : typeof Request !== 'undefined' && input instanceof Request
+        ? input.url
+        : ''
+    const routedInit = isConfiguredBackendRoutedUrl(inputUrl)
+      ? { ...init, credentials: init?.credentials ?? 'include' }
+      : init
+    return originalFetch(resolveFetchInput(input), routedInit)
   }) as typeof window.fetch
 
   if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
@@ -178,7 +195,11 @@ export function installBackendRequestRouting(): void {
     const NativeEventSource = window.EventSource
     window.EventSource = class CodexBackendEventSource extends NativeEventSource {
       constructor(url: string | URL, eventSourceInitDict?: EventSourceInit) {
-        super(resolveBackendHttpUrl(String(url)), eventSourceInitDict)
+        const rawUrl = String(url)
+        const routedInit = isConfiguredBackendRoutedUrl(rawUrl)
+          ? { ...eventSourceInitDict, withCredentials: eventSourceInitDict?.withCredentials ?? true }
+          : eventSourceInitDict
+        super(resolveBackendHttpUrl(rawUrl), routedInit)
       }
     } as typeof window.EventSource
   }

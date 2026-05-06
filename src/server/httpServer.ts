@@ -6,6 +6,7 @@ import { writeFile, stat } from 'node:fs/promises'
 import express, { type Express } from 'express'
 import { createCodexBridgeMiddleware } from './codexAppServerBridge.js'
 import { createAuthSession } from './authMiddleware.js'
+import { createMobileShellCorsMiddleware } from './mobileShellCors.js'
 import { createDirectoryListingHtml, createTextEditorHtml, decodeBrowsePath, getLocalDirectoryListing, isTextEditableFile, normalizeLocalPath } from './localBrowseUi.js'
 import { WebSocketServer, type WebSocket } from 'ws'
 
@@ -82,6 +83,8 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
   const app = express()
   const bridge = createCodexBridgeMiddleware()
   const authSession = options.password ? createAuthSession(options.password) : null
+
+  app.use(createMobileShellCorsMiddleware())
 
   // 1. Auth middleware (if password is set)
   if (authSession) {

@@ -8,6 +8,7 @@ import {
   writeStoredDictationRecording,
   type StoredDictationRecording,
 } from './dictationTranscription'
+import { finishDictationAudioSession, prepareDictationAudioSession } from '../native/codexAudioSession'
 
 export type DictationState = 'idle' | 'recording' | 'transcribing'
 const DICTATION_SILENCE_THRESHOLD = 0.0025
@@ -109,6 +110,7 @@ export function useDictation(options: {
   let stopGraceTimeout: number | null = null
   let transcribeAbortController: AbortController | null = null
   let pendingTranscription: StoredDictationRecording | null = null
+  let didPrepareNativeAudioSession = false
 
   function getCurrentStorageKey(): string {
     return readTrimmedString(options.getStorageKey?.()) || 'default'
@@ -258,6 +260,8 @@ export function useDictation(options: {
         return
       }
 
+      await prepareDictationAudioSession()
+      didPrepareNativeAudioSession = true
       mediaStream = await navigator.mediaDevices.getUserMedia(DICTATION_MEDIA_CONSTRAINTS)
       const audioInputInfo = readAudioInputInfo(mediaStream)
       if (audioInputInfo) options.onAudioInput?.(audioInputInfo)
@@ -401,6 +405,10 @@ export function useDictation(options: {
     if (mediaStream) {
       mediaStream.getTracks().forEach((track) => track.stop())
       mediaStream = null
+    }
+    if (didPrepareNativeAudioSession) {
+      didPrepareNativeAudioSession = false
+      void finishDictationAudioSession()
     }
     chunks = []
   }
