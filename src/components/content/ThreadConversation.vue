@@ -1,5 +1,5 @@
 <template>
-  <section class="conversation-root" @contextmenu.capture="onConversationContextMenu">
+  <section class="conversation-root" @click.capture="onConversationClick" @contextmenu.capture="onConversationContextMenu">
     <p v-if="isLoading" class="conversation-loading">Loading messages...</p>
 
     <p
@@ -521,7 +521,19 @@
                       </table>
                     </div>
                     <div v-else-if="block.kind === 'codeBlock'" class="message-code-block">
-                      <div v-if="block.language" class="message-code-language">{{ block.language }}</div>
+                      <div class="message-code-toolbar">
+                        <span class="message-code-language">{{ codeLanguageLabel(block.language) }}</span>
+                        <button
+                          type="button"
+                          class="message-code-copy-button"
+                          data-code-copy-button
+                          aria-label="Copy code snippet"
+                          title="Copy code snippet"
+                        >
+                          <IconTablerCopy class="icon-svg message-code-copy-icon" />
+                          <span class="message-code-copy-label">Copy</span>
+                        </button>
+                      </div>
                       <pre class="message-code-pre"><code class="hljs" v-html="renderHighlightedCodeAsHtml(block.language, block.value)"></code></pre>
                     </div>
                     <hr v-else-if="block.kind === 'thematicBreak'" class="message-divider" />
@@ -1256,6 +1268,8 @@ let scrollRestoreFrame = 0
 let bottomLockFrame = 0
 let bottomLockFramesLeft = 0
 let copiedMessageResetTimer: ReturnType<typeof setTimeout> | null = null
+let copiedCodeResetTimer: ReturnType<typeof setTimeout> | null = null
+let copiedCodeButton: HTMLButtonElement | null = null
 const trackedPendingImages = new WeakSet<HTMLImageElement>()
 const failedMarkdownImageKeys = ref<Set<string>>(new Set())
 const highlightJsModule = ref<HighlightJsModule | null>(null)
@@ -2049,24 +2063,26 @@ function copyTextWithSelectionFallback(text: string): boolean {
   }
 }
 
+async function copyTextToClipboard(text: string): Promise<boolean> {
+  if (!text) return false
+
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      // Fall back for browsers that expose clipboard but reject writes outside secure/user-gesture contexts.
+    }
+  }
+
+  return copyTextWithSelectionFallback(text)
+}
+
 async function copyResponse(anchorMessageId: string): Promise<void> {
   const content = copyableResponseContentByAnchorId.value[anchorMessageId] ?? ''
   if (!content) return
 
-  let copied = false
-  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(content)
-      copied = true
-    } catch {
-      copied = false
-    }
-  }
-
-  if (!copied) {
-    copied = copyTextWithSelectionFallback(content)
-  }
-
+  const copied = await copyTextToClipboard(content)
   if (!copied) return
 
   copiedResponseAnchorId.value = anchorMessageId
@@ -2593,19 +2609,52 @@ async function copyFileLinkContextLink(): Promise<void> {
   closeFileLinkContextMenu()
   if (!href || href === '#') return
 
-  try {
-    await navigator.clipboard.writeText(href)
-  } catch {
-    const textarea = document.createElement('textarea')
-    textarea.value = href
-    textarea.setAttribute('readonly', 'true')
-    textarea.style.position = 'fixed'
-    textarea.style.opacity = '0'
-    document.body.appendChild(textarea)
-    textarea.select()
-    document.execCommand('copy')
-    document.body.removeChild(textarea)
+  await copyTextToClipboard(href)
+}
+
+function setCodeCopyButtonState(button: HTMLButtonElement, copied: boolean): void {
+  button.dataset.copied = copied ? 'true' : 'false'
+  button.setAttribute('aria-label', copied ? 'Code snippet copied' : 'Copy code snippet')
+  button.setAttribute('title', copied ? 'Code snippet copied' : 'Copy code snippet')
+  const label = button.querySelector<HTMLElement>('.message-code-copy-label')
+  if (label) label.textContent = copied ? 'Copied' : 'Copy'
+}
+
+async function copyCodeBlockFromButton(button: HTMLButtonElement): Promise<void> {
+  const block = button.closest('.message-code-block')
+  if (!(block instanceof HTMLElement)) return
+  const code = block.querySelector<HTMLElement>('.message-code-pre code')
+  const content = code?.textContent ?? ''
+  const copied = await copyTextToClipboard(content)
+  if (!copied) return
+
+  if (copiedCodeButton && copiedCodeButton !== button) {
+    setCodeCopyButtonState(copiedCodeButton, false)
   }
+  if (copiedCodeResetTimer) {
+    clearTimeout(copiedCodeResetTimer)
+  }
+
+  copiedCodeButton = button
+  setCodeCopyButtonState(button, true)
+  copiedCodeResetTimer = setTimeout(() => {
+    if (copiedCodeButton === button) {
+      setCodeCopyButtonState(button, false)
+      copiedCodeButton = null
+    }
+    copiedCodeResetTimer = null
+  }, 1800)
+}
+
+function onConversationClick(event: MouseEvent): void {
+  const target = event.target
+  if (!(target instanceof Element)) return
+  const button = target.closest('[data-code-copy-button]')
+  if (!(button instanceof HTMLButtonElement)) return
+
+  event.preventDefault()
+  event.stopPropagation()
+  void copyCodeBlockFromButton(button)
 }
 
 function onWindowPointerDownForFileLinkContextMenu(event: PointerEvent): void {
@@ -3245,6 +3294,10 @@ function normalizeCodeLanguage(language: string): string {
   return CODE_LANGUAGE_ALIASES[token] ?? token
 }
 
+function codeLanguageLabel(language: string): string {
+  return normalizeCodeLanguage(language) || 'text'
+}
+
 function renderHighlightedCodeAsHtml(language: string, value: string): string {
   const normalizedLanguage = normalizeCodeLanguage(language)
   if (!normalizedLanguage) return escapeHtml(value)
@@ -3359,10 +3412,16 @@ function renderMessageBlockAsHtml(block: MessageBlock): string {
     return `<div class="message-table-wrap"><table class="message-table"><thead><tr>${headerCells}</tr></thead>${body}</table></div>`
   }
   if (block.kind === 'codeBlock') {
-    const language = block.language
-      ? `<div class="message-code-language">${escapeHtml(block.language)}</div>`
-      : ''
-    return `<div class="message-code-block">${language}<pre class="message-code-pre"><code class="hljs">${renderHighlightedCodeAsHtml(block.language, block.value)}</code></pre></div>`
+    const language = escapeHtml(codeLanguageLabel(block.language))
+    const toolbar = (
+      `<div class="message-code-toolbar">` +
+      `<span class="message-code-language">${language}</span>` +
+      `<button type="button" class="message-code-copy-button" data-code-copy-button aria-label="Copy code snippet" title="Copy code snippet">` +
+      `<span class="message-code-copy-label">Copy</span>` +
+      `</button>` +
+      `</div>`
+    )
+    return `<div class="message-code-block">${toolbar}<pre class="message-code-pre"><code class="hljs">${renderHighlightedCodeAsHtml(block.language, block.value)}</code></pre></div>`
   }
   if (block.kind === 'thematicBreak') {
     return '<hr class="message-divider">'
@@ -4080,6 +4139,9 @@ onBeforeUnmount(() => {
   if (copiedMessageResetTimer) {
     clearTimeout(copiedMessageResetTimer)
   }
+  if (copiedCodeResetTimer) {
+    clearTimeout(copiedCodeResetTimer)
+  }
   window.removeEventListener('pointerdown', onWindowPointerDownForFileLinkContextMenu)
   window.removeEventListener('blur', onWindowBlurForFileLinkContextMenu)
   window.removeEventListener('keydown', onWindowKeydownForFileLinkContextMenu)
@@ -4460,15 +4522,27 @@ onBeforeUnmount(() => {
 }
 
 .plan-card-markdown :deep(.message-code-block) {
-  @apply overflow-hidden rounded-xl border border-slate-200 bg-slate-950/95 text-slate-100;
+  @apply overflow-hidden rounded-xl border border-amber-200 bg-amber-50/80 text-slate-900 shadow-sm shadow-amber-950/5;
+}
+
+.plan-card-markdown :deep(.message-code-toolbar) {
+  @apply flex min-h-9 items-center justify-between gap-2 border-b border-amber-200 bg-orange-50/80 px-3 py-1.5;
 }
 
 .plan-card-markdown :deep(.message-code-language) {
-  @apply border-b border-slate-800 bg-slate-900/90 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.08em] text-slate-400;
+  @apply min-w-0 truncate text-[11px] font-mono font-semibold uppercase tracking-[0.08em] text-amber-700;
+}
+
+.plan-card-markdown :deep(.message-code-copy-button) {
+  @apply inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-amber-200 bg-white/80 px-2 text-[11px] font-medium leading-none text-amber-800 transition hover:border-amber-300 hover:bg-white hover:text-amber-950;
+}
+
+.plan-card-markdown :deep(.message-code-copy-button[data-copied='true']) {
+  @apply border-emerald-200 bg-emerald-50 text-emerald-700;
 }
 
 .plan-card-markdown :deep(.message-code-pre) {
-  @apply m-0 overflow-x-auto px-3 py-3 text-[13px] leading-6;
+  @apply m-0 overflow-x-auto px-3 py-3 text-[13px] leading-6 font-mono whitespace-pre;
 }
 
 .plan-card-markdown :deep(.message-inline-code) {
@@ -4642,11 +4716,31 @@ onBeforeUnmount(() => {
 }
 
 .message-code-block {
-  @apply overflow-hidden rounded-xl border border-slate-200 bg-slate-950 text-slate-100;
+  @apply overflow-hidden rounded-xl border border-amber-200 bg-amber-50/80 text-slate-900 shadow-sm shadow-amber-950/5;
+}
+
+.message-code-toolbar {
+  @apply flex min-h-9 items-center justify-between gap-2 border-b border-amber-200 bg-orange-50/80 px-3 py-1.5;
 }
 
 .message-code-language {
-  @apply border-b border-slate-800 px-3 py-2 text-[11px] font-mono uppercase tracking-[0.08em] text-slate-400;
+  @apply min-w-0 truncate text-[11px] font-mono font-semibold uppercase tracking-[0.08em] text-amber-700;
+}
+
+.message-code-copy-button {
+  @apply inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-amber-200 bg-white/80 px-2 text-[11px] font-medium leading-none text-amber-800 transition hover:border-amber-300 hover:bg-white hover:text-amber-950;
+}
+
+.message-code-copy-button[data-copied='true'] {
+  @apply border-emerald-200 bg-emerald-50 text-emerald-700;
+}
+
+.message-code-copy-icon {
+  @apply h-3.5 w-3.5;
+}
+
+.message-code-copy-label {
+  @apply leading-none;
 }
 
 .message-code-pre {

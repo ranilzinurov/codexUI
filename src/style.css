@@ -1,6 +1,6 @@
 /* Hosted Safari cache-bust marker: 2026-04-22 */
 @import "tailwindcss";
-@import "highlight.js/styles/github-dark.css";
+@import "highlight.js/styles/github.css";
 
 :root {
   --hosted-safari-cache-bust: 202604221933;
@@ -555,11 +555,11 @@ html::after {
 }
 
 :root.dark .message-code-block {
-  @apply border-zinc-700 bg-zinc-950 text-zinc-100;
+  @apply border-amber-300 bg-amber-50/95 text-slate-900;
 }
 
 :root.dark .message-code-language {
-  @apply border-zinc-800 text-zinc-400;
+  @apply text-amber-700;
 }
 
 :root.dark .message-divider {

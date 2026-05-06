@@ -3564,3 +3564,30 @@ Thread rows can be marked unread or read from the right-click/three-dot context 
 
 #### Rollback/Cleanup
 - Select or mark read any test thread that was intentionally left unread.
+
+### Feature: Chat code block copy button and light code theme
+
+#### Feature/Change Name
+Markdown fenced code blocks in chat render with a per-snippet copy button and a light pastel code container.
+
+#### Prerequisites/Setup
+1. Start Codex UI with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
+2. Open or create a thread where an assistant response can contain fenced markdown code blocks.
+
+#### Steps
+1. Send a prompt that asks for a fenced code block, for example: `Show this in a fenced code block: console.log("copy me")`.
+2. Wait for the assistant response to render.
+3. Inspect the rendered code block in the chat.
+4. Click the `Copy` button in the code block toolbar.
+5. Paste into a temporary text field or editor.
+6. Repeat with a fenced block that has no language tag.
+
+#### Expected Results
+- Code blocks use a light pastel amber/orange background instead of a black/dark container.
+- Every fenced code block shows a toolbar with a language label; unlabeled fences show `text`.
+- Clicking `Copy` copies only that snippet's code content, not surrounding message text.
+- The button changes to `Copied` briefly and then returns to `Copy`.
+- Syntax highlighting remains readable on the light background.
+
+#### Rollback/Cleanup
+- Delete any temporary test thread or pasted scratch text if desired.
