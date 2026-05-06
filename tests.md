@@ -3491,3 +3491,46 @@ Active collab/subagent status is rendered inline above the message composer inst
 #### Rollback/Cleanup
 - Stop the test turn if it is still running.
 - Restore dictation settings to the preferred state if changed.
+
+### Feature: Capacitor iOS shell with remote backend
+
+#### Feature/Change Name
+Codex UI can be built as a sideloaded iOS Capacitor shell that connects to a remote Codex UI backend.
+
+#### Prerequisites/Setup
+1. On the development machine, run `pnpm install`.
+2. Start or identify a reachable Codex UI backend server.
+3. On macOS, install Xcode and CocoaPods.
+4. Connect a physical iPhone by cable and sign into Xcode with an Apple ID.
+
+#### Steps
+1. Run `pnpm run build:frontend`.
+2. Run `npx cap sync ios`.
+3. On macOS, run `npx cap open ios`.
+4. In Xcode, open the `App` target and select a Personal Team under `Signing & Capabilities`.
+5. Select the connected iPhone and press Run.
+6. Open the installed app and open sidebar Settings.
+7. Set `Remote backend` to the reachable backend URL and press `Set`.
+8. Reload the app.
+9. Open or create a thread and send a message.
+10. Open a file/image/local browse link if the thread contains one.
+11. Start dictation and accept the iOS microphone permission prompt.
+12. Record a short phrase and stop dictation.
+13. Start music playback in another iOS app, return to Codex UI, and repeat dictation.
+
+#### Expected Results
+- `pnpm run build:frontend` completes without TypeScript or Vite errors.
+- `npx cap sync ios` copies web assets into the iOS project.
+- Xcode installs and launches the app with Personal Team signing.
+- The app renders the bundled Codex UI shell rather than a blank WebView.
+- `Remote backend` accepts only `http://` or `https://` URLs, persists the normalized value, and routes backend calls to that server.
+- Chat API calls and `/codex-api/ws` notifications work through the configured backend.
+- Local browse/image/file links route through the configured backend.
+- iOS shows the microphone permission prompt using the app's usage description.
+- Dictation records, transcribes through the remote backend, and returns text to the composer.
+- Music either continues during dictation or resumes after dictation; if it still pauses and does not resume, document the iOS version, audio route, and music app for the native-recorder follow-up.
+
+#### Rollback/Cleanup
+- Delete the app from the iPhone when testing is complete.
+- Clear the `Remote backend` setting to return browser/PWA use to same-origin mode.
+- Remove temporary test threads/files from the backend server.
