@@ -133,9 +133,7 @@ function isConfiguredBackendRoutedUrl(input: string): boolean {
   const backendBaseUrl = getConfiguredBackendUrl()
   if (!backendBaseUrl || typeof window === 'undefined') return false
   const parsed = parseUrl(input, window.location.href)
-  if (!parsed || !isRoutedBackendPath(parsed.pathname)) return false
-  const backend = parseUrl(backendBaseUrl)
-  return Boolean(backend && parsed.origin !== backend.origin)
+  return Boolean(parsed && isRoutedBackendPath(parsed.pathname))
 }
 
 export function resolveBackendWebSocketUrl(input: string): string {

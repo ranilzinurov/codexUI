@@ -1,4 +1,5 @@
 import type { RequestHandler } from 'express'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 
 const ALLOWED_NATIVE_ORIGIN_PROTOCOLS = new Set(['capacitor:', 'ionic:'])
 const ALLOWED_LOCALHOST_PROTOCOLS = new Set(['http:', 'https:'])
@@ -21,28 +22,45 @@ function isAllowedMobileShellOrigin(origin: string): boolean {
 }
 
 function isCorsBackendPath(path: string): boolean {
-  return path.startsWith('/codex-api/') || path.startsWith('/codex-local-')
+  return path === '/codex-api' || path.startsWith('/codex-api/') || path.startsWith('/codex-local-')
+}
+
+function applyMobileShellCors(origin: string, path: string, res: Pick<ServerResponse, 'setHeader'>): boolean {
+  if (!origin || !isCorsBackendPath(path) || !isAllowedMobileShellOrigin(origin)) return false
+
+  res.setHeader('Access-Control-Allow-Origin', origin)
+  res.setHeader('Access-Control-Allow-Credentials', 'true')
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+  res.setHeader('Vary', 'Origin')
+  return true
 }
 
 export function createMobileShellCorsMiddleware(): RequestHandler {
   return (req, res, next) => {
     const origin = req.get('Origin')?.trim() ?? ''
-    if (!origin || !isCorsBackendPath(req.path) || !isAllowedMobileShellOrigin(origin)) {
-      next()
-      return
-    }
+    const didApplyCors = applyMobileShellCors(origin, req.path, res)
 
-    res.setHeader('Access-Control-Allow-Origin', origin)
-    res.setHeader('Access-Control-Allow-Credentials', 'true')
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
-    res.setHeader('Vary', 'Origin')
-
-    if (req.method === 'OPTIONS') {
+    if (didApplyCors && req.method === 'OPTIONS') {
       res.status(204).end()
       return
     }
 
     next()
   }
+}
+
+export function handleMobileShellCorsRequest(req: IncomingMessage, res: ServerResponse): boolean {
+  const originHeader = req.headers.origin
+  const origin = Array.isArray(originHeader) ? originHeader[0]?.trim() ?? '' : originHeader?.trim() ?? ''
+  const path = new URL(req.url ?? '/', 'http://localhost').pathname
+  const didApplyCors = applyMobileShellCors(origin, path, res)
+
+  if (didApplyCors && req.method === 'OPTIONS') {
+    res.statusCode = 204
+    res.end()
+    return true
+  }
+
+  return false
 }

@@ -24,6 +24,11 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Codex UI uses the microphone for dictation.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

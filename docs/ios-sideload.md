@@ -26,6 +26,8 @@ Start Codex UI on the server before opening the iOS app. The server must expose 
 
 Use HTTPS for internet-facing deployments. HTTP is reasonable only for private network, localhost, or VPN/Tailscale testing.
 
+The sideload target allows arbitrary app transport loads so private `http://` backend URLs can work during testing. Prefer HTTPS when the backend is exposed beyond a private network.
+
 The production server allows Capacitor's `capacitor://localhost` origin for backend routes. If a reverse proxy sits in front of Codex UI, make sure it forwards `OPTIONS`, `Origin`, cookies, and WebSocket upgrade requests.
 
 ## Build and Sync
