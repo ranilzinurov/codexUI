@@ -426,6 +426,7 @@ import ComposerDropdown from './ComposerDropdown.vue'
 import ComposerSearchDropdown from './ComposerSearchDropdown.vue'
 import ComposerSkillPicker from './ComposerSkillPicker.vue'
 import ComposerSlashCommandPicker from './ComposerSlashCommandPicker.vue'
+import { resolveBackendHttpUrl } from '../../backendUrl'
 import {
   CODEX_SLASH_COMMANDS,
   parseCodexSlashCommand,
@@ -1384,7 +1385,7 @@ async function attachImageFile(file: File, sessionToken: number): Promise<void> 
       {
         id: createAttachmentId(),
         name: normalizedFile.name,
-        url: `/codex-local-image?path=${encodeURIComponent(serverPath)}`,
+        url: resolveBackendHttpUrl(`/codex-local-image?path=${encodeURIComponent(serverPath)}`),
       },
     ]
     recordAttachmentBatchResult('success')

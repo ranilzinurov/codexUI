@@ -191,6 +191,37 @@
                 <span class="sidebar-settings-label">Last mic</span>
                 <span class="sidebar-settings-value sidebar-settings-value--truncate">{{ dictationLastInputLabel }}</span>
               </div>
+              <div class="sidebar-settings-row sidebar-settings-row--input" :title="SETTINGS_HELP.backendUrl">
+                <div class="sidebar-settings-provider-info">
+                  <span class="sidebar-settings-label">Remote backend</span>
+                  <span class="sidebar-settings-value sidebar-settings-value--truncate">{{ backendUrlStatusLabel }}</span>
+                </div>
+                <div class="sidebar-settings-key-group">
+                  <input
+                    v-model="backendUrlDraft"
+                    class="sidebar-settings-key-input"
+                    type="url"
+                    inputmode="url"
+                    autocomplete="url"
+                    placeholder="https://codex.example.com"
+                    @keydown.enter="saveBackendUrlSetting"
+                  />
+                  <button
+                    class="sidebar-settings-key-save"
+                    type="button"
+                    @click="saveBackendUrlSetting"
+                  >Set</button>
+                  <button
+                    v-if="backendUrlDraft.trim()"
+                    class="sidebar-settings-key-clear"
+                    type="button"
+                    title="Use current origin"
+                    @click="clearBackendUrlSetting"
+                  >&#x2715;</button>
+                </div>
+                <div v-if="backendUrlError" class="sidebar-settings-telegram-error">{{ backendUrlError }}</div>
+                <p v-else class="sidebar-settings-field-help">Leave empty for browser/PWA same-origin mode. Reload after changing to reconnect active streams.</p>
+              </div>
 
               <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.githubTrendingProjects" @click="toggleGithubTrendingProjects">
                 <span class="sidebar-settings-label">GitHub trending projects</span>
@@ -891,6 +922,7 @@ import type { GithubTipsScope, GithubTrendingProject, LocalDirectoryEntry, Teleg
 import type { ParsedCodexSlashCommand } from './codexSlashCommands'
 import { getFreeModeStatus, setFreeMode, setFreeModeCustomKey, setCustomProvider } from './api/codexGateway'
 import { safeLocalStorageGetItem, safeLocalStorageSetItem, subscribeMediaQueryChange } from './browserCompat'
+import { getConfiguredBackendUrl, normalizeBackendBaseUrl, resolveBackendHttpUrl, setConfiguredBackendUrl, subscribeBackendUrlChanges } from './backendUrl'
 import { getPathLeafName, getPathParent, normalizePathForUi } from './pathUtils.js'
 
 const ThreadConversation = defineAsyncComponent(() => import('./components/content/ThreadConversation.vue'))
@@ -910,6 +942,7 @@ const SETTINGS_HELP = {
   dictationClickToToggle: 'Use click-to-start and click-to-stop dictation instead of hold-to-talk.',
   dictationAutoSend: 'Automatically send transcribed dictation when recording stops.',
   dictationLastInput: 'Last microphone reported by the browser after dictation starts.',
+  backendUrl: 'Remote Codex UI server used by the iOS shell for API and WebSocket traffic.',
 
   githubTrendingProjects: 'Show or hide GitHub trending project cards on the new thread screen.',
   dictationLanguage: 'Choose transcription language or keep auto-detect.',
@@ -1176,6 +1209,8 @@ const dictationAutoSend = ref(loadBoolPref(DICTATION_AUTO_SEND_KEY, true))
 const dictationLanguage = ref(loadDictationLanguagePref())
 const dictationLanguageOptions = computed(() => buildDictationLanguageOptions())
 const dictationLastInputLabel = ref(loadDictationLastInputLabel())
+const backendUrlDraft = ref(getConfiguredBackendUrl())
+const backendUrlError = ref('')
 
 const showGithubTrendingProjects = ref(loadBoolPref(GITHUB_TRENDING_PROJECTS_KEY, false))
 const freeModeEnabled = ref(false)
@@ -1240,6 +1275,7 @@ const mobileResumeSyncInProgress = ref(false)
 let accountStatePollTimer: number | null = null
 let isAccountStatePollInFlight = false
 let existingFolderBrowseRequestId = 0
+let stopBackendUrlSubscription: (() => void) | null = null
 
 const routeThreadId = computed(() => {
   const rawThreadId = route.params.threadId
@@ -1482,6 +1518,10 @@ const githubTipsScopeOptions = computed<Array<{ value: GithubTipsScope; label: s
   { value: 'trending-monthly', label: 'Trending monthly' },
 ])
 const chatWidthLabel = computed(() => CHAT_WIDTH_PRESETS[chatWidth.value].label)
+const backendUrlStatusLabel = computed(() => {
+  const normalized = normalizeBackendBaseUrl(backendUrlDraft.value).value
+  return normalized ? new URL(normalized).host : 'Same origin'
+})
 const terminalShortcutLabel = computed(() => {
   if (typeof navigator !== 'undefined' && /mac|iphone|ipad|ipod/i.test(navigator.platform)) {
     return '⌘J'
@@ -1515,6 +1555,10 @@ onMounted(() => {
   if (darkModeMediaQuery) {
     stopDarkModeMediaQuerySubscription = subscribeMediaQueryChange(darkModeMediaQuery, applyDarkMode)
   }
+  stopBackendUrlSubscription = subscribeBackendUrlChanges((value) => {
+    backendUrlDraft.value = value
+    backendUrlError.value = ''
+  })
   void initialize()
   void loadHomeDirectory()
   void loadWorkspaceRootOptionsState()
@@ -1536,6 +1580,8 @@ onUnmounted(() => {
   window.removeEventListener('focus', onWindowFocus)
   stopDarkModeMediaQuerySubscription?.()
   stopDarkModeMediaQuerySubscription = null
+  stopBackendUrlSubscription?.()
+  stopBackendUrlSubscription = null
   if (accountStatePollTimer !== null) {
     window.clearInterval(accountStatePollTimer)
     accountStatePollTimer = null
@@ -1984,7 +2030,20 @@ function onBrowseThreadFiles(threadId: string): void {
     }
   }
   if (!targetCwd || typeof window === 'undefined') return
-  window.open(`/codex-local-browse${encodeURI(targetCwd)}`, '_blank', 'noopener,noreferrer')
+  window.open(resolveBackendHttpUrl(`/codex-local-browse${encodeURI(targetCwd)}`), '_blank', 'noopener,noreferrer')
+}
+
+function saveBackendUrlSetting(): void {
+  const result = setConfiguredBackendUrl(backendUrlDraft.value)
+  backendUrlError.value = result.error
+  if (result.error) return
+  backendUrlDraft.value = result.value
+}
+
+function clearBackendUrlSetting(): void {
+  backendUrlDraft.value = ''
+  backendUrlError.value = ''
+  void setConfiguredBackendUrl('')
 }
 
 function onStartNewThreadFromToolbar(): void {

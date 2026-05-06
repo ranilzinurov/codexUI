@@ -41,6 +41,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import IconTablerFolder from '../icons/IconTablerFolder.vue'
+import { resolveBackendHttpUrl } from '../../backendUrl'
 
 const props = defineProps<{
   skill: {
@@ -68,7 +69,7 @@ const skillDirPath = computed(() => {
 function onBrowse(): void {
   const dir = skillDirPath.value
   if (!dir) return
-  window.open(`/codex-local-browse${encodeURI(dir)}`, '_blank', 'noopener,noreferrer')
+  window.open(resolveBackendHttpUrl(`/codex-local-browse${encodeURI(dir)}`), '_blank', 'noopener,noreferrer')
 }
 
 const publishedLabel = computed(() => {

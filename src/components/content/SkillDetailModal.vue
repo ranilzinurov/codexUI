@@ -82,6 +82,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import IconTablerX from '../icons/IconTablerX.vue'
+import { resolveBackendHttpUrl } from '../../backendUrl'
 
 export type HubSkill = {
   name: string
@@ -195,7 +196,7 @@ function onToggleEnabled(): void {
 function onBrowseFiles(): void {
   const dir = skillDirPath.value
   if (!dir) return
-  window.open(`/codex-local-browse${encodeURI(dir)}`, '_blank', 'noopener,noreferrer')
+  window.open(resolveBackendHttpUrl(`/codex-local-browse${encodeURI(dir)}`), '_blank', 'noopener,noreferrer')
 }
 </script>
 

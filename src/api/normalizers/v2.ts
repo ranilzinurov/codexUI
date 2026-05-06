@@ -20,6 +20,7 @@ import type {
   UiThread,
 } from '../../types/codex'
 import { normalizePathForComparison, normalizePathForUi, toProjectName } from '../../pathUtils.js'
+import { resolveBackendHttpUrl } from '../../backendUrl'
 
 function toIso(seconds: number): string {
   return new Date(seconds * 1000).toISOString()
@@ -156,7 +157,7 @@ function extractCodexUserRequestText(value: string): string {
 }
 
 function toLocalImageUrl(path: string): string {
-  return `/codex-local-image?path=${encodeURIComponent(path)}`
+  return resolveBackendHttpUrl(`/codex-local-image?path=${encodeURIComponent(path)}`)
 }
 
 function toImageGenerationUrl(value: string): string {
@@ -168,7 +169,7 @@ function toImageGenerationUrl(value: string): string {
     trimmed.startsWith('https://') ||
     trimmed.startsWith('/codex-local-image?')
   ) {
-    return trimmed
+    return resolveBackendHttpUrl(trimmed)
   }
   const compact = trimmed.replace(/\s+/gu, '')
   if (!/^[A-Za-z0-9+/]+={0,2}$/u.test(compact)) return ''

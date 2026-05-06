@@ -1,6 +1,7 @@
 import { createApp } from 'vue'
 import App from './App.vue'
 import router from './router'
+import { installBackendRequestRouting } from './backendUrl'
 import './style.css'
 
 function reportDiag(tag: string, extra?: unknown) {
@@ -20,6 +21,8 @@ if (typeof window !== 'undefined') {
 }
 
 console.log('Welcome to codexui. npm: https://www.npmjs.com/package/@nervmor/codexui [diag-cache-bust-20260422-1945]')
+
+installBackendRequestRouting()
 
 reportDiag('main-entry')
 

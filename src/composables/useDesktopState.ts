@@ -1,4 +1,5 @@
 import { computed, ref } from 'vue'
+import { resolveBackendHttpUrl } from '../backendUrl'
 import {
 
   archiveThread,
@@ -3103,7 +3104,7 @@ export function useDesktopState() {
   }
 
   function toLocalImageUrl(path: string): string {
-    return `/codex-local-image?path=${encodeURIComponent(path)}`
+    return resolveBackendHttpUrl(`/codex-local-image?path=${encodeURIComponent(path)}`)
   }
 
   function toImageGenerationUrl(value: string): string {
@@ -3115,7 +3116,7 @@ export function useDesktopState() {
       trimmed.startsWith('https://') ||
       trimmed.startsWith('/codex-local-image?')
     ) {
-      return trimmed
+      return resolveBackendHttpUrl(trimmed)
     }
     const compact = trimmed.replace(/\s+/gu, '')
     if (!/^[A-Za-z0-9+/]+={0,2}$/u.test(compact)) return ''

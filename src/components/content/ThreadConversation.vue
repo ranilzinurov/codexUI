@@ -844,6 +844,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { ThreadScrollState, UiFileChange, UiLiveOverlay, UiMessage, UiPlanStep, UiServerRequest } from '../../types/codex'
 import { useMobile } from '../../composables/useMobile'
+import { resolveBackendHttpUrl } from '../../backendUrl'
 
 import IconTablerArrowUp from '../icons/IconTablerArrowUp.vue'
 import IconTablerCopy from '../icons/IconTablerCopy.vue'
@@ -2495,17 +2496,17 @@ function toRenderableImageUrl(value: string): string {
     normalized.startsWith('https://') ||
     normalized.startsWith('/codex-local-image?')
   ) {
-    return normalized
+    return resolveBackendHttpUrl(normalized)
   }
 
   if (normalized.startsWith('file://')) {
-    return `/codex-local-image?path=${encodeURIComponent(normalized)}`
+    return resolveBackendHttpUrl(`/codex-local-image?path=${encodeURIComponent(normalized)}`)
   }
 
   const looksLikeUnixAbsolute = normalized.startsWith('/')
   const looksLikeWindowsAbsolute = /^[A-Za-z]:[\\/]/u.test(normalized)
   if (looksLikeUnixAbsolute || looksLikeWindowsAbsolute) {
-    return `/codex-local-image?path=${encodeURIComponent(normalized)}`
+    return resolveBackendHttpUrl(`/codex-local-image?path=${encodeURIComponent(normalized)}`)
   }
 
   return normalized
@@ -2524,7 +2525,7 @@ function toBrowseUrl(pathValue: string): string {
 
   if (looksLikeAbsolutePath(resolved)) {
     const normalizedResolved = resolved.startsWith('/') ? resolved : `/${resolved}`
-    return `/codex-local-browse${encodeURI(normalizedResolved)}`
+    return resolveBackendHttpUrl(`/codex-local-browse${encodeURI(normalizedResolved)}`)
   }
 
   return '#'
@@ -2542,7 +2543,7 @@ function toEditUrlFromBrowseHref(href: string): string {
     const resolved = new URL(normalizedHref, window.location.href)
     if (!resolved.pathname.startsWith('/codex-local-browse')) return ''
     const editPath = `/codex-local-edit${resolved.pathname.slice('/codex-local-browse'.length)}`
-    return `${editPath}${resolved.search}${resolved.hash}`
+    return resolveBackendHttpUrl(`${editPath}${resolved.search}${resolved.hash}`)
   } catch {
     return ''
   }
