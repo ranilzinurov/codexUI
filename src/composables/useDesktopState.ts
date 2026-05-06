@@ -1756,6 +1756,33 @@ export function useDesktopState() {
     return requests.length > 0 ? 'response' : null
   }
 
+  function findSourceThread(threadId: string): UiThread | null {
+    if (!threadId) return null
+    for (const thread of flattenThreads(sourceGroups.value)) {
+      if (thread.id === threadId) return thread
+    }
+    return null
+  }
+
+  function persistManualUnreadState(nextState: Record<string, boolean>): void {
+    manualUnreadByThreadId.value = nextState
+    saveManualUnreadMap(nextState)
+  }
+
+  function setManualUnread(threadId: string, isUnread: boolean): void {
+    if (isUnread) {
+      if (manualUnreadByThreadId.value[threadId] === true) return
+      persistManualUnreadState({
+        ...manualUnreadByThreadId.value,
+        [threadId]: true,
+      })
+      return
+    }
+
+    if (!manualUnreadByThreadId.value[threadId]) return
+    persistManualUnreadState(omitKey(manualUnreadByThreadId.value, threadId))
+  }
+
   function applyThreadFlags(): void {
     const withTitles = applyCachedTitlesToGroups(sourceGroups.value)
     const flaggedGroups: UiProjectGroup[] = withTitles.map((group) => ({
@@ -1875,8 +1902,7 @@ export function useDesktopState() {
     eventUnreadByThreadId.value = pruneThreadStateMap(eventUnreadByThreadId.value, activeThreadIds)
     const nextManualUnread = pruneThreadStateMap(manualUnreadByThreadId.value, activeThreadIds)
     if (nextManualUnread !== manualUnreadByThreadId.value) {
-      manualUnreadByThreadId.value = nextManualUnread
-      saveManualUnreadMap(nextManualUnread)
+      persistManualUnreadState(nextManualUnread)
     }
     inProgressById.value = pruneThreadStateMap(inProgressById.value, activeThreadIds)
     const nextPending: Record<string, UiServerRequest[]> = {}
@@ -1889,7 +1915,7 @@ export function useDesktopState() {
   }
 
   function markThreadAsRead(threadId: string): void {
-    const thread = flattenThreads(sourceGroups.value).find((row) => row.id === threadId)
+    const thread = findSourceThread(threadId)
     if (!thread) return
 
     if (readStateByThreadId.value[threadId] !== thread.updatedAtIso) {
@@ -1903,23 +1929,13 @@ export function useDesktopState() {
     if (eventUnreadByThreadId.value[threadId]) {
       eventUnreadByThreadId.value = omitKey(eventUnreadByThreadId.value, threadId)
     }
-    if (manualUnreadByThreadId.value[threadId]) {
-      manualUnreadByThreadId.value = omitKey(manualUnreadByThreadId.value, threadId)
-      saveManualUnreadMap(manualUnreadByThreadId.value)
-    }
+    setManualUnread(threadId, false)
     applyThreadFlags()
   }
 
   function markThreadAsUnread(threadId: string): void {
-    if (!threadId) return
-    if (!flattenThreads(sourceGroups.value).some((thread) => thread.id === threadId)) return
-    if (manualUnreadByThreadId.value[threadId] === true) return
-
-    manualUnreadByThreadId.value = {
-      ...manualUnreadByThreadId.value,
-      [threadId]: true,
-    }
-    saveManualUnreadMap(manualUnreadByThreadId.value)
+    if (!findSourceThread(threadId)) return
+    setManualUnread(threadId, true)
     applyThreadFlags()
   }
 
