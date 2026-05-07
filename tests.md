@@ -3618,3 +3618,30 @@ Markdown fenced code blocks in chat render with a per-snippet copy button and a 
 
 #### Rollback/Cleanup
 - Delete any temporary test thread or pasted scratch text if desired.
+
+### Feature: PWA task notification foreground suppression
+
+#### Feature/Change Name
+PWA task completion push notifications are suppressed while the relevant thread is visible in an active app window, including mobile browsers where focus state can be unreliable.
+
+#### Prerequisites/Setup
+1. Install dependencies with `pnpm install`.
+2. Enable task notifications on a secure origin or installed PWA device for manual validation.
+3. Keep at least one thread available for sending a task.
+
+#### Steps
+1. Run `node scripts/test-web-push-notifications.mjs`.
+2. Open the PWA or browser tab and select the test thread.
+3. Keep the app visible on screen and start a task that completes.
+4. Repeat with the same thread after switching away from the app, locking the phone, or otherwise making the page hidden.
+5. Optionally open the app in two tabs/windows, keep one visible on the target thread, and background the other.
+
+#### Expected Results
+- The scripted test passes and confirms that a visible but unfocused client suppresses delivery.
+- No push alert is shown while the selected thread is visible in the app.
+- A push alert is shown after the app/page is hidden before the task completes.
+- A hidden second tab/window does not overwrite the visible window's active state.
+
+#### Rollback/Cleanup
+- Disable task notifications on the test device if they are no longer needed.
+- Close extra test tabs/windows.

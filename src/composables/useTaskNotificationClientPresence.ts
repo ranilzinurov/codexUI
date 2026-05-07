@@ -1,18 +1,18 @@
 import { onBeforeUnmount, onMounted, watch, type Ref } from 'vue'
 import { updateTaskNotificationClientState } from '../api/taskNotifications'
-import { safeLocalStorageGetItem, safeLocalStorageSetItem } from '../browserCompat'
+import { safeSessionStorageGetItem, safeSessionStorageSetItem } from '../browserCompat'
 
 const CLIENT_ID_STORAGE_KEY = 'codex.taskNotificationBrowserClientId'
 const HEARTBEAT_INTERVAL_MS = 20_000
 
 function getBrowserClientId(): string {
-  const existing = safeLocalStorageGetItem(CLIENT_ID_STORAGE_KEY)?.trim() ?? ''
+  const existing = safeSessionStorageGetItem(CLIENT_ID_STORAGE_KEY)?.trim() ?? ''
   if (existing) return existing
 
   const nextId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
     : `browser-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
-  safeLocalStorageSetItem(CLIENT_ID_STORAGE_KEY, nextId)
+  safeSessionStorageSetItem(CLIENT_ID_STORAGE_KEY, nextId)
   return nextId
 }
 
@@ -29,7 +29,7 @@ export function useTaskNotificationClientPresence(selectedThreadId: Ref<string>)
   function buildPayload(forceInactive = false) {
     const visible = document.visibilityState === 'visible'
     const focused = document.hasFocus()
-    const active = !forceInactive && visible && focused
+    const active = !forceInactive && visible
 
     return {
       clientId,

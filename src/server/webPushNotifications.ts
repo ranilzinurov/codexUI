@@ -499,7 +499,7 @@ export class WebPushNotifications {
     if (!threadId) return false
 
     for (const state of this.browserClientStateById.values()) {
-      if (!state.active || !state.visible || !state.focused) continue
+      if (!state.active || !state.visible) continue
       if (state.threadId === threadId) return true
     }
 
@@ -510,7 +510,7 @@ export class WebPushNotifications {
     this.pruneInactiveBrowserClients()
     let count = 0
     for (const state of this.browserClientStateById.values()) {
-      if (state.active && state.visible && state.focused) count += 1
+      if (state.active && state.visible) count += 1
     }
     return count
   }
@@ -541,7 +541,7 @@ export class WebPushNotifications {
 
     const visible = body?.visible === true
     const focused = body?.focused === true
-    const active = body?.active === true && visible && focused
+    const active = body?.active === true && visible
     const threadId = asString(body?.threadId)
 
     this.pruneInactiveBrowserClients()

@@ -181,6 +181,51 @@ async function run() {
     assertEqual(calls[2].params.threadId, 'cached-title-thread', 'cached title source lookup thread id')
     assertEqual(deliveries[1].payload.body, 'Cached human title is ready.', 'cached title notification body')
 
+    await notifications.handleNotification({
+      method: 'thread/started',
+      params: {
+        thread: {
+          id: 'visible-active-thread',
+          preview: 'Visible task',
+          source: 'cli',
+        },
+      },
+    })
+    notifications.updateClientState({
+      clientId: 'visible-unfocused-client',
+      threadId: 'visible-active-thread',
+      active: true,
+      visible: true,
+      focused: false,
+    }, 'mobile-webkit')
+
+    const activeStatus = await notifications.getStatus()
+    assertEqual(activeStatus.activeBrowserClientCount, 1, 'visible unfocused client counts active')
+    await notifications.handleNotification({
+      method: 'turn/completed',
+      params: {
+        threadId: 'visible-active-thread',
+        turn: { id: 'turn-visible-active', status: 'completed' },
+      },
+    })
+    assertEqual(deliveries.length, 2, 'visible unfocused client suppresses delivery')
+
+    notifications.updateClientState({
+      clientId: 'visible-unfocused-client',
+      threadId: 'visible-active-thread',
+      active: false,
+      visible: false,
+      focused: false,
+    }, 'mobile-webkit')
+    await notifications.handleNotification({
+      method: 'turn/completed',
+      params: {
+        threadId: 'visible-active-thread',
+        turn: { id: 'turn-visible-hidden', status: 'completed' },
+      },
+    })
+    assertEqual(deliveries[2].payload.body, 'Visible task is ready.', 'hidden client receives delivery')
+
     notifications.dispose()
     console.log('Web push notification title tests OK')
   } finally {
