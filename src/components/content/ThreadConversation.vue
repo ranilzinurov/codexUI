@@ -533,16 +533,7 @@
                           <IconTablerCopy class="icon-svg message-code-copy-icon" />
                         </button>
                       </div>
-                      <pre class="message-code-pre"><code class="hljs message-code-lines">
-                        <span
-                          v-for="(line, lineIndex) in renderHighlightedCodeLinesAsHtml(block.language, block.value)"
-                          :key="`code-line-${blockIndex}-${lineIndex}`"
-                          class="message-code-line"
-                        >
-                          <span class="message-code-line-number" aria-hidden="true">{{ lineIndex + 1 }}</span>
-                          <span class="message-code-line-content" v-html="line"></span>
-                        </span>
-                      </code></pre>
+                      <pre class="message-code-pre"><code class="hljs message-code-lines" v-html="renderCodeBlockLinesAsHtml(block.language, block.value)"></code></pre>
                     </div>
                     <hr v-else-if="block.kind === 'thematicBreak'" class="message-divider" />
                     <p v-else-if="isMarkdownImageFailed(message.id, blockIndex)" class="message-text">{{ block.markdown }}</p>
@@ -3331,6 +3322,17 @@ function renderHighlightedCodeLinesAsHtml(language: string, value: string): stri
   return renderHighlightedCodeAsHtml(language, value).split('\n')
 }
 
+function renderCodeBlockLinesAsHtml(language: string, value: string): string {
+  return renderHighlightedCodeLinesAsHtml(language, value)
+    .map((line, index) => (
+      `<span class="message-code-line">` +
+      `<span class="message-code-line-number" aria-hidden="true">${String(index + 1)}</span>` +
+      `<span class="message-code-line-content">${line}</span>` +
+      `</span>`
+    ))
+    .join('')
+}
+
 function renderInlineSegmentsAsHtml(text: string): string {
   return parseInlineSegments(text)
     .map((segment) => {
@@ -3426,14 +3428,6 @@ function renderMessageBlockAsHtml(block: MessageBlock): string {
   }
   if (block.kind === 'codeBlock') {
     const language = escapeHtml(codeLanguageLabel(block.language))
-    const lines = renderHighlightedCodeLinesAsHtml(block.language, block.value)
-      .map((line, index) => (
-        `<span class="message-code-line">` +
-        `<span class="message-code-line-number" aria-hidden="true">${String(index + 1)}</span>` +
-        `<span class="message-code-line-content">${line}</span>` +
-        `</span>`
-      ))
-      .join('')
     const copyIcon = (
       `<svg class="icon-svg message-code-copy-icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" aria-hidden="true">` +
       `<path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2zm-4 4a2 2 0 0 1-2-2V8m4 8h10"></path>` +
@@ -3447,7 +3441,7 @@ function renderMessageBlockAsHtml(block: MessageBlock): string {
       `</button>` +
       `</div>`
     )
-    return `<div class="message-code-block">${toolbar}<pre class="message-code-pre"><code class="hljs message-code-lines">${lines}</code></pre></div>`
+    return `<div class="message-code-block">${toolbar}<pre class="message-code-pre"><code class="hljs message-code-lines">${renderCodeBlockLinesAsHtml(block.language, block.value)}</code></pre></div>`
   }
   if (block.kind === 'thematicBreak') {
     return '<hr class="message-divider">'
@@ -4548,7 +4542,7 @@ onBeforeUnmount(() => {
 }
 
 .plan-card-markdown :deep(.message-code-block) {
-  @apply overflow-hidden rounded-xl border bg-white text-slate-900;
+  @apply overflow-hidden rounded-lg border bg-white text-slate-900;
   border-color: #d2d9e6;
   box-shadow:
     inset 4px 0 0 #1a73e8,
@@ -4556,12 +4550,12 @@ onBeforeUnmount(() => {
 }
 
 .plan-card-markdown :deep(.message-code-toolbar) {
-  @apply flex min-h-10 items-center justify-between gap-2 border-b bg-white px-5 py-2;
+  @apply flex min-h-12 items-center justify-between gap-2 border-b bg-white px-6 py-2;
   border-color: #d8dee9;
 }
 
 .plan-card-markdown :deep(.message-code-language) {
-  @apply min-w-0 truncate text-[12px] font-mono font-semibold uppercase;
+  @apply min-w-0 truncate text-[12px] font-sans font-bold uppercase leading-none;
   color: #0969da;
 }
 
@@ -4573,8 +4567,12 @@ onBeforeUnmount(() => {
   @apply bg-blue-50 text-blue-700;
 }
 
+.plan-card-markdown :deep(.message-code-copy-icon) {
+  @apply h-5 w-5;
+}
+
 .plan-card-markdown :deep(.message-code-pre) {
-  @apply m-0 overflow-x-auto bg-white py-3 text-[15px] leading-7 font-mono;
+  @apply m-0 overflow-x-auto bg-white py-4.5 text-base leading-[30px] font-mono;
 }
 
 .plan-card-markdown :deep(.message-code-lines) {
@@ -4583,8 +4581,8 @@ onBeforeUnmount(() => {
 
 .plan-card-markdown :deep(.message-code-line) {
   @apply grid min-w-max;
-  grid-template-columns: 3.75rem 1fr;
-  min-height: 1.75rem;
+  grid-template-columns: 3.5rem 1fr;
+  min-height: 30px;
 }
 
 .plan-card-markdown :deep(.message-code-line-number) {
@@ -4594,7 +4592,7 @@ onBeforeUnmount(() => {
 
 .plan-card-markdown :deep(.message-code-line-content) {
   @apply whitespace-pre pr-5;
-  padding-left: 1.75rem;
+  padding-left: 1.5rem;
 }
 
 .plan-card-markdown :deep(.message-inline-code) {
@@ -4768,7 +4766,7 @@ onBeforeUnmount(() => {
 }
 
 .message-code-block {
-  @apply overflow-hidden rounded-xl border bg-white text-slate-900;
+  @apply overflow-hidden rounded-lg border bg-white text-slate-900;
   border-color: #d2d9e6;
   box-shadow:
     inset 4px 0 0 #1a73e8,
@@ -4776,12 +4774,12 @@ onBeforeUnmount(() => {
 }
 
 .message-code-toolbar {
-  @apply flex min-h-10 items-center justify-between gap-2 border-b bg-white px-5 py-2;
+  @apply flex min-h-12 items-center justify-between gap-2 border-b bg-white px-6 py-2;
   border-color: #d8dee9;
 }
 
 .message-code-language {
-  @apply min-w-0 truncate text-[12px] font-mono font-semibold uppercase;
+  @apply min-w-0 truncate text-[12px] font-sans font-bold uppercase leading-none;
   color: #0969da;
 }
 
@@ -4794,11 +4792,11 @@ onBeforeUnmount(() => {
 }
 
 .message-code-copy-icon {
-  @apply h-3.5 w-3.5;
+  @apply h-5 w-5;
 }
 
 .message-code-pre {
-  @apply m-0 overflow-x-auto bg-white py-3 text-[15px] leading-7 font-mono;
+  @apply m-0 overflow-x-auto bg-white py-4.5 text-base leading-[30px] font-mono;
 }
 
 .message-code-pre :deep(.hljs) {
@@ -4811,8 +4809,8 @@ onBeforeUnmount(() => {
 
 .message-code-line {
   @apply grid min-w-max;
-  grid-template-columns: 3.75rem 1fr;
-  min-height: 1.75rem;
+  grid-template-columns: 3.5rem 1fr;
+  min-height: 30px;
 }
 
 .message-code-line-number {
@@ -4822,7 +4820,7 @@ onBeforeUnmount(() => {
 
 .message-code-line-content {
   @apply whitespace-pre pr-5;
-  padding-left: 1.75rem;
+  padding-left: 1.5rem;
 }
 
 .message-file-link {
