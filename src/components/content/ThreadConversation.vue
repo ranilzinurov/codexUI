@@ -533,7 +533,7 @@
                           <IconTablerCopy class="icon-svg message-code-copy-icon" />
                         </button>
                       </div>
-                      <pre class="message-code-pre"><code class="hljs message-code-lines" v-html="renderCodeBlockLinesAsHtml(block.language, block.value)"></code></pre>
+                      <pre class="message-code-pre"><code class="hljs" v-html="renderHighlightedCodeAsHtml(block.language, block.value)"></code></pre>
                     </div>
                     <hr v-else-if="block.kind === 'thematicBreak'" class="message-divider" />
                     <p v-else-if="isMarkdownImageFailed(message.id, blockIndex)" class="message-text">{{ block.markdown }}</p>
@@ -2621,10 +2621,7 @@ async function copyCodeBlockFromButton(button: HTMLButtonElement): Promise<void>
   const block = button.closest('.message-code-block')
   if (!(block instanceof HTMLElement)) return
   const code = block.querySelector<HTMLElement>('.message-code-pre code')
-  const lineContents = Array.from(block.querySelectorAll<HTMLElement>('.message-code-line-content'))
-  const content = lineContents.length > 0
-    ? lineContents.map((line) => line.textContent ?? '').join('\n')
-    : (code?.textContent ?? '')
+  const content = code?.textContent ?? ''
   const copied = await copyTextToClipboard(content)
   if (!copied) return
 
@@ -3318,21 +3315,6 @@ function renderHighlightedCodeAsHtml(language: string, value: string): string {
   return escapeHtml(value)
 }
 
-function renderHighlightedCodeLinesAsHtml(language: string, value: string): string[] {
-  return renderHighlightedCodeAsHtml(language, value).split('\n')
-}
-
-function renderCodeBlockLinesAsHtml(language: string, value: string): string {
-  return renderHighlightedCodeLinesAsHtml(language, value)
-    .map((line, index) => (
-      `<span class="message-code-line">` +
-      `<span class="message-code-line-number" aria-hidden="true">${String(index + 1)}</span>` +
-      `<span class="message-code-line-content">${line}</span>` +
-      `</span>`
-    ))
-    .join('')
-}
-
 function renderInlineSegmentsAsHtml(text: string): string {
   return parseInlineSegments(text)
     .map((segment) => {
@@ -3441,7 +3423,7 @@ function renderMessageBlockAsHtml(block: MessageBlock): string {
       `</button>` +
       `</div>`
     )
-    return `<div class="message-code-block">${toolbar}<pre class="message-code-pre"><code class="hljs message-code-lines">${renderCodeBlockLinesAsHtml(block.language, block.value)}</code></pre></div>`
+    return `<div class="message-code-block">${toolbar}<pre class="message-code-pre"><code class="hljs">${renderHighlightedCodeAsHtml(block.language, block.value)}</code></pre></div>`
   }
   if (block.kind === 'thematicBreak') {
     return '<hr class="message-divider">'
@@ -4542,57 +4524,27 @@ onBeforeUnmount(() => {
 }
 
 .plan-card-markdown :deep(.message-code-block) {
-  @apply overflow-hidden rounded-lg border bg-white text-slate-900;
-  border-color: #d2d9e6;
-  box-shadow:
-    inset 4px 0 0 #1a73e8,
-    0 2px 8px rgba(15, 23, 42, 0.04);
+  @apply overflow-hidden rounded-xl border border-amber-200 bg-amber-50/80 text-slate-900 shadow-sm shadow-amber-950/5;
 }
 
 .plan-card-markdown :deep(.message-code-toolbar) {
-  @apply flex min-h-12 items-center justify-between gap-2 border-b bg-white px-6 py-2;
-  border-color: #d8dee9;
+  @apply flex min-h-8 items-center justify-between gap-2 border-b border-amber-200 bg-orange-50/80 px-3 py-1;
 }
 
 .plan-card-markdown :deep(.message-code-language) {
-  @apply min-w-0 truncate text-[12px] font-sans font-bold uppercase leading-none;
-  color: #0969da;
+  @apply min-w-0 truncate text-[11px] font-mono font-semibold uppercase tracking-[0.08em] text-amber-700;
 }
 
 .plan-card-markdown :deep(.message-code-copy-button) {
-  @apply inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent bg-transparent text-slate-800 transition hover:bg-slate-100 hover:text-slate-950;
+  @apply inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-amber-200 bg-white/80 text-amber-800 transition hover:border-amber-300 hover:bg-white hover:text-amber-950;
 }
 
 .plan-card-markdown :deep(.message-code-copy-button[data-copied='true']) {
-  @apply bg-blue-50 text-blue-700;
-}
-
-.plan-card-markdown :deep(.message-code-copy-icon) {
-  @apply h-5 w-5;
+  @apply border-emerald-200 bg-emerald-50 text-emerald-700;
 }
 
 .plan-card-markdown :deep(.message-code-pre) {
-  @apply m-0 overflow-x-auto bg-white py-4.5 text-base leading-[30px] font-mono;
-}
-
-.plan-card-markdown :deep(.message-code-lines) {
-  @apply block bg-transparent p-0 text-inherit;
-}
-
-.plan-card-markdown :deep(.message-code-line) {
-  @apply grid min-w-max;
-  grid-template-columns: 3.5rem 1fr;
-  min-height: 30px;
-}
-
-.plan-card-markdown :deep(.message-code-line-number) {
-  @apply select-none text-right;
-  color: #66758f;
-}
-
-.plan-card-markdown :deep(.message-code-line-content) {
-  @apply whitespace-pre pr-5;
-  padding-left: 1.5rem;
+  @apply m-0 overflow-x-auto px-3 py-3 text-[13px] leading-6 font-mono whitespace-pre;
 }
 
 .plan-card-markdown :deep(.message-inline-code) {
@@ -4766,61 +4718,35 @@ onBeforeUnmount(() => {
 }
 
 .message-code-block {
-  @apply overflow-hidden rounded-lg border bg-white text-slate-900;
-  border-color: #d2d9e6;
-  box-shadow:
-    inset 4px 0 0 #1a73e8,
-    0 2px 8px rgba(15, 23, 42, 0.04);
+  @apply overflow-hidden rounded-xl border border-amber-200 bg-amber-50/80 text-slate-900 shadow-sm shadow-amber-950/5;
 }
 
 .message-code-toolbar {
-  @apply flex min-h-12 items-center justify-between gap-2 border-b bg-white px-6 py-2;
-  border-color: #d8dee9;
+  @apply flex min-h-8 items-center justify-between gap-2 border-b border-amber-200 bg-orange-50/80 px-3 py-1;
 }
 
 .message-code-language {
-  @apply min-w-0 truncate text-[12px] font-sans font-bold uppercase leading-none;
-  color: #0969da;
+  @apply min-w-0 truncate text-[11px] font-mono font-semibold uppercase tracking-[0.08em] text-amber-700;
 }
 
 .message-code-copy-button {
-  @apply inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent bg-transparent text-slate-800 transition hover:bg-slate-100 hover:text-slate-950;
+  @apply inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-amber-200 bg-white/80 text-amber-800 transition hover:border-amber-300 hover:bg-white hover:text-amber-950;
 }
 
 .message-code-copy-button[data-copied='true'] {
-  @apply bg-blue-50 text-blue-700;
+  @apply border-emerald-200 bg-emerald-50 text-emerald-700;
 }
 
 .message-code-copy-icon {
-  @apply h-5 w-5;
+  @apply h-3 w-3;
 }
 
 .message-code-pre {
-  @apply m-0 overflow-x-auto bg-white py-4.5 text-base leading-[30px] font-mono;
+  @apply m-0 overflow-x-auto px-3 py-3 text-[13px] leading-relaxed font-mono whitespace-pre;
 }
 
 .message-code-pre :deep(.hljs) {
   @apply block bg-transparent p-0 text-inherit;
-}
-
-.message-code-lines {
-  @apply block bg-transparent p-0 text-inherit;
-}
-
-.message-code-line {
-  @apply grid min-w-max;
-  grid-template-columns: 3.5rem 1fr;
-  min-height: 30px;
-}
-
-.message-code-line-number {
-  @apply select-none text-right;
-  color: #66758f;
-}
-
-.message-code-line-content {
-  @apply whitespace-pre pr-5;
-  padding-left: 1.5rem;
 }
 
 .message-file-link {

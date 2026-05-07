@@ -555,12 +555,11 @@ html::after {
 }
 
 :root.dark .message-code-block {
-  @apply bg-white text-slate-900;
-  border-color: #d2d9e6;
+  @apply border-amber-300 bg-amber-50/95 text-slate-900;
 }
 
 :root.dark .message-code-language {
-  color: #0969da;
+  @apply text-amber-700;
 }
 
 :root.dark .message-divider {
