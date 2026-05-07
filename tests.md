@@ -3148,6 +3148,33 @@ Voice dictation releases the microphone stream after each stopped recording so t
 - Stop any active dictation.
 - If iOS permission state needs to be reset, change microphone access for the site in Safari/iOS settings.
 
+### Feature: iPhone dictation microphone permission retry
+
+#### Feature/Change Name
+Voice dictation keeps the browser microphone permission request close to the user's tap and gives actionable retry guidance when iOS/WebKit reports microphone access denied.
+
+#### Prerequisites/Setup
+1. The app is deployed over HTTPS and opened in Safari or as an installed PWA on iPhone.
+2. A Codex thread is open and the composer microphone button is visible.
+3. iOS microphone access for the site is either unset, allowed, or temporarily denied for the current session.
+
+#### Steps
+1. Tap or hold the composer microphone button to start dictation.
+2. If iOS prompts for microphone access, allow it and confirm recording starts.
+3. Stop dictation, attach an image or file, then start dictation again in the same loaded session.
+4. If the browser reports denied access, tap the microphone button again without reloading the app.
+5. If access stays denied, open Safari/iOS site settings and re-enable microphone access, then return to the app and tap the microphone button again.
+
+#### Expected Results
+- Normal dictation starts still trigger the browser microphone request directly from the user's mic-button gesture.
+- Adding attachments does not require reloading the app before the next dictation attempt.
+- When iOS/WebKit returns `NotAllowedError`, the composer says to tap the mic again or re-enable access in Safari/iOS settings if it stays blocked.
+- A permanent site-level or app-level microphone block is not bypassed by the web app; it requires changing the browser/iOS permission setting.
+
+#### Rollback/Cleanup
+- Stop any active dictation.
+- Reset microphone permission for the site/app in iOS settings if testing leaves the site blocked.
+
 ### Feature: Selectable OpenAI/Groq voice transcription provider
 
 #### Feature/Change Name

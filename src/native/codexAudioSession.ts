@@ -7,7 +7,7 @@ type CodexAudioSessionPlugin = {
 
 const codexAudioSession = registerPlugin<CodexAudioSessionPlugin>('CodexAudioSession')
 
-function shouldUseNativeAudioSession(): boolean {
+export function shouldUseNativeAudioSession(): boolean {
   return Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios'
 }
 

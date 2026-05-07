@@ -586,7 +586,7 @@ const {
   },
   onError: (error) => {
     if (error instanceof DOMException && error.name === 'NotAllowedError') {
-      dictationFeedback.value = 'Microphone access was denied.'
+      dictationFeedback.value = 'Microphone access was denied. Tap the mic again to request access, or re-enable it in Safari/iOS settings if it stays blocked.'
       return
     }
     dictationFeedback.value = error instanceof Error ? error.message : 'Dictation failed.'

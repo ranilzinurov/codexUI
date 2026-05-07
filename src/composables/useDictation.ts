@@ -8,7 +8,11 @@ import {
   writeStoredDictationRecording,
   type StoredDictationRecording,
 } from './dictationTranscription'
-import { finishDictationAudioSession, prepareDictationAudioSession } from '../native/codexAudioSession'
+import {
+  finishDictationAudioSession,
+  prepareDictationAudioSession,
+  shouldUseNativeAudioSession,
+} from '../native/codexAudioSession'
 
 export type DictationState = 'idle' | 'recording' | 'transcribing'
 const DICTATION_SILENCE_THRESHOLD = 0.0025
@@ -254,14 +258,18 @@ export function useDictation(options: {
     stopRequestedBeforeStart = false
 
     try {
-      const pending = await getPendingTranscriptionForCurrentStorageKey()
-      if (pending) {
-        await transcribeStoredRecording(pending)
-        return
+      if (hasPendingTranscription.value) {
+        const pending = await getPendingTranscriptionForCurrentStorageKey()
+        if (pending) {
+          await transcribeStoredRecording(pending)
+          return
+        }
       }
 
-      await prepareDictationAudioSession()
-      didPrepareNativeAudioSession = true
+      if (shouldUseNativeAudioSession()) {
+        await prepareDictationAudioSession()
+        didPrepareNativeAudioSession = true
+      }
       mediaStream = await navigator.mediaDevices.getUserMedia(DICTATION_MEDIA_CONSTRAINTS)
       const audioInputInfo = readAudioInputInfo(mediaStream)
       if (audioInputInfo) options.onAudioInput?.(audioInputInfo)
