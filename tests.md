@@ -3151,7 +3151,7 @@ Voice dictation releases the microphone stream after each stopped recording so t
 ### Feature: iPhone dictation microphone permission retry
 
 #### Feature/Change Name
-Voice dictation keeps the browser microphone permission request close to the user's tap and gives actionable retry guidance when iOS/WebKit reports microphone access denied.
+Voice dictation keeps the browser microphone permission request close to the user's tap when iOS/WebKit reports microphone access denied.
 
 #### Prerequisites/Setup
 1. The app is deployed over HTTPS and opened in Safari or as an installed PWA on iPhone.
@@ -3168,7 +3168,7 @@ Voice dictation keeps the browser microphone permission request close to the use
 #### Expected Results
 - Normal dictation starts still trigger the browser microphone request directly from the user's mic-button gesture.
 - Adding attachments does not require reloading the app before the next dictation attempt.
-- When iOS/WebKit returns `NotAllowedError`, the composer says to tap the mic again or re-enable access in Safari/iOS settings if it stays blocked.
+- When iOS/WebKit returns `NotAllowedError`, the composer shows the short `Microphone access was denied.` error.
 - A permanent site-level or app-level microphone block is not bypassed by the web app; it requires changing the browser/iOS permission setting.
 
 #### Rollback/Cleanup
