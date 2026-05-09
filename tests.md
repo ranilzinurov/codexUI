@@ -3646,10 +3646,10 @@ PWA task completion push notifications are suppressed while the relevant thread 
 - Disable task notifications on the test device if they are no longer needed.
 - Close extra test tabs/windows.
 
-### Feature: Dictation pause button
+### Feature: Dictation recording controls
 
 #### Feature/Change Name
-Voice dictation can be paused and resumed before stopping/transcribing the recording.
+Voice dictation can be paused, resumed, or transcribed into the draft without changing the global auto-send setting.
 
 #### Prerequisites/Setup
 1. Start Codex UI with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
@@ -3659,18 +3659,22 @@ Voice dictation can be paused and resumed before stopping/transcribing the recor
 
 #### Steps
 1. Click the microphone button to start dictation.
-2. Confirm the composer footer switches into the recording layout with waveform, timer, red stop button, send button, and a round pause button immediately to the left of stop.
+2. Confirm the composer footer switches into the recording layout with waveform, timer, round pause button, round pencil button, and red stop button.
 3. Speak briefly, then click the pause button.
 4. Wait at least two seconds while paused.
 5. Click the pause button again to resume recording.
-6. Speak briefly, then click the stop button.
+6. Confirm no send/arrow button is visible while recording.
+7. With auto-send dictation enabled, speak briefly and click the pencil button.
+8. Start dictation again, speak briefly, then click the red stop button.
 
 #### Expected Results
 - The pause button is grey/inactive while recording and highlighted while paused.
 - While paused, the timer remains frozen and the waveform stops adding new movement.
 - Clicking the highlighted pause button resumes recording; the timer advances again.
-- Clicking stop after either recording or paused state saves the whole captured audio and starts transcription.
-- The send button and other composer controls keep their previous enabled/disabled behavior.
+- The send/arrow button is hidden for the entire active recording state.
+- Clicking the pencil button stops recording, transcribes the audio into the draft, focuses the composer, and does not auto-send that one transcript.
+- Clicking stop after either recording or paused state saves the whole captured audio and follows the global auto-send dictation setting.
+- After transcription into the draft, the normal send button appears again when draft content is present.
 
 #### Rollback/Cleanup
 - Delete any test text inserted into the composer after transcription.

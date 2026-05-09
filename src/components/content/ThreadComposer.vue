@@ -324,7 +324,7 @@
 
           <button
             v-if="isDictationActive && isDictationPauseSupported"
-            class="thread-composer-dictation-pause"
+            class="thread-composer-dictation-action thread-composer-dictation-pause"
             :class="{ 'thread-composer-dictation-pause--active': isDictationPaused }"
             type="button"
             :aria-label="dictationPauseButtonLabel"
@@ -337,6 +337,21 @@
             @pointercancel.stop
           >
             <IconTablerPlayerPauseFilled class="thread-composer-dictation-pause-icon" />
+          </button>
+
+          <button
+            v-if="isDictationActive"
+            class="thread-composer-dictation-action"
+            type="button"
+            aria-label="Transcribe dictation into draft"
+            title="Transcribe dictation into draft"
+            :disabled="isInteractionDisabled"
+            @click="onDictationInsertDraft"
+            @pointerdown.stop
+            @pointerup.stop
+            @pointercancel.stop
+          >
+            <IconTablerFilePencil class="thread-composer-dictation-action-icon" />
           </button>
 
           <button
@@ -362,7 +377,7 @@
           </button>
 
           <button
-            v-if="isTurnInProgress && !hasSubmitContent"
+            v-if="!isDictationActive && isTurnInProgress && !hasSubmitContent"
             class="thread-composer-stop"
             type="button"
             :aria-label="isStopPending ? 'Saving thread before stop is available' : 'Stop'"
@@ -374,7 +389,7 @@
             <IconTablerPlayerStopFilled v-else class="thread-composer-stop-icon" />
           </button>
           <button
-            v-else
+            v-else-if="!isDictationActive"
             class="thread-composer-submit"
             :class="{ 'thread-composer-submit--queue': isTurnInProgress && activeInProgressMode === 'queue' }"
             type="button"
@@ -568,6 +583,7 @@ const fileAttachments = ref<FileAttachment[]>([])
 const folderUploadGroups = ref<FolderUploadGroup[]>([])
 
 const dictationFeedback = ref('')
+const shouldInsertNextDictationDraftOnly = ref(false)
 const pendingAttachmentCount = ref(0)
 const attachmentBatchStats = ref<AttachmentBatchStats | null>(null)
 const isDragActive = ref(false)
@@ -594,9 +610,11 @@ const {
     dictationFeedback.value = `Retrying transcription (${attempt}/${maxAttempts})...`
   },
   onTranscript: (text) => {
+    const shouldAutoSendTranscript = props.dictationAutoSend !== false && !shouldInsertNextDictationDraftOnly.value
+    shouldInsertNextDictationDraftOnly.value = false
     draft.value = draft.value ? `${draft.value}\n${text}` : text
     dictationFeedback.value = ''
-    if (props.dictationAutoSend !== false) {
+    if (shouldAutoSendTranscript) {
       const mode = props.isTurnInProgress ? activeInProgressMode.value : 'steer'
       onSubmit(mode)
       return
@@ -604,11 +622,13 @@ const {
     nextTick(() => inputRef.value?.focus())
   },
   onEmpty: () => {
+    shouldInsertNextDictationDraftOnly.value = false
     dictationFeedback.value = props.dictationClickToToggle
       ? 'No speech detected. Click again after speaking.'
       : 'No speech detected. Hold the mic and speak.'
   },
   onError: (error) => {
+    shouldInsertNextDictationDraftOnly.value = false
     if (error instanceof DOMException && error.name === 'NotAllowedError') {
       dictationFeedback.value = 'Microphone access was denied.'
       return
@@ -1227,6 +1247,12 @@ function onDictationToggle(): void {
 function onDictationPauseToggle(): void {
   if (!isDictationActive.value) return
   togglePauseRecording()
+}
+
+function onDictationInsertDraft(): void {
+  if (!isDictationActive.value) return
+  shouldInsertNextDictationDraftOnly.value = true
+  stopRecording()
 }
 
 function onDictationPressStart(event: PointerEvent): void {
@@ -2353,7 +2379,7 @@ watch(
   @apply h-5 w-5;
 }
 
-.thread-composer-dictation-pause {
+.thread-composer-dictation-action {
   @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-0 bg-zinc-100 text-zinc-600 transition hover:bg-zinc-200 hover:text-zinc-900 disabled:cursor-not-allowed disabled:text-zinc-400;
 }
 
@@ -2361,6 +2387,7 @@ watch(
   @apply bg-amber-100 text-amber-700 hover:bg-amber-200 hover:text-amber-800;
 }
 
+.thread-composer-dictation-action-icon,
 .thread-composer-dictation-pause-icon {
   @apply h-5 w-5;
 }
