@@ -3645,3 +3645,32 @@ PWA task completion push notifications are suppressed while the relevant thread 
 #### Rollback/Cleanup
 - Disable task notifications on the test device if they are no longer needed.
 - Close extra test tabs/windows.
+
+### Feature: Dictation pause button
+
+#### Feature/Change Name
+Voice dictation can be paused and resumed before stopping/transcribing the recording.
+
+#### Prerequisites/Setup
+1. Start Codex UI with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
+2. Open a thread or new-thread composer where the microphone button is enabled.
+3. Allow microphone access in the browser.
+4. For easiest manual validation, enable the dictation click-to-toggle setting.
+
+#### Steps
+1. Click the microphone button to start dictation.
+2. Confirm the composer footer switches into the recording layout with waveform, timer, red stop button, send button, and a round pause button immediately to the left of stop.
+3. Speak briefly, then click the pause button.
+4. Wait at least two seconds while paused.
+5. Click the pause button again to resume recording.
+6. Speak briefly, then click the stop button.
+
+#### Expected Results
+- The pause button is grey/inactive while recording and highlighted while paused.
+- While paused, the timer remains frozen and the waveform stops adding new movement.
+- Clicking the highlighted pause button resumes recording; the timer advances again.
+- Clicking stop after either recording or paused state saves the whole captured audio and starts transcription.
+- The send button and other composer controls keep their previous enabled/disabled behavior.
+
+#### Rollback/Cleanup
+- Delete any test text inserted into the composer after transcription.

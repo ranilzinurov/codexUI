@@ -14,7 +14,7 @@ import {
   shouldUseNativeAudioSession,
 } from '../native/codexAudioSession'
 
-export type DictationState = 'idle' | 'recording' | 'transcribing'
+export type DictationState = 'idle' | 'recording' | 'paused' | 'transcribing'
 const DICTATION_SILENCE_THRESHOLD = 0.0025
 const DICTATION_BAR_WIDTH = 3
 const DICTATION_BAR_GAP = 2
@@ -85,6 +85,10 @@ function createDictationMediaRecorder(stream: MediaStream): MediaRecorder {
   return new MediaRecorder(stream)
 }
 
+function hasPauseControls(recorder: MediaRecorder): boolean {
+  return typeof recorder.pause === 'function' && typeof recorder.resume === 'function'
+}
+
 export function useDictation(options: {
   onTranscript: (text: string) => void
   getStorageKey?: () => string
@@ -97,6 +101,7 @@ export function useDictation(options: {
   const state = ref<DictationState>('idle')
   const isSupported = ref(typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia)
   const hasPendingTranscription = ref(false)
+  const isPauseSupported = ref(false)
   const recordingDurationMs = ref(0)
   const waveformCanvasRef = ref<HTMLCanvasElement | null>(null)
 
@@ -107,6 +112,7 @@ export function useDictation(options: {
   let mediaStreamSource: MediaStreamAudioSourceNode | null = null
   let processorNode: ScriptProcessorNode | null = null
   let recordingStartedAt: number | null = null
+  let accumulatedRecordingDurationMs = 0
   let waveformSamples: number[] = []
   let isStartingRecording = false
   let stopRequestedBeforeStart = false
@@ -188,9 +194,39 @@ export function useDictation(options: {
     context.globalAlpha = 1
   }
 
+  function updateRecordingDuration(now = performance.now()): void {
+    if (recordingStartedAt !== null) {
+      recordingDurationMs.value = Math.max(0, accumulatedRecordingDurationMs + now - recordingStartedAt)
+      return
+    }
+    recordingDurationMs.value = Math.max(0, accumulatedRecordingDurationMs)
+  }
+
   function resetWaveformDisplay(): void {
     waveformSamples = []
+    accumulatedRecordingDurationMs = 0
+    recordingStartedAt = null
     recordingDurationMs.value = 0
+    drawWaveform()
+  }
+
+  function pauseWaveformCapture(): void {
+    updateRecordingDuration()
+    accumulatedRecordingDurationMs = recordingDurationMs.value
+    recordingStartedAt = null
+    if (audioContext?.state === 'running') {
+      void audioContext.suspend()
+    }
+    drawWaveform()
+  }
+
+  function resumeWaveformCapture(): void {
+    if (recordingStartedAt === null) {
+      recordingStartedAt = performance.now()
+    }
+    if (audioContext?.state === 'suspended') {
+      void audioContext.resume()
+    }
     drawWaveform()
   }
 
@@ -227,6 +263,11 @@ export function useDictation(options: {
     recordingStartedAt = performance.now()
 
     processorNode.onaudioprocess = (event) => {
+      if (state.value === 'paused') {
+        drawWaveform()
+        return
+      }
+
       const channelData = event.inputBuffer.getChannelData(0)
       let total = 0
       for (let index = 0; index < channelData.length; index += 1) {
@@ -239,9 +280,7 @@ export function useDictation(options: {
         waveformSamples.shift()
       }
 
-      if (recordingStartedAt !== null) {
-        recordingDurationMs.value = Math.max(0, performance.now() - recordingStartedAt)
-      }
+      updateRecordingDuration()
 
       drawWaveform()
     }
@@ -275,6 +314,7 @@ export function useDictation(options: {
       if (audioInputInfo) options.onAudioInput?.(audioInputInfo)
       chunks = []
       mediaRecorder = createDictationMediaRecorder(mediaStream)
+      isPauseSupported.value = hasPauseControls(mediaRecorder)
       mediaRecorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunks.push(e.data)
       }
@@ -300,26 +340,87 @@ export function useDictation(options: {
     }
   }
 
+  function finishMediaRecorderStop(): void {
+    if (!mediaRecorder || mediaRecorder.state === 'inactive') return
+    try {
+      mediaRecorder.requestData()
+    } catch {
+      // Some browsers do not allow requestData in every recorder state.
+    }
+    mediaRecorder.stop()
+  }
+
   function stopRecording() {
     if (isStartingRecording && state.value === 'idle') {
       stopRequestedBeforeStart = true
       return
     }
-    if (state.value !== 'recording' || !mediaRecorder) return
+    if ((state.value !== 'recording' && state.value !== 'paused') || !mediaRecorder) return
     if (mediaRecorder.state === 'inactive' || isStoppingRecording) return
 
     isStoppingRecording = true
+    const wasPaused = state.value === 'paused' || mediaRecorder.state === 'paused'
+    pauseWaveformCapture()
     state.value = 'transcribing'
+    if (wasPaused) {
+      finishMediaRecorderStop()
+      return
+    }
+
     stopGraceTimeout = window.setTimeout(() => {
       stopGraceTimeout = null
-      if (!mediaRecorder || mediaRecorder.state === 'inactive') return
-      try {
-        mediaRecorder.requestData()
-      } catch {
-        // Some browsers do not allow requestData in every recorder state.
-      }
-      mediaRecorder.stop()
+      finishMediaRecorderStop()
     }, DICTATION_STOP_GRACE_MS)
+  }
+
+  function pauseRecording() {
+    if (state.value !== 'recording' || !mediaRecorder) return
+    if (mediaRecorder.state !== 'recording') return
+    if (!hasPauseControls(mediaRecorder)) {
+      options.onError?.(new Error('Dictation pause is not supported in this browser.'))
+      return
+    }
+
+    try {
+      mediaRecorder.requestData()
+    } catch {
+      // Some browsers do not allow requestData in every recorder state.
+    }
+
+    try {
+      mediaRecorder.pause()
+      pauseWaveformCapture()
+      state.value = 'paused'
+    } catch (error) {
+      options.onError?.(error)
+    }
+  }
+
+  function resumeRecording() {
+    if (state.value !== 'paused' || !mediaRecorder) return
+    if (mediaRecorder.state === 'inactive') return
+    if (!hasPauseControls(mediaRecorder)) {
+      options.onError?.(new Error('Dictation pause is not supported in this browser.'))
+      return
+    }
+
+    try {
+      if (mediaRecorder.state === 'paused') {
+        mediaRecorder.resume()
+      }
+      resumeWaveformCapture()
+      state.value = 'recording'
+    } catch (error) {
+      options.onError?.(error)
+    }
+  }
+
+  function togglePauseRecording() {
+    if (state.value === 'paused') {
+      resumeRecording()
+      return
+    }
+    pauseRecording()
   }
 
   function clearStopGraceTimeout(): void {
@@ -418,6 +519,7 @@ export function useDictation(options: {
       didPrepareNativeAudioSession = false
       void finishDictationAudioSession()
     }
+    isPauseSupported.value = false
     chunks = []
   }
 
@@ -428,7 +530,7 @@ export function useDictation(options: {
   void refreshPendingTranscription()
 
   function toggleRecording() {
-    if (state.value === 'recording') {
+    if (state.value === 'recording' || state.value === 'paused') {
       stopRecording()
       return
     }
@@ -441,10 +543,14 @@ export function useDictation(options: {
     state,
     isSupported,
     hasPendingTranscription,
+    isPauseSupported,
     recordingDurationMs,
     waveformCanvasRef,
     startRecording,
     stopRecording,
+    pauseRecording,
+    resumeRecording,
+    togglePauseRecording,
     toggleRecording,
     cancel,
     refreshPendingTranscription,

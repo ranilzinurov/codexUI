@@ -163,7 +163,7 @@
 
       <div
         class="thread-composer-controls"
-        :class="{ 'thread-composer-controls--recording': isDictationRecording }"
+        :class="{ 'thread-composer-controls--recording': isDictationActive }"
       >
         <div ref="attachMenuRootRef" class="thread-composer-attach">
           <button
@@ -270,7 +270,7 @@
           </div>
         </div>
 
-        <template v-if="!isDictationRecording">
+        <template v-if="!isDictationActive">
           <ComposerDropdown
             class="thread-composer-control"
             :model-value="selectedModel"
@@ -308,21 +308,42 @@
 
         <div
           class="thread-composer-actions"
-          :class="{ 'thread-composer-actions--recording': isDictationRecording }"
+          :class="{ 'thread-composer-actions--recording': isDictationActive }"
         >
-          <div v-if="dictationState === 'recording'" class="thread-composer-dictation-waveform-wrap" aria-hidden="true">
-            <canvas ref="dictationWaveformCanvasRef" class="thread-composer-dictation-waveform" />
+          <div v-if="isDictationActive" class="thread-composer-dictation-waveform-wrap" aria-hidden="true">
+            <canvas
+              ref="dictationWaveformCanvasRef"
+              class="thread-composer-dictation-waveform"
+              :class="{ 'thread-composer-dictation-waveform--paused': isDictationPaused }"
+            />
           </div>
 
-          <span v-if="dictationState === 'recording'" class="thread-composer-dictation-timer">
+          <span v-if="isDictationActive" class="thread-composer-dictation-timer">
             {{ dictationDurationLabel }}
           </span>
+
+          <button
+            v-if="isDictationActive && isDictationPauseSupported"
+            class="thread-composer-dictation-pause"
+            :class="{ 'thread-composer-dictation-pause--active': isDictationPaused }"
+            type="button"
+            :aria-label="dictationPauseButtonLabel"
+            :title="dictationPauseButtonLabel"
+            :aria-pressed="isDictationPaused"
+            :disabled="isInteractionDisabled"
+            @click="onDictationPauseToggle"
+            @pointerdown.stop
+            @pointerup.stop
+            @pointercancel.stop
+          >
+            <IconTablerPlayerPauseFilled class="thread-composer-dictation-pause-icon" />
+          </button>
 
           <button
             v-if="isDictationSupported"
             class="thread-composer-mic"
             :class="{
-              'thread-composer-mic--active': dictationState === 'recording',
+              'thread-composer-mic--active': isDictationActive,
             }"
             type="button"
             :aria-label="dictationButtonLabel"
@@ -334,7 +355,7 @@
             @pointercancel="onDictationPressEnd"
           >
             <IconTablerPlayerStopFilled
-              v-if="dictationState === 'recording'"
+              v-if="isDictationActive"
               class="thread-composer-mic-icon thread-composer-mic-icon--stop"
             />
             <IconTablerMicrophone v-else class="thread-composer-mic-icon" />
@@ -421,6 +442,7 @@ import IconTablerBolt from '../icons/IconTablerBolt.vue'
 import IconTablerFilePencil from '../icons/IconTablerFilePencil.vue'
 import IconTablerFolder from '../icons/IconTablerFolder.vue'
 import IconTablerMicrophone from '../icons/IconTablerMicrophone.vue'
+import IconTablerPlayerPauseFilled from '../icons/IconTablerPlayerPauseFilled.vue'
 import IconTablerPlayerStopFilled from '../icons/IconTablerPlayerStopFilled.vue'
 import ComposerDropdown from './ComposerDropdown.vue'
 import ComposerSearchDropdown from './ComposerSearchDropdown.vue'
@@ -553,10 +575,12 @@ const {
   state: dictationState,
   isSupported: isDictationSupported,
   hasPendingTranscription,
+  isPauseSupported: isDictationPauseSupported,
   recordingDurationMs,
   waveformCanvasRef: dictationWaveformCanvasRef,
   startRecording,
   stopRecording,
+  togglePauseRecording,
   toggleRecording,
   cancel: cancelDictation,
   refreshPendingTranscription,
@@ -701,13 +725,15 @@ const inProgressMode = computed<'steer' | 'queue'>(() =>
   props.inProgressSubmitMode === 'steer' ? 'steer' : 'queue',
 )
 const activeInProgressMode = ref<'steer' | 'queue'>(inProgressMode.value)
-const isDictationRecording = computed(() => dictationState.value === 'recording')
+const isDictationActive = computed(() => dictationState.value === 'recording' || dictationState.value === 'paused')
+const isDictationPaused = computed(() => dictationState.value === 'paused')
 const dictationButtonLabel = computed(() => {
-  if (dictationState.value === 'recording') return 'Stop dictation'
+  if (isDictationActive.value) return 'Stop dictation'
   if (dictationState.value === 'transcribing') return 'Transcribing dictation'
   if (hasPendingTranscription.value) return 'Retry saved dictation transcription'
   return props.dictationClickToToggle ? 'Click to dictate' : 'Hold to dictate'
 })
+const dictationPauseButtonLabel = computed(() => (isDictationPaused.value ? 'Resume dictation' : 'Pause dictation'))
 const dictationStatusText = computed(() => {
   if (dictationState.value === 'transcribing') {
     return dictationFeedback.value.trim() || 'Transcribing dictation...'
@@ -1196,6 +1222,11 @@ function onDictationToggle(): void {
     dictationFeedback.value = ''
   }
   toggleRecording()
+}
+
+function onDictationPauseToggle(): void {
+  if (!isDictationActive.value) return
+  togglePauseRecording()
 }
 
 function onDictationPressStart(event: PointerEvent): void {
@@ -2322,12 +2353,28 @@ watch(
   @apply h-5 w-5;
 }
 
+.thread-composer-dictation-pause {
+  @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-0 bg-zinc-100 text-zinc-600 transition hover:bg-zinc-200 hover:text-zinc-900 disabled:cursor-not-allowed disabled:text-zinc-400;
+}
+
+.thread-composer-dictation-pause--active {
+  @apply bg-amber-100 text-amber-700 hover:bg-amber-200 hover:text-amber-800;
+}
+
+.thread-composer-dictation-pause-icon {
+  @apply h-5 w-5;
+}
+
 .thread-composer-dictation-waveform-wrap {
   @apply min-w-0 flex-1;
 }
 
 .thread-composer-dictation-waveform {
   @apply block h-9 w-full text-zinc-500;
+}
+
+.thread-composer-dictation-waveform--paused {
+  @apply text-zinc-400 opacity-70;
 }
 
 .thread-composer-dictation-timer {
