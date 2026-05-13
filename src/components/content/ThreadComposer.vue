@@ -1715,9 +1715,12 @@ function onInputKeydown(event: KeyboardEvent): void {
     }
   }
 
+  const isEnterKey = event.key === 'Enter'
+  const isShortcutEnter = isEnterKey && (event.metaKey || event.ctrlKey)
+  const isPlainEnter = isEnterKey && !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey
   const shouldSend = props.sendWithEnter !== false
-    ? event.key === 'Enter' && !event.shiftKey
-    : event.key === 'Enter' && (event.metaKey || event.ctrlKey)
+    ? isShortcutEnter || (!isMobile.value && isPlainEnter)
+    : isShortcutEnter
   if (shouldSend) {
     event.preventDefault()
     onSubmit(props.isTurnInProgress ? activeInProgressMode.value : 'steer')

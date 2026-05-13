@@ -3678,3 +3678,31 @@ Voice dictation can be paused, resumed, or transcribed into the draft without ch
 
 #### Rollback/Cleanup
 - Delete any test text inserted into the composer after transcription.
+
+### Feature: Mobile composer Enter inserts newline
+
+#### Feature/Change Name
+On mobile-width composer input, the plain Enter/return key inserts a newline instead of sending the message.
+
+#### Prerequisites/Setup
+1. Start Codex UI with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
+2. Open the app on an iPhone/mobile browser, or use a browser viewport narrower than 768px.
+3. Open an existing thread or the new-thread composer.
+
+#### Steps
+1. Type `line one` into the composer.
+2. Press the mobile keyboard Enter/return key.
+3. Type `line two`.
+4. Confirm the message has not been sent.
+5. Tap the visible send button.
+6. Repeat on a desktop-width viewport and press Enter with a non-empty draft.
+7. Optionally connect an external keyboard on mobile and press Cmd+Enter or Ctrl+Enter.
+
+#### Expected Results
+- On mobile-width viewports, plain Enter creates a line break inside the composer.
+- The draft remains editable after the line break and is sent only when the send button is tapped.
+- On desktop-width viewports, the existing send-with-Enter behavior is unchanged.
+- Cmd+Enter or Ctrl+Enter still submits from the composer.
+
+#### Rollback/Cleanup
+- Delete any temporary test thread/message if desired.
