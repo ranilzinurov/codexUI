@@ -3706,3 +3706,32 @@ On mobile-width composer input, the plain Enter/return key inserts a newline ins
 
 #### Rollback/Cleanup
 - Delete any temporary test thread/message if desired.
+
+### Feature: Dictation defaults to click-to-toggle
+
+#### Feature/Change Name
+Composer dictation starts and stays recording from a normal microphone button click by default, with hold-to-talk available only when explicitly disabled in settings.
+
+#### Prerequisites/Setup
+1. Start Codex UI with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
+2. Open Codex UI in a desktop browser with microphone permission available.
+3. Open an existing thread or the new-thread composer.
+
+#### Steps
+1. Open sidebar settings and confirm `Click to toggle dictation` is enabled by default.
+2. Click the composer microphone button once and release it immediately.
+3. Wait at least two seconds.
+4. Click the pause button, then click it again to resume.
+5. Click the red stop button.
+6. Disable `Click to toggle dictation` in settings.
+7. Press and hold the microphone button, then release it.
+
+#### Expected Results
+- A normal click starts recording and recording continues after the mouse/trackpad is released.
+- The recording can be paused, resumed, and stopped with the visible controls.
+- Releasing the microphone button does not stop or transcribe while `Click to toggle dictation` is enabled.
+- When `Click to toggle dictation` is disabled, hold-to-talk behavior is still available: recording starts on press and stops on release.
+
+#### Rollback/Cleanup
+- Re-enable `Click to toggle dictation` if it was disabled during testing.
+- Delete any temporary transcribed text or test messages.
