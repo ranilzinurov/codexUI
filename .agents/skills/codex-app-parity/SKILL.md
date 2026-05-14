@@ -323,6 +323,8 @@ After each feature implementation session that uses this skill:
 - This workspace already receives elapsed turn timing from `turn/completed`; when present, `durationMs` is preferred, otherwise client-side `turn/started` and `turn/completed` timestamps are sufficient for a conservative runtime display.
 - For response footers that need final line totals, prefer completed `fileChange` thread items for authoritative `+/-` counts, with `turn/diff/updated` as a fallback when file-change items are unavailable in the live event stream.
 - Render the runtime/change footer after the last assistant item for the turn; rendering it before the assistant text makes long plan-mode turns look like they are still only status output.
+- When a PWA/browser is closed during a run, `turn/completed` is not delivered to the frontend; the durable source for completion timing is the Codex session JSONL `event_msg` payload with `type: "task_complete"`, `turn_id`, `duration_ms`, and `completed_at`.
+- The web bridge can recover these persisted completion summaries from `thread.path` plus the session JSONL and return them alongside recovered `apply_patch` file-change fallback data.
 
 ## Findings: Mobile Composer Submit Stabilization (2026-03-28)
 

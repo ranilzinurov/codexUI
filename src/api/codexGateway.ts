@@ -54,6 +54,7 @@ import type {
   UiRateLimitWindow,
   UiThreadAutomation,
   UiThreadAutomationStatus,
+  UiTurnSummary,
 } from '../types/codex'
 import { normalizePathForUi } from '../pathUtils.js'
 
@@ -227,6 +228,8 @@ export type AccountsListResult = {
 type ThreadFileChangeFallbackEntry = {
   turnId: string
   turnIndex: number
+  durationMs: number | null
+  completedAt: number | null
   fileChanges: UiFileChange[]
 }
 
@@ -386,14 +389,16 @@ function normalizeThreadFileChangeFallback(value: unknown): ThreadFileChangeFall
 
     const turnId = readString(record.turnId)
     const turnIndex = readNumber(record.turnIndex)
+    const durationMs = readNumber(record.durationMs)
+    const completedAt = readNumber(record.completedAt)
     const fileChanges = Array.isArray(record.fileChanges)
       ? record.fileChanges
         .map((entry) => normalizeFallbackFileChange(entry))
         .filter((entry): entry is UiFileChange => entry !== null)
       : []
 
-    if (!turnId || turnIndex === null || fileChanges.length === 0) continue
-    normalized.push({ turnId, turnIndex, fileChanges })
+    if (!turnId || turnIndex === null || (durationMs === null && fileChanges.length === 0)) continue
+    normalized.push({ turnId, turnIndex, durationMs, completedAt, fileChanges })
   }
 
   return normalized
@@ -420,11 +425,66 @@ async function fetchThreadFileChangeFallback(threadId: string): Promise<ThreadFi
   return normalizeThreadFileChangeFallback(await response.json())
 }
 
+function formatTurnDuration(durationMs: number): string {
+  if (!Number.isFinite(durationMs) || durationMs <= 0) return '<1s'
+  const totalSeconds = Math.max(1, Math.round(durationMs / 1000))
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  const parts: string[] = []
+  if (hours > 0) parts.push(`${hours}h`)
+  if (minutes > 0 || hours > 0) parts.push(`${minutes}m`)
+  parts.push(`${seconds > 0 || parts.length === 0 ? seconds : 0}s`)
+  return parts.join(' ')
+}
+
+function summarizeFileChanges(fileChanges: UiFileChange[]): Omit<UiTurnSummary, 'durationMs'> {
+  return {
+    changedFileCount: fileChanges.length,
+    addedLineCount: fileChanges.reduce((sum, change) => sum + change.addedLineCount, 0),
+    removedLineCount: fileChanges.reduce((sum, change) => sum + change.removedLineCount, 0),
+  }
+}
+
+function formatRecoveredTurnSummary(summary: UiTurnSummary): string {
+  const parts = [`Worked for ${formatTurnDuration(summary.durationMs)}`]
+  const changeParts: string[] = []
+  const changedFileCount = summary.changedFileCount ?? 0
+  const addedLineCount = summary.addedLineCount ?? 0
+  const removedLineCount = summary.removedLineCount ?? 0
+  if (changedFileCount > 0) {
+    changeParts.push(changedFileCount === 1 ? '1 file' : `${changedFileCount} files`)
+  }
+  if (addedLineCount > 0) changeParts.push(`+${addedLineCount}`)
+  if (removedLineCount > 0) changeParts.push(`-${removedLineCount}`)
+  if (changeParts.length > 0) parts.push(changeParts.join(' '))
+  return parts.join(' · ')
+}
+
+function buildRecoveredTurnSummaryMessage(entry: ThreadFileChangeFallbackEntry, turnIndex: number, fileChanges: UiFileChange[]): UiMessage | null {
+  if (entry.durationMs === null) return null
+  const turnSummary: UiTurnSummary = {
+    durationMs: entry.durationMs,
+    ...(fileChanges.length > 0 ? summarizeFileChanges(fileChanges) : {}),
+  }
+  return {
+    id: `session-turn-summary:${entry.turnId}`,
+    role: 'system',
+    text: formatRecoveredTurnSummary(turnSummary),
+    messageType: 'worked',
+    turnSummary,
+    turnId: entry.turnId,
+    turnIndex,
+  }
+}
+
 function mergeRecoveredFileChangeMessages(messages: UiMessage[], fallbackEntries: ThreadFileChangeFallbackEntry[]): UiMessage[] {
   if (fallbackEntries.length === 0) return messages
 
   const localTurnIndexByTurnId = new Map<string, number>()
   const coveredTurnIds = new Set<string>()
+  const coveredSummaryTurnIds = new Set<string>()
+  const fileChangesByTurnId = new Map<string, UiFileChange[]>()
 
   for (const message of messages) {
     const tid = typeof message.turnId === 'string' && message.turnId.length > 0 ? message.turnId : undefined
@@ -435,10 +495,16 @@ function mergeRecoveredFileChangeMessages(messages: UiMessage[], fallbackEntries
       message.messageType === 'fileChange' ||
       (Array.isArray(message.fileChanges) && message.fileChanges.length > 0)
     if (hasFileData && tid) coveredTurnIds.add(tid)
+    if (tid && Array.isArray(message.fileChanges) && message.fileChanges.length > 0) {
+      const current = fileChangesByTurnId.get(tid)
+      if (current) current.push(...message.fileChanges)
+      else fileChangesByTurnId.set(tid, [...message.fileChanges])
+    }
+    if (message.messageType === 'worked' && tid) coveredSummaryTurnIds.add(tid)
   }
 
-  const extraMessages = fallbackEntries
-    .filter((entry) => localTurnIndexByTurnId.has(entry.turnId) && !coveredTurnIds.has(entry.turnId))
+  const extraFileChangeMessages = fallbackEntries
+    .filter((entry) => entry.fileChanges.length > 0 && localTurnIndexByTurnId.has(entry.turnId) && !coveredTurnIds.has(entry.turnId))
     .map<UiMessage>((entry) => ({
       id: `session-file-change:${entry.turnId}`,
       role: 'system',
@@ -450,6 +516,15 @@ function mergeRecoveredFileChangeMessages(messages: UiMessage[], fallbackEntries
       turnIndex: localTurnIndexByTurnId.get(entry.turnId) ?? entry.turnIndex,
     }))
 
+  const extraSummaryMessages = fallbackEntries
+    .filter((entry) => localTurnIndexByTurnId.has(entry.turnId) && !coveredSummaryTurnIds.has(entry.turnId))
+    .map((entry) => {
+      const fileChanges = entry.fileChanges.length > 0 ? entry.fileChanges : (fileChangesByTurnId.get(entry.turnId) ?? [])
+      return buildRecoveredTurnSummaryMessage(entry, localTurnIndexByTurnId.get(entry.turnId) ?? entry.turnIndex, fileChanges)
+    })
+    .filter((message): message is UiMessage => message !== null)
+
+  const extraMessages = [...extraFileChangeMessages, ...extraSummaryMessages]
   if (extraMessages.length === 0) return messages
 
   const extrasByTurnIndex = new Map<number, UiMessage[]>()
@@ -534,7 +609,7 @@ async function getThreadMessagesV2(threadId: string): Promise<UiMessage[]> {
     threadId,
     includeTurns: true,
   })
-  return normalizeThreadMessagesV2(payload)
+  return enrichThreadMessagesWithFallback(threadId, normalizeThreadMessagesV2(payload))
 }
 
 async function getThreadDetailV2(threadId: string): Promise<{
@@ -548,7 +623,7 @@ async function getThreadDetailV2(threadId: string): Promise<{
     threadId,
     includeTurns: true,
   })
-  const normalized = normalizeThreadMessagesV2(payload)
+  const normalized = await enrichThreadMessagesWithFallback(threadId, normalizeThreadMessagesV2(payload))
   return {
     messages: normalized,
     inProgress: readThreadInProgressFromResponse(payload),
@@ -1083,9 +1158,10 @@ export type ResumedThread = {
 
 export async function resumeThread(threadId: string): Promise<ResumedThread> {
   const payload = await callRpc<ThreadResumeResponse>('thread/resume', { threadId })
+  const messages = await enrichThreadMessagesWithFallback(threadId, normalizeThreadMessagesV2(payload))
   return {
     model: normalizeThreadModelFromPayload(payload),
-    messages: normalizeThreadMessagesV2(payload),
+    messages,
     inProgress: readThreadInProgressFromResponse(payload),
     activeTurnId: readActiveTurnIdFromResponse(payload),
     turnIndexByTurnId: buildTurnIndexByTurnId(payload),

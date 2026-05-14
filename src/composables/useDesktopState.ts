@@ -992,7 +992,8 @@ function formatTurnChangeSummary(changes: TurnChangeSummary | null): string {
 }
 
 function buildTurnSummaryMessage(summary: TurnSummaryState, messages: UiMessage[]): UiMessage {
-  const changeSummary = formatTurnChangeSummary(readTurnChangeSummary(summary, messages))
+  const turnChangeSummary = readTurnChangeSummary(summary, messages)
+  const changeSummary = formatTurnChangeSummary(turnChangeSummary)
   const parts = [`Worked for ${formatTurnDuration(summary.durationMs)}`]
   if (changeSummary) parts.push(changeSummary)
 
@@ -1001,6 +1002,12 @@ function buildTurnSummaryMessage(summary: TurnSummaryState, messages: UiMessage[
     role: 'system',
     text: parts.join(' · '),
     messageType: WORKED_MESSAGE_TYPE,
+    turnSummary: {
+      durationMs: summary.durationMs,
+      changedFileCount: turnChangeSummary?.changedFileCount,
+      addedLineCount: turnChangeSummary?.addedLineCount,
+      removedLineCount: turnChangeSummary?.removedLineCount,
+    },
     turnId: summary.turnId,
     turnIndex: summary.turnIndex,
   }

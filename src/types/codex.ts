@@ -201,6 +201,13 @@ export type UiPlanData = {
   isStreaming?: boolean
 }
 
+export type UiTurnSummary = {
+  durationMs: number
+  changedFileCount?: number
+  addedLineCount?: number
+  removedLineCount?: number
+}
+
 export type UiMessage = {
   id: string
   role: 'user' | 'assistant' | 'system'
@@ -214,6 +221,7 @@ export type UiMessage = {
   isUnhandled?: boolean
   commandExecution?: CommandExecutionData
   plan?: UiPlanData
+  turnSummary?: UiTurnSummary
   turnId?: string
   turnIndex?: number
   isAutomationRun?: boolean

@@ -235,7 +235,32 @@
                   <button type="button" class="worked-separator" @click="toggleWorkedExpand(message)">
                     <span class="worked-separator-line" aria-hidden="true" />
                     <span class="worked-chevron" :class="{ 'worked-chevron-open': isWorkedExpanded(message) }">▶</span>
-                    <p class="worked-separator-text">{{ message.text }}</p>
+                    <p class="worked-separator-text">
+                      <template v-if="message.turnSummary">
+                        <span>{{ workedDurationLabel(message) }}</span>
+                        <span
+                          v-if="workedFileCountLabel(message)"
+                          class="worked-summary-muted"
+                        >
+                          · {{ workedFileCountLabel(message) }}
+                        </span>
+                        <span
+                          v-if="workedAddedLabel(message)"
+                          class="worked-summary-delta"
+                          data-tone="add"
+                        >
+                          {{ workedAddedLabel(message) }}
+                        </span>
+                        <span
+                          v-if="workedRemovedLabel(message)"
+                          class="worked-summary-delta"
+                          data-tone="remove"
+                        >
+                          {{ workedRemovedLabel(message) }}
+                        </span>
+                      </template>
+                      <template v-else>{{ message.text }}</template>
+                    </p>
                     <span class="worked-separator-line" aria-hidden="true" />
                   </button>
                   <div v-if="isWorkedExpanded(message)" class="worked-details">
@@ -1106,6 +1131,39 @@ function toggleWorkedExpand(message: UiMessage): void {
 
 function isWorkedExpanded(message: UiMessage): boolean {
   return expandedWorkedIds.value.has(message.id)
+}
+
+function formatWorkedDuration(durationMs: number): string {
+  if (!Number.isFinite(durationMs) || durationMs <= 0) return '<1s'
+  const totalSeconds = Math.max(1, Math.round(durationMs / 1000))
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  const parts: string[] = []
+  if (hours > 0) parts.push(`${hours}h`)
+  if (minutes > 0 || hours > 0) parts.push(`${minutes}m`)
+  parts.push(`${seconds > 0 || parts.length === 0 ? seconds : 0}s`)
+  return parts.join(' ')
+}
+
+function workedDurationLabel(message: UiMessage): string {
+  return `Worked for ${formatWorkedDuration(message.turnSummary?.durationMs ?? 0)}`
+}
+
+function workedFileCountLabel(message: UiMessage): string {
+  const count = message.turnSummary?.changedFileCount ?? 0
+  if (count <= 0) return ''
+  return count === 1 ? '1 file' : `${count} files`
+}
+
+function workedAddedLabel(message: UiMessage): string {
+  const count = message.turnSummary?.addedLineCount ?? 0
+  return count > 0 ? `+${count}` : ''
+}
+
+function workedRemovedLabel(message: UiMessage): string {
+  const count = message.turnSummary?.removedLineCount ?? 0
+  return count > 0 ? `-${count}` : ''
 }
 
 function toggleFileChangeSummary(message: UiMessage): void {
@@ -4813,7 +4871,23 @@ onBeforeUnmount(() => {
 }
 
 .worked-separator-text {
-  @apply m-0 text-sm leading-relaxed font-normal text-slate-800;
+  @apply m-0 inline-flex flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5 text-sm leading-relaxed font-normal text-slate-800;
+}
+
+.worked-summary-muted {
+  @apply text-slate-500;
+}
+
+.worked-summary-delta {
+  @apply font-medium tabular-nums;
+}
+
+.worked-summary-delta[data-tone='add'] {
+  @apply text-emerald-600;
+}
+
+.worked-summary-delta[data-tone='remove'] {
+  @apply text-rose-600;
 }
 
 .worked-details {

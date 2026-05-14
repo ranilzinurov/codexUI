@@ -152,6 +152,8 @@ type SessionRecoveredFileChange = {
 type SessionRecoveredTurnFileChanges = {
   turnId: string
   turnIndex: number
+  durationMs: number | null
+  completedAt: number | null
   fileChanges: SessionRecoveredFileChange[]
 }
 
@@ -1062,6 +1064,7 @@ function buildSessionFileChangeFallback(threadReadPayload: unknown, sessionLogRa
   }
 
   const collectedByTurnId = new Map<string, SessionRecoveredFileChange[]>()
+  const completionByTurnId = new Map<string, { durationMs: number | null; completedAt: number | null }>()
   let currentTurnId = ''
 
   for (const line of sessionLogRaw.split('\n')) {
@@ -1077,6 +1080,30 @@ function buildSessionFileChangeFallback(threadReadPayload: unknown, sessionLogRa
       const payloadRecord = asRecord(row.payload)
       currentTurnId = readNonEmptyString(payloadRecord?.turn_id) || currentTurnId
       continue
+    }
+
+    if (row.type === 'event_msg') {
+      const payloadRecord = asRecord(row.payload)
+      if (payloadRecord?.type === 'task_started') {
+        currentTurnId = readNonEmptyString(payloadRecord.turn_id) || currentTurnId
+        continue
+      }
+      if (payloadRecord?.type === 'task_complete') {
+        const turnId = readNonEmptyString(payloadRecord.turn_id) || currentTurnId
+        if (turnId && turnIndexById.has(turnId)) {
+          const rawDurationMs = typeof payloadRecord.duration_ms === 'number' && Number.isFinite(payloadRecord.duration_ms)
+            ? Math.max(0, Math.round(payloadRecord.duration_ms))
+            : null
+          const rawCompletedAt = typeof payloadRecord.completed_at === 'number' && Number.isFinite(payloadRecord.completed_at)
+            ? payloadRecord.completed_at
+            : null
+          completionByTurnId.set(turnId, {
+            durationMs: rawDurationMs,
+            completedAt: rawCompletedAt,
+          })
+        }
+        continue
+      }
     }
 
     if (row.type !== 'response_item' || !currentTurnId || !turnIndexById.has(currentTurnId)) {
@@ -1104,21 +1131,28 @@ function buildSessionFileChangeFallback(threadReadPayload: unknown, sessionLogRa
   }
 
   const recovered: SessionRecoveredTurnFileChanges[] = []
-  for (const [turnId, fileChanges] of collectedByTurnId.entries()) {
+  const turnIds = new Set([...collectedByTurnId.keys(), ...completionByTurnId.keys()])
+  for (const turnId of turnIds) {
     const turnIndex = turnIndexById.get(turnId)
-    if (typeof turnIndex !== 'number' || fileChanges.length === 0) continue
+    if (typeof turnIndex !== 'number') continue
 
+    const fileChanges = collectedByTurnId.get(turnId) ?? []
     const mergedByPath = new Map<string, SessionRecoveredFileChange>()
     for (const fileChange of fileChanges) {
       const key = `${fileChange.path}\u0000${fileChange.movedToPath ?? ''}`
       const previous = mergedByPath.get(key)
       mergedByPath.set(key, previous ? mergeRecoveredFileChange(previous, fileChange) : { ...fileChange })
     }
+    const completion = completionByTurnId.get(turnId)
+    const mergedFileChanges = Array.from(mergedByPath.values())
+    if (!completion && mergedFileChanges.length === 0) continue
 
     recovered.push({
       turnId,
       turnIndex,
-      fileChanges: Array.from(mergedByPath.values()),
+      durationMs: completion?.durationMs ?? null,
+      completedAt: completion?.completedAt ?? null,
+      fileChanges: mergedFileChanges,
     })
   }
 
