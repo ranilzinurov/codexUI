@@ -233,8 +233,6 @@
               <article v-if="message.text.length > 0" class="message-card" :data-role="message.role">
                 <div v-if="message.messageType === 'worked'" class="worked-separator-wrap" aria-live="polite">
                   <button type="button" class="worked-separator" @click="toggleWorkedExpand(message)">
-                    <span class="worked-separator-line" aria-hidden="true" />
-                    <span class="worked-chevron" :class="{ 'worked-chevron-open': isWorkedExpanded(message) }">▶</span>
                     <p class="worked-separator-text">
                       <template v-if="message.turnSummary">
                         <span>{{ workedDurationLabel(message) }}</span>
@@ -261,7 +259,7 @@
                       </template>
                       <template v-else>{{ message.text }}</template>
                     </p>
-                    <span class="worked-separator-line" aria-hidden="true" />
+                    <span class="worked-chevron" :class="{ 'worked-chevron-open': isWorkedExpanded(message) }">⌄</span>
                   </button>
                   <div v-if="isWorkedExpanded(message)" class="worked-details">
                     <div
@@ -4912,23 +4910,23 @@ onBeforeUnmount(() => {
 }
 
 .worked-separator {
-  @apply w-full flex items-center gap-3 bg-transparent border-none cursor-pointer p-0;
+  @apply w-full flex items-center justify-start gap-2 border-0 border-b border-solid border-zinc-200 bg-transparent px-0 pb-2 pt-0 text-left cursor-pointer transition-colors hover:border-zinc-300;
 }
 
 .worked-chevron {
-  @apply text-[9px] text-zinc-400 transition-transform duration-200 flex-shrink-0;
+  @apply text-xl leading-none text-zinc-400 transition-colors duration-150 flex-shrink-0;
 }
 
 .worked-chevron-open {
-  transform: rotate(90deg);
+  @apply text-zinc-500;
 }
 
 .worked-separator-line {
-  @apply h-px bg-zinc-300/80 flex-1;
+  @apply hidden;
 }
 
 .worked-separator-text {
-  @apply m-0 inline-flex flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5 text-sm leading-relaxed font-normal text-slate-800;
+  @apply m-0 inline-flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-base leading-7 font-normal text-zinc-500;
 }
 
 .worked-summary-muted {
@@ -4948,7 +4946,7 @@ onBeforeUnmount(() => {
 }
 
 .worked-details {
-  @apply flex flex-col gap-1.5 pt-2;
+  @apply flex flex-col gap-5 py-5;
 }
 
 .worked-detail-item {
@@ -4960,7 +4958,7 @@ onBeforeUnmount(() => {
 }
 
 .worked-agent-message {
-  @apply rounded-lg border border-slate-200 bg-white/70 px-3 py-2 text-sm leading-relaxed text-slate-700 shadow-sm shadow-slate-950/5;
+  @apply max-w-[min(var(--chat-card-max,76ch),100%)] text-base leading-7 text-zinc-900;
 }
 
 .worked-agent-message :deep(p) {
@@ -4968,7 +4966,15 @@ onBeforeUnmount(() => {
 }
 
 .worked-agent-message :deep(p + p) {
-  @apply mt-2;
+  @apply mt-4;
+}
+
+.worked-agent-message :deep(.message-text) {
+  @apply text-base leading-7 text-zinc-900;
+}
+
+.worked-agent-message :deep(.message-inline-code) {
+  @apply border-0 bg-zinc-100 text-zinc-950;
 }
 
 .image-modal-backdrop {
