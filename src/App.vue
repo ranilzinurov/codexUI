@@ -2431,6 +2431,7 @@ async function runSlashCommandInEmbeddedTui(command: string, args: string): Prom
   } else {
     setThreadTerminalOpen(threadId, true)
   }
+  await nextTick()
 
   await runThreadTerminalTuiCommand({
     threadId,
