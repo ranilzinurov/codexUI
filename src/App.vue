@@ -480,7 +480,7 @@
                 <span class="sidebar-settings-value">{{ restartButtonLabel }}</span>
               </button>
               <button
-                v-if="isRestartAvailable"
+                v-if="isRestartAvailable && isCodexCliUpdateAvailable"
                 class="sidebar-settings-row sidebar-settings-restart-row sidebar-settings-update-row"
                 type="button"
                 :disabled="isRestartScheduling || isUpdateAndRestartScheduling || isRestartOverlayVisible || isCodexCliUpdating"

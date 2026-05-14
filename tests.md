@@ -3821,6 +3821,7 @@ Sidebar settings show the installed Codex CLI version, warn when npm has a newer
 - The Settings footer keeps the existing Codex UI version and adds a compact Codex CLI version line.
 - The status endpoint returns the installed CLI version, npm latest version, and `updateAvailable`.
 - When an update is available, the sidebar and Settings panel show a visible warning.
+- When no update is available, the Settings panel does not show the `Update and Restart` row.
 - `Update and Restart` runs `npm install -g @openai/codex@latest`, then schedules the existing Codex UI restart flow.
 - If the previous configured binary was stale, the update flow rewrites `CODEXUI_CODEX_COMMAND` to the newest runnable installed binary before scheduling restart.
 - The restart overlay first reports CLI update progress, then moves into the normal rebuild/restart/healthcheck stages.
