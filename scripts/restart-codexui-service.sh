@@ -223,8 +223,7 @@ restart_service() {
     return 0
   fi
 
-  if sudo -n true >/dev/null 2>&1; then
-    sudo systemctl restart "${SERVICE_NAME}"
+  if sudo -n systemctl restart "${SERVICE_NAME}" >/dev/null 2>&1; then
     return 0
   fi
 
@@ -241,7 +240,8 @@ restart_service() {
     return 0
   fi
 
-  sudo systemctl restart "${SERVICE_NAME}"
+  log "cannot restart ${SERVICE_NAME}: passwordless sudo for 'systemctl restart ${SERVICE_NAME}' is not available, and Restart=always fallback is not applicable"
+  return 1
 }
 
 run_build() {
@@ -291,8 +291,7 @@ schedule_worker() {
   : > "${DETACH_LOG}"
   chmod 0644 "${DETACH_LOG}" || true
 
-  if sudo -n true >/dev/null 2>&1; then
-    sudo systemd-run \
+  if sudo -n systemd-run \
     --unit "${RESTART_UNIT_NAME}" \
     --description "Detached rebuild and restart for ${SERVICE_NAME}" \
     --collect \
@@ -310,7 +309,7 @@ schedule_worker() {
     -E CODEXUI_RUN_AS_HOME="${RUN_AS_HOME}" \
     -E CODEXUI_RUN_AS_PATH="${RUN_AS_PATH}" \
     -E CODEXUI_RESTART_UNIT_NAME="${RESTART_UNIT_NAME}" \
-    /bin/bash "${SCRIPT_PATH}" --worker
+    /bin/bash "${SCRIPT_PATH}" --worker 2>/dev/null; then
 
     echo "Scheduled detached restart worker."
     echo "  unit: ${RESTART_UNIT_NAME}"
@@ -324,6 +323,7 @@ schedule_worker() {
     return 0
   fi
 
+  log "passwordless sudo for systemd-run is not available; using same-cgroup fallback worker"
   nohup /bin/bash "${SCRIPT_PATH}" --worker >/dev/null 2>&1 &
   echo "Scheduled fallback restart worker."
   echo "  service: ${SERVICE_NAME}"

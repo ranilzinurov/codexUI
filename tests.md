@@ -3398,6 +3398,32 @@ Sidebar settings include a guarded `Restart Codex UI` action that schedules the 
 - If the service is left in a failed state, inspect `/tmp/codexui-restart.log` and restart `codexui.service` manually.
 - No browser storage cleanup is required.
 
+### Feature: Restart script uses command-specific non-interactive sudo checks
+
+#### Feature/Change Name
+`scripts/restart-codexui-service.sh` no longer treats `sudo -n true` as proof that `systemd-run` or `systemctl restart codexui` can run without a password. It attempts the exact privileged commands with `sudo -n`, falls back to the same-user `Restart=always` path when possible, and fails with a log message instead of opening an interactive password prompt.
+
+#### Prerequisites/Setup
+1. `codexui.service` exists under systemd.
+2. The service is either restartable through passwordless sudo for the exact `systemd-run`/`systemctl restart codexui` commands, or it runs as the current user with `Restart=always`.
+3. `scripts/restart-codexui-service.sh` is executable.
+
+#### Steps
+1. Run `sudo -ln` and confirm whether `systemd-run` and `systemctl restart codexui` are explicitly listed as `NOPASSWD`.
+2. Run `bash -n scripts/restart-codexui-service.sh`.
+3. From a shell without an interactive sudo prompt, run `scripts/restart-codexui-service.sh --no-follow`.
+4. Inspect the command output and `/tmp/codexui-restart.log`.
+5. If passwordless sudo is not configured, confirm the script schedules the fallback worker instead of failing with `sudo: a terminal is required to read the password`.
+
+#### Expected Results
+- The schedule command exits successfully when the fallback path is applicable.
+- The schedule response does not fail because sudo attempted to read a password from a non-interactive request.
+- If neither passwordless sudo nor the `Restart=always` fallback can restart the service, the log contains an explicit non-interactive failure message.
+
+#### Rollback/Cleanup
+- Remove `/tmp/codexui-restart.log` if the test log is no longer needed.
+- Restore the previous sudoers configuration if temporary passwordless restart rules were added for testing.
+
 ### Feature: Light pending request panel and full-height settings overlay
 
 #### Feature/Change Name
