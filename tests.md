@@ -3735,3 +3735,30 @@ Composer dictation starts and stays recording from a normal microphone button cl
 #### Rollback/Cleanup
 - Re-enable `Click to toggle dictation` if it was disabled during testing.
 - Delete any temporary transcribed text or test messages.
+
+### Feature: Turn summary runtime and line totals
+
+#### Feature/Change Name
+Completed assistant turns show a compact footer with elapsed work time and final line-change totals.
+
+#### Prerequisites/Setup
+1. Start Codex UI with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
+2. Open a thread in a writable git-backed project.
+3. Prepare a prompt that causes Codex to edit at least one file.
+
+#### Steps
+1. Send the edit prompt and wait for the turn to complete.
+2. Inspect the area directly below the final assistant response.
+3. Expand the changed-file summary for the same response.
+4. Compare the footer line totals with the changed-file summary totals.
+5. Repeat with a plan-mode task that runs long enough to show a non-trivial duration.
+
+#### Expected Results
+- A single compact line appears after the final assistant response, not before it.
+- The line includes elapsed work time, for example `Worked for 2m 14s`.
+- When file-change metadata is available, the same line also includes final totals such as `3 files · +500 -1000`.
+- The `+` and `-` totals match the aggregated changed-file metadata for that turn.
+- If no files changed, only the elapsed work time is shown.
+
+#### Rollback/Cleanup
+- Revert or delete any files changed by the manual test prompt.

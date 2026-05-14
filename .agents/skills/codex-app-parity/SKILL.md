@@ -318,6 +318,12 @@ After each feature implementation session that uses this skill:
   - pure rename/move flows may not emit a meaningful turn diff payload for summary text.
   - `fileChange` items are the more reliable source for per-file operation labels.
 
+## Findings: Turn Runtime Footer Summaries (2026-05-14)
+
+- This workspace already receives elapsed turn timing from `turn/completed`; when present, `durationMs` is preferred, otherwise client-side `turn/started` and `turn/completed` timestamps are sufficient for a conservative runtime display.
+- For response footers that need final line totals, prefer completed `fileChange` thread items for authoritative `+/-` counts, with `turn/diff/updated` as a fallback when file-change items are unavailable in the live event stream.
+- Render the runtime/change footer after the last assistant item for the turn; rendering it before the assistant text makes long plan-mode turns look like they are still only status output.
+
 ## Findings: Mobile Composer Submit Stabilization (2026-03-28)
 
 - In this workspace, mobile web send UX is more reliable when submit does two things together:

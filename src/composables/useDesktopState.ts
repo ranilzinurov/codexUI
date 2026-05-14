@@ -799,6 +799,16 @@ function upsertMessage(previous: UiMessage[], nextMessage: UiMessage): UiMessage
 type TurnSummaryState = {
   turnId: string
   durationMs: number
+  turnIndex?: number
+  changedFileCount?: number
+  addedLineCount?: number
+  removedLineCount?: number
+}
+
+type TurnChangeSummary = {
+  changedFileCount: number
+  addedLineCount: number
+  removedLineCount: number
 }
 
 type TurnActivityState = {
@@ -859,7 +869,14 @@ function formatTurnDuration(durationMs: number): string {
 function areTurnSummariesEqual(first?: TurnSummaryState, second?: TurnSummaryState): boolean {
   if (!first && !second) return true
   if (!first || !second) return false
-  return first.turnId === second.turnId && first.durationMs === second.durationMs
+  return (
+    first.turnId === second.turnId &&
+    first.durationMs === second.durationMs &&
+    first.turnIndex === second.turnIndex &&
+    first.changedFileCount === second.changedFileCount &&
+    first.addedLineCount === second.addedLineCount &&
+    first.removedLineCount === second.removedLineCount
+  )
 }
 
 function areTurnActivitiesEqual(first?: TurnActivityState, second?: TurnActivityState): boolean {
@@ -883,13 +900,109 @@ function areCollabAgentRowsEqual(first: UiCollabAgentStatus[], second: UiCollabA
   return true
 }
 
-function buildTurnSummaryMessage(summary: TurnSummaryState): UiMessage {
+function countUnifiedDiffLines(value: string): { addedLineCount: number; removedLineCount: number } {
+  let addedLineCount = 0
+  let removedLineCount = 0
+
+  for (const line of value.replace(/\r\n/g, '\n').split('\n')) {
+    if (!line || line.startsWith('+++') || line.startsWith('---') || line.startsWith('@@')) continue
+    if (line.startsWith('+')) {
+      addedLineCount += 1
+      continue
+    }
+    if (line.startsWith('-')) {
+      removedLineCount += 1
+    }
+  }
+
+  return { addedLineCount, removedLineCount }
+}
+
+function countUnifiedDiffFiles(value: string): number {
+  const normalized = value.replace(/\r\n/g, '\n')
+  const diffGitMatches = normalized.match(/^diff --git\s+/gmu)
+  if (diffGitMatches && diffGitMatches.length > 0) return diffGitMatches.length
+
+  const paths = new Set<string>()
+  for (const line of normalized.split('\n')) {
+    if (!line.startsWith('+++ ')) continue
+    const path = line.slice(4).trim()
+    if (path && path !== '/dev/null') paths.add(path)
+  }
+  return paths.size
+}
+
+function summarizeUnifiedDiff(value: string): TurnChangeSummary {
+  const counts = countUnifiedDiffLines(value)
+  return {
+    changedFileCount: countUnifiedDiffFiles(value),
+    ...counts,
+  }
+}
+
+function summarizeTurnFileChanges(messages: UiMessage[], summary: TurnSummaryState): TurnChangeSummary | null {
+  let changedFileCount = 0
+  let addedLineCount = 0
+  let removedLineCount = 0
+  const seenChanges = new Set<string>()
+
+  for (const message of messages) {
+    if (!Array.isArray(message.fileChanges) || message.fileChanges.length === 0) continue
+    const sameTurnId = Boolean(summary.turnId && message.turnId === summary.turnId)
+    const sameTurnIndex =
+      typeof summary.turnIndex === 'number' &&
+      typeof message.turnIndex === 'number' &&
+      message.turnIndex === summary.turnIndex
+    if (!sameTurnId && !sameTurnIndex) continue
+
+    for (const change of message.fileChanges) {
+      const key = `${change.path}\u0000${change.movedToPath ?? ''}\u0000${change.operation}`
+      if (seenChanges.has(key)) continue
+      seenChanges.add(key)
+      changedFileCount += 1
+      addedLineCount += change.addedLineCount
+      removedLineCount += change.removedLineCount
+    }
+  }
+
+  if (changedFileCount === 0 && addedLineCount === 0 && removedLineCount === 0) return null
+  return { changedFileCount, addedLineCount, removedLineCount }
+}
+
+function readTurnChangeSummary(summary: TurnSummaryState, messages: UiMessage[]): TurnChangeSummary | null {
+  const fromFileChanges = summarizeTurnFileChanges(messages, summary)
+  if (fromFileChanges) return fromFileChanges
+
+  const changedFileCount = summary.changedFileCount ?? 0
+  const addedLineCount = summary.addedLineCount ?? 0
+  const removedLineCount = summary.removedLineCount ?? 0
+  if (changedFileCount === 0 && addedLineCount === 0 && removedLineCount === 0) return null
+  return { changedFileCount, addedLineCount, removedLineCount }
+}
+
+function formatTurnChangeSummary(changes: TurnChangeSummary | null): string {
+  if (!changes) return ''
+  const parts: string[] = []
+  if (changes.changedFileCount > 0) {
+    parts.push(changes.changedFileCount === 1 ? '1 file' : `${changes.changedFileCount} files`)
+  }
+  if (changes.addedLineCount > 0) parts.push(`+${changes.addedLineCount}`)
+  if (changes.removedLineCount > 0) parts.push(`-${changes.removedLineCount}`)
+  return parts.join(' ')
+}
+
+function buildTurnSummaryMessage(summary: TurnSummaryState, messages: UiMessage[]): UiMessage {
+  const changeSummary = formatTurnChangeSummary(readTurnChangeSummary(summary, messages))
+  const parts = [`Worked for ${formatTurnDuration(summary.durationMs)}`]
+  if (changeSummary) parts.push(changeSummary)
+
   return {
     id: `turn-summary:${summary.turnId}`,
     role: 'system',
-    text: `Worked for ${formatTurnDuration(summary.durationMs)}`,
+    text: parts.join(' · '),
     messageType: WORKED_MESSAGE_TYPE,
     turnId: summary.turnId,
+    turnIndex: summary.turnIndex,
   }
 }
 
@@ -903,14 +1016,14 @@ function findLastAssistantMessageIndex(messages: UiMessage[]): number {
 }
 
 function insertTurnSummaryMessage(messages: UiMessage[], summary: TurnSummaryState): UiMessage[] {
-  const summaryMessage = buildTurnSummaryMessage(summary)
   const sanitizedMessages = messages.filter((message) => message.messageType !== WORKED_MESSAGE_TYPE)
+  const summaryMessage = buildTurnSummaryMessage(summary, sanitizedMessages)
   const insertIndex = findLastAssistantMessageIndex(sanitizedMessages)
   if (insertIndex < 0) {
     return [...sanitizedMessages, summaryMessage]
   }
   const next = [...sanitizedMessages]
-  next.splice(insertIndex, 0, summaryMessage)
+  next.splice(insertIndex + 1, 0, summaryMessage)
   return next
 }
 
@@ -1245,6 +1358,7 @@ export function useDesktopState() {
   let activeReasoningItemId = ''
   let shouldAutoScrollOnNextAgentEvent = false
   const pendingTurnStartsById = new Map<string, TurnStartedInfo>()
+  const turnDiffSummaryByTurnId = new Map<string, TurnChangeSummary>()
   const fallbackRetryInFlightThreadIds = new Set<string>()
   const locallyArchivedThreadIds = new Set<string>()
 
@@ -2997,6 +3111,23 @@ export function useDesktopState() {
     }
   }
 
+  function readTurnDiffUpdate(notification: RpcNotification): { threadId: string; turnId: string; summary: TurnChangeSummary } | null {
+    if (notification.method !== 'turn/diff/updated') return null
+
+    const params = asRecord(notification.params)
+    if (!params) return null
+    const threadId = extractThreadIdFromNotification(notification)
+    const turnId = readString(params.turnId) || readString(params.turn_id)
+    const diff = readString(params.diff)
+    if (!threadId || !turnId || !diff) return null
+
+    return {
+      threadId,
+      turnId,
+      summary: summarizeUnifiedDiff(diff),
+    }
+  }
+
   function liveReasoningMessageId(reasoningItemId: string): string {
     return `${reasoningItemId}:live-reasoning`
   }
@@ -3436,6 +3567,7 @@ export function useDesktopState() {
     const startedTurn = readTurnStartedInfo(notification)
     if (startedTurn) {
       pendingTurnStartsById.set(startedTurn.turnId, startedTurn)
+      turnDiffSummaryByTurnId.delete(startedTurn.turnId)
       setTurnIndexForThread(startedTurn.threadId, startedTurn.turnId, inferNextTurnIndex(startedTurn.threadId))
       activeTurnIdByThreadId.value = {
         ...activeTurnIdByThreadId.value,
@@ -3450,6 +3582,11 @@ export function useDesktopState() {
       if (eventUnreadByThreadId.value[startedTurn.threadId]) {
         eventUnreadByThreadId.value = omitKey(eventUnreadByThreadId.value, startedTurn.threadId)
       }
+    }
+
+    const turnDiffUpdate = readTurnDiffUpdate(notification)
+    if (turnDiffUpdate) {
+      turnDiffSummaryByTurnId.set(turnDiffUpdate.turnId, turnDiffUpdate.summary)
     }
 
     const completedTurn = readTurnCompletedInfo(notification)
@@ -3477,9 +3614,16 @@ export function useDesktopState() {
         (startedTurnState ? completedTurn.completedAtMs - startedTurnState.startedAtMs : null)
 
       const durationMs = typeof rawDurationMs === 'number' ? Math.max(0, rawDurationMs) : 0
+      const turnIndex = turnIndexByTurnIdByThreadId.value[completedTurn.threadId]?.[completedTurn.turnId]
+      const diffSummary = turnDiffSummaryByTurnId.get(completedTurn.turnId)
+      turnDiffSummaryByTurnId.delete(completedTurn.turnId)
       setTurnSummaryForThread(completedTurn.threadId, {
         turnId: completedTurn.turnId,
         durationMs,
+        turnIndex: typeof turnIndex === 'number' ? turnIndex : undefined,
+        changedFileCount: diffSummary?.changedFileCount,
+        addedLineCount: diffSummary?.addedLineCount,
+        removedLineCount: diffSummary?.removedLineCount,
       })
       if (activeTurnIdByThreadId.value[completedTurn.threadId]) {
         activeTurnIdByThreadId.value = omitKey(activeTurnIdByThreadId.value, completedTurn.threadId)
@@ -5029,6 +5173,7 @@ export function useDesktopState() {
     pendingThreadsRefresh = false
     pendingThreadMessageRefresh.clear()
     pendingTurnStartsById.clear()
+    turnDiffSummaryByTurnId.clear()
     if (eventSyncTimer !== null && typeof window !== 'undefined') {
       window.clearTimeout(eventSyncTimer)
       eventSyncTimer = null
