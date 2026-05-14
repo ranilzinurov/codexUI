@@ -545,8 +545,7 @@ function mergeRecoveredFileChangeMessages(messages: UiMessage[], fallbackEntries
 
     const turnIndex = message.turnIndex
     if (typeof turnIndex !== 'number' || insertedTurnIndices.has(turnIndex)) continue
-    const nextTurnIndex = messages[index + 1]?.turnIndex
-    if (nextTurnIndex === turnIndex) continue
+    if (message.role !== 'user') continue
 
     const extras = extrasByTurnIndex.get(turnIndex)
     if (!extras || extras.length === 0) continue

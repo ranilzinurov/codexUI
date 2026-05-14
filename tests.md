@@ -3774,17 +3774,18 @@ Completed assistant turns show a compact footer with elapsed work time and final
 
 #### Steps
 1. Send the edit prompt and wait for the turn to complete.
-2. Inspect the area directly below the final assistant response.
-3. Expand the changed-file summary for the same response.
+2. Inspect the area between your request and the final assistant response.
+3. Expand the runtime summary row.
 4. Compare the footer line totals with the changed-file summary totals.
 5. Repeat with a plan-mode task that runs long enough to show a non-trivial duration.
 6. Close the PWA/browser while a turn is running, wait for completion notification, then reopen the same thread.
 7. Refresh the thread page after completion.
 
 #### Expected Results
-- A single compact line appears after the final assistant response, not before it.
+- A single compact line appears after the user request and before the final assistant response.
 - The line includes elapsed work time, for example `Worked for 2m 14s`.
 - When file-change metadata is available, the same line also includes final totals such as `3 files · +500 -1000`.
+- Expanding the line reveals the command/work details for that turn without duplicating those command rows in the main timeline.
 - The `+` and `-` totals match the aggregated changed-file metadata for that turn.
 - The plus total is styled green and the minus total is styled red.
 - The same footer remains visible after reopening or refreshing a completed thread.

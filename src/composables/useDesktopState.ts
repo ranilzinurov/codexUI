@@ -1013,19 +1013,38 @@ function buildTurnSummaryMessage(summary: TurnSummaryState, messages: UiMessage[
   }
 }
 
-function findLastAssistantMessageIndex(messages: UiMessage[]): number {
+function findTurnSummaryInsertIndex(messages: UiMessage[], summary: TurnSummaryState): number {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (messages[index].role === 'assistant') {
+    const message = messages[index]
+    const sameTurnId = Boolean(summary.turnId && message.turnId === summary.turnId)
+    const sameTurnIndex =
+      typeof summary.turnIndex === 'number' &&
+      typeof message.turnIndex === 'number' &&
+      message.turnIndex === summary.turnIndex
+    if ((sameTurnId || sameTurnIndex) && message.role === 'user') {
       return index
     }
   }
+
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index]
+    const sameTurnId = Boolean(summary.turnId && message.turnId === summary.turnId)
+    const sameTurnIndex =
+      typeof summary.turnIndex === 'number' &&
+      typeof message.turnIndex === 'number' &&
+      message.turnIndex === summary.turnIndex
+    if (sameTurnId || sameTurnIndex) {
+      return Math.max(0, index - 1)
+    }
+  }
+
   return -1
 }
 
 function insertTurnSummaryMessage(messages: UiMessage[], summary: TurnSummaryState): UiMessage[] {
   const sanitizedMessages = messages.filter((message) => message.messageType !== WORKED_MESSAGE_TYPE)
   const summaryMessage = buildTurnSummaryMessage(summary, sanitizedMessages)
-  const insertIndex = findLastAssistantMessageIndex(sanitizedMessages)
+  const insertIndex = findTurnSummaryInsertIndex(sanitizedMessages, summary)
   if (insertIndex < 0) {
     return [...sanitizedMessages, summaryMessage]
   }

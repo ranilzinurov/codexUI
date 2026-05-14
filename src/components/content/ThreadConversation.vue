@@ -22,7 +22,7 @@
       </li>
       <template v-for="message in visibleMessages" :key="message.id">
       <li
-        v-if="!hiddenGroupedCommandIds.has(message.id) && !hiddenFileChangeMessageIds.has(message.id)"
+        v-if="!hiddenGroupedCommandIds.has(message.id) && !hiddenWorkedCommandIds.has(message.id) && !hiddenFileChangeMessageIds.has(message.id)"
         class="conversation-item"
         :data-role="message.role"
         :data-message-type="message.messageType || ''"
@@ -1029,6 +1029,18 @@ const hiddenGroupedCommandIds = computed(() => {
   return next
 })
 
+const hiddenWorkedCommandIds = computed(() => {
+  const next = new Set<string>()
+  for (let index = 0; index < props.messages.length; index += 1) {
+    const message = props.messages[index]
+    if (message.messageType !== 'worked') continue
+    for (const command of getCommandsForWorked(props.messages, index)) {
+      next.add(command.id)
+    }
+  }
+  return next
+})
+
 function readPlanExplanation(message: UiMessage): string {
   return readPlanData(message)?.explanation ?? ''
 }
@@ -1241,10 +1253,29 @@ function pruneCommandIdSet(source: Set<string>, validIds: Set<string>): Set<stri
 
 function getCommandsForWorked(messages: UiMessage[], workedIndex: number): UiMessage[] {
   const result: UiMessage[] = []
-  for (let i = workedIndex - 1; i >= 0; i--) {
-    const m = messages[i]
-    if (m.messageType === 'commandExecution') result.unshift(m)
-    else if (m.role === 'user' || m.messageType === 'worked') break
+  const worked = messages[workedIndex]
+  const workedTurnId = worked?.turnId
+  const workedTurnIndex = worked?.turnIndex
+
+  for (let i = workedIndex + 1; i < messages.length; i += 1) {
+    const message = messages[i]
+    if (!message) continue
+    const sameTurnId = Boolean(workedTurnId && message.turnId === workedTurnId)
+    const sameTurnIndex =
+      typeof workedTurnIndex === 'number' &&
+      typeof message.turnIndex === 'number' &&
+      message.turnIndex === workedTurnIndex
+    if (!sameTurnId && !sameTurnIndex) break
+    if (message.messageType === 'commandExecution') result.push(message)
+  }
+
+  if (result.length > 0) return result
+
+  for (let i = workedIndex - 1; i >= 0; i -= 1) {
+    const message = messages[i]
+    if (!message) continue
+    if (message.messageType === 'commandExecution') result.unshift(message)
+    else if (message.role === 'user' || message.messageType === 'worked') break
   }
   return result
 }
