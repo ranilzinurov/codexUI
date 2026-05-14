@@ -123,6 +123,10 @@ const RESTART_SCRIPT_PATH = process.env.CODEXUI_RESTART_SCRIPT
   || '/home/rnl1/prog/codexUI/scripts/restart-codexui-service.sh'
 const RESTART_LOG_PATH = process.env.CODEXUI_RESTART_LOG || '/tmp/codexui-restart.log'
 const RESTART_SCHEDULE_TIMEOUT_MS = 15_000
+const CODEX_CLI_NPM_PACKAGE = process.env.CODEXUI_CODEX_CLI_NPM_PACKAGE || '@openai/codex'
+const CODEX_CLI_NPM_COMMAND = process.env.CODEXUI_NPM_COMMAND || (process.platform === 'win32' ? 'npm.cmd' : 'npm')
+const CODEX_CLI_VERSION_TIMEOUT_MS = 10_000
+const CODEX_CLI_UPDATE_TIMEOUT_MS = 300_000
 
 type RestartStage = 'idle' | 'scheduled' | 'building' | 'restarting' | 'waiting' | 'complete' | 'failed'
 
@@ -137,6 +141,22 @@ type RestartStatus = {
   completedAtIso: string | null
   failed: boolean
   logTail: string[]
+}
+
+type CodexCliUpdateStatus = {
+  available: boolean
+  command: string | null
+  currentVersion: string | null
+  latestVersion: string | null
+  updateAvailable: boolean
+  checkedAtIso: string
+  error: string | null
+  npmPackage: string
+  npmCommand: string
+  updateInProgress: boolean
+  lastUpdateAtIso: string | null
+  lastUpdateOutput: string | null
+  lastUpdateError: string | null
 }
 const MB_DIVISOR = 1024 * 1024
 
@@ -539,6 +559,160 @@ function setJson(res: ServerResponse, statusCode: number, payload: unknown): voi
   res.setHeader('Content-Type', 'application/json; charset=utf-8')
   res.setHeader('Content-Length', Buffer.byteLength(body))
   res.end(body)
+}
+
+function runBufferedCommand(
+  command: string,
+  args: string[],
+  options: { timeoutMs: number; cwd?: string; env?: NodeJS.ProcessEnv },
+): Promise<{ output: string; status: number | null }> {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd ?? process.cwd(),
+      env: options.env ?? process.env,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+
+    let output = ''
+    const timeout = setTimeout(() => {
+      child.kill('SIGTERM')
+      rejectPromise(new Error(`${command} ${args.join(' ')} timed out.`))
+    }, options.timeoutMs)
+
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', (chunk) => {
+      output += chunk
+    })
+    child.stderr.on('data', (chunk) => {
+      output += chunk
+    })
+    child.on('error', (error) => {
+      clearTimeout(timeout)
+      rejectPromise(error)
+    })
+    child.on('close', (status) => {
+      clearTimeout(timeout)
+      resolvePromise({ output: output.trim(), status })
+    })
+  })
+}
+
+function parseCodexCliVersion(output: string): string | null {
+  const match = /(?:^|\s)(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)(?:\s|$)/u.exec(output.trim())
+  return match?.[1] ?? null
+}
+
+function compareSemverLike(left: string | null, right: string | null): number {
+  if (!left || !right) return 0
+  const leftParts = left.split(/[-+]/u)[0]?.split('.').map((part) => Number.parseInt(part, 10)) ?? []
+  const rightParts = right.split(/[-+]/u)[0]?.split('.').map((part) => Number.parseInt(part, 10)) ?? []
+  for (let index = 0; index < 3; index += 1) {
+    const leftValue = Number.isFinite(leftParts[index]) ? leftParts[index] ?? 0 : 0
+    const rightValue = Number.isFinite(rightParts[index]) ? rightParts[index] ?? 0 : 0
+    if (leftValue > rightValue) return 1
+    if (leftValue < rightValue) return -1
+  }
+  return 0
+}
+
+let isCodexCliUpdateInProgress = false
+let lastCodexCliUpdateAtIso: string | null = null
+let lastCodexCliUpdateOutput: string | null = null
+let lastCodexCliUpdateError: string | null = null
+
+async function getCodexCliUpdateStatus(): Promise<CodexCliUpdateStatus> {
+  const checkedAtIso = new Date().toISOString()
+  const command = resolveCodexCommand()
+  let currentVersion: string | null = null
+  let latestVersion: string | null = null
+  const errors: string[] = []
+
+  if (!command) {
+    errors.push('Codex CLI command is not available.')
+  } else {
+    try {
+      const current = await runBufferedCommand(command, ['--version'], {
+        timeoutMs: CODEX_CLI_VERSION_TIMEOUT_MS,
+      })
+      if (current.status === 0) {
+        currentVersion = parseCodexCliVersion(current.output)
+        if (!currentVersion) {
+          errors.push(`Could not parse Codex CLI version from: ${current.output}`)
+        }
+      } else {
+        errors.push(current.output || `Codex CLI exited with status ${current.status ?? 'unknown'}.`)
+      }
+    } catch (error) {
+      errors.push(getErrorMessage(error, 'Failed to read Codex CLI version.'))
+    }
+  }
+
+  try {
+    const latest = await runBufferedCommand(CODEX_CLI_NPM_COMMAND, ['view', CODEX_CLI_NPM_PACKAGE, 'version', '--silent'], {
+      timeoutMs: CODEX_CLI_VERSION_TIMEOUT_MS,
+    })
+    if (latest.status === 0) {
+      latestVersion = parseCodexCliVersion(latest.output)
+      if (!latestVersion) {
+        errors.push(`Could not parse latest ${CODEX_CLI_NPM_PACKAGE} version from npm output.`)
+      }
+    } else {
+      errors.push(latest.output || `npm view exited with status ${latest.status ?? 'unknown'}.`)
+    }
+  } catch (error) {
+    errors.push(getErrorMessage(error, `Failed to check ${CODEX_CLI_NPM_PACKAGE} on npm.`))
+  }
+
+  return {
+    available: Boolean(command),
+    command,
+    currentVersion,
+    latestVersion,
+    updateAvailable: compareSemverLike(currentVersion, latestVersion) < 0,
+    checkedAtIso,
+    error: errors.length > 0 ? errors.join(' ') : null,
+    npmPackage: CODEX_CLI_NPM_PACKAGE,
+    npmCommand: CODEX_CLI_NPM_COMMAND,
+    updateInProgress: isCodexCliUpdateInProgress,
+    lastUpdateAtIso: lastCodexCliUpdateAtIso,
+    lastUpdateOutput: lastCodexCliUpdateOutput,
+    lastUpdateError: lastCodexCliUpdateError,
+  }
+}
+
+async function updateCodexCli(): Promise<{ output: string; status: CodexCliUpdateStatus }> {
+  if (isCodexCliUpdateInProgress) {
+    throw new Error('Codex CLI update is already in progress.')
+  }
+
+  isCodexCliUpdateInProgress = true
+  lastCodexCliUpdateAtIso = new Date().toISOString()
+  lastCodexCliUpdateOutput = null
+  lastCodexCliUpdateError = null
+
+  try {
+    const result = await runBufferedCommand(
+      CODEX_CLI_NPM_COMMAND,
+      ['install', '-g', `${CODEX_CLI_NPM_PACKAGE}@latest`],
+      { timeoutMs: CODEX_CLI_UPDATE_TIMEOUT_MS },
+    )
+    if (result.status !== 0) {
+      throw new Error(result.output || `npm install exited with status ${result.status ?? 'unknown'}.`)
+    }
+    lastCodexCliUpdateOutput = result.output
+    isCodexCliUpdateInProgress = false
+    return {
+      output: result.output,
+      status: await getCodexCliUpdateStatus(),
+    }
+  } catch (error) {
+    lastCodexCliUpdateError = getErrorMessage(error, 'Failed to update Codex CLI.')
+    throw error
+  } finally {
+    isCodexCliUpdateInProgress = false
+  }
 }
 
 async function isRestartScriptAvailable(): Promise<boolean> {
@@ -3691,6 +3865,29 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
 
       if (req.method === 'GET' && url.pathname === '/codex-api/restart/status') {
         setJson(res, 200, { data: await getRestartStatus() })
+        return
+      }
+
+      if (req.method === 'GET' && url.pathname === '/codex-api/codex-cli/status') {
+        setJson(res, 200, { data: await getCodexCliUpdateStatus() })
+        return
+      }
+
+      if (req.method === 'POST' && url.pathname === '/codex-api/codex-cli/update') {
+        try {
+          const updated = await updateCodexCli()
+          setJson(res, 200, {
+            ok: true,
+            output: updated.output,
+            data: updated.status,
+          })
+        } catch (error) {
+          setJson(res, 500, {
+            ok: false,
+            error: getErrorMessage(error, 'Failed to update Codex CLI.'),
+            data: await getCodexCliUpdateStatus(),
+          })
+        }
         return
       }
 

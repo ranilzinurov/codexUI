@@ -454,16 +454,43 @@
               <div class="sidebar-settings-rate-limits">
                 <RateLimitStatus :snapshots="accountRateLimitSnapshots" />
               </div>
+              <div
+                v-if="isCodexCliUpdateAvailable"
+                class="sidebar-settings-update-alert"
+                role="status"
+                title="A newer Codex CLI version is available"
+              >
+                <IconTablerAlertTriangle class="sidebar-settings-update-alert-icon" />
+                <div class="sidebar-settings-update-alert-copy">
+                  <span class="sidebar-settings-update-alert-title">Codex CLI update available</span>
+                  <span class="sidebar-settings-update-alert-meta">
+                    {{ codexCliVersionLabel }} → {{ codexCliLatestVersionLabel }}
+                  </span>
+                </div>
+              </div>
               <button
                 v-if="isRestartAvailable"
                 class="sidebar-settings-row sidebar-settings-restart-row"
                 type="button"
-                :disabled="isRestartScheduling || isRestartOverlayVisible"
+                :disabled="isRestartScheduling || isUpdateAndRestartScheduling || isRestartOverlayVisible"
                 title="Rebuild and restart the Codex UI service"
                 @click="restartCodexUi"
               >
                 <span class="sidebar-settings-label">Restart Codex UI</span>
                 <span class="sidebar-settings-value">{{ restartButtonLabel }}</span>
+              </button>
+              <button
+                v-if="isRestartAvailable"
+                class="sidebar-settings-row sidebar-settings-restart-row sidebar-settings-update-row"
+                type="button"
+                :disabled="isRestartScheduling || isUpdateAndRestartScheduling || isRestartOverlayVisible || isCodexCliUpdating"
+                title="Update Codex CLI, then rebuild and restart Codex UI"
+                @click="updateAndRestartCodexUi"
+              >
+                <span class="sidebar-settings-label">Update and Restart</span>
+                <span class="sidebar-settings-value" :class="{ 'is-warning': isCodexCliUpdateAvailable }">
+                  {{ updateAndRestartButtonLabel }}
+                </span>
               </button>
               <div class="sidebar-settings-build-label" aria-label="Worktree name and version">
                 WT {{ worktreeName }} · v{{ appVersion }}
@@ -478,8 +505,16 @@
           >
             <IconTablerSettings class="sidebar-settings-icon" />
             <span>Settings</span>
-            <span class="sidebar-settings-button-version">
-              {{ worktreeName }} · v{{ appVersion }}
+            <span class="sidebar-settings-button-meta">
+              <span class="sidebar-settings-button-version">{{ worktreeName }} · v{{ appVersion }}</span>
+              <span
+                class="sidebar-settings-button-cli"
+                :class="{ 'is-warning': isCodexCliUpdateAvailable, 'is-loading': isCodexCliStatusLoading }"
+                :title="codexCliStatus?.error || `Latest Codex CLI: ${codexCliLatestVersionLabel}`"
+              >
+                <IconTablerAlertTriangle v-if="isCodexCliUpdateAvailable" class="sidebar-settings-button-cli-icon" />
+                Codex CLI · {{ codexCliVersionLabel }}
+              </span>
             </span>
           </button>
         </div>
@@ -886,6 +921,7 @@ import IconTablerSearch from './components/icons/IconTablerSearch.vue'
 import IconTablerSettings from './components/icons/IconTablerSettings.vue'
 import IconTablerTerminal from './components/icons/IconTablerTerminal.vue'
 import IconTablerX from './components/icons/IconTablerX.vue'
+import IconTablerAlertTriangle from './components/icons/IconTablerAlertTriangle.vue'
 import { useDesktopState } from './composables/useDesktopState'
 import { useCodexUiRestart } from './composables/useCodexUiRestart'
 import { useMobile } from './composables/useMobile'
@@ -1200,6 +1236,7 @@ const DICTATION_CLICK_TO_TOGGLE_KEY = 'codex-web-local.dictation-click-to-toggle
 const DICTATION_AUTO_SEND_KEY = 'codex-web-local.dictation-auto-send.v1'
 const DICTATION_LANGUAGE_KEY = 'codex-web-local.dictation-language.v1'
 const DICTATION_LAST_INPUT_KEY = 'codex-web-local.dictation-last-input.v1'
+const CODEX_CLI_STATUS_POLL_INTERVAL_MS = 60 * 60 * 1000
 
 const GITHUB_TRENDING_PROJECTS_KEY = 'codex-web-local.github-trending-projects.v1'
 const CHAT_WIDTH_KEY = 'codex-web-local.chat-width.v1'
@@ -1259,17 +1296,27 @@ const telegramStatus = ref<TelegramStatus>({
   lastError: '',
 })
 const {
+  codexCliStatus,
   isRestartAvailable,
   isRestartScheduling,
+  isCodexCliStatusLoading,
+  isCodexCliUpdateAvailable,
+  isCodexCliUpdating,
+  isUpdateAndRestartScheduling,
   isRestartOverlayVisible,
   restartButtonLabel,
+  updateAndRestartButtonLabel,
+  codexCliVersionLabel,
+  codexCliLatestVersionLabel,
   restartOverlayStage,
   restartOverlayTitle,
   restartOverlayMessage,
   restartOverlayError,
   restartOverlayNetworkWarning,
   loadRestartStatus,
+  loadCodexCliStatus,
   restartCodexUi,
+  updateAndRestartCodexUi,
   closeRestartOverlay,
   clearRestartPollTimer,
 } = useCodexUiRestart()
@@ -1277,6 +1324,7 @@ const mobileHiddenAtMs = ref<number | null>(null)
 const mobileResumeReloadTriggered = ref(false)
 const mobileResumeSyncInProgress = ref(false)
 let accountStatePollTimer: number | null = null
+let codexCliStatusTimer: number | null = null
 let isAccountStatePollInFlight = false
 let existingFolderBrowseRequestId = 0
 let stopBackendUrlSubscription: (() => void) | null = null
@@ -1570,6 +1618,10 @@ onMounted(() => {
   void refreshTelegramConfig()
   void refreshTelegramStatus()
   void loadRestartStatus()
+  void loadCodexCliStatus()
+  codexCliStatusTimer = window.setInterval(() => {
+    void loadCodexCliStatus()
+  }, CODEX_CLI_STATUS_POLL_INTERVAL_MS)
   void loadFreeModeStatus()
   if (showGithubTrendingProjects.value) {
     void loadTrendingProjects()
@@ -1589,6 +1641,10 @@ onUnmounted(() => {
   if (accountStatePollTimer !== null) {
     window.clearInterval(accountStatePollTimer)
     accountStatePollTimer = null
+  }
+  if (codexCliStatusTimer !== null) {
+    window.clearInterval(codexCliStatusTimer)
+    codexCliStatusTimer = null
   }
   if (threadSearchTimer) {
     clearTimeout(threadSearchTimer)
@@ -4128,8 +4184,29 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
   @apply flex items-center gap-2 w-full rounded-lg border-0 bg-transparent px-2 py-2 text-sm text-zinc-600 transition hover:bg-zinc-200 hover:text-zinc-900 cursor-pointer;
 }
 
-.sidebar-settings-button-version {
-  @apply ml-auto min-w-0 truncate text-right text-xs;
+.sidebar-settings-button-meta {
+  @apply ml-auto flex min-w-0 flex-col items-end gap-0.5 text-right;
+}
+
+.sidebar-settings-button-version,
+.sidebar-settings-button-cli {
+  @apply max-w-40 truncate text-xs leading-4;
+}
+
+.sidebar-settings-button-cli {
+  @apply inline-flex items-center gap-1 text-[11px] text-zinc-500;
+}
+
+.sidebar-settings-button-cli.is-loading {
+  @apply text-zinc-400;
+}
+
+.sidebar-settings-button-cli.is-warning {
+  @apply font-medium text-amber-700;
+}
+
+.sidebar-settings-button-cli-icon {
+  @apply h-3 w-3 shrink-0;
 }
 
 .sidebar-settings-icon {
@@ -4156,6 +4233,10 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 
 .sidebar-settings-restart-row {
   @apply border-t border-zinc-100;
+}
+
+.sidebar-settings-update-row {
+  @apply bg-amber-50/60 hover:bg-amber-50;
 }
 
 .sidebar-settings-row--select {
@@ -4331,6 +4412,10 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
   @apply text-xs text-zinc-500 bg-zinc-100 rounded px-1.5 py-0.5;
 }
 
+.sidebar-settings-value.is-warning {
+  @apply bg-amber-100 text-amber-800;
+}
+
 .sidebar-settings-value--truncate {
   @apply max-w-40 truncate text-right;
 }
@@ -4497,6 +4582,26 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 
 .sidebar-settings-rate-limits {
   @apply border-t border-zinc-200 px-2 pt-2;
+}
+
+.sidebar-settings-update-alert {
+  @apply mx-2 mt-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900 shadow-sm;
+}
+
+.sidebar-settings-update-alert-icon {
+  @apply mt-0.5 h-4 w-4 shrink-0 text-amber-600;
+}
+
+.sidebar-settings-update-alert-copy {
+  @apply flex min-w-0 flex-col gap-0.5;
+}
+
+.sidebar-settings-update-alert-title {
+  @apply text-sm font-medium leading-5;
+}
+
+.sidebar-settings-update-alert-meta {
+  @apply text-xs text-amber-800;
 }
 
 .sidebar-settings-build-label {

@@ -3793,3 +3793,35 @@ Completed assistant turns show a compact footer with elapsed work time and final
 
 #### Rollback/Cleanup
 - Revert or delete any files changed by the manual test prompt.
+
+### Feature: Codex CLI update status and update restart action
+
+#### Feature/Change Name
+Sidebar settings show the installed Codex CLI version, warn when npm has a newer `@openai/codex`, and provide an `Update and Restart` action that updates the CLI before running the existing Codex UI restart flow.
+
+#### Prerequisites/Setup
+1. Codex CLI is installed and `codex --version` works.
+2. `npm view @openai/codex version` can reach the npm registry.
+3. Start Codex UI with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
+4. Ensure `scripts/restart-codexui-service.sh` is executable if testing the restart buttons.
+
+#### Steps
+1. Open Codex UI and inspect the Settings button in the sidebar footer.
+2. Confirm the footer shows the Codex UI version and a second `Codex CLI` version line.
+3. Open Settings and inspect the restart area near the bottom.
+4. Request `GET /codex-api/codex-cli/status` and compare `currentVersion` with `codex --version`; compare `latestVersion` with `npm view @openai/codex version`.
+5. If `updateAvailable` is true, confirm the sidebar footer shows a warning icon and the Settings panel shows the Codex CLI update alert with installed and latest versions.
+6. Click `Update and Restart`, confirm the browser prompt, and watch the blocking overlay.
+7. After the page reloads, request `GET /codex-api/codex-cli/status` again.
+
+#### Expected Results
+- The Settings footer keeps the existing Codex UI version and adds a compact Codex CLI version line.
+- The status endpoint returns the installed CLI version, npm latest version, and `updateAvailable`.
+- When an update is available, the sidebar and Settings panel show a visible warning.
+- `Update and Restart` runs `npm install -g @openai/codex@latest`, then schedules the existing Codex UI restart flow.
+- The restart overlay first reports CLI update progress, then moves into the normal rebuild/restart/healthcheck stages.
+- After reload, the CLI status refreshes and no longer reports an update if npm installed the latest version successfully.
+
+#### Rollback/Cleanup
+- If the update/restart fails, inspect `/tmp/codexui-restart.log` and the endpoint `lastUpdateError`.
+- Reinstall a specific CLI version manually with `npm install -g @openai/codex@<version>` if needed.

@@ -152,6 +152,22 @@ export type RestartStatus = {
   logTail: string[]
 }
 
+export type CodexCliUpdateStatus = {
+  available: boolean
+  command: string | null
+  currentVersion: string | null
+  latestVersion: string | null
+  updateAvailable: boolean
+  checkedAtIso: string
+  error: string | null
+  npmPackage: string
+  npmCommand: string
+  updateInProgress: boolean
+  lastUpdateAtIso: string | null
+  lastUpdateOutput: string | null
+  lastUpdateError: string | null
+}
+
 export type GithubTrendingProject = {
   id: number
   fullName: string
@@ -1654,6 +1670,30 @@ function readRestartStatusEnvelope(payload: unknown): RestartStatus {
   return normalizeRestartStatus(record?.data)
 }
 
+function normalizeCodexCliUpdateStatus(value: unknown): CodexCliUpdateStatus {
+  const record = asRecord(value) ?? {}
+  return {
+    available: readBoolean(record.available) ?? false,
+    command: readString(record.command),
+    currentVersion: readString(record.currentVersion),
+    latestVersion: readString(record.latestVersion),
+    updateAvailable: readBoolean(record.updateAvailable) ?? false,
+    checkedAtIso: readString(record.checkedAtIso) ?? '',
+    error: readString(record.error),
+    npmPackage: readString(record.npmPackage) ?? '@openai/codex',
+    npmCommand: readString(record.npmCommand) ?? 'npm',
+    updateInProgress: readBoolean(record.updateInProgress) ?? false,
+    lastUpdateAtIso: readString(record.lastUpdateAtIso),
+    lastUpdateOutput: readString(record.lastUpdateOutput),
+    lastUpdateError: readString(record.lastUpdateError),
+  }
+}
+
+function readCodexCliUpdateStatusEnvelope(payload: unknown): CodexCliUpdateStatus {
+  const record = asRecord(payload)
+  return normalizeCodexCliUpdateStatus(record?.data)
+}
+
 export async function getRestartStatus(): Promise<RestartStatus> {
   const response = await fetch('/codex-api/restart/status', { cache: 'no-store' })
   const payload = await readJsonResponse(response)
@@ -1661,6 +1701,27 @@ export async function getRestartStatus(): Promise<RestartStatus> {
     throw new Error(getErrorMessageFromPayload(payload, 'Failed to load restart status'))
   }
   return readRestartStatusEnvelope(payload)
+}
+
+export async function getCodexCliUpdateStatus(): Promise<CodexCliUpdateStatus> {
+  const response = await fetch('/codex-api/codex-cli/status', { cache: 'no-store' })
+  const payload = await readJsonResponse(response)
+  if (!response.ok) {
+    throw new Error(getErrorMessageFromPayload(payload, 'Failed to load Codex CLI status'))
+  }
+  return readCodexCliUpdateStatusEnvelope(payload)
+}
+
+export async function updateCodexCli(): Promise<CodexCliUpdateStatus> {
+  const response = await fetch('/codex-api/codex-cli/update', {
+    method: 'POST',
+    cache: 'no-store',
+  })
+  const payload = await readJsonResponse(response)
+  if (!response.ok) {
+    throw new Error(getErrorMessageFromPayload(payload, 'Failed to update Codex CLI'))
+  }
+  return readCodexCliUpdateStatusEnvelope(payload)
 }
 
 export async function scheduleRestart(): Promise<RestartStatus> {
