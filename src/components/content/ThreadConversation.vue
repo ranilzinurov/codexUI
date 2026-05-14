@@ -285,6 +285,7 @@
                       />
                     </div>
                   </div>
+                  <div v-if="isWorkedExpanded(message)" class="worked-end-separator" aria-hidden="true"></div>
                 </div>
                 <div v-else-if="isPlanMessage(message)" class="plan-card" :data-streaming="message.messageType === 'plan.live'">
                   <div class="plan-card-header">
@@ -4895,6 +4896,10 @@ onBeforeUnmount(() => {
 
 .worked-details {
   @apply flex flex-col gap-3 py-3;
+}
+
+.worked-end-separator {
+  @apply h-px w-full border-0 border-t border-solid border-zinc-200;
 }
 
 .worked-detail-item {

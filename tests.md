@@ -3786,6 +3786,7 @@ Completed assistant turns show a compact runtime row before the final response w
 - The line includes elapsed work time, for example `Worked for 2m 14s`.
 - The runtime line does not include changed-file counts or `+`/`-` diff totals.
 - Expanding the line reveals intermediate assistant updates and command/work details for that turn without duplicating those rows in the main timeline.
+- The expanded worked section ends with a full-width divider before the final assistant response begins.
 - The row uses the same compact text scale and left-side rotating chevron behavior as the changed-files summary row.
 - Changed-file counts and `+`/`-` totals remain in the dedicated changed-files summary, where the plus total is green and the minus total is red.
 - The changed-files summary totals match the aggregated changed-file metadata for that turn.
