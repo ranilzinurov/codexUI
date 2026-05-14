@@ -4177,11 +4177,11 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 }
 
 .sidebar-settings-area {
-  @apply shrink-0 bg-slate-100 pt-2 px-2 pb-2 border-t border-zinc-200;
+  @apply shrink-0 bg-slate-100 pt-1.5 px-2 pb-1.5 border-t border-zinc-200;
 }
 
 .sidebar-settings-button {
-  @apply flex items-center gap-2 w-full rounded-lg border-0 bg-transparent px-2 py-2 text-sm text-zinc-600 transition hover:bg-zinc-200 hover:text-zinc-900 cursor-pointer;
+  @apply flex items-center gap-2 w-full rounded-lg border-0 bg-transparent px-2 py-1.5 text-sm text-zinc-600 transition hover:bg-zinc-200 hover:text-zinc-900 cursor-pointer;
 }
 
 .sidebar-settings-button-meta {
@@ -4190,15 +4190,15 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 
 .sidebar-settings-button-version,
 .sidebar-settings-button-cli {
-  @apply max-w-full truncate whitespace-nowrap text-xs leading-4;
+  @apply max-w-full truncate whitespace-nowrap text-[11px] leading-4 font-normal text-zinc-500;
 }
 
 .sidebar-settings-button-cli {
-  @apply inline-flex items-center gap-1 text-[11px] text-zinc-500;
+  @apply inline-flex items-center gap-1;
 }
 
 .sidebar-settings-button-cli.is-loading {
-  @apply text-zinc-400;
+  @apply text-zinc-500;
 }
 
 .sidebar-settings-button-cli.is-warning {

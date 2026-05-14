@@ -3820,6 +3820,8 @@ Sidebar settings show the installed Codex CLI version, warn when npm has a newer
 
 #### Expected Results
 - The Settings footer keeps the existing Codex UI version and adds a compact Codex CLI version line.
+- The Codex UI and Codex CLI footer version lines use the same compact font size, weight, and color.
+- The Settings footer height remains compact while keeping the Settings button easy to click.
 - The status endpoint returns the installed CLI version, npm latest version, and `updateAvailable`.
 - When an update is available, the sidebar and Settings panel show a visible warning.
 - When no update is available, the Settings panel does not show the `Update and Restart` row.
