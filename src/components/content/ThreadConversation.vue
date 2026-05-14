@@ -233,33 +233,13 @@
               <article v-if="message.text.length > 0" class="message-card" :data-role="message.role">
                 <div v-if="message.messageType === 'worked'" class="worked-separator-wrap" aria-live="polite">
                   <button type="button" class="worked-separator" @click="toggleWorkedExpand(message)">
+                    <span class="worked-chevron" :class="{ 'worked-chevron-open': isWorkedExpanded(message) }">▶</span>
                     <p class="worked-separator-text">
                       <template v-if="message.turnSummary">
                         <span>{{ workedDurationLabel(message) }}</span>
-                        <span
-                          v-if="workedFileCountLabel(message)"
-                          class="worked-summary-muted"
-                        >
-                          · {{ workedFileCountLabel(message) }}
-                        </span>
-                        <span
-                          v-if="workedAddedLabel(message)"
-                          class="worked-summary-delta"
-                          data-tone="add"
-                        >
-                          {{ workedAddedLabel(message) }}
-                        </span>
-                        <span
-                          v-if="workedRemovedLabel(message)"
-                          class="worked-summary-delta"
-                          data-tone="remove"
-                        >
-                          {{ workedRemovedLabel(message) }}
-                        </span>
                       </template>
                       <template v-else>{{ message.text }}</template>
                     </p>
-                    <span class="worked-chevron" :class="{ 'worked-chevron-open': isWorkedExpanded(message) }">⌄</span>
                   </button>
                   <div v-if="isWorkedExpanded(message)" class="worked-details">
                     <div
@@ -1170,22 +1150,6 @@ function formatWorkedDuration(durationMs: number): string {
 
 function workedDurationLabel(message: UiMessage): string {
   return `Worked for ${formatWorkedDuration(message.turnSummary?.durationMs ?? 0)}`
-}
-
-function workedFileCountLabel(message: UiMessage): string {
-  const count = message.turnSummary?.changedFileCount ?? 0
-  if (count <= 0) return ''
-  return count === 1 ? '1 file' : `${count} files`
-}
-
-function workedAddedLabel(message: UiMessage): string {
-  const count = message.turnSummary?.addedLineCount ?? 0
-  return count > 0 ? `+${count}` : ''
-}
-
-function workedRemovedLabel(message: UiMessage): string {
-  const count = message.turnSummary?.removedLineCount ?? 0
-  return count > 0 ? `-${count}` : ''
 }
 
 function toggleFileChangeSummary(message: UiMessage): void {
@@ -4910,15 +4874,15 @@ onBeforeUnmount(() => {
 }
 
 .worked-separator {
-  @apply w-full flex items-center justify-start gap-2 border-0 border-b border-solid border-zinc-200 bg-transparent px-0 pb-2 pt-0 text-left cursor-pointer transition-colors hover:border-zinc-300;
+  @apply w-full flex items-center justify-start gap-1.5 border-0 border-b border-solid border-zinc-200 bg-transparent px-0 pb-2 pt-0 text-left cursor-pointer transition-colors hover:border-zinc-300;
 }
 
 .worked-chevron {
-  @apply text-xl leading-none text-zinc-400 transition-colors duration-150 flex-shrink-0;
+  @apply text-[10px] leading-none text-zinc-400 transition-transform duration-150 flex-shrink-0;
 }
 
 .worked-chevron-open {
-  @apply text-zinc-500;
+  transform: rotate(90deg);
 }
 
 .worked-separator-line {
@@ -4926,27 +4890,11 @@ onBeforeUnmount(() => {
 }
 
 .worked-separator-text {
-  @apply m-0 inline-flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-base leading-7 font-normal text-zinc-500;
-}
-
-.worked-summary-muted {
-  @apply text-slate-500;
-}
-
-.worked-summary-delta {
-  @apply font-medium tabular-nums;
-}
-
-.worked-summary-delta[data-tone='add'] {
-  @apply text-emerald-600;
-}
-
-.worked-summary-delta[data-tone='remove'] {
-  @apply text-rose-600;
+  @apply m-0 inline-flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs leading-5 font-medium text-zinc-600;
 }
 
 .worked-details {
-  @apply flex flex-col gap-5 py-5;
+  @apply flex flex-col gap-3 py-3;
 }
 
 .worked-detail-item {
@@ -4958,7 +4906,7 @@ onBeforeUnmount(() => {
 }
 
 .worked-agent-message {
-  @apply max-w-[min(var(--chat-card-max,76ch),100%)] text-base leading-7 text-zinc-900;
+  @apply max-w-[min(var(--chat-card-max,76ch),100%)] text-sm leading-relaxed text-slate-800;
 }
 
 .worked-agent-message :deep(p) {
@@ -4966,11 +4914,11 @@ onBeforeUnmount(() => {
 }
 
 .worked-agent-message :deep(p + p) {
-  @apply mt-4;
+  @apply mt-3;
 }
 
 .worked-agent-message :deep(.message-text) {
-  @apply text-base leading-7 text-zinc-900;
+  @apply text-sm leading-relaxed text-slate-800;
 }
 
 .worked-agent-message :deep(.message-inline-code) {

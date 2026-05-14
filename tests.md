@@ -3762,10 +3762,10 @@ Composer dictation starts and stays recording from a normal microphone button cl
 - Re-enable `Click to toggle dictation` if it was disabled during testing.
 - Delete any temporary transcribed text or test messages.
 
-### Feature: Turn summary runtime and line totals
+### Feature: Turn summary runtime with separate file-change totals
 
 #### Feature/Change Name
-Completed assistant turns show a compact footer with elapsed work time and final line-change totals.
+Completed assistant turns show a compact runtime row before the final response without duplicating changed-file totals.
 
 #### Prerequisites/Setup
 1. Start Codex UI with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
@@ -3784,12 +3784,13 @@ Completed assistant turns show a compact footer with elapsed work time and final
 #### Expected Results
 - A single compact line appears after the user request and before the final assistant response.
 - The line includes elapsed work time, for example `Worked for 2m 14s`.
-- When file-change metadata is available, the same line also includes final totals such as `3 files · +500 -1000`.
+- The runtime line does not include changed-file counts or `+`/`-` diff totals.
 - Expanding the line reveals intermediate assistant updates and command/work details for that turn without duplicating those rows in the main timeline.
-- The `+` and `-` totals match the aggregated changed-file metadata for that turn.
-- The plus total is styled green and the minus total is styled red.
+- The row uses the same compact text scale and left-side rotating chevron behavior as the changed-files summary row.
+- Changed-file counts and `+`/`-` totals remain in the dedicated changed-files summary, where the plus total is green and the minus total is red.
+- The changed-files summary totals match the aggregated changed-file metadata for that turn.
 - The same footer remains visible after reopening or refreshing a completed thread.
-- If no files changed, only the elapsed work time is shown.
+- If no files changed, the runtime row still shows only elapsed work time.
 
 #### Rollback/Cleanup
 - Revert or delete any files changed by the manual test prompt.
