@@ -3785,7 +3785,7 @@ Completed assistant turns show a compact footer with elapsed work time and final
 - A single compact line appears after the user request and before the final assistant response.
 - The line includes elapsed work time, for example `Worked for 2m 14s`.
 - When file-change metadata is available, the same line also includes final totals such as `3 files · +500 -1000`.
-- Expanding the line reveals the command/work details for that turn without duplicating those command rows in the main timeline.
+- Expanding the line reveals intermediate assistant updates and command/work details for that turn without duplicating those rows in the main timeline.
 - The `+` and `-` totals match the aggregated changed-file metadata for that turn.
 - The plus total is styled green and the minus total is styled red.
 - The same footer remains visible after reopening or refreshing a completed thread.

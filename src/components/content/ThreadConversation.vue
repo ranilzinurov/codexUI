@@ -22,7 +22,7 @@
       </li>
       <template v-for="message in visibleMessages" :key="message.id">
       <li
-        v-if="!hiddenGroupedCommandIds.has(message.id) && !hiddenWorkedCommandIds.has(message.id) && !hiddenFileChangeMessageIds.has(message.id)"
+        v-if="!hiddenGroupedCommandIds.has(message.id) && !hiddenWorkedDetailIds.has(message.id) && !hiddenFileChangeMessageIds.has(message.id)"
         class="conversation-item"
         :data-role="message.role"
         :data-message-type="message.messageType || ''"
@@ -265,38 +265,46 @@
                   </button>
                   <div v-if="isWorkedExpanded(message)" class="worked-details">
                     <div
-                      v-for="cmd in getCommandsForWorked(messages, messages.indexOf(message))"
-                      :key="`worked-cmd-${cmd.id}`"
-                      class="worked-cmd-item"
+                      v-for="detail in getDetailsForWorked(messages, messages.indexOf(message))"
+                      :key="`worked-detail-${detail.id}`"
+                      class="worked-detail-item"
+                      :data-message-type="detail.messageType || ''"
                     >
-                      <button
-                        type="button"
-                        class="cmd-row"
-                        :class="[
-                          commandStatusClass(cmd),
-                          {
-                            'cmd-expanded': isCommandExpanded(cmd),
-                            'cmd-compact': isCommandCompact(cmd),
-                          },
-                        ]"
-                        @click="toggleCommandExpand(cmd)"
-                      >
-                        <span class="cmd-chevron" :class="{ 'cmd-chevron-open': isCommandExpanded(cmd) }">▶</span>
-                        <code class="cmd-label">{{ cmd.commandExecution?.command || '(command)' }}</code>
-                        <span class="cmd-status">{{ commandStatusLabel(cmd) }}</span>
-                      </button>
-                      <div
-                        class="cmd-output-wrap"
-                        :class="{ 'cmd-output-visible': isCommandExpanded(cmd) }"
-                      >
-                        <div class="cmd-output-inner">
-                          <pre
-                            class="cmd-output"
-                            :class="{ 'cmd-output-condensed': isCommandOutputCondensed(cmd) }"
-                            v-text="cmd.commandExecution?.aggregatedOutput || '(no output)'"
-                          ></pre>
+                      <template v-if="isCommandMessage(detail)">
+                        <button
+                          type="button"
+                          class="cmd-row"
+                          :class="[
+                            commandStatusClass(detail),
+                            {
+                              'cmd-expanded': isCommandExpanded(detail),
+                              'cmd-compact': isCommandCompact(detail),
+                            },
+                          ]"
+                          @click="toggleCommandExpand(detail)"
+                        >
+                          <span class="cmd-chevron" :class="{ 'cmd-chevron-open': isCommandExpanded(detail) }">▶</span>
+                          <code class="cmd-label">{{ detail.commandExecution?.command || '(command)' }}</code>
+                          <span class="cmd-status">{{ commandStatusLabel(detail) }}</span>
+                        </button>
+                        <div
+                          class="cmd-output-wrap"
+                          :class="{ 'cmd-output-visible': isCommandExpanded(detail) }"
+                        >
+                          <div class="cmd-output-inner">
+                            <pre
+                              class="cmd-output"
+                              :class="{ 'cmd-output-condensed': isCommandOutputCondensed(detail) }"
+                              v-text="detail.commandExecution?.aggregatedOutput || '(no output)'"
+                            ></pre>
+                          </div>
                         </div>
-                      </div>
+                      </template>
+                      <div
+                        v-else-if="isAssistantWorkDetail(detail)"
+                        class="worked-agent-message"
+                        v-html="renderMarkdownBlocksAsHtml(detail.text)"
+                      />
                     </div>
                   </div>
                 </div>
@@ -957,6 +965,10 @@ function isCommandMessage(message: UiMessage): boolean {
   return message.messageType === 'commandExecution' && !!message.commandExecution
 }
 
+function isAssistantWorkDetail(message: UiMessage): boolean {
+  return message.role === 'assistant' && message.text.trim().length > 0 && !isCommandMessage(message)
+}
+
 function isPlanMessage(message: UiMessage): boolean {
   return message.messageType === 'plan' || message.messageType === 'plan.live'
 }
@@ -1029,13 +1041,13 @@ const hiddenGroupedCommandIds = computed(() => {
   return next
 })
 
-const hiddenWorkedCommandIds = computed(() => {
+const hiddenWorkedDetailIds = computed(() => {
   const next = new Set<string>()
   for (let index = 0; index < props.messages.length; index += 1) {
     const message = props.messages[index]
     if (message.messageType !== 'worked') continue
-    for (const command of getCommandsForWorked(props.messages, index)) {
-      next.add(command.id)
+    for (const detail of getDetailsForWorked(props.messages, index)) {
+      next.add(detail.id)
     }
   }
   return next
@@ -1251,33 +1263,47 @@ function pruneCommandIdSet(source: Set<string>, validIds: Set<string>): Set<stri
   return next.size === source.size ? source : next
 }
 
-function getCommandsForWorked(messages: UiMessage[], workedIndex: number): UiMessage[] {
-  const result: UiMessage[] = []
-  const worked = messages[workedIndex]
+function isSameTurnMessage(message: UiMessage, worked: UiMessage | undefined): boolean {
   const workedTurnId = worked?.turnId
   const workedTurnIndex = worked?.turnIndex
+  const sameTurnId = Boolean(workedTurnId && message.turnId === workedTurnId)
+  const sameTurnIndex =
+    typeof workedTurnIndex === 'number' &&
+    typeof message.turnIndex === 'number' &&
+    message.turnIndex === workedTurnIndex
+  return sameTurnId || sameTurnIndex
+}
+
+function getDetailsForWorked(messages: UiMessage[], workedIndex: number): UiMessage[] {
+  const details: UiMessage[] = []
+  const worked = messages[workedIndex]
 
   for (let i = workedIndex + 1; i < messages.length; i += 1) {
     const message = messages[i]
     if (!message) continue
-    const sameTurnId = Boolean(workedTurnId && message.turnId === workedTurnId)
-    const sameTurnIndex =
-      typeof workedTurnIndex === 'number' &&
-      typeof message.turnIndex === 'number' &&
-      message.turnIndex === workedTurnIndex
-    if (!sameTurnId && !sameTurnIndex) break
-    if (message.messageType === 'commandExecution') result.push(message)
+    if (!isSameTurnMessage(message, worked)) break
+    if (isCommandMessage(message) || isAssistantWorkDetail(message)) {
+      details.push(message)
+    }
   }
 
-  if (result.length > 0) return result
+  const assistantDetailIndices = details
+    .map((message, index) => isAssistantWorkDetail(message) ? index : -1)
+    .filter((index) => index >= 0)
+  const finalAssistantDetailIndex = assistantDetailIndices.at(-1)
+  if (typeof finalAssistantDetailIndex === 'number') {
+    details.splice(finalAssistantDetailIndex, 1)
+  }
+  if (details.length > 0) return details
 
+  const fallbackCommands: UiMessage[] = []
   for (let i = workedIndex - 1; i >= 0; i -= 1) {
     const message = messages[i]
     if (!message) continue
-    if (message.messageType === 'commandExecution') result.unshift(message)
+    if (message.messageType === 'commandExecution') fallbackCommands.unshift(message)
     else if (message.role === 'user' || message.messageType === 'worked') break
   }
-  return result
+  return fallbackCommands
 }
 
 const props = defineProps<{
@@ -4925,8 +4951,24 @@ onBeforeUnmount(() => {
   @apply flex flex-col gap-1.5 pt-2;
 }
 
+.worked-detail-item {
+  @apply flex flex-col;
+}
+
 .worked-cmd-item {
   @apply flex flex-col;
+}
+
+.worked-agent-message {
+  @apply rounded-lg border border-slate-200 bg-white/70 px-3 py-2 text-sm leading-relaxed text-slate-700 shadow-sm shadow-slate-950/5;
+}
+
+.worked-agent-message :deep(p) {
+  @apply my-0;
+}
+
+.worked-agent-message :deep(p + p) {
+  @apply mt-2;
 }
 
 .image-modal-backdrop {
