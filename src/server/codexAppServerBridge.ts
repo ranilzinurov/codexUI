@@ -4330,6 +4330,28 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         return
       }
 
+      if (req.method === 'POST' && url.pathname === '/codex-api/thread-terminal/tui-command') {
+        const body = asRecord(await readJsonBody(req))
+        const threadId = readNonEmptyString(body?.threadId)
+        const cwd = readNonEmptyString(body?.cwd)
+        const command = readNonEmptyString(body?.command)
+        const args = typeof body?.args === 'string' ? body.args : ''
+        if (!threadId || !cwd || !command) {
+          setJson(res, 400, { error: 'Missing threadId, cwd, or command' })
+          return
+        }
+        const session = terminalManager.startCodexTuiCommand({
+          threadId,
+          cwd,
+          command,
+          args,
+          cols: typeof body?.cols === 'number' ? body.cols : undefined,
+          rows: typeof body?.rows === 'number' ? body.rows : undefined,
+        })
+        setJson(res, 200, { session })
+        return
+      }
+
       if (req.method === 'POST' && url.pathname === '/codex-api/thread-terminal/resize') {
         const body = asRecord(await readJsonBody(req))
         const sessionId = readNonEmptyString(body?.sessionId)

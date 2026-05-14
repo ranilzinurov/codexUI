@@ -3833,3 +3833,31 @@ Sidebar settings show the installed Codex CLI version, warn when npm has a newer
 #### Rollback/Cleanup
 - If the update/restart fails, inspect `/tmp/codexui-restart.log` and the endpoint `lastUpdateError`.
 - Reinstall a specific CLI version manually with `npm install -g @openai/codex@<version>` if needed.
+
+### Feature: Embedded TUI slash command fallback
+
+#### Feature/Change Name
+Slash commands marked `TUI` open an embedded Codex terminal session and forward the selected command instead of showing an unsupported-command placeholder.
+
+#### Prerequisites/Setup
+1. Codex CLI is installed and `codex --version` works from the server process `PATH`.
+2. Start Codex UI with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
+3. Select a project folder on the New thread screen, or open an existing thread.
+
+#### Steps
+1. In the composer, type `/permissions` or another command with a `TUI` badge.
+2. Select the command from the slash-command picker or submit it directly.
+3. Observe the composer area after submission.
+4. Interact with the embedded terminal using keyboard input.
+5. Hide the terminal and repeat inside an existing thread.
+
+#### Expected Results
+- The web UI opens the built-in terminal panel without requiring an external terminal.
+- The terminal starts `codex` in the selected project folder and sends the selected slash command, for example `/permissions`.
+- TUI output is visible inside the Codex UI terminal panel.
+- Keyboard input is accepted by the embedded terminal so picker dialogs can be used in place.
+- Hiding or closing the terminal returns to the normal composer flow.
+
+#### Rollback/Cleanup
+- Close the embedded terminal panel after testing.
+- If a Codex TUI session remains running, use the panel close button or exit the TUI with its normal quit command.
