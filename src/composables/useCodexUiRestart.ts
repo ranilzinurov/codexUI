@@ -32,7 +32,7 @@ export function useCodexUiRestart() {
   const restartButtonLabel = computed(() => (isRestartScheduling.value ? 'Scheduling...' : 'Restart'))
   const updateAndRestartButtonLabel = computed(() => {
     if (isUpdateAndRestartScheduling.value) return 'Updating...'
-    return isCodexCliUpdateAvailable.value ? 'Update and restart' : 'Reinstall and restart'
+    return isCodexCliUpdateAvailable.value ? 'Update' : 'Reinstall'
   })
   const codexCliVersionLabel = computed(() => {
     if (isCodexCliStatusLoading.value && !codexCliStatus.value) return 'checking...'

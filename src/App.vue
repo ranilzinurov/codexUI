@@ -462,7 +462,7 @@
               >
                 <IconTablerAlertTriangle class="sidebar-settings-update-alert-icon" />
                 <div class="sidebar-settings-update-alert-copy">
-                  <span class="sidebar-settings-update-alert-title">Codex CLI update available</span>
+                  <span class="sidebar-settings-update-alert-title">Codex CLI update</span>
                   <span class="sidebar-settings-update-alert-meta">
                     {{ codexCliVersionLabel }} → {{ codexCliLatestVersionLabel }}
                   </span>
@@ -4190,7 +4190,7 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 
 .sidebar-settings-button-version,
 .sidebar-settings-button-cli {
-  @apply max-w-40 truncate text-xs leading-4;
+  @apply max-w-full truncate whitespace-nowrap text-xs leading-4;
 }
 
 .sidebar-settings-button-cli {
@@ -4237,6 +4237,10 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 
 .sidebar-settings-update-row {
   @apply bg-amber-50/60 hover:bg-amber-50;
+}
+
+.sidebar-settings-update-row .sidebar-settings-label {
+  @apply whitespace-nowrap;
 }
 
 .sidebar-settings-row--select {
@@ -4585,23 +4589,23 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 }
 
 .sidebar-settings-update-alert {
-  @apply mx-2 mt-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900 shadow-sm;
+  @apply mx-2 mt-2 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-amber-900 shadow-sm;
 }
 
 .sidebar-settings-update-alert-icon {
-  @apply mt-0.5 h-4 w-4 shrink-0 text-amber-600;
+  @apply h-4 w-4 shrink-0 text-amber-600;
 }
 
 .sidebar-settings-update-alert-copy {
-  @apply flex min-w-0 flex-col gap-0.5;
+  @apply flex min-w-0 flex-1 items-center justify-between gap-2;
 }
 
 .sidebar-settings-update-alert-title {
-  @apply text-sm font-medium leading-5;
+  @apply min-w-0 truncate whitespace-nowrap text-sm font-medium leading-5;
 }
 
 .sidebar-settings-update-alert-meta {
-  @apply text-xs text-amber-800;
+  @apply shrink-0 whitespace-nowrap text-xs text-amber-800;
 }
 
 .sidebar-settings-build-label {
