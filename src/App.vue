@@ -781,15 +781,7 @@
               </div>
 
               <div class="composer-with-queue">
-                <ThreadTerminalPanel
-                  v-if="homeTuiTerminalOpen && composerCwd"
-                  class="content-thread-terminal-panel"
-                  :thread-id="homeTuiTerminalThreadId"
-                  :cwd="composerCwd"
-                  @hide="homeTuiTerminalOpen = false"
-                />
                 <ThreadComposer ref="homeThreadComposerRef" :active-thread-id="composerThreadContextId"
-                  v-else
                   :cwd="composerCwd"
                   :collaboration-modes="availableCollaborationModes"
                   :selected-collaboration-mode="selectedCollaborationMode"
@@ -952,7 +944,6 @@ import {
   openProjectRoot,
   removeAccount,
   refreshAccountsFromAuth,
-  runThreadTerminalTuiCommand,
   searchThreads,
   clearThreadGoal,
   getThreadGoal,
@@ -1332,7 +1323,6 @@ const {
 const mobileHiddenAtMs = ref<number | null>(null)
 const mobileResumeReloadTriggered = ref(false)
 const mobileResumeSyncInProgress = ref(false)
-const homeTuiTerminalOpen = ref(false)
 let accountStatePollTimer: number | null = null
 let codexCliStatusTimer: number | null = null
 let isAccountStatePollInFlight = false
@@ -1379,7 +1369,6 @@ const latestUserTurnId = computed(() => {
 })
 const liveOverlay = computed(() => selectedLiveOverlay.value)
 const composerThreadContextId = computed(() => (isHomeRoute.value ? '__new-thread__' : selectedThreadId.value))
-const homeTuiTerminalThreadId = computed(() => `__new-thread-tui__:${composerCwd.value || 'cwd'}`)
 const composerSelectedModelId = computed(() => readModelIdForThread(composerThreadContextId.value))
 const selectedThreadPendingRequest = computed<UiServerRequest | null>(() => {
   const rows = selectedThreadServerRequests.value
@@ -2345,11 +2334,6 @@ async function onSlashCommand(payload: ParsedCodexSlashCommand): Promise<void> {
       return
     }
 
-    if (!payload.command.webSupported) {
-      await runSlashCommandInEmbeddedTui(command, args)
-      return
-    }
-
     const threadId = selectedThreadId.value.trim()
     if (!threadId) {
       error.value = `/${command} requires an existing thread.`
@@ -2408,36 +2392,6 @@ async function onSlashCommand(payload: ParsedCodexSlashCommand): Promise<void> {
   } catch (unknownError) {
     error.value = unknownError instanceof Error ? unknownError.message : `Failed to run /${command}`
   }
-}
-
-async function runSlashCommandInEmbeddedTui(command: string, args: string): Promise<void> {
-  const cwd = composerCwd.value.trim()
-  if (!cwd) {
-    error.value = `/${command} needs a selected folder before Codex TUI can start.`
-    return
-  }
-
-  const threadId = isHomeRoute.value
-    ? homeTuiTerminalThreadId.value
-    : selectedThreadId.value.trim()
-
-  if (!threadId) {
-    error.value = `/${command} requires an existing thread.`
-    return
-  }
-
-  if (isHomeRoute.value) {
-    homeTuiTerminalOpen.value = true
-  } else {
-    setThreadTerminalOpen(threadId, true)
-  }
-
-  await runThreadTerminalTuiCommand({
-    threadId,
-    cwd,
-    command,
-    args,
-  })
 }
 
 async function runGoalSlashCommand(threadId: string, args: string): Promise<void> {

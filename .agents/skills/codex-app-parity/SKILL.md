@@ -326,14 +326,6 @@ After each feature implementation session that uses this skill:
 - When a PWA/browser is closed during a run, `turn/completed` is not delivered to the frontend; the durable source for completion timing is the Codex session JSONL `event_msg` payload with `type: "task_complete"`, `turn_id`, `duration_ms`, and `completed_at`.
 - The web bridge can recover these persisted completion summaries from `thread.path` plus the session JSONL and return them alongside recovered `apply_patch` file-change fallback data.
 
-## Findings: Embedded TUI Slash Commands (2026-05-14)
-
-- This workspace already has a reusable browser xterm surface in `ThreadTerminalPanel.vue`, backed by `ThreadTerminalManager`.
-- Slash commands marked `TUI` in `codexSlashCommands.ts` previously stopped in `App.vue` with an unsupported-command placeholder.
-- A conservative browser parity fallback is to open the embedded terminal panel, create a fresh thread terminal session, write `codex\r`, then write the selected slash command (for example `/permissions\r`) into the PTY.
-- New-thread screens can reuse the same terminal panel with a synthetic terminal thread id such as `__new-thread-tui__:<cwd>`; no app-server thread is required for the terminal manager.
-- Verification should assert both the backend `/codex-api/thread-terminal/tui-command` response and the visible `.thread-terminal-panel .xterm` surface.
-
 ## Findings: Mobile Composer Submit Stabilization (2026-03-28)
 
 - In this workspace, mobile web send UX is more reliable when submit does two things together:

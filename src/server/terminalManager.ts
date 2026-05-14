@@ -44,15 +44,6 @@ export type TerminalAttachParams = {
   newSession?: boolean
 }
 
-export type TerminalTuiCommandParams = {
-  threadId: string
-  cwd: string
-  command: string
-  args?: string
-  cols?: number
-  rows?: number
-}
-
 export class ThreadTerminalManager {
   private readonly sessions = new Map<string, TerminalSession>()
   private readonly activeSessionIdByThreadId = new Map<string, string>()
@@ -111,25 +102,6 @@ export class ThreadTerminalManager {
   write(sessionId: string, data: string): void {
     const session = this.requireSession(sessionId)
     session.pty.write(data)
-  }
-
-  startCodexTuiCommand(params: TerminalTuiCommandParams): TerminalSessionSnapshot {
-    const command = sanitizeSlashCommandName(params.command)
-    if (!command) {
-      throw new Error('Missing TUI command')
-    }
-
-    const session = this.attach({
-      threadId: params.threadId,
-      cwd: params.cwd,
-      cols: params.cols,
-      rows: params.rows,
-      newSession: true,
-    })
-    const args = sanitizeSlashCommandArgs(params.args ?? '')
-    const slashCommand = `/${command}${args ? ` ${args}` : ''}`
-    this.write(session.id, `codex\r${slashCommand}\r`)
-    return session
   }
 
   resize(sessionId: string, cols: unknown, rows: unknown): void {
@@ -351,13 +323,4 @@ function normalizeLocaleEnv(env: Record<string, string>): void {
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`
-}
-
-function sanitizeSlashCommandName(value: string): string {
-  const normalized = value.trim().toLowerCase()
-  return /^[a-z0-9][a-z0-9-]*$/u.test(normalized) ? normalized : ''
-}
-
-function sanitizeSlashCommandArgs(value: string): string {
-  return value.replace(/[\r\n]+/gu, ' ').replace(/\s+/gu, ' ').trim()
 }

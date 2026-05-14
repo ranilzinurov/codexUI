@@ -216,15 +216,6 @@ export type ThreadTerminalAttachInput = {
   newSession?: boolean
 }
 
-export type ThreadTerminalTuiCommandInput = {
-  threadId: string
-  cwd: string
-  command: string
-  args?: string
-  cols?: number
-  rows?: number
-}
-
 function normalizeGithubProjectDescription(fullName: string, rawDescription: string): string {
   const description = rawDescription.trim()
   if (!description) return ''
@@ -1057,17 +1048,6 @@ export async function sendThreadTerminalInput(sessionId: string, data: string): 
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sessionId, data }),
   })
-}
-
-export async function runThreadTerminalTuiCommand(input: ThreadTerminalTuiCommandInput): Promise<ThreadTerminalSession> {
-  const payload = await fetchTerminalJson('/codex-api/thread-terminal/tui-command', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  })
-  const session = normalizeThreadTerminalSession(asRecord(payload)?.session)
-  if (!session) throw new Error('Terminal TUI command response was malformed')
-  return session
 }
 
 export async function resizeThreadTerminal(sessionId: string, cols: number, rows: number): Promise<void> {
