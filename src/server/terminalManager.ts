@@ -9,8 +9,6 @@ const TERMINAL_BUFFER_LIMIT = 16 * 1024
 const DEFAULT_COLS = 80
 const DEFAULT_ROWS = 24
 const TERMINAL_NAME = 'xterm-256color'
-const TUI_COMMAND_READY_TIMEOUT_MS = 8000
-const TUI_COMMAND_READY_POLL_MS = 200
 const require = createRequire(import.meta.url)
 
 export type TerminalNotification = {
@@ -130,8 +128,7 @@ export class ThreadTerminalManager {
     })
     const args = sanitizeSlashCommandArgs(params.args ?? '')
     const slashCommand = `/${command}${args ? ` ${args}` : ''}`
-    this.write(session.id, 'codex\r')
-    this.writeWhenCodexTuiIsReady(session.id, `${slashCommand}\r`)
+    this.write(session.id, `codex\r${slashCommand}\r`)
     return session
   }
 
@@ -294,29 +291,6 @@ export class ThreadTerminalManager {
     return session
   }
 
-  private writeWhenCodexTuiIsReady(sessionId: string, data: string): void {
-    const startedAt = Date.now()
-    let didWrite = false
-
-    const tryWrite = (): void => {
-      if (didWrite) return
-      const session = this.sessions.get(sessionId)
-      if (!session) return
-
-      const isReady = looksLikeCodexTuiPrompt(session.buffer)
-      const didTimeout = Date.now() - startedAt >= TUI_COMMAND_READY_TIMEOUT_MS
-      if (!isReady && !didTimeout) {
-        setTimeout(tryWrite, TUI_COMMAND_READY_POLL_MS)
-        return
-      }
-
-      didWrite = true
-      session.pty.write(data)
-    }
-
-    setTimeout(tryWrite, TUI_COMMAND_READY_POLL_MS)
-  }
-
   private resolveShell(): string {
     if (process.platform === 'win32') {
       return process.env.COMSPEC || 'cmd.exe'
@@ -386,19 +360,4 @@ function sanitizeSlashCommandName(value: string): string {
 
 function sanitizeSlashCommandArgs(value: string): string {
   return value.replace(/[\r\n]+/gu, ' ').replace(/\s+/gu, ' ').trim()
-}
-
-function stripAnsi(value: string): string {
-  return value
-    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/gu, '')
-    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/gu, '')
-}
-
-function looksLikeCodexTuiPrompt(value: string): boolean {
-  const plain = stripAnsi(value).slice(-4000)
-  return (
-    plain.includes('›') ||
-    /gpt-[\w.-]+\s+(?:low|medium|high|xhigh|minimal|none)/iu.test(plain) ||
-    /esc to interrupt/iu.test(plain)
-  )
 }

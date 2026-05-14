@@ -21,15 +21,6 @@
     </header>
     <p v-if="errorMessage" class="thread-terminal-error">{{ errorMessage }}</p>
     <div ref="terminalHostRef" class="thread-terminal-host" />
-    <div class="thread-terminal-mobile-keys" aria-label="Terminal controls">
-      <button class="thread-terminal-key" type="button" title="Up" @click="sendControlInput('\u001b[A')">↑</button>
-      <button class="thread-terminal-key" type="button" title="Down" @click="sendControlInput('\u001b[B')">↓</button>
-      <button class="thread-terminal-key" type="button" title="Left" @click="sendControlInput('\u001b[D')">←</button>
-      <button class="thread-terminal-key" type="button" title="Right" @click="sendControlInput('\u001b[C')">→</button>
-      <button class="thread-terminal-key thread-terminal-key-wide" type="button" title="Enter" @click="sendControlInput('\r')">Enter</button>
-      <button class="thread-terminal-key" type="button" title="Tab" @click="sendControlInput('\t')">Tab</button>
-      <button class="thread-terminal-key" type="button" title="Escape" @click="sendControlInput('\u001b')">Esc</button>
-    </div>
   </section>
 </template>
 
@@ -174,23 +165,13 @@ async function attachToThread(newSession: boolean): Promise<void> {
 function handleNotification(notification: RpcNotification): void {
   const params = asRecord(notification.params)
   const notificationSessionId = readString(params?.sessionId)
-  const notificationThreadId = readString(params?.threadId)
-  if (!notificationSessionId || !terminal) return
+  if (!notificationSessionId || notificationSessionId !== sessionId.value || !terminal) return
 
   if (notification.method === 'terminal-attached') {
-    if (notificationThreadId && notificationThreadId !== props.threadId) return
-    const didSwitchSession = sessionId.value !== notificationSessionId
-    sessionId.value = notificationSessionId
-    if (didSwitchSession) {
-      terminal.clear()
-    }
     shellLabel.value = readString(params?.shell) || shellLabel.value
     isAttached.value = true
     return
   }
-
-  if (notificationSessionId !== sessionId.value) return
-
   if (notification.method === 'terminal-init-log') {
     terminal.clear()
     terminal.write(readString(params?.log) || '')
@@ -213,14 +194,6 @@ function handleNotification(notification: RpcNotification): void {
 
 function onNewTerminal(): void {
   void attachToThread(true)
-}
-
-function sendControlInput(data: string): void {
-  if (!sessionId.value) return
-  terminal?.focus()
-  void sendThreadTerminalInput(sessionId.value, data).catch((error: unknown) => {
-    errorMessage.value = error instanceof Error ? error.message : 'Terminal input failed'
-  })
 }
 
 function onCloseTerminal(): void {
@@ -323,18 +296,6 @@ function readString(value: unknown): string {
   @apply h-[calc(100%-4.625rem)];
 }
 
-.thread-terminal-mobile-keys {
-  @apply hidden border-t border-zinc-800 bg-zinc-950 px-2 py-1.5;
-}
-
-.thread-terminal-key {
-  @apply h-8 min-w-8 rounded-md border border-zinc-800 bg-zinc-900 px-2 text-xs font-semibold text-zinc-200 active:bg-zinc-700;
-}
-
-.thread-terminal-key-wide {
-  @apply min-w-14;
-}
-
 .thread-terminal-host :deep(.xterm) {
   @apply h-full;
 }
@@ -345,8 +306,8 @@ function readString(value: unknown): string {
 
 @media (max-width: 767px) {
   .thread-terminal-panel {
-    height: min(42vh, 22rem);
-    min-height: 14rem;
+    height: min(28vh, 14rem);
+    min-height: 9rem;
   }
 
   .thread-terminal-header {
@@ -358,16 +319,7 @@ function readString(value: unknown): string {
   }
 
   .thread-terminal-host {
-    height: calc(100% - 5.5rem);
     @apply px-1.5 py-1.5;
-  }
-
-  .thread-terminal-panel.is-error .thread-terminal-host {
-    height: calc(100% - 7.875rem);
-  }
-
-  .thread-terminal-mobile-keys {
-    @apply flex flex-wrap items-center gap-1.5;
   }
 }
 </style>

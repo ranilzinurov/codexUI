@@ -333,8 +333,6 @@ After each feature implementation session that uses this skill:
 - A conservative browser parity fallback is to open the embedded terminal panel, create a fresh thread terminal session, write `codex\r`, then write the selected slash command (for example `/permissions\r`) into the PTY.
 - New-thread screens can reuse the same terminal panel with a synthetic terminal thread id such as `__new-thread-tui__:<cwd>`; no app-server thread is required for the terminal manager.
 - Verification should assert both the backend `/codex-api/thread-terminal/tui-command` response and the visible `.thread-terminal-panel .xterm` surface.
-- On shells that emit startup warnings before `codex` takes over, writing `codex\r/<command>\r` as one burst can cause the slash command to run in the shell instead of the TUI. Poll the PTY buffer for a Codex TUI prompt marker before writing the slash command, with a bounded timeout fallback.
-- Mobile browsers need explicit terminal key controls for TUI use; xterm input alone does not provide reliable Up/Down/Enter/Esc/Tab access without a hardware keyboard.
 
 ## Findings: Mobile Composer Submit Stabilization (2026-03-28)
 
