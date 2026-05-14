@@ -3812,13 +3812,16 @@ Sidebar settings show the installed Codex CLI version, warn when npm has a newer
 4. Request `GET /codex-api/codex-cli/status` and compare `currentVersion` with `codex --version`; compare `latestVersion` with `npm view @openai/codex version`.
 5. If `updateAvailable` is true, confirm the sidebar footer shows a warning icon and the Settings panel shows the Codex CLI update alert with installed and latest versions.
 6. Click `Update and Restart`, confirm the browser prompt, and watch the blocking overlay.
-7. After the page reloads, request `GET /codex-api/codex-cli/status` again.
+7. If `~/.config/codexui/env` contains `CODEXUI_CODEX_COMMAND` pointing at an older binary, keep it in place before clicking update to verify the update flow repairs the override.
+8. After the page reloads, request `GET /codex-api/codex-cli/status` again.
+9. Inspect `~/.config/codexui/env` and confirm `CODEXUI_CODEX_COMMAND` points at the updated runnable Codex CLI binary.
 
 #### Expected Results
 - The Settings footer keeps the existing Codex UI version and adds a compact Codex CLI version line.
 - The status endpoint returns the installed CLI version, npm latest version, and `updateAvailable`.
 - When an update is available, the sidebar and Settings panel show a visible warning.
 - `Update and Restart` runs `npm install -g @openai/codex@latest`, then schedules the existing Codex UI restart flow.
+- If the previous configured binary was stale, the update flow rewrites `CODEXUI_CODEX_COMMAND` to the newest runnable installed binary before scheduling restart.
 - The restart overlay first reports CLI update progress, then moves into the normal rebuild/restart/healthcheck stages.
 - After reload, the CLI status refreshes and no longer reports an update if npm installed the latest version successfully.
 

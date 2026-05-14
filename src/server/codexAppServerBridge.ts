@@ -5,9 +5,8 @@ import { createReadStream, readFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
-import { homedir } from 'node:os'
-import { tmpdir } from 'node:os'
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
+import { homedir, tmpdir } from 'node:os'
+import { basename, delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { writeFile } from 'node:fs/promises'
 import { handleAccountRoutes } from './accountRoutes.js'
@@ -34,6 +33,8 @@ import { WebPushNotifications } from './webPushNotifications.js'
 import { ThreadAutoTitleManager } from './threadAutoTitle.js'
 import { getSpawnInvocation } from '../utils/commandInvocation.js'
 import {
+  getNpmGlobalBinDir,
+  getUserNpmPrefix,
   resolveCodexCommand,
   resolveRipgrepCommand,
 } from '../commandResolution.js'
@@ -617,6 +618,140 @@ function compareSemverLike(left: string | null, right: string | null): number {
   return 0
 }
 
+async function readCodexCliCommandVersion(command: string): Promise<string | null> {
+  const result = await runBufferedCommand(command, ['--version'], {
+    timeoutMs: CODEX_CLI_VERSION_TIMEOUT_MS,
+  })
+  if (result.status !== 0) return null
+  return parseCodexCliVersion(result.output)
+}
+
+async function readLatestCodexCliVersion(): Promise<string | null> {
+  const latest = await runBufferedCommand(CODEX_CLI_NPM_COMMAND, ['view', CODEX_CLI_NPM_PACKAGE, 'version', '--silent'], {
+    timeoutMs: CODEX_CLI_VERSION_TIMEOUT_MS,
+  })
+  if (latest.status !== 0) return null
+  return parseCodexCliVersion(latest.output)
+}
+
+async function readNpmGlobalPrefix(): Promise<string | null> {
+  try {
+    const result = await runBufferedCommand(CODEX_CLI_NPM_COMMAND, ['prefix', '-g'], {
+      timeoutMs: CODEX_CLI_VERSION_TIMEOUT_MS,
+    })
+    if (result.status !== 0) return null
+    const prefix = result.output.split(/\r?\n/u).find((line) => line.trim().length > 0)?.trim() ?? ''
+    return prefix || null
+  } catch {
+    return null
+  }
+}
+
+function getCodexExecutableName(): string {
+  return process.platform === 'win32' ? 'codex.cmd' : 'codex'
+}
+
+function pushUniqueCandidate(candidates: string[], candidate: string | null | undefined): void {
+  const normalized = candidate?.trim()
+  if (!normalized || candidates.includes(normalized)) return
+  candidates.push(normalized)
+}
+
+function collectCodexCliCommandCandidates(npmPrefix: string | null): string[] {
+  const candidates: string[] = []
+  const executableName = getCodexExecutableName()
+  const explicit = process.env.CODEXUI_CODEX_COMMAND?.trim()
+  if (explicit && isAbsolute(explicit)) {
+    pushUniqueCandidate(candidates, explicit)
+  }
+  if (npmPrefix) {
+    pushUniqueCandidate(candidates, join(getNpmGlobalBinDir(npmPrefix), executableName))
+  }
+  pushUniqueCandidate(candidates, join(getNpmGlobalBinDir(getUserNpmPrefix()), executableName))
+
+  for (const entry of (process.env.PATH ?? '').split(delimiter)) {
+    const normalizedEntry = entry.trim()
+    if (!normalizedEntry) continue
+    pushUniqueCandidate(candidates, join(normalizedEntry, executableName))
+  }
+
+  return candidates
+}
+
+async function resolveBestInstalledCodexCliCommand(targetVersion: string | null): Promise<{ command: string | null; version: string | null }> {
+  const npmPrefix = await readNpmGlobalPrefix()
+  let best: { command: string | null; version: string | null } = { command: null, version: null }
+
+  for (const candidate of collectCodexCliCommandCandidates(npmPrefix)) {
+    let candidateStat
+    try {
+      candidateStat = await stat(candidate)
+    } catch {
+      continue
+    }
+    if (!candidateStat.isFile() && !candidateStat.isSymbolicLink()) continue
+
+    let version: string | null = null
+    try {
+      version = await readCodexCliCommandVersion(candidate)
+    } catch {
+      version = null
+    }
+    if (!version) continue
+
+    if (targetVersion && version === targetVersion) {
+      return { command: candidate, version }
+    }
+    if (!best.version || compareSemverLike(best.version, version) < 0) {
+      best = { command: candidate, version }
+    }
+  }
+
+  return best
+}
+
+function getCodexUiEnvFilePath(): string {
+  const explicitEnvFile = process.env.CODEXUI_ENV_FILE?.trim()
+  if (explicitEnvFile) return explicitEnvFile
+  return join(process.env.HOME?.trim() || homedir(), '.config', 'codexui', 'env')
+}
+
+function quoteEnvFileValue(value: string): string {
+  if (/^[A-Za-z0-9_./:@%+=,-]+$/u.test(value)) return value
+  return `"${value.replace(/\\/gu, '\\\\').replace(/"/gu, '\\"')}"`
+}
+
+async function persistCodexCommandOverride(command: string): Promise<string> {
+  const envFilePath = getCodexUiEnvFilePath()
+  let raw = ''
+  try {
+    raw = await readFile(envFilePath, 'utf8')
+  } catch {
+    raw = ''
+  }
+
+  const assignment = `CODEXUI_CODEX_COMMAND=${quoteEnvFileValue(command)}`
+  let didUpdate = false
+  const lines = raw
+    .split(/\r?\n/u)
+    .filter((line, index, allLines) => index < allLines.length - 1 || line.length > 0)
+    .map((line) => {
+      const trimmed = line.trim()
+      if (!trimmed || trimmed.startsWith('#')) return line
+      if (!/^CODEXUI_CODEX_COMMAND\s*=/u.test(trimmed)) return line
+      didUpdate = true
+      return assignment
+    })
+
+  if (!didUpdate) {
+    lines.push(assignment)
+  }
+
+  await mkdir(dirname(envFilePath), { recursive: true })
+  await writeFile(envFilePath, `${lines.join('\n')}\n`, 'utf8')
+  return envFilePath
+}
+
 let isCodexCliUpdateInProgress = false
 let lastCodexCliUpdateAtIso: string | null = null
 let lastCodexCliUpdateOutput: string | null = null
@@ -633,16 +768,9 @@ async function getCodexCliUpdateStatus(): Promise<CodexCliUpdateStatus> {
     errors.push('Codex CLI command is not available.')
   } else {
     try {
-      const current = await runBufferedCommand(command, ['--version'], {
-        timeoutMs: CODEX_CLI_VERSION_TIMEOUT_MS,
-      })
-      if (current.status === 0) {
-        currentVersion = parseCodexCliVersion(current.output)
-        if (!currentVersion) {
-          errors.push(`Could not parse Codex CLI version from: ${current.output}`)
-        }
-      } else {
-        errors.push(current.output || `Codex CLI exited with status ${current.status ?? 'unknown'}.`)
+      currentVersion = await readCodexCliCommandVersion(command)
+      if (!currentVersion) {
+        errors.push(`Could not parse Codex CLI version from ${command}.`)
       }
     } catch (error) {
       errors.push(getErrorMessage(error, 'Failed to read Codex CLI version.'))
@@ -650,16 +778,9 @@ async function getCodexCliUpdateStatus(): Promise<CodexCliUpdateStatus> {
   }
 
   try {
-    const latest = await runBufferedCommand(CODEX_CLI_NPM_COMMAND, ['view', CODEX_CLI_NPM_PACKAGE, 'version', '--silent'], {
-      timeoutMs: CODEX_CLI_VERSION_TIMEOUT_MS,
-    })
-    if (latest.status === 0) {
-      latestVersion = parseCodexCliVersion(latest.output)
-      if (!latestVersion) {
-        errors.push(`Could not parse latest ${CODEX_CLI_NPM_PACKAGE} version from npm output.`)
-      }
-    } else {
-      errors.push(latest.output || `npm view exited with status ${latest.status ?? 'unknown'}.`)
+    latestVersion = await readLatestCodexCliVersion()
+    if (!latestVersion) {
+      errors.push(`Could not parse latest ${CODEX_CLI_NPM_PACKAGE} version from npm output.`)
     }
   } catch (error) {
     errors.push(getErrorMessage(error, `Failed to check ${CODEX_CLI_NPM_PACKAGE} on npm.`))
@@ -701,10 +822,23 @@ async function updateCodexCli(): Promise<{ output: string; status: CodexCliUpdat
     if (result.status !== 0) {
       throw new Error(result.output || `npm install exited with status ${result.status ?? 'unknown'}.`)
     }
-    lastCodexCliUpdateOutput = result.output
+
+    const latestVersion = await readLatestCodexCliVersion()
+    const resolved = await resolveBestInstalledCodexCliCommand(latestVersion)
+    if (!resolved.command || !resolved.version) {
+      throw new Error('Codex CLI update completed, but no runnable Codex CLI binary was found.')
+    }
+    if (latestVersion && compareSemverLike(resolved.version, latestVersion) < 0) {
+      throw new Error(`Codex CLI update completed, but the newest runnable binary is ${resolved.command} v${resolved.version}; expected v${latestVersion}.`)
+    }
+
+    process.env.CODEXUI_CODEX_COMMAND = resolved.command
+    const envFilePath = await persistCodexCommandOverride(resolved.command)
+    const bindingMessage = `Codex UI will use ${resolved.command} v${resolved.version} after restart. Updated ${envFilePath}.`
+    lastCodexCliUpdateOutput = [result.output, bindingMessage].filter(Boolean).join('\n')
     isCodexCliUpdateInProgress = false
     return {
-      output: result.output,
+      output: lastCodexCliUpdateOutput,
       status: await getCodexCliUpdateStatus(),
     }
   } catch (error) {
