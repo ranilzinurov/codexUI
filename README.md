@@ -173,17 +173,32 @@ Bot commands:
 
 Outgoing assistant messages are sent with Telegram `parse_mode=HTML` for formatting, with automatic plain-text fallback if HTML delivery fails.
 
-### Voice Transcription Override (Optional)
+### Voice Transcription Setup
 
-If your default Codex auth path does not provide a transcription token, `codexui` can use a separate server-side STT provider for voice input without changing the main Codex provider.
+Voice input has two supported server-side paths:
+
+- **Standard Codex/ChatGPT transcription**: use this when the server is logged in with `codex login` / ChatGPT account auth and `~/.codex/auth.json` contains `tokens.access_token`. Set `CODEXUI_TRANSCRIBE_PROVIDER=standard`.
+- **API-key STT override**: use this when Codex is logged in with an API key only, or when the standard ChatGPT transcription endpoint is unavailable. Configure OpenAI or Groq transcription env vars on the server.
+
+The standard path sends `/codex-api/transcribe` through the Codex/ChatGPT auth token. On headless servers it may also need `curl-impersonate-chrome` in the service `PATH`, because `chatgpt.com` can block plain Node HTTP requests with Cloudflare.
+
+The API-key override keeps voice transcription separate from the main Codex model provider and keeps secrets server-side only.
 
 Supported server env vars:
 
 - `CODEXUI_TRANSCRIBE_API_KEY`
-- `CODEXUI_TRANSCRIBE_PROVIDER` (`auto`, `openai`, or `groq`)
+- `CODEXUI_TRANSCRIBE_PROVIDER` (`standard`, `auto`, `openai`, or `groq`)
 - `CODEXUI_TRANSCRIBE_BASE_URL`
 - `CODEXUI_TRANSCRIBE_MODEL`
 - `CODEXUI_TRANSCRIBE_LANGUAGE`
+
+Current Hetzner deployment notes:
+
+- service env file: `/home/rnl1/.config/codexui/env`
+- Codex auth file: `/home/rnl1/.codex/auth.json`
+- current standard voice mode: `CODEXUI_TRANSCRIBE_PROVIDER=standard`
+- curl impersonation helper: `/home/rnl1/.local/bin/curl-impersonate-chrome`
+- restart after auth/env changes: `cd ~/prog/codexUI && bash scripts/restart-codexui-service.sh --follow`
 
 Set `CODEXUI_TRANSCRIBE_PROVIDER=openai` to test OpenAI transcription while leaving existing Groq environment variables in place.
 OpenAI uses `whisper-1` by default.
