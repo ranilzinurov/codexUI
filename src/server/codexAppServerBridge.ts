@@ -1,7 +1,7 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import { mkdtemp, readFile, readdir, rename, rm, mkdir, stat, cp, lstat, readlink, symlink } from 'node:fs/promises'
-import { createReadStream, readFileSync } from 'node:fs'
+import { createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
@@ -19,10 +19,16 @@ import {
   getFreeKeyCount,
   FREE_MODE_PROVIDER_ID,
   FREE_MODE_DEFAULT_MODEL,
+  getCachedFreeModels,
   getFreeModels,
+  refreshFreeModelsInBackground,
   FREE_MODE_STATE_FILE,
+  OPENCODE_ZEN_DEFAULT_MODEL,
+  OPENCODE_ZEN_PROVIDER_ID,
+  createDefaultOpenCodeZenFreeModeState,
   getFreeModeConfigArgs,
   getFreeModeEnvVars,
+  shouldCreateDefaultFreeModeStateForMissingAuth,
   type FreeModeState,
 } from './freeMode.js'
 import { handleOpenRouterProxyRequest } from './openRouterProxy.js'
@@ -38,6 +44,8 @@ import {
   resolveCodexCommand,
   resolveRipgrepCommand,
 } from '../commandResolution.js'
+import type { CollaborationModeKind, ReasoningEffort } from '../types/codex.js'
+import { isAbsoluteLikePath } from '../pathUtils.js'
 
 type JsonRpcCall = {
   jsonrpc: '2.0'
@@ -62,6 +70,10 @@ type RpcProxyRequest = {
   params?: unknown
 }
 
+type RpcExecutor = {
+  rpc: (method: string, params: unknown) => Promise<unknown>
+}
+
 type ServerRequestReply = {
   result?: unknown
   error?: {
@@ -74,6 +86,13 @@ type WorkspaceRootsState = {
   order: string[]
   labels: Record<string, string>
   active: string[]
+  projectOrder: string[]
+  remoteProjects: Array<{
+    id: string
+    hostId: string
+    remotePath: string
+    label: string
+  }>
 }
 
 type PendingServerRequest = {
@@ -81,6 +100,17 @@ type PendingServerRequest = {
   method: string
   params: unknown
   receivedAtIso: string
+}
+
+type ChatgptAuthTokensRefreshParams = {
+  reason?: string
+  previousAccountId?: string | null
+}
+
+type ChatgptAuthTokensRefreshResponse = {
+  accessToken: string
+  chatgptAccountId: string
+  chatgptPlanType: string | null
 }
 
 type ThreadSearchDocument = {
@@ -95,26 +125,113 @@ type ThreadSearchIndex = {
   docsById: Map<string, ThreadSearchDocument>
 }
 
-type GithubTrendingItem = {
-  id: number
-  fullName: string
-  url: string
-  description: string
-  language: string
-  stars: number
-}
-
 type ProviderModelsResponse = {
   data: string[]
   providerId: string
   source: 'provider'
 }
 
+type ComposioUserData = {
+  apiKey: string
+  baseUrl: string
+  webUrl: string
+  orgId: string
+  testUserId: string
+}
+
+type ComposioStatusResponse = {
+  available: boolean
+  authenticated: boolean
+  cliVersion: string
+  email: string
+  defaultOrgName: string
+  defaultOrgId: string
+  webUrl: string
+  baseUrl: string
+  testUserId: string
+}
+
+type ComposioConnectionSummary = {
+  id: string
+  wordId: string
+  alias: string
+  status: string
+  authScheme: string
+  createdAt: string
+  updatedAt: string
+  isComposioManaged: boolean
+  isDisabled: boolean
+}
+
+type ComposioConnectorSummary = {
+  slug: string
+  name: string
+  description: string
+  logoUrl: string
+  latestVersion: string
+  toolsCount: number
+  triggersCount: number
+  isNoAuth: boolean
+  enabled: boolean
+  authModes: string[]
+  activeCount: number
+  totalConnections: number
+  connectionStatuses: string[]
+}
+
+type ComposioToolSummary = {
+  slug: string
+  name: string
+  description: string
+}
+
+type ComposioConnectorDetail = {
+  connector: ComposioConnectorSummary
+  connections: ComposioConnectionSummary[]
+  tools: ComposioToolSummary[]
+  dashboardUrl: string
+}
+
+type ComposioLinkResult = {
+  status: string
+  message: string
+  connectedAccountId: string
+  redirectUrl: string
+  toolkit: string
+  projectType: string
+}
+
+type ComposioLoginResult = {
+  status: string
+  message: string
+  loginUrl: string
+  cliKey: string
+  expiresAt: string
+}
+
+type ComposioInstallResult = {
+  ok: boolean
+  command: string
+  output: string
+}
+
+type ComposioConnectorPage = {
+  data: ComposioConnectorSummary[]
+  nextCursor: string | null
+  total: number
+}
+
+const COMPOSIO_CONNECTORS_PAGE_LIMIT_MAX = 1000
+
 const PROVIDER_MODELS_FETCH_TIMEOUT_MS = 5_000
 
 const THREAD_RESPONSE_TURN_LIMIT = 10
+const THREAD_TURN_PAGE_READ_CACHE_TTL_MS = 30_000
 const THREAD_METHODS_WITH_TURNS = new Set(['thread/read', 'thread/resume', 'thread/fork', 'thread/rollback'])
+const THREAD_METHODS_WITH_THREAD_SNAPSHOT = new Set([...THREAD_METHODS_WITH_TURNS, 'thread/start'])
 const THREAD_SEARCH_FULL_TEXT_THREAD_LIMIT = 100
+const PROJECTLESS_THREAD_DIRECTORY_MAX_ATTEMPTS = 100
+const PROJECTLESS_THREAD_SLUG_MAX_LENGTH = 80
 const API_PERF_LOGGING_ENV_KEY = 'CODEXUI_API_PERF_LOGGING'
 const API_PERF_MS_THRESHOLD_ENV_KEY = 'CODEXUI_API_PERF_MS_THRESHOLD'
 const API_PERF_BODY_MB_THRESHOLD_ENV_KEY = 'CODEXUI_API_PERF_BODY_MB_THRESHOLD'
@@ -160,6 +277,7 @@ type CodexCliUpdateStatus = {
   lastUpdateError: string | null
 }
 const MB_DIVISOR = 1024 * 1024
+const COMPOSIO_USER_DATA_PATH = join(homedir(), '.composio', 'user_data.json')
 
 type SessionRecoveredFileChange = {
   path: string
@@ -176,6 +294,191 @@ type SessionRecoveredTurnFileChanges = {
   durationMs: number | null
   completedAt: number | null
   fileChanges: SessionRecoveredFileChange[]
+}
+
+type SessionRecoveredSkillInput = {
+  name: string
+  path: string
+}
+
+type SessionSkillInputCacheEntry = {
+  size: number
+  mtimeMs: number
+  skillsByTurnId: Map<string, SessionRecoveredSkillInput[]>
+}
+
+const SESSION_SKILL_INPUT_CACHE_LIMIT = 64
+const sessionSkillInputCache = new Map<string, SessionSkillInputCacheEntry>()
+
+function parseSessionSkillText(value: string): SessionRecoveredSkillInput | null {
+  const trimmed = value.trim()
+  if (!trimmed.startsWith('<skill>')) return null
+  const name = trimmed.match(/<name>\s*([\s\S]*?)\s*<\/name>/u)?.[1]?.trim() ?? ''
+  const path = trimmed.match(/<path>\s*([\s\S]*?)\s*<\/path>/u)?.[1]?.trim() ?? ''
+  if (!name || !path) return null
+  return { name, path }
+}
+
+function buildSessionSkillInputsByTurn(sessionLogRaw: string): Map<string, SessionRecoveredSkillInput[]> {
+  let currentTurnId = ''
+  const skillsByTurnId = new Map<string, SessionRecoveredSkillInput[]>()
+
+  for (const line of sessionLogRaw.split('\n')) {
+    if (!line.trim()) continue
+    let row: Record<string, unknown> | null = null
+    try {
+      row = JSON.parse(line) as Record<string, unknown>
+    } catch {
+      continue
+    }
+
+    if (row.type === 'turn_context') {
+      const payloadRecord = asRecord(row.payload)
+      currentTurnId = readNonEmptyString(payloadRecord?.turn_id) || currentTurnId
+      continue
+    }
+    if (row.type === 'event_msg') {
+      const payloadRecord = asRecord(row.payload)
+      if (payloadRecord?.type === 'task_started') {
+        currentTurnId = readNonEmptyString(payloadRecord.turn_id) || currentTurnId
+      }
+      continue
+    }
+
+    if (row.type !== 'response_item' || !currentTurnId) continue
+    const payloadRecord = asRecord(row.payload)
+    if (payloadRecord?.type !== 'message' || payloadRecord.role !== 'user') continue
+    const content = Array.isArray(payloadRecord.content) ? payloadRecord.content : []
+
+    for (const contentItem of content) {
+      const contentRecord = asRecord(contentItem)
+      if (contentRecord?.type !== 'input_text' || typeof contentRecord.text !== 'string') continue
+      const skill = parseSessionSkillText(contentRecord.text)
+      if (!skill) continue
+      const existing = skillsByTurnId.get(currentTurnId) ?? []
+      if (!existing.some((item) => item.path === skill.path)) {
+        existing.push(skill)
+        skillsByTurnId.set(currentTurnId, existing)
+      }
+    }
+  }
+
+  return skillsByTurnId
+}
+
+async function readCachedSessionSkillInputsByTurn(sessionPath: string): Promise<Map<string, SessionRecoveredSkillInput[]>> {
+  const sessionStat = await stat(sessionPath)
+  const cached = sessionSkillInputCache.get(sessionPath)
+  if (cached && cached.size === sessionStat.size && cached.mtimeMs === sessionStat.mtimeMs) {
+    return cached.skillsByTurnId
+  }
+
+  const sessionLogRaw = await readFile(sessionPath, 'utf8')
+  const skillsByTurnId = buildSessionSkillInputsByTurn(sessionLogRaw)
+  sessionSkillInputCache.set(sessionPath, {
+    size: sessionStat.size,
+    mtimeMs: sessionStat.mtimeMs,
+    skillsByTurnId,
+  })
+  if (sessionSkillInputCache.size > SESSION_SKILL_INPUT_CACHE_LIMIT) {
+    const oldestKey = sessionSkillInputCache.keys().next().value
+    if (oldestKey) sessionSkillInputCache.delete(oldestKey)
+  }
+  return skillsByTurnId
+}
+
+function mergeSessionSkillInputsIntoTurnsFromMap(
+  turns: unknown[],
+  skillsByTurnId: Map<string, SessionRecoveredSkillInput[]>,
+): unknown[] {
+  const turnIds = new Set<string>()
+  for (const turn of turns) {
+    const turnRecord = asRecord(turn)
+    const turnId = readNonEmptyString(turnRecord?.id)
+    if (turnId) turnIds.add(turnId)
+  }
+  if (turnIds.size === 0) return turns
+
+  if (skillsByTurnId.size === 0) return turns
+
+  let changed = false
+  const nextTurns = turns.map((turn) => {
+    const turnRecord = asRecord(turn)
+    const turnId = readNonEmptyString(turnRecord?.id)
+    const skills = turnId ? skillsByTurnId.get(turnId) : undefined
+    const items = Array.isArray(turnRecord?.items) ? turnRecord.items : null
+    if (!turnRecord || !skills || skills.length === 0 || !items) return turn
+
+    let targetUserMessageIndex = -1
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      const itemRecord = asRecord(items[index])
+      if (itemRecord?.type === 'userMessage' && Array.isArray(itemRecord.content)) {
+        targetUserMessageIndex = index
+        break
+      }
+    }
+    if (targetUserMessageIndex < 0) return turn
+
+    let addedToMessage = false
+    const nextItems = items.map((item, index) => {
+      const itemRecord = asRecord(item)
+      const content = Array.isArray(itemRecord?.content) ? itemRecord.content : null
+      if (index !== targetUserMessageIndex || itemRecord?.type !== 'userMessage' || !content) return item
+
+      const existingSkillPaths = new Set(
+        content.flatMap((contentItem) => {
+          const contentRecord = asRecord(contentItem)
+          const path = typeof contentRecord?.path === 'string' ? contentRecord.path.trim() : ''
+          return contentRecord?.type === 'skill' && path ? [path] : []
+        }),
+      )
+      const missingSkills = skills.filter((skill) => !existingSkillPaths.has(skill.path))
+      if (missingSkills.length === 0) return item
+
+      addedToMessage = true
+      changed = true
+      return {
+        ...itemRecord,
+        content: [
+          ...content,
+          ...missingSkills.map((skill) => ({ type: 'skill', name: skill.name, path: skill.path })),
+        ],
+      }
+    })
+
+    return addedToMessage ? { ...turnRecord, items: nextItems } : turn
+  })
+
+  return changed ? nextTurns : turns
+}
+
+export function mergeSessionSkillInputsIntoTurns(turns: unknown[], sessionLogRaw: string): unknown[] {
+  return mergeSessionSkillInputsIntoTurnsFromMap(turns, buildSessionSkillInputsByTurn(sessionLogRaw))
+}
+
+async function mergeSessionSkillInputsIntoThreadResult(result: unknown): Promise<unknown> {
+  const record = asRecord(result)
+  const thread = asRecord(record?.thread)
+  const turns = Array.isArray(thread?.turns) ? thread.turns : null
+  const sessionPath = readNonEmptyString(thread?.path)
+  if (!record || !thread || !turns || turns.length === 0 || !sessionPath || !isAbsolute(sessionPath)) {
+    return result
+  }
+
+  try {
+    const skillsByTurnId = await readCachedSessionSkillInputsByTurn(sessionPath)
+    const mergedTurns = mergeSessionSkillInputsIntoTurnsFromMap(turns, skillsByTurnId)
+    if (mergedTurns === turns) return result
+    return {
+      ...record,
+      thread: {
+        ...thread,
+        turns: mergedTurns,
+      },
+    }
+  } catch {
+    return result
+  }
 }
 
 function readEnvValueFromFile(filePath: string, key: string): string | null {
@@ -267,13 +570,74 @@ function isInlineDataUrl(value: string): boolean {
   return /^data:/iu.test(value.trim())
 }
 
+function inferImageMimeTypeFromBytes(bytes: Uint8Array): string | null {
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
+  ) {
+    return 'image/png'
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return 'image/jpeg'
+  }
+  if (
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  ) {
+    return 'image/webp'
+  }
+  if (
+    bytes.length >= 6 &&
+    bytes[0] === 0x47 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x38 &&
+    (bytes[4] === 0x37 || bytes[4] === 0x39) &&
+    bytes[5] === 0x61
+  ) {
+    return 'image/gif'
+  }
+  return null
+}
+
+function inferImageMimeTypeFromBase64(value: string): string | null {
+  const compact = value.trim().replace(/\s+/gu, '')
+  if (compact.length < 32 || !/^[A-Za-z0-9+/]+={0,2}$/u.test(compact)) return null
+  try {
+    return inferImageMimeTypeFromBytes(Buffer.from(compact.slice(0, 64), 'base64'))
+  } catch {
+    return null
+  }
+}
+
 function normalizeBase64ImageDataUrl(value: string, mimeType: string): string | null {
   const trimmed = value.trim()
   if (!trimmed) return null
-  if (isInlineDataUrl(trimmed)) return trimmed
+  if (isInlineDataUrl(trimmed)) {
+    return /^data:image\//iu.test(trimmed) ? trimmed : null
+  }
   const compact = trimmed.replace(/\s+/gu, '')
-  if (!/^[A-Za-z0-9+/]+={0,2}$/u.test(compact)) return null
-  return `data:${mimeType};base64,${compact}`
+  const inferredMimeType = inferImageMimeTypeFromBase64(compact)
+  if (!inferredMimeType) return null
+  const normalizedMimeType = mimeType.trim().toLowerCase()
+  const finalMimeType = normalizedMimeType.startsWith('image/') && normalizedMimeType !== 'image/*'
+    ? normalizedMimeType
+    : inferredMimeType
+  return `data:${finalMimeType};base64,${compact}`
 }
 
 function extensionFromMimeType(mimeType: string): string {
@@ -338,9 +702,49 @@ function toLocalImageProxyUrl(path: string): string {
   return `/codex-local-image?path=${encodeURIComponent(path)}`
 }
 
+const INLINE_IMAGE_FIELD_NAMES = new Set([
+  'b64_json',
+  'image',
+  'image_url',
+  'images',
+  'result',
+  'url',
+])
+
+type InlinePayloadSanitizeContext = {
+  turnId: string
+  itemId: string
+  blockIndex: number
+  fieldName?: string
+}
+
+function isPotentialInlineImageField(fieldName: string | undefined): boolean {
+  return typeof fieldName === 'string' && INLINE_IMAGE_FIELD_NAMES.has(fieldName)
+}
+
+async function sanitizeInlineImageString(
+  value: string,
+  context: InlinePayloadSanitizeContext,
+): Promise<{ value: string; changed: boolean }> {
+  if (!isPotentialInlineImageField(context.fieldName)) {
+    return { value, changed: false }
+  }
+
+  const dataUrl = normalizeBase64ImageDataUrl(value, 'image/*')
+  if (!dataUrl) return { value, changed: false }
+
+  const localUrl = await persistInlineDataUrlToLocalFile(
+    dataUrl,
+    `inline-image-${context.turnId}-${context.itemId}-${context.fieldName}-${String(context.blockIndex)}`,
+  )
+  if (!localUrl) return { value, changed: false }
+
+  return { value: toLocalImageProxyUrl(localUrl), changed: true }
+}
+
 async function sanitizeInlineUserContentBlock(
   block: unknown,
-  context: { turnId: string; itemId: string; blockIndex: number },
+  context: InlinePayloadSanitizeContext,
 ): Promise<unknown> {
   const record = asRecord(block)
   if (!record) return block
@@ -350,10 +754,16 @@ async function sanitizeInlineUserContentBlock(
   if (imageUrl && isInlineDataUrl(imageUrl)) {
     const localUrl = await persistInlineDataUrlToLocalFile(imageUrl, `inline-image-${context.turnId}-${context.itemId}-${String(context.blockIndex)}`)
     if (localUrl) {
+      const nextRecord = { ...record }
+      if (typeof record.url === 'string') {
+        nextRecord.url = toLocalImageProxyUrl(localUrl)
+      }
+      if (typeof record.image_url === 'string') {
+        nextRecord.image_url = toLocalImageProxyUrl(localUrl)
+      }
       return {
-        ...record,
+        ...nextRecord,
         type: 'image',
-        url: toLocalImageProxyUrl(localUrl),
       }
     }
     const target = toAttachmentLinkTarget(record, `inline-image/${context.turnId}/${context.itemId}/${String(context.blockIndex)}`)
@@ -408,11 +818,15 @@ async function sanitizeInlineUserContentBlock(
 
 async function sanitizeInlinePayloadDeep(
   value: unknown,
-  context: { turnId: string; itemId: string; blockIndex: number },
+  context: InlinePayloadSanitizeContext,
 ): Promise<{ value: unknown; changed: boolean }> {
   const maybeBlock = await sanitizeInlineUserContentBlock(value, context)
   if (maybeBlock !== value) {
     return { value: maybeBlock, changed: true }
+  }
+
+  if (typeof value === 'string') {
+    return sanitizeInlineImageString(value, context)
   }
 
   if (Array.isArray(value)) {
@@ -423,6 +837,7 @@ async function sanitizeInlinePayloadDeep(
         turnId: context.turnId,
         itemId: context.itemId,
         blockIndex: index,
+        fieldName: context.fieldName,
       })
       if (nested.changed) changed = true
       nextArray.push(nested.value)
@@ -440,6 +855,7 @@ async function sanitizeInlinePayloadDeep(
       turnId: context.turnId,
       itemId: context.itemId,
       blockIndex: context.blockIndex,
+      fieldName: key,
     })
     if (nested.changed) changed = true
     nextRecord[key] = nested.value
@@ -448,7 +864,7 @@ async function sanitizeInlinePayloadDeep(
   return changed ? { value: nextRecord, changed: true } : { value, changed: false }
 }
 
-async function sanitizeThreadTurnsInlinePayloads(method: string, result: unknown): Promise<unknown> {
+export async function sanitizeThreadTurnsInlinePayloads(method: string, result: unknown): Promise<unknown> {
   if (!THREAD_METHODS_WITH_TURNS.has(method)) return result
 
   const record = asRecord(result)
@@ -519,12 +935,14 @@ function trimThreadTurnsInRpcResult(method: string, result: unknown): unknown {
   const thread = asRecord(record?.thread)
   const turns = Array.isArray(thread?.turns) ? thread.turns : null
   if (!record || !thread || !turns || turns.length <= THREAD_RESPONSE_TURN_LIMIT) return result
+  const startTurnIndex = Math.max(0, turns.length - THREAD_RESPONSE_TURN_LIMIT)
 
   return {
     ...record,
+    threadTurnStartIndex: startTurnIndex,
     thread: {
       ...thread,
-      turns: turns.slice(-THREAD_RESPONSE_TURN_LIMIT),
+      turns: turns.slice(startTurnIndex),
     },
   }
 }
@@ -552,6 +970,52 @@ function isAccountRateLimitsUnavailableError(method: string, payload: unknown): 
   if (method !== 'account/rateLimits/read') return false
   const normalized = getErrorMessage(payload, '').trim().toLowerCase()
   return normalized.includes('account authentication required to read rate limits')
+}
+
+export function isUnauthenticatedRateLimitError(error: unknown): boolean {
+  const message = getErrorMessage(error, '').toLowerCase()
+  return message.includes('authentication required') && message.includes('rate limits')
+}
+
+export function isEmptyThreadReadError(error: unknown): boolean {
+  const message = getErrorMessage(error, '').toLowerCase()
+  return message.includes('failed to read thread') && message.includes('rollout') && message.includes('is empty')
+}
+
+const warnedCodexAuthReadFailures = new Set<string>()
+
+function getErrorCode(error: unknown): string | null {
+  return typeof error === 'object' && error !== null && 'code' in error
+    ? String((error as { code?: unknown }).code ?? '')
+    : null
+}
+
+function getCodexAuthReadErrorMessage(error: unknown): string {
+  return error instanceof Error && error.message.trim().length > 0
+    ? error.message
+    : String(error)
+}
+
+function warnCodexAuthReadFailure(authPath: string, error: unknown): void {
+  const message = getCodexAuthReadErrorMessage(error)
+  const warningKey = `${authPath}:${message}`
+  if (warnedCodexAuthReadFailures.has(warningKey)) return
+  warnedCodexAuthReadFailures.add(warningKey)
+  console.warn('[codex-auth] Unable to read Codex auth state', { path: authPath, error: message })
+}
+
+export async function hasUsableCodexAuth(): Promise<boolean> {
+  const authPath = getCodexAuthPath()
+  try {
+    const raw = await readFile(authPath, 'utf8')
+    const auth = JSON.parse(raw) as CodexAuth
+    return Boolean(auth.tokens?.access_token?.trim() || auth.tokens?.refresh_token?.trim())
+  } catch (error) {
+    if (getErrorCode(error) !== 'ENOENT') {
+      warnCodexAuthReadFailure(authPath, error)
+    }
+    return false
+  }
 }
 
 function setJson(res: ServerResponse, statusCode: number, payload: unknown): void {
@@ -992,6 +1456,113 @@ function isTimeoutError(payload: unknown): boolean {
   return payload instanceof Error && (payload.name === 'AbortError' || payload.name === 'TimeoutError')
 }
 
+function formatProjectlessDateSegment(date = new Date()): string {
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
+function buildProjectlessPromptSlug(prompt: string | null): string {
+  const slug = prompt
+    ?.toLowerCase()
+    .match(/[a-z0-9]+/g)
+    ?.slice(0, 6)
+    .join('-')
+    .slice(0, PROJECTLESS_THREAD_SLUG_MAX_LENGTH)
+  return slug && slug.length > 0 ? slug : 'new-chat'
+}
+
+async function ensureRealDirectory(path: string, label: string): Promise<void> {
+  const info = await lstat(path)
+  if (info.isSymbolicLink() || !info.isDirectory()) {
+    throw new Error(`${label} must be a real directory`)
+  }
+}
+
+async function createProjectlessThreadDirectory(prompt: string | null): Promise<{ cwd: string; outputDirectory: string; workspaceRoot: string }> {
+  const workspaceRoot = join(homedir(), 'Documents', 'Codex')
+  await mkdir(workspaceRoot, { recursive: true })
+  await ensureRealDirectory(workspaceRoot, 'Projectless workspace root')
+
+  const dateDir = join(workspaceRoot, formatProjectlessDateSegment())
+  await mkdir(dateDir, { recursive: true })
+  await ensureRealDirectory(dateDir, 'Projectless thread date directory')
+
+  const slug = buildProjectlessPromptSlug(prompt)
+  for (let index = 0; index < PROJECTLESS_THREAD_DIRECTORY_MAX_ATTEMPTS; index += 1) {
+    const folderName = index === 0 ? slug : `${slug}-${index + 1}`
+    const cwd = join(dateDir, folderName)
+    try {
+      await mkdir(cwd, { recursive: false })
+      return { cwd, outputDirectory: cwd, workspaceRoot }
+    } catch {
+      try {
+        await stat(cwd)
+      } catch {
+        throw new Error('Failed to create new chat folder')
+      }
+    }
+  }
+
+  throw new Error('Unable to create a unique new chat folder')
+}
+
+function normalizeGithubCloneUrl(rawUrl: string): { url: string; repoName: string } {
+  const trimmedUrl = rawUrl.trim()
+  if (!trimmedUrl) throw new Error('Missing GitHub repository URL')
+
+  const sshMatch = trimmedUrl.match(/^git@github\.com:([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?$/u)
+  if (sshMatch) {
+    const repoName = sshMatch[2]
+    return { url: `git@github.com:${sshMatch[1]}/${repoName}.git`, repoName }
+  }
+
+  let parsed: URL
+  try {
+    parsed = new URL(trimmedUrl)
+  } catch {
+    throw new Error('Enter a valid GitHub repository URL')
+  }
+  if (parsed.hostname.toLowerCase() !== 'github.com') {
+    throw new Error('Only github.com repository URLs are supported')
+  }
+  const segments = parsed.pathname.split('/').filter(Boolean)
+  if (segments.length < 2) {
+    throw new Error('Enter a GitHub repository URL with owner and repository name')
+  }
+  const owner = segments[0]
+  const repoName = segments[1].replace(/\.git$/iu, '')
+  if (!/^[A-Za-z0-9_.-]+$/u.test(owner) || !/^[A-Za-z0-9_.-]+$/u.test(repoName)) {
+    throw new Error('GitHub repository owner or name contains unsupported characters')
+  }
+  return { url: `https://github.com/${owner}/${repoName}.git`, repoName }
+}
+
+async function cloneGithubRepositoryIntoBase(rawUrl: string, rawBasePath: string): Promise<string> {
+  const basePath = rawBasePath.trim()
+  if (!basePath) throw new Error('Missing clone destination folder')
+  const normalizedBasePath = isAbsolute(basePath) ? basePath : resolve(basePath)
+  await ensureRealDirectory(normalizedBasePath, 'Clone destination folder')
+
+  const { url, repoName } = normalizeGithubCloneUrl(rawUrl)
+  const targetPath = join(normalizedBasePath, repoName)
+  try {
+    await stat(targetPath)
+    throw new Error(`Destination already exists: ${targetPath}`)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error
+  }
+
+  try {
+    await runCommand('git', ['clone', url, targetPath], { cwd: normalizedBasePath, timeoutMs: 5 * 60_000 })
+  } catch (error) {
+    await rm(targetPath, { recursive: true, force: true }).catch(() => undefined)
+    throw error
+  }
+  await persistWorkspaceRoot(targetPath, '')
+  return targetPath
+}
+
 function normalizeHeaderValue(value: unknown): string | null {
   if (typeof value === 'string') {
     const trimmed = value.trim()
@@ -1059,6 +1630,25 @@ async function fetchCustomEndpointDefaultModel(baseUrl: string, apiKey: string):
   } catch {
     return ''
   }
+}
+
+async function fetchOpenCodeZenModelIds(apiKey: string | null | undefined): Promise<string[]> {
+  const headers: Record<string, string> = {}
+  if (apiKey && apiKey !== 'dummy') {
+    headers.Authorization = `Bearer ${apiKey}`
+  }
+  const response = await fetch('https://opencode.ai/zen/v1/models', {
+    headers,
+    signal: AbortSignal.timeout(PROVIDER_MODELS_FETCH_TIMEOUT_MS),
+  })
+  if (!response.ok) return []
+  return normalizeProviderModelsData(await response.json() as unknown)
+}
+
+function sortOpenCodeZenModelIds(modelIds: string[]): string[] {
+  const freeIds = modelIds.filter((id) => id.endsWith('-free') || id === OPENCODE_ZEN_DEFAULT_MODEL)
+  const paidIds = modelIds.filter((id) => !id.endsWith('-free') && id !== OPENCODE_ZEN_DEFAULT_MODEL)
+  return [...freeIds, ...paidIds]
 }
 
 async function readProviderBackedModelIds(appServer: AppServerProcess): Promise<ProviderModelsResponse> {
@@ -1214,6 +1804,601 @@ function extractThreadMessageText(threadReadPayload: unknown): string {
 
 function readNonEmptyString(value: unknown): string {
   return typeof value === 'string' && value.trim().length > 0 ? value : ''
+}
+
+function readThreadArchiveFallbackName(threadReadResult: unknown): string {
+  const record = asRecord(threadReadResult)
+  const thread = asRecord(record?.thread)
+  return (
+    readNonEmptyString(thread?.name)
+    || readNonEmptyString(thread?.title)
+    || readNonEmptyString(thread?.preview)
+    || 'Untitled thread'
+  )
+}
+
+function isArchivedThreadReadResult(threadReadResult: unknown): boolean {
+  const record = asRecord(threadReadResult)
+  const thread = asRecord(record?.thread)
+  const sessionPath = readNonEmptyString(thread?.path)
+  return sessionPath.split(/[\\/]+/u).includes('archived_sessions')
+}
+
+export async function callRpcWithArchiveRecovery(
+  appServer: RpcExecutor,
+  method: string,
+  params: unknown,
+): Promise<unknown> {
+  try {
+    return await appServer.rpc(method, params ?? null)
+  } catch (error) {
+    if (method !== 'thread/archive') {
+      throw error
+    }
+
+    const paramsRecord = asRecord(params)
+    const threadId = readNonEmptyString(paramsRecord?.threadId)
+    const errorMessage = getErrorMessage(error, '')
+    if (!threadId || !errorMessage.includes('no rollout found')) {
+      throw error
+    }
+
+    let threadReadResult: unknown = null
+    try {
+      threadReadResult = await appServer.rpc('thread/read', {
+        threadId,
+        includeTurns: false,
+      })
+      if (isArchivedThreadReadResult(threadReadResult)) {
+        return null
+      }
+    } catch {
+      // If metadata cannot be read, still try materializing a title before retrying archive.
+    }
+
+    await appServer.rpc('thread/name/set', {
+      threadId,
+      name: readThreadArchiveFallbackName(threadReadResult),
+    })
+    return appServer.rpc(method, params ?? null)
+  }
+}
+
+type TerminalQuickCommand = {
+  label: string
+  value: string
+  source: 'package' | 'script' | 'make'
+}
+
+async function listTerminalQuickCommands(cwd: string): Promise<TerminalQuickCommand[]> {
+  const normalizedCwd = isAbsolute(cwd) ? cwd : resolve(cwd)
+  const info = await stat(normalizedCwd)
+  if (!info.isDirectory()) {
+    throw new Error('Terminal cwd is not a directory')
+  }
+
+  const commands: TerminalQuickCommand[] = []
+  const seen = new Set<string>()
+  const addCommand = (command: TerminalQuickCommand) => {
+    if (!command.value || seen.has(command.value)) return
+    seen.add(command.value)
+    commands.push(command)
+  }
+
+  await addPackageJsonCommands(normalizedCwd, addCommand)
+  await addMakefileCommands(normalizedCwd, addCommand)
+  await addRootScriptCommands(normalizedCwd, addCommand)
+  await addScriptsDirectoryCommands(normalizedCwd, addCommand)
+  return commands
+}
+
+async function addPackageJsonCommands(
+  cwd: string,
+  addCommand: (command: TerminalQuickCommand) => void,
+): Promise<void> {
+  try {
+    const raw = await readFile(join(cwd, 'package.json'), 'utf8')
+    const parsed = JSON.parse(raw) as unknown
+    const record = asRecord(parsed)
+    const scripts = asRecord(record?.scripts)
+    if (!scripts) return
+    const packageManager = resolvePackageManager(cwd)
+    for (const scriptName of Object.keys(scripts)) {
+      if (typeof scripts[scriptName] !== 'string') continue
+      const value = formatPackageScriptCommand(packageManager, scriptName)
+      addCommand({
+        label: value,
+        value,
+        source: 'package',
+      })
+    }
+  } catch {
+    // A project without package.json simply has no package quick commands.
+  }
+}
+
+async function addMakefileCommands(
+  cwd: string,
+  addCommand: (command: TerminalQuickCommand) => void,
+): Promise<void> {
+  const makefilePath = existsSync(join(cwd, 'Makefile'))
+    ? join(cwd, 'Makefile')
+    : existsSync(join(cwd, 'makefile'))
+      ? join(cwd, 'makefile')
+      : ''
+  if (!makefilePath) return
+
+  try {
+    const raw = await readFile(makefilePath, 'utf8')
+    for (const line of raw.split(/\r?\n/)) {
+      const match = /^([A-Za-z0-9_.@%/+~-][A-Za-z0-9_.@%/+~-]*)\s*:(?![=])/.exec(line)
+      if (!match) continue
+      const target = match[1]
+      if (!target || target.startsWith('.')) continue
+      const value = `make ${quoteShellTokenIfNeeded(target)}`
+      addCommand({
+        label: value,
+        value,
+        source: 'make',
+      })
+    }
+  } catch {
+    // Ignore unreadable Makefiles for quick-command discovery.
+  }
+}
+
+async function addRootScriptCommands(
+  cwd: string,
+  addCommand: (command: TerminalQuickCommand) => void,
+): Promise<void> {
+  await addScriptFileCommands(cwd, '.', addCommand)
+}
+
+async function addScriptsDirectoryCommands(
+  cwd: string,
+  addCommand: (command: TerminalQuickCommand) => void,
+): Promise<void> {
+  await addScriptFileCommands(join(cwd, 'scripts'), './scripts', addCommand)
+}
+
+async function addScriptFileCommands(
+  directory: string,
+  commandPrefix: string,
+  addCommand: (command: TerminalQuickCommand) => void,
+): Promise<void> {
+  try {
+    const entries = await readdir(directory, { withFileTypes: true })
+    for (const entry of entries) {
+      if (!entry.isFile()) continue
+      if (!entry.name.endsWith('.sh') && !entry.name.endsWith('.cmd')) continue
+      const value = `${commandPrefix}/${quoteShellTokenIfNeeded(entry.name)}`
+      addCommand({
+        label: value,
+        value,
+        source: 'script',
+      })
+    }
+  } catch {
+    // A project without script files simply has no script-file quick commands.
+  }
+}
+
+function resolvePackageManager(cwd: string): 'npm' | 'pnpm' | 'yarn' | 'bun' {
+  if (existsSync(join(cwd, 'pnpm-lock.yaml'))) return 'pnpm'
+  if (existsSync(join(cwd, 'yarn.lock'))) return 'yarn'
+  if (existsSync(join(cwd, 'bun.lock')) || existsSync(join(cwd, 'bun.lockb'))) return 'bun'
+  return 'npm'
+}
+
+function formatPackageScriptCommand(packageManager: 'npm' | 'pnpm' | 'yarn' | 'bun', scriptName: string): string {
+  const quoted = quoteShellTokenIfNeeded(scriptName)
+  if (packageManager === 'npm') return `npm run ${quoted}`
+  if (packageManager === 'pnpm') return `pnpm run ${quoted}`
+  if (packageManager === 'bun') return `bun run ${quoted}`
+  return `yarn ${quoted}`
+}
+
+function quoteShellTokenIfNeeded(value: string): string {
+  return /^[A-Za-z0-9_./:@-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+function readBoolean(value: unknown): boolean {
+  return value === true
+}
+
+function readNumber(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+type ComposioCliInvocation = { command: string; args: string[]; displayCommand: string }
+
+function buildComposioInvocation(args: string[]): ComposioCliInvocation | null {
+  const overrideCommand = process.env.CODEXUI_COMPOSIO_COMMAND?.trim()
+  if (overrideCommand) {
+    const invocation = getSpawnInvocation(overrideCommand, args)
+    return {
+      command: invocation.command,
+      args: invocation.args,
+      displayCommand: `${overrideCommand} ${args.map(quoteShellTokenIfNeeded).join(' ')}`.trim(),
+    }
+  }
+  return buildInstalledComposioInvocation(args)
+}
+
+function buildInstalledComposioInvocation(args: string[]): ComposioCliInvocation | null {
+  const candidates = [
+    join(homedir(), '.composio', 'composio'),
+    'composio',
+  ]
+  for (const candidate of candidates) {
+    if ((candidate.includes('/') || candidate.includes('\\')) && !existsSync(candidate)) continue
+    const invocation = getSpawnInvocation(candidate, args)
+    return {
+      command: invocation.command,
+      args: invocation.args,
+      displayCommand: `${candidate} ${args.map(quoteShellTokenIfNeeded).join(' ')}`.trim(),
+    }
+  }
+  return null
+}
+
+function probeComposioInvocation(invocation: ComposioCliInvocation): { available: boolean; cliVersion: string; output: string } {
+  const probe = spawnSync(invocation.command, invocation.args, {
+    encoding: 'utf8',
+    env: process.env,
+    windowsHide: true,
+  })
+  const output = `${probe.stdout ?? ''}${probe.stderr ?? ''}`.trim()
+  return {
+    available: !probe.error && probe.status === 0,
+    cliVersion: probe.status === 0 ? (probe.stdout ?? '').trim() : '',
+    output,
+  }
+}
+
+function resolveComposioInvocation(args: string[]): ComposioCliInvocation | null {
+  const invocation = buildComposioInvocation(args)
+  const versionInvocation = buildComposioInvocation(['--version'])
+  if (invocation && versionInvocation && probeComposioInvocation(versionInvocation).available) return invocation
+  return null
+}
+
+function parseComposioJson<T>(stdout: string, fallback: string): T {
+  const trimmed = stdout.trim()
+  if (!trimmed) {
+    throw new Error(fallback)
+  }
+  return JSON.parse(trimmed) as T
+}
+
+async function runComposioJson<T>(args: string[], fallback: string): Promise<T> {
+  const invocation = resolveComposioInvocation(args)
+  if (!invocation) {
+    throw new Error('Composio CLI is not installed')
+  }
+  const child = spawn(invocation.command, invocation.args, {
+    env: process.env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  })
+
+  let stdout = ''
+  let stderr = ''
+
+  child.stdout.setEncoding('utf8')
+  child.stderr.setEncoding('utf8')
+  child.stdout.on('data', (chunk) => { stdout += chunk })
+  child.stderr.on('data', (chunk) => { stderr += chunk })
+
+  const exitCode = await new Promise<number>((resolveExit, reject) => {
+    child.once('error', reject)
+    child.once('close', (code) => resolveExit(code ?? 0))
+  })
+
+  if (exitCode !== 0) {
+    throw new Error(stderr.trim() || stdout.trim() || fallback)
+  }
+
+  try {
+    return parseComposioJson<T>(stdout, fallback)
+  } catch (error) {
+    const details = stderr.trim() || stdout.trim()
+    throw new Error(details || getErrorMessage(error, fallback))
+  }
+}
+
+async function readComposioUserData(): Promise<ComposioUserData | null> {
+  try {
+    const raw = await readFile(COMPOSIO_USER_DATA_PATH, 'utf8')
+    const payload = asRecord(JSON.parse(raw))
+    if (!payload) return null
+    return {
+      apiKey: readNonEmptyString(payload.api_key),
+      baseUrl: readNonEmptyString(payload.base_url),
+      webUrl: readNonEmptyString(payload.web_url),
+      orgId: readNonEmptyString(payload.org_id),
+      testUserId: readNonEmptyString(payload.test_user_id),
+    }
+  } catch {
+    return null
+  }
+}
+
+function normalizeComposioConnection(value: unknown): ComposioConnectionSummary | null {
+  const record = asRecord(value)
+  if (!record) return null
+  const authConfig = asRecord(record.auth_config)
+  return {
+    id: readNonEmptyString(record.id),
+    wordId: readNonEmptyString(record.word_id),
+    alias: readNonEmptyString(record.alias),
+    status: readNonEmptyString(record.status),
+    authScheme: readNonEmptyString(record.authScheme || authConfig?.auth_scheme),
+    createdAt: readNonEmptyString(record.created_at),
+    updatedAt: readNonEmptyString(record.updated_at),
+    isComposioManaged: readBoolean(authConfig?.is_composio_managed),
+    isDisabled: readBoolean(record.is_disabled),
+  }
+}
+
+function normalizeComposioToolkit(value: unknown, connectionsBySlug: Map<string, ComposioConnectionSummary[]>): ComposioConnectorSummary | null {
+  const record = asRecord(value)
+  if (!record) return null
+  const slug = readNonEmptyString(record.slug)
+  if (!slug) return null
+  const connectionRows = connectionsBySlug.get(slug) ?? []
+  return {
+    slug,
+    name: readNonEmptyString(record.name),
+    description: readNonEmptyString(record.description),
+    logoUrl: readNonEmptyString(record.logo || record.meta && asRecord(record.meta)?.logo),
+    latestVersion: readNonEmptyString(record.latest_version || record.latestVersion),
+    toolsCount: readNumber(record.tools_count),
+    triggersCount: readNumber(record.triggers_count),
+    isNoAuth: readBoolean(record.is_no_auth),
+    enabled: record.enabled !== false,
+    authModes: Array.isArray(record.auth_modes) ? record.auth_modes.map(readNonEmptyString).filter(Boolean) : [],
+    activeCount: connectionRows.filter((row) => row.status === 'ACTIVE' && !row.isDisabled).length,
+    totalConnections: connectionRows.length,
+    connectionStatuses: [...new Set(connectionRows.map((row) => row.status).filter(Boolean))],
+  }
+}
+
+function normalizeComposioTool(value: unknown): ComposioToolSummary | null {
+  const record = asRecord(value)
+  if (!record) return null
+  const slug = readNonEmptyString(record.slug)
+  if (!slug) return null
+  return {
+    slug,
+    name: readNonEmptyString(record.name),
+    description: readNonEmptyString(record.description),
+  }
+}
+
+async function readComposioConnectionsBySlug(): Promise<Map<string, ComposioConnectionSummary[]>> {
+  const payload = asRecord(await runComposioJson<Record<string, unknown>>(['connections', 'list'], 'Failed to list Composio connections'))
+  const bySlug = new Map<string, ComposioConnectionSummary[]>()
+  for (const [slug, rawRows] of Object.entries(payload ?? {})) {
+    if (!Array.isArray(rawRows)) continue
+    const rows = rawRows.map(normalizeComposioConnection).filter((row): row is ComposioConnectionSummary => row !== null)
+    bySlug.set(slug, rows)
+  }
+  return bySlug
+}
+
+async function readComposioStatus(): Promise<ComposioStatusResponse> {
+  const versionInvocation = buildComposioInvocation(['--version'])
+  const probe = versionInvocation
+    ? probeComposioInvocation(versionInvocation)
+    : { available: false, cliVersion: '', output: '' }
+  const available = probe.available
+  const cliVersion = probe.cliVersion
+  const userData = await readComposioUserData()
+  if (!available) {
+    return {
+      available: false,
+      authenticated: false,
+      cliVersion,
+      email: '',
+      defaultOrgName: '',
+      defaultOrgId: userData?.orgId ?? '',
+      webUrl: userData?.webUrl ?? '',
+      baseUrl: userData?.baseUrl ?? '',
+      testUserId: userData?.testUserId ?? '',
+    }
+  }
+
+  try {
+    const payload = asRecord(await runComposioJson<Record<string, unknown>>(['whoami'], 'Failed to read Composio account status'))
+    return {
+      available: true,
+      authenticated: true,
+      cliVersion,
+      email: readNonEmptyString(payload?.email),
+      defaultOrgName: readNonEmptyString(payload?.default_org_name),
+      defaultOrgId: readNonEmptyString(payload?.default_org_id) || userData?.orgId || '',
+      webUrl: userData?.webUrl || 'https://dashboard.composio.dev/',
+      baseUrl: userData?.baseUrl || 'https://backend.composio.dev',
+      testUserId: readNonEmptyString(payload?.test_user_id) || userData?.testUserId || '',
+    }
+  } catch {
+    return {
+      available: true,
+      authenticated: false,
+      cliVersion,
+      email: '',
+      defaultOrgName: '',
+      defaultOrgId: userData?.orgId ?? '',
+      webUrl: userData?.webUrl || 'https://dashboard.composio.dev/',
+      baseUrl: userData?.baseUrl || 'https://backend.composio.dev',
+      testUserId: userData?.testUserId ?? '',
+    }
+  }
+}
+
+async function listComposioConnectors(query: string, cursor: string | null = null, limit = 50): Promise<ComposioConnectorPage> {
+  const args = ['dev', 'toolkits', 'list', '--limit', String(COMPOSIO_CONNECTORS_PAGE_LIMIT_MAX)]
+  const trimmedQuery = query.trim()
+  if (trimmedQuery) {
+    args.push('--query', trimmedQuery)
+  }
+  const [payload, connectionsBySlug] = await Promise.all([
+    runComposioJson<unknown[]>(args, 'Failed to list Composio toolkits'),
+    readComposioConnectionsBySlug(),
+  ])
+  const allRows = payload
+    .map((item) => normalizeComposioToolkit(item, connectionsBySlug))
+    .filter((row): row is ComposioConnectorSummary => row !== null)
+  const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(COMPOSIO_CONNECTORS_PAGE_LIMIT_MAX, Math.floor(limit))) : 50
+  const safeCursor = parseComposioCursor(cursor, allRows.length)
+  return {
+    data: allRows.slice(safeCursor, safeCursor + safeLimit),
+    nextCursor: safeCursor + safeLimit < allRows.length ? String(safeCursor + safeLimit) : null,
+    total: allRows.length,
+  }
+}
+
+function parseComposioCursor(cursor: string | null | undefined, maxLength: number): number {
+  const trimmed = cursor?.trim() ?? ''
+  const parsed = Number.parseInt(trimmed, 10)
+  if (!Number.isFinite(parsed) || Number.isNaN(parsed) || parsed <= 0) return 0
+  if (parsed >= maxLength) return maxLength
+  return parsed
+}
+
+function parseComposioLimit(rawLimit: string | null): number {
+  const parsed = Number.parseInt((rawLimit ?? '').trim(), 10)
+  if (!Number.isFinite(parsed) || Number.isNaN(parsed) || parsed <= 0) return 50
+  return Math.max(1, Math.min(COMPOSIO_CONNECTORS_PAGE_LIMIT_MAX, parsed))
+}
+
+async function readComposioConnectorDetail(slug: string): Promise<ComposioConnectorDetail> {
+  const normalizedSlug = slug.trim()
+  if (!normalizedSlug) {
+    throw new Error('Missing Composio connector slug')
+  }
+
+  const [infoPayload, toolsPayload, connectionsPayload, userData] = await Promise.all([
+    runComposioJson<Record<string, unknown>>(['dev', 'toolkits', 'info', normalizedSlug], `Failed to load Composio toolkit ${normalizedSlug}`),
+    runComposioJson<unknown[]>(['tools', 'list', normalizedSlug, '--limit', '10'], `Failed to list tools for ${normalizedSlug}`),
+    runComposioJson<{ toolkit?: string; items?: unknown[] }>(['link', normalizedSlug, '--list'], `Failed to list connections for ${normalizedSlug}`),
+    readComposioUserData(),
+  ])
+
+  const connections = Array.isArray(connectionsPayload.items)
+    ? connectionsPayload.items.map(normalizeComposioConnection).filter((row): row is ComposioConnectionSummary => row !== null)
+    : []
+  const connector = normalizeComposioToolkit(infoPayload, new Map([[normalizedSlug, connections]]))
+  if (!connector) {
+    throw new Error(`Unknown Composio connector: ${normalizedSlug}`)
+  }
+
+  return {
+    connector,
+    connections,
+    tools: Array.isArray(toolsPayload)
+      ? toolsPayload.map(normalizeComposioTool).filter((row): row is ComposioToolSummary => row !== null)
+      : [],
+    dashboardUrl: userData?.webUrl || 'https://dashboard.composio.dev/',
+  }
+}
+
+async function startComposioLink(slug: string): Promise<ComposioLinkResult> {
+  const normalizedSlug = slug.trim()
+  if (!normalizedSlug) {
+    throw new Error('Missing Composio connector slug')
+  }
+  const payload = asRecord(await runComposioJson<Record<string, unknown>>(['link', normalizedSlug, '--no-wait'], `Failed to start Composio link for ${normalizedSlug}`))
+  return {
+    status: readNonEmptyString(payload?.status),
+    message: readNonEmptyString(payload?.message),
+    connectedAccountId: readNonEmptyString(payload?.connected_account_id),
+    redirectUrl: readNonEmptyString(payload?.redirect_url),
+    toolkit: readNonEmptyString(payload?.toolkit),
+    projectType: readNonEmptyString(payload?.project_type),
+  }
+}
+
+async function startComposioLogin(): Promise<ComposioLoginResult> {
+  const invocation = resolveComposioInvocation(['login', '--no-browser', '-y'])
+  if (!invocation) {
+    throw new Error('Composio CLI is not installed')
+  }
+  const proc = spawn(invocation.command, invocation.args, {
+    cwd: process.cwd(),
+    env: process.env,
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  })
+  proc.unref()
+
+  let stdout = ''
+  let stderr = ''
+  proc.stdout.setEncoding('utf8')
+  proc.stderr.setEncoding('utf8')
+  proc.stderr.on('data', (chunk) => { stderr += chunk })
+
+  const loginUrl = await new Promise<string>((resolveLoginUrl, reject) => {
+    const timeout = setTimeout(() => {
+      proc.kill('SIGTERM')
+      reject(new Error(stderr.trim() || stdout.trim() || 'Timed out waiting for Composio CLI login URL'))
+    }, 10_000)
+    const finish = (url: string) => {
+      clearTimeout(timeout)
+      proc.stdout.destroy()
+      proc.stderr.destroy()
+      resolveLoginUrl(url)
+    }
+    proc.once('error', (error) => {
+      clearTimeout(timeout)
+      reject(error)
+    })
+    proc.once('close', (code) => {
+      clearTimeout(timeout)
+      reject(new Error(stderr.trim() || stdout.trim() || `Composio CLI login exited with code ${code ?? 0}`))
+    })
+    proc.stdout.on('data', (chunk) => {
+      stdout += chunk
+      const url = stdout.match(/https?:\/\/\S+/)?.[0] ?? ''
+      if (url) finish(url)
+    })
+  })
+
+  const cliKey = loginUrl ? (new URL(loginUrl).searchParams.get('cliKey') ?? '') : ''
+  return {
+    status: 'started',
+    message: 'Composio CLI login URL created',
+    loginUrl,
+    cliKey,
+    expiresAt: '',
+  }
+}
+
+async function installComposioCli(): Promise<ComposioInstallResult> {
+  const command = 'bash'
+  const installScriptUrl = 'https://composio.dev/install'
+  const args = ['-lc', `curl -fsSL ${installScriptUrl} | bash`]
+  const invocation = getSpawnInvocation(command, args)
+  const env = {
+    ...process.env,
+    COMPOSIO_INSTALL_DIR: process.env.COMPOSIO_INSTALL_DIR?.trim() || join(homedir(), '.composio'),
+  }
+  const result = spawnSync(invocation.command, invocation.args, {
+    encoding: 'utf8',
+    env,
+    windowsHide: true,
+  })
+  const output = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim()
+  if (result.error || result.status !== 0) {
+    throw new Error(output || result.error?.message || 'Failed to install Composio CLI')
+  }
+  return {
+    ok: true,
+    command: `curl -fsSL ${installScriptUrl} | bash`,
+    output,
+  }
 }
 
 function countRecoveredContentLines(value: string): number {
@@ -1976,67 +3161,6 @@ function scoreFileCandidate(path: string, query: string): number {
   return 10
 }
 
-function decodeHtmlEntities(value: string): string {
-  return value
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&#x2F;/gi, '/')
-}
-
-function stripHtml(value: string): string {
-  return decodeHtmlEntities(value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim())
-}
-
-function parseGithubTrendingHtml(html: string, limit: number): GithubTrendingItem[] {
-  const rows = html.match(/<article[\s\S]*?<\/article>/g) ?? []
-  const items: GithubTrendingItem[] = []
-  let seq = Date.now()
-  for (const row of rows) {
-    const repoBlockMatch = row.match(/<h2[\s\S]*?<\/h2>/)
-    const hrefMatch = repoBlockMatch?.[0]?.match(/href="\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)"/)
-    if (!hrefMatch) continue
-    const fullName = hrefMatch[1] ?? ''
-    if (!fullName || items.some((item) => item.fullName === fullName)) continue
-    const descriptionMatch =
-      row.match(/<p[^>]*class="[^"]*col-9[^"]*"[^>]*>([\s\S]*?)<\/p>/)
-      ?? row.match(/<p[^>]*class="[^"]*color-fg-muted[^"]*"[^>]*>([\s\S]*?)<\/p>/)
-      ?? row.match(/<p[^>]*>([\s\S]*?)<\/p>/)
-    const languageMatch = row.match(/programmingLanguage[^>]*>\s*([\s\S]*?)\s*<\/span>/)
-    const starsMatch = row.match(/href="\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/stargazers"[\s\S]*?>([\s\S]*?)<\/a>/)
-    const starsText = stripHtml(starsMatch?.[1] ?? '').replace(/,/g, '')
-    const stars = Number.parseInt(starsText, 10)
-    items.push({
-      id: seq,
-      fullName,
-      url: `https://github.com/${fullName}`,
-      description: stripHtml(descriptionMatch?.[1] ?? ''),
-      language: stripHtml(languageMatch?.[1] ?? ''),
-      stars: Number.isFinite(stars) ? stars : 0,
-    })
-    seq += 1
-    if (items.length >= limit) break
-  }
-  return items
-}
-
-async function fetchGithubTrending(since: 'daily' | 'weekly' | 'monthly', limit: number): Promise<GithubTrendingItem[]> {
-  const endpoint = `https://github.com/trending?since=${since}`
-  const response = await fetch(endpoint, {
-    headers: {
-      'User-Agent': 'codex-web-local',
-      Accept: 'text/html',
-    },
-  })
-  if (!response.ok) {
-    throw new Error(`GitHub trending fetch failed (${response.status})`)
-  }
-  const html = await response.text()
-  return parseGithubTrendingHtml(html, limit)
-}
-
 async function listFilesWithRipgrep(cwd: string): Promise<string[]> {
   return await new Promise<string[]>((resolve, reject) => {
     const ripgrepCommand = resolveRipgrepCommand()
@@ -2079,7 +3203,101 @@ function getSkillsInstallDir(): string {
   return join(getCodexHomeDir(), 'skills')
 }
 
-async function runCommand(command: string, args: string[], options: { cwd?: string } = {}): Promise<void> {
+function getPromptsDir(): string {
+  return join(getCodexHomeDir(), 'prompts')
+}
+
+type ComposerPromptRecord = {
+  name: string
+  path: string
+  content: string
+  description: string
+}
+
+function promptNameToFileName(name: string): string {
+  const trimmed = name.trim()
+  const withoutExtension = trimmed.replace(/\.md$/i, '')
+  const sanitized = withoutExtension
+    .replace(/[\/\\:*?"<>|]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return `${sanitized || 'prompt'}.md`
+}
+
+function buildPromptDescription(content: string): string {
+  const firstNonEmptyLine = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean) ?? ''
+  return firstNonEmptyLine.slice(0, 120)
+}
+
+async function listComposerPrompts(): Promise<ComposerPromptRecord[]> {
+  const promptsDir = getPromptsDir()
+  try {
+    const entries = await readdir(promptsDir, { withFileTypes: true })
+    const prompts = await Promise.all(entries
+      .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.md'))
+      .map(async (entry) => {
+        const promptPath = join(promptsDir, entry.name)
+        const content = await readFile(promptPath, 'utf8')
+        return {
+          name: entry.name.replace(/\.md$/i, ''),
+          path: promptPath,
+          content,
+          description: buildPromptDescription(content),
+        } satisfies ComposerPromptRecord
+      }))
+    return prompts.sort((a, b) => a.name.localeCompare(b.name))
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return []
+    throw error
+  }
+}
+
+async function createComposerPromptFile(name: string, content: string): Promise<ComposerPromptRecord> {
+  const trimmedName = name.trim()
+  if (!trimmedName) throw new Error('Prompt name is required')
+  const trimmedContent = content.trim()
+  if (!trimmedContent) throw new Error('Prompt content is required')
+  const promptsDir = getPromptsDir()
+  await mkdir(promptsDir, { recursive: true })
+
+  const baseFileName = promptNameToFileName(trimmedName)
+  let targetPath = join(promptsDir, baseFileName)
+  let suffix = 2
+  while (existsSync(targetPath)) {
+    const nextFileName = `${baseFileName.replace(/\.md$/i, '')}-${suffix}.md`
+    targetPath = join(promptsDir, nextFileName)
+    suffix += 1
+  }
+
+  await writeFile(targetPath, `${trimmedContent}\n`, 'utf8')
+  return {
+    name: basename(targetPath).replace(/\.md$/i, ''),
+    path: targetPath,
+    content: `${trimmedContent}\n`,
+    description: buildPromptDescription(trimmedContent),
+  }
+}
+
+async function removeComposerPromptFile(promptPath: string): Promise<boolean> {
+  const resolvedPath = resolve(promptPath)
+  const promptsDir = resolve(getPromptsDir())
+  const relative = resolvedPath.startsWith(`${promptsDir}/`) ? resolvedPath.slice(promptsDir.length + 1) : ''
+  if (!relative || relative.includes('..') || !resolvedPath.toLowerCase().endsWith('.md')) {
+    throw new Error('Invalid prompt path')
+  }
+  try {
+    await rm(resolvedPath, { force: false })
+    return true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return false
+    throw error
+  }
+}
+
+async function runCommand(command: string, args: string[], options: { cwd?: string; timeoutMs?: number } = {}): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const proc = spawn(command, args, {
       cwd: options.cwd,
@@ -2088,10 +3306,32 @@ async function runCommand(command: string, args: string[], options: { cwd?: stri
     })
     let stdout = ''
     let stderr = ''
+    let timedOut = false
+    let closed = false
+    const timeout =
+      typeof options.timeoutMs === 'number' && Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
+        ? setTimeout(() => {
+          timedOut = true
+          proc.kill('SIGTERM')
+          setTimeout(() => {
+            if (!closed) proc.kill('SIGKILL')
+          }, 5_000).unref()
+        }, options.timeoutMs)
+        : null
+    timeout?.unref()
     proc.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
     proc.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
-    proc.on('error', reject)
+    proc.on('error', (error) => {
+      if (timeout) clearTimeout(timeout)
+      reject(error)
+    })
     proc.on('close', (code) => {
+      closed = true
+      if (timeout) clearTimeout(timeout)
+      if (timedOut) {
+        reject(new Error(`Command timed out after ${options.timeoutMs}ms (${command} ${args.join(' ')})`))
+        return
+      }
       if (code === 0) {
         resolve()
         return
@@ -2165,6 +3405,84 @@ function normalizeBranchRefName(value: string): string {
   return trimmed
 }
 
+function toHeaderGitResetHistoryRef(branchName: string, commitSha: string): string {
+  return `refs/codex/header-git-reset-history/${branchName}/${commitSha}`
+}
+
+const HEADER_GIT_RESET_HISTORY_REF_LIMIT = 25
+
+async function assertLocalGitBranch(repoRoot: string, branchName: string): Promise<void> {
+  await runCommandCapture('git', ['show-ref', '--verify', `refs/heads/${branchName}`], { cwd: repoRoot })
+}
+
+async function checkoutGitBranchWithWorktreeRecovery(repoRoot: string, branchName: string): Promise<void> {
+  try {
+    await runCommand('git', ['checkout', branchName], { cwd: repoRoot })
+  } catch (checkoutError) {
+    const blockingWorktreePath = extractBranchLockedWorktreePath(checkoutError, branchName)
+    if (!blockingWorktreePath) {
+      throw checkoutError
+    }
+    await runCommand('git', ['checkout', '--detach'], { cwd: blockingWorktreePath })
+    await runCommand('git', ['checkout', branchName], { cwd: repoRoot })
+  }
+}
+
+async function pruneHeaderGitResetHistoryRefs(repoRoot: string, branchName: string): Promise<void> {
+  const resetHistoryRefPrefix = `refs/codex/header-git-reset-history/${branchName}/`
+  const refsRaw = await runCommandCapture(
+    'git',
+    ['for-each-ref', '--sort=-creatordate', '--format=%(refname)', resetHistoryRefPrefix],
+    { cwd: repoRoot },
+  ).catch(() => '')
+  const refs = refsRaw
+    .split('\n')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+  const staleRefs = refs.slice(HEADER_GIT_RESET_HISTORY_REF_LIMIT)
+  for (const refName of staleRefs) {
+    await runCommand('git', ['update-ref', '-d', refName], { cwd: repoRoot })
+  }
+}
+
+async function readGitHeaderState(cwd: string): Promise<{
+  currentBranch: string | null
+  headSha: string | null
+  headSubject: string | null
+  headDate: string | null
+  detached: boolean
+  dirty: boolean
+  gitRoot: string
+}> {
+  const gitRoot = await runCommandCapture('git', ['rev-parse', '--show-toplevel'], { cwd })
+  const currentBranchRaw = await runCommandCapture('git', ['branch', '--show-current'], { cwd: gitRoot })
+  const currentBranch = currentBranchRaw.trim() || null
+  const headShaRaw = await runCommandCapture('git', ['rev-parse', '--short=12', 'HEAD'], { cwd: gitRoot })
+  const headCommitRaw = await runCommandCapture('git', ['show', '-s', '--date=short', '--format=%cd%x09%s', 'HEAD'], { cwd: gitRoot })
+  const [headDate = '', ...headSubjectParts] = headCommitRaw.split('\t')
+  const statusRaw = await runCommandCapture('git', ['status', '--porcelain'], { cwd: gitRoot })
+  return {
+    currentBranch,
+    headSha: headShaRaw.trim() || null,
+    headSubject: headSubjectParts.join('\t').trim() || null,
+    headDate: headDate.trim() || null,
+    detached: !currentBranch,
+    dirty: statusRaw.trim().length > 0,
+    gitRoot,
+  }
+}
+
+async function assertNoTrackedGitChanges(repoRoot: string): Promise<void> {
+  const statusRaw = await runCommandCapture('git', ['status', '--porcelain'], { cwd: repoRoot })
+  const trackedChanges = statusRaw
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .filter((line) => line && !line.startsWith('?? '))
+  if (trackedChanges.length > 0) {
+    throw new Error('Cannot switch branches or reset with tracked uncommitted changes. Commit, stash, or discard tracked changes first. Untracked files are allowed unless Git would overwrite them.')
+  }
+}
+
 function extractBranchLockedWorktreePath(error: unknown, branchName: string): string {
   const message = getErrorMessage(error, '')
   if (!message || !branchName) return ''
@@ -2172,6 +3490,44 @@ function extractBranchLockedWorktreePath(error: unknown, branchName: string): st
   const pattern = new RegExp(`'${escapedBranch}' is already checked out at '([^']+)'`, 'u')
   const match = pattern.exec(message)
   return match?.[1]?.trim() ?? ''
+}
+
+function toPermanentWorktreeBranchNameDraft(worktreeName: string): string {
+  const sanitized = worktreeName
+    .trim()
+    .replace(/[^A-Za-z0-9._-]+/gu, '-')
+    .replace(/\.+/gu, '.')
+    .replace(/-+/gu, '-')
+    .replace(/^[.-]+|[.-]+$/gu, '')
+  return sanitized || 'worktree'
+}
+
+async function isValidGitBranchName(gitRoot: string, branchName: string): Promise<boolean> {
+  try {
+    await runCommand('git', ['check-ref-format', '--branch', branchName], { cwd: gitRoot })
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function doesLocalGitBranchExist(gitRoot: string, branchName: string): Promise<boolean> {
+  try {
+    await runCommand('git', ['show-ref', '--verify', '--quiet', `refs/heads/${branchName}`], { cwd: gitRoot })
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function allocatePermanentWorktreeBranchName(gitRoot: string, worktreeName: string): Promise<string> {
+  const base = toPermanentWorktreeBranchNameDraft(worktreeName)
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const candidate = attempt === 0 ? base : `${base}-${attempt + 1}`
+    if (!await isValidGitBranchName(gitRoot, candidate)) continue
+    if (!await doesLocalGitBranchExist(gitRoot, candidate)) return candidate
+  }
+  throw new Error('Failed to allocate a unique branch name for worktree')
 }
 
 async function runCommandWithOutput(command: string, args: string[], options: { cwd?: string } = {}): Promise<string> {
@@ -2221,6 +3577,26 @@ function normalizeStringRecord(value: unknown): Record<string, string> {
   return next
 }
 
+function normalizeRemoteProjects(value: unknown): WorkspaceRootsState['remoteProjects'] {
+  if (!Array.isArray(value)) return []
+  const next: WorkspaceRootsState['remoteProjects'] = []
+  const seen = new Set<string>()
+  for (const item of value) {
+    const record = asRecord(item)
+    if (!record) continue
+    const id = typeof record.id === 'string' ? record.id.trim() : ''
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    next.push({
+      id,
+      hostId: typeof record.hostId === 'string' ? record.hostId.trim() : '',
+      remotePath: typeof record.remotePath === 'string' ? record.remotePath.trim() : '',
+      label: typeof record.label === 'string' ? record.label.trim() : '',
+    })
+  }
+  return next
+}
+
 
 
 function getCodexAuthPath(): string {
@@ -2228,9 +3604,145 @@ function getCodexAuthPath(): string {
 }
 
 type CodexAuth = {
+  auth_mode?: string
+  last_refresh?: number
   tokens?: {
     access_token?: string
+    refresh_token?: string
+    id_token?: string
     account_id?: string
+  }
+}
+
+const CODEX_CHATGPT_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'
+const DEFAULT_CODEX_REFRESH_TOKEN_URL = 'https://auth.openai.com/oauth/token'
+
+function decodeBase64UrlJson(value: string): Record<string, unknown> | null {
+  try {
+    const padded = `${value}${'='.repeat((4 - (value.length % 4)) % 4)}`
+    const decoded = Buffer.from(padded.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
+    const parsed = JSON.parse(decoded) as unknown
+    return asRecord(parsed)
+  } catch {
+    return null
+  }
+}
+
+function decodeJwtPayload(token: string | undefined): Record<string, unknown> | null {
+  if (!token) return null
+  const parts = token.split('.')
+  if (parts.length < 2) return null
+  return decodeBase64UrlJson(parts[1] ?? '')
+}
+
+function extractChatgptTokenMetadata(accessToken: string | undefined): {
+  chatgptAccountId: string | null
+  chatgptPlanType: string | null
+} {
+  const payload = decodeJwtPayload(accessToken)
+  const auth = asRecord(payload?.['https://api.openai.com/auth'])
+  return {
+    chatgptAccountId: readNonEmptyString(auth?.chatgpt_account_id) || null,
+    chatgptPlanType: readNonEmptyString(auth?.chatgpt_plan_type) || null,
+  }
+}
+
+function readTokenErrorMessage(payload: unknown, fallback: string): string {
+  const record = asRecord(payload)
+  const message = readNonEmptyString(record?.message)
+  if (message) return message
+  const error = record?.error
+  if (typeof error === 'string' && error.trim().length > 0) return error.trim()
+  const nestedError = asRecord(error)
+  return readNonEmptyString(nestedError?.message)
+    || readNonEmptyString(nestedError?.error_description)
+    || readNonEmptyString(record?.error_description)
+    || fallback
+}
+
+function readTokenResponseString(payload: Record<string, unknown> | null, ...keys: string[]): string | null {
+  if (!payload) return null
+  for (const key of keys) {
+    const value = readNonEmptyString(payload[key])
+    if (value) return value
+  }
+  return null
+}
+
+export async function refreshChatgptAuthTokensForExternalAuth(
+  params: ChatgptAuthTokensRefreshParams = {},
+): Promise<ChatgptAuthTokensRefreshResponse> {
+  const authPath = getCodexAuthPath()
+  const raw = await readFile(authPath, 'utf8')
+  const auth = JSON.parse(raw) as CodexAuth
+  const currentRefreshToken = auth.tokens?.refresh_token?.trim() ?? ''
+  if (!currentRefreshToken) {
+    throw new Error('No ChatGPT refresh token is available. Please sign in again.')
+  }
+
+  const refreshUrl = process.env.CODEX_REFRESH_TOKEN_URL_OVERRIDE?.trim() || DEFAULT_CODEX_REFRESH_TOKEN_URL
+  const body = new URLSearchParams({
+    grant_type: 'refresh_token',
+    refresh_token: currentRefreshToken,
+    client_id: CODEX_CHATGPT_CLIENT_ID,
+  })
+
+  const response = await fetch(refreshUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: body.toString(),
+    signal: AbortSignal.timeout(25_000),
+  })
+
+  const text = await response.text()
+  let payload: Record<string, unknown> | null = null
+  try {
+    payload = asRecord(JSON.parse(text))
+  } catch {
+    payload = null
+  }
+
+  if (!response.ok) {
+    throw new Error(readTokenErrorMessage(payload, `ChatGPT token refresh failed with HTTP ${String(response.status)}`))
+  }
+
+  const accessToken = readTokenResponseString(payload, 'access_token', 'accessToken')
+  if (!accessToken) {
+    throw new Error('ChatGPT token refresh response did not include an access token.')
+  }
+
+  const nextRefreshToken = readTokenResponseString(payload, 'refresh_token', 'refreshToken') ?? currentRefreshToken
+  const nextIdToken = readTokenResponseString(payload, 'id_token', 'idToken') ?? auth.tokens?.id_token
+  const metadata = extractChatgptTokenMetadata(accessToken)
+  const chatgptAccountId =
+    metadata.chatgptAccountId
+    || readTokenResponseString(payload, 'chatgpt_account_id', 'chatgptAccountId')
+    || readNonEmptyString(params.previousAccountId)
+    || readNonEmptyString(auth.tokens?.account_id)
+  if (!chatgptAccountId) {
+    throw new Error('ChatGPT token refresh response did not include account metadata.')
+  }
+
+  const nextAuth: CodexAuth = {
+    ...auth,
+    auth_mode: auth.auth_mode || 'chatgpt',
+    last_refresh: Date.now(),
+    tokens: {
+      ...auth.tokens,
+      access_token: accessToken,
+      refresh_token: nextRefreshToken,
+      account_id: chatgptAccountId,
+      ...(nextIdToken ? { id_token: nextIdToken } : {}),
+    },
+  }
+  await writeFile(authPath, JSON.stringify(nextAuth, null, 2), { encoding: 'utf8', mode: 0o600 })
+
+  return {
+    accessToken,
+    chatgptAccountId,
+    chatgptPlanType: metadata.chatgptPlanType,
   }
 }
 
@@ -2244,6 +3756,45 @@ async function readCodexAuth(): Promise<{ accessToken: string; accountId?: strin
   } catch {
     return null
   }
+}
+
+function hasUsableCodexAuthSync(): boolean {
+  try {
+    const raw = readFileSync(getCodexAuthPath(), 'utf8')
+    const auth = JSON.parse(raw) as CodexAuth
+    return Boolean(auth.tokens?.access_token?.trim())
+  } catch {
+    return false
+  }
+}
+
+function readFreeModeStateSync(statePath: string): FreeModeState | null {
+  try {
+    return JSON.parse(readFileSync(statePath, 'utf8')) as FreeModeState
+  } catch {
+    return null
+  }
+}
+
+function ensureDefaultFreeModeStateForMissingAuthSync(statePath: string): FreeModeState | null {
+  const current = readFreeModeStateSync(statePath)
+  if (!shouldCreateDefaultFreeModeStateForMissingAuth(current, hasUsableCodexAuthSync())) {
+    return current
+  }
+
+  const fallback = createDefaultOpenCodeZenFreeModeState()
+
+  mkdirSync(dirname(statePath), { recursive: true })
+  writeFileSync(statePath, JSON.stringify(fallback), { encoding: 'utf8', mode: 0o600 })
+  return fallback
+}
+
+function isLoopbackRemoteAddress(remoteAddress: string | undefined): boolean {
+  if (!remoteAddress) return false
+  const normalized = remoteAddress.startsWith('::ffff:')
+    ? remoteAddress.slice('::ffff:'.length)
+    : remoteAddress
+  return normalized === '127.0.0.1' || normalized === '::1'
 }
 
 function getCodexGlobalStatePath(): string {
@@ -2272,6 +3823,8 @@ type ThreadAutomationRecord = {
   rrule: string
   status: ThreadAutomationStatus
   targetThreadId: string | null
+  cwds: string[]
+  extraTomlLines: string[]
   createdAtMs: number | null
   updatedAtMs: number | null
   nextRunAtMs: number | null
@@ -2293,24 +3846,114 @@ function serializeTomlString(value: string): string {
   return JSON.stringify(value)
 }
 
-function parseAutomationToml(raw: string): ThreadAutomationRecord | null {
+function parseTomlStringArray(value: string): string[] {
+  const trimmed = value.trim()
+  if (!trimmed.startsWith('[') || !trimmed.endsWith(']')) return []
+  const values: string[] = []
+  let index = 1
+  const endIndex = trimmed.length - 1
+
+  while (index < endIndex) {
+    while (index < endIndex && /[\s,]/u.test(trimmed[index] ?? '')) index += 1
+    if (index >= endIndex) break
+
+    const quote = trimmed[index]
+    if (quote !== '"' && quote !== "'") return []
+    const start = index
+    index += 1
+    let valueText = ''
+
+    if (quote === "'") {
+      const closeIndex = trimmed.indexOf("'", index)
+      if (closeIndex < 0 || closeIndex > endIndex) return []
+      valueText = trimmed.slice(index, closeIndex)
+      index = closeIndex + 1
+    } else {
+      let escaped = false
+      while (index < endIndex) {
+        const char = trimmed[index] ?? ''
+        if (escaped) {
+          escaped = false
+        } else if (char === '\\') {
+          escaped = true
+        } else if (char === '"') {
+          break
+        }
+        index += 1
+      }
+      if (index >= endIndex || trimmed[index] !== '"') return []
+      try {
+        valueText = JSON.parse(trimmed.slice(start, index + 1)) as string
+      } catch {
+        return []
+      }
+      index += 1
+    }
+
+    if (valueText.trim().length > 0) values.push(valueText)
+    while (index < endIndex && /\s/u.test(trimmed[index] ?? '')) index += 1
+    if (index < endIndex && trimmed[index] !== ',') return []
+  }
+
+  return values
+}
+
+function serializeTomlStringArray(values: string[]): string {
+  return `[${values.map((value) => serializeTomlString(value)).join(', ')}]`
+}
+
+export function parseAutomationToml(raw: string): ThreadAutomationRecord | null {
   const values: Record<string, string> = {}
+  const extraTomlLines: string[] = []
+  const knownKeys = new Set([
+    'version',
+    'id',
+    'kind',
+    'name',
+    'prompt',
+    'status',
+    'rrule',
+    'target_thread_id',
+    'cwds',
+    'created_at',
+    'updated_at',
+  ])
+  let isInsideExtraTable = false
   for (const line of raw.split(/\r?\n/u)) {
     const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) continue
+    if (!trimmed || trimmed.startsWith('#')) continue
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      isInsideExtraTable = true
+      extraTomlLines.push(trimmed)
+      continue
+    }
+    if (isInsideExtraTable) {
+      extraTomlLines.push(trimmed)
+      continue
+    }
+    if (!trimmed.includes('=')) {
+      extraTomlLines.push(trimmed)
+      continue
+    }
     const separatorIndex = trimmed.indexOf('=')
     const key = trimmed.slice(0, separatorIndex).trim()
     const value = trimmed.slice(separatorIndex + 1).trim()
-    if (key) values[key] = value
+    if (!key) continue
+    if (knownKeys.has(key)) {
+      values[key] = value
+    } else {
+      extraTomlLines.push(trimmed)
+    }
   }
 
   const id = readTomlString(values.id ?? '')
-  const kindValue = readTomlString(values.kind ?? 'heartbeat')
+  const kindValue = readTomlString(values.kind ?? (values.cwds ? 'cron' : 'heartbeat'))
   const name = readTomlString(values.name ?? '')
   const prompt = readTomlString(values.prompt ?? '')
   const rrule = readTomlString(values.rrule ?? '')
   const statusValue = readTomlString(values.status ?? 'ACTIVE')
   const targetThreadId = readTomlString(values.target_thread_id ?? '') || null
+  const cwds = parseTomlStringArray(values.cwds ?? '')
   const createdAtMs = Number.parseInt(values.created_at ?? '', 10)
   const updatedAtMs = Number.parseInt(values.updated_at ?? '', 10)
 
@@ -2326,6 +3969,8 @@ function parseAutomationToml(raw: string): ThreadAutomationRecord | null {
     rrule,
     status: statusValue,
     targetThreadId,
+    cwds,
+    extraTomlLines,
     createdAtMs: Number.isFinite(createdAtMs) ? createdAtMs : null,
     updatedAtMs: Number.isFinite(updatedAtMs) ? updatedAtMs : null,
     nextRunAtMs: null,
@@ -2341,11 +3986,42 @@ function serializeAutomationToml(record: ThreadAutomationRecord): string {
     `prompt = ${serializeTomlString(record.prompt)}`,
     `status = ${serializeTomlString(record.status)}`,
     `rrule = ${serializeTomlString(record.rrule)}`,
-    `target_thread_id = ${serializeTomlString(record.targetThreadId ?? '')}`,
+  ]
+  if (record.targetThreadId) {
+    lines.push(`target_thread_id = ${serializeTomlString(record.targetThreadId)}`)
+  }
+  if (record.cwds.length > 0) {
+    lines.push(`cwds = ${serializeTomlStringArray(record.cwds)}`)
+  }
+  lines.push(
     `created_at = ${String(record.createdAtMs ?? Date.now())}`,
     `updated_at = ${String(record.updatedAtMs ?? Date.now())}`,
-  ]
+  )
+  lines.push(...record.extraTomlLines)
   return `${lines.join('\n')}\n`
+}
+
+export function toAutomationApiRecord(record: ThreadAutomationRecord): Omit<ThreadAutomationRecord, 'extraTomlLines'> {
+  const { extraTomlLines: _extraTomlLines, ...apiRecord } = record
+  return apiRecord
+}
+
+function toAutomationApiMap(
+  automationsByTarget: Record<string, ThreadAutomationRecord[]>,
+): Record<string, Array<Omit<ThreadAutomationRecord, 'extraTomlLines'>>> {
+  return Object.fromEntries(
+    Object.entries(automationsByTarget).map(([target, automations]) => [
+      target,
+      automations.map(toAutomationApiRecord),
+    ]),
+  )
+}
+
+function toAutomationApiData(
+  automation: ThreadAutomationRecord | ThreadAutomationRecord[] | null,
+): Omit<ThreadAutomationRecord, 'extraTomlLines'> | Array<Omit<ThreadAutomationRecord, 'extraTomlLines'>> | null {
+  if (Array.isArray(automation)) return automation.map(toAutomationApiRecord)
+  return automation ? toAutomationApiRecord(automation) : null
 }
 
 function slugifyAutomationId(threadId: string, name: string): string {
@@ -2363,9 +4039,9 @@ async function readAutomationRecordFromFile(filePath: string): Promise<ThreadAut
   }
 }
 
-async function listThreadHeartbeatAutomations(): Promise<Record<string, ThreadAutomationRecord>> {
+async function listThreadHeartbeatAutomations(): Promise<Record<string, ThreadAutomationRecord[]>> {
   const automationRoot = getCodexAutomationsDir()
-  const next: Record<string, ThreadAutomationRecord> = {}
+  const next: Record<string, ThreadAutomationRecord[]> = {}
   let entries
   try {
     entries = await readdir(automationRoot, { withFileTypes: true })
@@ -2377,19 +4053,45 @@ async function listThreadHeartbeatAutomations(): Promise<Record<string, ThreadAu
     if (!entry.isDirectory()) continue
     const automation = await readAutomationRecordFromFile(join(automationRoot, entry.name, 'automation.toml'))
     if (!automation || automation.kind !== 'heartbeat' || !automation.targetThreadId) continue
-    next[automation.targetThreadId] = automation
+    next[automation.targetThreadId] = [...(next[automation.targetThreadId] ?? []), automation]
+  }
+
+  for (const automations of Object.values(next)) {
+    automations.sort((first, second) => {
+      const firstCreatedAt = first.createdAtMs ?? 0
+      const secondCreatedAt = second.createdAtMs ?? 0
+      if (firstCreatedAt !== secondCreatedAt) return firstCreatedAt - secondCreatedAt
+      return first.id.localeCompare(second.id)
+    })
   }
 
   return next
 }
 
-async function readThreadHeartbeatAutomation(threadId: string): Promise<ThreadAutomationRecord | null> {
+async function readThreadHeartbeatAutomations(threadId: string): Promise<ThreadAutomationRecord[]> {
   const all = await listThreadHeartbeatAutomations()
-  return all[threadId] ?? null
+  return all[threadId] ?? []
+}
+
+async function readThreadHeartbeatAutomation(threadId: string, automationId = ''): Promise<ThreadAutomationRecord | null> {
+  const automations = await readThreadHeartbeatAutomations(threadId)
+  if (automationId) return automations.find((automation) => automation.id === automationId) ?? null
+  return automations[0] ?? null
+}
+
+function resolveUniqueAutomationId(existingIds: Set<string>, threadId: string, name: string): string {
+  const baseId = slugifyAutomationId(threadId, name)
+  if (!existingIds.has(baseId)) return baseId
+  for (let index = 2; index < 1000; index += 1) {
+    const candidate = `${baseId}-${index}`
+    if (!existingIds.has(candidate)) return candidate
+  }
+  return `${baseId}-${randomBytes(4).toString('hex')}`
 }
 
 async function writeThreadHeartbeatAutomation(input: {
   threadId: string
+  id?: string
   name: string
   prompt: string
   rrule: string
@@ -2405,8 +4107,10 @@ async function writeThreadHeartbeatAutomation(input: {
 
   const automationRoot = getCodexAutomationsDir()
   await mkdir(automationRoot, { recursive: true })
-  const existing = await readThreadHeartbeatAutomation(threadId)
-  const id = existing?.id ?? slugifyAutomationId(threadId, name)
+  const existing = input.id ? await readThreadHeartbeatAutomation(threadId, input.id.trim()) : null
+  const entries = await readdir(automationRoot, { withFileTypes: true }).catch(() => [])
+  const existingIds = new Set(entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name))
+  const id = existing?.id ?? resolveUniqueAutomationId(existingIds, threadId, name)
   const automationDir = join(automationRoot, id)
   const now = Date.now()
   const record: ThreadAutomationRecord = {
@@ -2417,6 +4121,8 @@ async function writeThreadHeartbeatAutomation(input: {
     rrule,
     status: input.status,
     targetThreadId: threadId,
+    cwds: [],
+    extraTomlLines: existing?.extraTomlLines ?? [],
     createdAtMs: existing?.createdAtMs ?? now,
     updatedAtMs: now,
     nextRunAtMs: null,
@@ -2433,10 +4139,145 @@ async function writeThreadHeartbeatAutomation(input: {
   return record
 }
 
-async function deleteThreadHeartbeatAutomation(threadId: string): Promise<boolean> {
-  const automation = await readThreadHeartbeatAutomation(threadId.trim())
-  if (!automation) return false
-  await rm(join(getCodexAutomationsDir(), automation.id), { recursive: true, force: true })
+async function deleteThreadHeartbeatAutomation(threadId: string, automationId = ''): Promise<boolean> {
+  const normalizedThreadId = threadId.trim()
+  const normalizedAutomationId = automationId.trim()
+  if (normalizedAutomationId) {
+    const automation = await readThreadHeartbeatAutomation(normalizedThreadId, normalizedAutomationId)
+    if (!automation) return false
+    await rm(join(getCodexAutomationsDir(), automation.id), { recursive: true, force: true })
+    return true
+  }
+
+  const automations = await readThreadHeartbeatAutomations(normalizedThreadId)
+  if (automations.length === 0) return false
+  await Promise.all(automations.map((automation) => rm(join(getCodexAutomationsDir(), automation.id), { recursive: true, force: true })))
+  return true
+}
+
+async function listProjectCronAutomations(): Promise<Record<string, ThreadAutomationRecord[]>> {
+  const automationRoot = getCodexAutomationsDir()
+  const next: Record<string, ThreadAutomationRecord[]> = {}
+  let entries
+  try {
+    entries = await readdir(automationRoot, { withFileTypes: true })
+  } catch {
+    return next
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const automation = await readAutomationRecordFromFile(join(automationRoot, entry.name, 'automation.toml'))
+    if (!automation || automation.kind !== 'cron' || automation.cwds.length === 0) continue
+    for (const cwd of automation.cwds) {
+      next[cwd] = [...(next[cwd] ?? []), automation]
+    }
+  }
+
+  for (const automations of Object.values(next)) {
+    automations.sort((first, second) => {
+      const firstCreatedAt = first.createdAtMs ?? 0
+      const secondCreatedAt = second.createdAtMs ?? 0
+      if (firstCreatedAt !== secondCreatedAt) return firstCreatedAt - secondCreatedAt
+      return first.id.localeCompare(second.id)
+    })
+  }
+
+  return next
+}
+
+async function readProjectCronAutomations(projectName: string): Promise<ThreadAutomationRecord[]> {
+  const all = await listProjectCronAutomations()
+  return all[projectName] ?? []
+}
+
+async function readProjectCronAutomation(projectName: string, automationId = ''): Promise<ThreadAutomationRecord | null> {
+  const automations = await readProjectCronAutomations(projectName)
+  if (automationId) return automations.find((automation) => automation.id === automationId) ?? null
+  return automations[0] ?? null
+}
+
+async function writeProjectCronAutomation(input: {
+  projectName: string
+  id?: string
+  name: string
+  prompt: string
+  rrule: string
+  status: ThreadAutomationStatus
+}): Promise<ThreadAutomationRecord> {
+  const projectName = input.projectName.trim()
+  const name = input.name.trim()
+  const prompt = input.prompt.trim()
+  const rrule = input.rrule.trim()
+  if (!projectName || !name || !prompt || !rrule) {
+    throw new Error('projectName, name, prompt, and rrule are required')
+  }
+  if (!isAbsoluteLikePath(projectName)) {
+    throw new Error('Project automation cwd must be an absolute path')
+  }
+
+  const automationRoot = getCodexAutomationsDir()
+  await mkdir(automationRoot, { recursive: true })
+  const existing = input.id ? await readProjectCronAutomation(projectName, input.id.trim()) : null
+  const entries = await readdir(automationRoot, { withFileTypes: true }).catch(() => [])
+  const existingIds = new Set(entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name))
+  const id = existing?.id ?? resolveUniqueAutomationId(existingIds, projectName, name)
+  const automationDir = join(automationRoot, id)
+  const now = Date.now()
+  const record: ThreadAutomationRecord = {
+    id,
+    kind: 'cron',
+    name,
+    prompt,
+    rrule,
+    status: input.status,
+    targetThreadId: null,
+    cwds: Array.from(new Set([...(existing?.cwds ?? []), projectName])),
+    extraTomlLines: existing?.extraTomlLines ?? [],
+    createdAtMs: existing?.createdAtMs ?? now,
+    updatedAtMs: now,
+    nextRunAtMs: null,
+  }
+
+  await mkdir(automationDir, { recursive: true })
+  await writeFile(join(automationDir, 'automation.toml'), serializeAutomationToml(record), 'utf8')
+  const memoryPath = join(automationDir, 'memory.md')
+  try {
+    await stat(memoryPath)
+  } catch {
+    await writeFile(memoryPath, '', 'utf8')
+  }
+  return record
+}
+
+async function deleteProjectCronAutomation(projectName: string, automationId = ''): Promise<boolean> {
+  const normalizedProjectName = projectName.trim()
+  const normalizedAutomationId = automationId.trim()
+  if (!normalizedProjectName || !isAbsoluteLikePath(normalizedProjectName)) return false
+  if (normalizedAutomationId) {
+    const automation = await readProjectCronAutomation(normalizedProjectName, normalizedAutomationId)
+    if (!automation) return false
+    const remainingCwds = automation.cwds.filter((cwd) => cwd !== normalizedProjectName)
+    if (remainingCwds.length > 0) {
+      const record = { ...automation, cwds: remainingCwds, updatedAtMs: Date.now() }
+      await writeFile(join(getCodexAutomationsDir(), automation.id, 'automation.toml'), serializeAutomationToml(record), 'utf8')
+    } else {
+      await rm(join(getCodexAutomationsDir(), automation.id), { recursive: true, force: true })
+    }
+    return true
+  }
+
+  const automations = await readProjectCronAutomations(normalizedProjectName)
+  if (automations.length === 0) return false
+  await Promise.all(automations.map(async (automation) => {
+    const remainingCwds = automation.cwds.filter((cwd) => cwd !== normalizedProjectName)
+    if (remainingCwds.length > 0) {
+      const record = { ...automation, cwds: remainingCwds, updatedAtMs: Date.now() }
+      await writeFile(join(getCodexAutomationsDir(), automation.id, 'automation.toml'), serializeAutomationToml(record), 'utf8')
+      return
+    }
+    await rm(join(getCodexAutomationsDir(), automation.id), { recursive: true, force: true })
+  }))
   return true
 }
 
@@ -2613,6 +4454,268 @@ async function writeThreadReadState(readAtByThreadId: Record<string, string>): P
   await writeCodexGlobalState(payload)
 }
 
+const FIRST_LAUNCH_PLUGINS_CARD_DISMISSED_KEY = 'first-launch-plugins-card-dismissed'
+const THREAD_QUEUE_STATE_KEY = 'thread-queue-state'
+
+type StoredQueuedMessage = {
+  id: string
+  text: string
+  imageUrls: string[]
+  skills: Array<{ name: string; path: string }>
+  fileAttachments: Array<{ label: string; path: string; fsPath: string }>
+  collaborationMode: 'default' | 'plan'
+}
+
+type ThreadQueueState = Record<string, StoredQueuedMessage[]>
+
+type BackendQueuedTurn = {
+  threadId: string
+  message: StoredQueuedMessage
+}
+
+type ThreadQueueStateUpdate<T> = {
+  nextState: ThreadQueueState
+  result: T
+}
+
+type ResolvedCollaborationModeSettings = {
+  model: string
+  reasoningEffort: ReasoningEffort | null
+}
+
+function normalizeStoredQueuedMessage(value: unknown): StoredQueuedMessage | null {
+  const record = asRecord(value)
+  if (!record) return null
+
+  const id = typeof record.id === 'string' ? record.id.trim() : ''
+  if (!id) return null
+
+  const normalizeNamedPathItems = (items: unknown): Array<{ name: string; path: string }> => {
+    if (!Array.isArray(items)) return []
+    return items.flatMap((item) => {
+      const itemRecord = asRecord(item)
+      if (!itemRecord) return []
+      const name = typeof itemRecord.name === 'string' ? itemRecord.name.trim() : ''
+      const path = typeof itemRecord.path === 'string' ? itemRecord.path.trim() : ''
+      return name && path ? [{ name, path }] : []
+    })
+  }
+
+  const normalizeFileAttachments = (items: unknown): Array<{ label: string; path: string; fsPath: string }> => {
+    if (!Array.isArray(items)) return []
+    return items.flatMap((item) => {
+      const itemRecord = asRecord(item)
+      if (!itemRecord) return []
+      const label = typeof itemRecord.label === 'string' ? itemRecord.label.trim() : ''
+      const path = typeof itemRecord.path === 'string' ? itemRecord.path.trim() : ''
+      const fsPath = typeof itemRecord.fsPath === 'string' ? itemRecord.fsPath.trim() : ''
+      return label && path && fsPath ? [{ label, path, fsPath }] : []
+    })
+  }
+
+  return {
+    id,
+    text: typeof record.text === 'string' ? record.text : '',
+    imageUrls: normalizeStringArray(record.imageUrls),
+    skills: normalizeNamedPathItems(record.skills),
+    fileAttachments: normalizeFileAttachments(record.fileAttachments),
+    collaborationMode: record.collaborationMode === 'plan' ? 'plan' : 'default',
+  }
+}
+
+function normalizeThreadQueueState(value: unknown): ThreadQueueState {
+  const record = asRecord(value)
+  if (!record) return {}
+
+  const state: ThreadQueueState = {}
+  for (const [threadId, rawMessages] of Object.entries(record)) {
+    const normalizedThreadId = threadId.trim()
+    if (!normalizedThreadId || !Array.isArray(rawMessages)) continue
+    const messages = rawMessages.flatMap((item) => {
+      const message = normalizeStoredQueuedMessage(item)
+      return message ? [message] : []
+    })
+    if (messages.length > 0) {
+      state[normalizedThreadId] = messages
+    }
+  }
+  return state
+}
+
+let threadQueueMutationChain: Promise<unknown> = Promise.resolve()
+
+async function readThreadQueueState(): Promise<ThreadQueueState> {
+  const statePath = getCodexGlobalStatePath()
+  try {
+    const raw = await readFile(statePath, 'utf8')
+    const payload = asRecord(JSON.parse(raw)) ?? {}
+    return normalizeThreadQueueState(payload[THREAD_QUEUE_STATE_KEY])
+  } catch {
+    return {}
+  }
+}
+
+async function writeThreadQueueStateUnlocked(nextState: ThreadQueueState): Promise<void> {
+  const statePath = getCodexGlobalStatePath()
+  let payload: Record<string, unknown> = {}
+  try {
+    const raw = await readFile(statePath, 'utf8')
+    payload = asRecord(JSON.parse(raw)) ?? {}
+  } catch {
+    payload = {}
+  }
+  const normalized = normalizeThreadQueueState(nextState)
+  if (Object.keys(normalized).length > 0) {
+    payload[THREAD_QUEUE_STATE_KEY] = normalized
+  } else {
+    delete payload[THREAD_QUEUE_STATE_KEY]
+  }
+  await writeFile(statePath, JSON.stringify(payload), 'utf8')
+}
+
+async function withThreadQueueStateUpdate<T>(
+  update: (state: ThreadQueueState) => ThreadQueueStateUpdate<T> | Promise<ThreadQueueStateUpdate<T>>,
+): Promise<T> {
+  const run = threadQueueMutationChain.then(async () => {
+    const currentState = await readThreadQueueState()
+    const { nextState, result } = await update(currentState)
+    await writeThreadQueueStateUnlocked(nextState)
+    return result
+  })
+  threadQueueMutationChain = run.catch(() => {})
+  return run
+}
+
+async function writeThreadQueueState(nextState: ThreadQueueState): Promise<void> {
+  await withThreadQueueStateUpdate(() => ({
+    nextState: normalizeThreadQueueState(nextState),
+    result: undefined,
+  }))
+}
+
+async function appendThreadQueuedMessage(threadId: string, message: StoredQueuedMessage): Promise<void> {
+  const normalizedThreadId = threadId.trim()
+  if (!normalizedThreadId) throw new Error('threadId is required')
+  await withThreadQueueStateUpdate((state) => ({
+    nextState: {
+      ...state,
+      [normalizedThreadId]: [...(state[normalizedThreadId] ?? []), message],
+    },
+    result: undefined,
+  }))
+}
+
+function normalizeReasoningEffort(value: unknown): ReasoningEffort | '' {
+  const allowed: ReasoningEffort[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh']
+  return typeof value === 'string' && allowed.includes(value as ReasoningEffort)
+    ? (value as ReasoningEffort)
+    : ''
+}
+
+function normalizeCollaborationModeReasoningEffort(value: ReasoningEffort | '' | null | undefined): ReasoningEffort | null {
+  return value && value.length > 0 ? value : null
+}
+
+function extractLocalImagePathFromUrl(value: string): string | null {
+  if (!value) return null
+  try {
+    const parsed = new URL(value, 'http://localhost')
+    if (parsed.pathname !== '/codex-local-image') return null
+    const path = parsed.searchParams.get('path')?.trim() ?? ''
+    return path.length > 0 ? path : null
+  } catch {
+    return null
+  }
+}
+
+function buildTextWithAttachments(prompt: string, files: StoredQueuedMessage['fileAttachments']): string {
+  if (files.length === 0) return prompt
+  let prefix = '# Files mentioned by the user:\n'
+  for (const f of files) {
+    prefix += `\n## ${f.label}: ${f.path}\n`
+  }
+  return `${prefix}\n## My request for Codex:\n\n${prompt}\n`
+}
+
+function escapeHeartbeatXmlText(value: string): string {
+  return value
+    .replace(/&/gu, '&amp;')
+    .replace(/</gu, '&lt;')
+    .replace(/>/gu, '&gt;')
+}
+
+function buildHeartbeatQueuedMessage(automation: ThreadAutomationRecord): StoredQueuedMessage {
+  return {
+    id: `automation-${automation.id}-${Date.now()}-${randomBytes(3).toString('hex')}`,
+    text: `<heartbeat>
+<automation_id>${escapeHeartbeatXmlText(automation.id)}</automation_id>
+<current_time_iso>${new Date().toISOString()}</current_time_iso>
+<instructions>
+${escapeHeartbeatXmlText(automation.prompt)}
+</instructions>
+</heartbeat>`,
+    imageUrls: [],
+    skills: [],
+    fileAttachments: [],
+    collaborationMode: 'default',
+  }
+}
+
+function fileNameFromPath(pathValue: string): string {
+  const normalized = pathValue.replace(/\\/g, '/')
+  const segments = normalized.split('/').filter(Boolean)
+  return segments.at(-1) ?? normalized
+}
+
+function extractThreadIdFromNotificationParams(params: unknown): string {
+  const record = asRecord(params)
+  if (!record) return ''
+  const threadId =
+    (typeof record.threadId === 'string' ? record.threadId : '') ||
+    (typeof record.thread_id === 'string' ? record.thread_id : '') ||
+    (typeof record.conversationId === 'string' ? record.conversationId : '') ||
+    (typeof record.conversation_id === 'string' ? record.conversation_id : '')
+  if (threadId) return threadId
+  const thread = asRecord(record.thread)
+  if (thread && typeof thread.id === 'string') return thread.id
+  const turn = asRecord(record.turn)
+  if (turn) {
+    const turnThreadId =
+      (typeof turn.threadId === 'string' ? turn.threadId : '') ||
+      (typeof turn.thread_id === 'string' ? turn.thread_id : '')
+    if (turnThreadId) return turnThreadId
+  }
+  return ''
+}
+
+function isTurnCompletedNotification(notification: { method: string; params: unknown }): boolean {
+  return notification.method === 'turn/completed'
+}
+
+async function readFirstLaunchPluginsCardDismissed(): Promise<boolean> {
+  const statePath = getCodexGlobalStatePath()
+  try {
+    const raw = await readFile(statePath, 'utf8')
+    const payload = asRecord(JSON.parse(raw)) ?? {}
+    return payload[FIRST_LAUNCH_PLUGINS_CARD_DISMISSED_KEY] === true
+  } catch {
+    return false
+  }
+}
+
+async function writeFirstLaunchPluginsCardDismissed(dismissed: boolean): Promise<void> {
+  const statePath = getCodexGlobalStatePath()
+  let payload: Record<string, unknown> = {}
+  try {
+    const raw = await readFile(statePath, 'utf8')
+    payload = asRecord(JSON.parse(raw)) ?? {}
+  } catch {
+    payload = {}
+  }
+  payload[FIRST_LAUNCH_PLUGINS_CARD_DISMISSED_KEY] = dismissed === true
+  await writeFile(statePath, JSON.stringify(payload), 'utf8')
+}
+
 function getSessionIndexFileSignature(stats: { mtimeMs: number; size: number }): string {
   return `${String(stats.mtimeMs)}:${String(stats.size)}`
 }
@@ -2695,6 +4798,8 @@ async function readWorkspaceRootsState(): Promise<WorkspaceRootsState> {
     order: normalizeStringArray(payload['electron-saved-workspace-roots']),
     labels: normalizeStringRecord(payload['electron-workspace-root-labels']),
     active: normalizeStringArray(payload['active-workspace-roots']),
+    projectOrder: normalizeStringArray(payload['project-order']),
+    remoteProjects: normalizeRemoteProjects(payload['remote-projects']),
   }
 }
 
@@ -2703,6 +4808,7 @@ async function writeWorkspaceRootsState(nextState: WorkspaceRootsState): Promise
   payload['electron-saved-workspace-roots'] = normalizeStringArray(nextState.order)
   payload['electron-workspace-root-labels'] = normalizeStringRecord(nextState.labels)
   payload['active-workspace-roots'] = normalizeStringArray(nextState.active)
+  payload['project-order'] = normalizeStringArray(nextState.projectOrder)
 
   await writeCodexGlobalState(payload)
 }
@@ -2721,6 +4827,71 @@ async function writeCodexGlobalState(payload: Record<string, unknown>): Promise<
   const statePath = getCodexGlobalStatePath()
   await mkdir(dirname(statePath), { recursive: true })
   await writeFile(statePath, JSON.stringify(payload), 'utf8')
+}
+
+let workspaceRootsMutation: Promise<void> = Promise.resolve()
+
+function queueWorkspaceRootsMutation<T>(mutation: () => Promise<T>): Promise<T> {
+  const run = workspaceRootsMutation.catch(() => undefined).then(mutation)
+  workspaceRootsMutation = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  return run
+}
+
+function prependUniqueString(value: string, items: string[]): string[] {
+  return [value, ...items.filter((item) => item !== value)]
+}
+
+async function updateWorkspaceRootsState(
+  updater: (existingState: WorkspaceRootsState) => WorkspaceRootsState,
+): Promise<void> {
+  await queueWorkspaceRootsMutation(async () => {
+    const existingState = await readWorkspaceRootsState()
+    await writeWorkspaceRootsState(updater(existingState))
+  })
+}
+
+async function persistWorkspaceRoot(workspaceRoot: string, label = ''): Promise<void> {
+  const normalizedRoot = workspaceRoot.trim()
+  if (!normalizedRoot) return
+
+  await updateWorkspaceRootsState((existingState) => {
+    const nextLabels = { ...existingState.labels }
+    const trimmedLabel = label.trim()
+    if (trimmedLabel.length > 0) {
+      nextLabels[normalizedRoot] = trimmedLabel
+    }
+    return {
+      order: prependUniqueString(normalizedRoot, existingState.order),
+      labels: nextLabels,
+      active: prependUniqueString(normalizedRoot, existingState.active),
+      projectOrder: prependUniqueString(normalizedRoot, existingState.projectOrder),
+      remoteProjects: existingState.remoteProjects,
+    }
+  })
+}
+
+async function rollbackCreatedWorktree(
+  gitRoot: string,
+  worktreeCwd: string,
+  cleanupDirectory?: string,
+  branchName?: string,
+): Promise<void> {
+  try {
+    await runCommand('git', ['worktree', 'remove', '--force', worktreeCwd], { cwd: gitRoot })
+  } catch {
+    await rm(worktreeCwd, { recursive: true, force: true }).catch(() => undefined)
+  }
+
+  if (cleanupDirectory && cleanupDirectory !== worktreeCwd) {
+    await rm(cleanupDirectory, { recursive: true, force: true }).catch(() => undefined)
+  }
+
+  if (branchName) {
+    await runCommand('git', ['branch', '-D', branchName], { cwd: gitRoot }).catch(() => undefined)
+  }
 }
 
 function normalizeTelegramBridgeConfig(value: unknown): TelegramBridgeConfigState {
@@ -3155,6 +5326,51 @@ async function proxyTranscribeViaApiKey(
   return lastResult ?? { status: 401, body: JSON.stringify({ error: 'No auth token available for transcription' }) }
 }
 
+function parseConnectorLogoUrl(rawUrl: string): { connectorId: string; theme: 'light' | 'dark' } | null {
+  const trimmed = rawUrl.trim()
+  if (!trimmed.startsWith('connectors://')) return null
+  const rest = trimmed.slice('connectors://'.length)
+  const connectorId = (rest.split(/[/?#]/u)[0] ?? '').trim()
+  if (!connectorId) return null
+  const query = rest.includes('?') ? rest.slice(rest.indexOf('?') + 1).split('#')[0] ?? '' : ''
+  const theme = new URLSearchParams(query).get('theme')?.toLowerCase() === 'dark' ? 'dark' : 'light'
+  return { connectorId, theme }
+}
+
+async function fetchConnectorLogo(rawUrl: string): Promise<{ contentType: string; body: Buffer }> {
+  const parsed = parseConnectorLogoUrl(rawUrl)
+  if (!parsed) throw new Error('Unsupported connector logo URL')
+  const auth = await readCodexAuth()
+  if (!auth) throw new Error('No auth token available for connector logo')
+
+  const endpoint = `https://chatgpt.com/backend-api/aip/connectors/${encodeURIComponent(parsed.connectorId)}/logo?theme=${parsed.theme}`
+  const response = await fetch(endpoint, {
+    headers: {
+      Authorization: `Bearer ${auth.accessToken}`,
+      originator: 'Codex Desktop',
+      'User-Agent': `Codex Desktop/0.1.0 (${process.platform}; ${process.arch})`,
+      ...(auth.accountId ? { 'ChatGPT-Account-Id': auth.accountId } : {}),
+    },
+    signal: AbortSignal.timeout(10_000),
+  })
+  if (!response.ok) throw new Error(`Connector logo fetch failed (${response.status})`)
+
+  const contentType = response.headers.get('content-type') ?? ''
+  if (contentType.includes('application/json')) {
+    const payload = asRecord(await response.json())
+    const body = asRecord(payload?.body)
+    const base64 = readNonEmptyString(body?.base64)
+    const nestedContentType = readNonEmptyString(body?.contentType) ?? readNonEmptyString(body?.content_type)
+    if (!base64 || !nestedContentType) throw new Error('Connector logo response was missing image data')
+    return { contentType: nestedContentType, body: Buffer.from(base64, 'base64') }
+  }
+
+  return {
+    contentType: contentType || 'image/png',
+    body: Buffer.from(await response.arrayBuffer()),
+  }
+}
+
 const STREAM_EVENT_BUFFER_LIMIT = 400
 
 type StreamEventFrame = {
@@ -3190,8 +5406,11 @@ class AppServerProcess {
   private readonly appServerArgs = buildAppServerArgs()
   private readonly streamEventsByThreadId = new Map<string, StreamEventFrame[]>()
   private readonly lastThreadReadSnapshotByThreadId = new Map<string, unknown>()
+  private readonly threadTurnPageReadCacheByThreadId = new Map<string, { result: unknown; expiresAt: number }>()
+  private readonly threadTurnPageReadPromiseByThreadId = new Map<string, Promise<unknown>>()
   private readonly capturedItemsByThreadId = new Map<string, Map<string, CapturedItem>>()
   private readonly liveStateCache = new Map<string, { data: unknown; turnCount: number; sessionSize: number }>()
+  private chatgptAuthRefreshPromise: Promise<ChatgptAuthTokensRefreshResponse> | null = null
 
 
   private getCodexCommand(): string {
@@ -3208,10 +5427,11 @@ class AppServerProcess {
     const serverPort = parseInt(process.env.CODEXUI_SERVER_PORT ?? '', 10) || undefined
     const statePath = join(getCodexHomeDir(), FREE_MODE_STATE_FILE)
     try {
-      const raw = readFileSync(statePath, 'utf8')
-      const state = JSON.parse(raw) as FreeModeState
-      args.push(...getFreeModeConfigArgs(state, serverPort))
-      extraEnv = getFreeModeEnvVars(state)
+      const state = ensureDefaultFreeModeStateForMissingAuthSync(statePath)
+      if (state) {
+        args.push(...getFreeModeConfigArgs(state, serverPort))
+        extraEnv = getFreeModeEnvVars(state)
+      }
     } catch {
       // No free-mode state or invalid — use defaults
     }
@@ -3319,7 +5539,10 @@ class AppServerProcess {
     this.recordStreamEvent(notification)
     this.captureItemFromNotification(notification)
     const nThreadId = this.extractThreadIdFromParams(notification.params)
-    if (nThreadId) this.invalidateLiveStateCache(nThreadId)
+    if (nThreadId) {
+      this.invalidateLiveStateCache(nThreadId)
+      this.threadTurnPageReadCacheByThreadId.delete(nThreadId)
+    }
     for (const listener of this.notificationListeners) {
       listener(notification)
     }
@@ -3373,10 +5596,37 @@ class AppServerProcess {
 
   storeThreadReadSnapshot(threadId: string, snapshot: unknown): void {
     this.lastThreadReadSnapshotByThreadId.set(threadId, snapshot)
+    this.threadTurnPageReadCacheByThreadId.delete(threadId)
   }
 
   getLastThreadReadSnapshot(threadId: string): unknown | null {
     return this.lastThreadReadSnapshotByThreadId.get(threadId) ?? null
+  }
+
+  async readThreadForTurnPage(threadId: string): Promise<unknown> {
+    const now = Date.now()
+    const cached = this.threadTurnPageReadCacheByThreadId.get(threadId)
+    if (cached && cached.expiresAt > now) return cached.result
+    if (cached) this.threadTurnPageReadCacheByThreadId.delete(threadId)
+
+    const pending = this.threadTurnPageReadPromiseByThreadId.get(threadId)
+    if (pending) return pending
+
+    const promise = this.rpc('thread/read', {
+      threadId,
+      includeTurns: true,
+    }).then((result) => {
+      this.threadTurnPageReadCacheByThreadId.set(threadId, {
+        result,
+        expiresAt: Date.now() + THREAD_TURN_PAGE_READ_CACHE_TTL_MS,
+      })
+      return result
+    }).finally(() => {
+      this.threadTurnPageReadPromiseByThreadId.delete(threadId)
+    })
+
+    this.threadTurnPageReadPromiseByThreadId.set(threadId, promise)
+    return promise
   }
 
   cacheLiveState(threadId: string, data: unknown, turnCount: number, sessionSize: number): void {
@@ -3516,7 +5766,49 @@ class AppServerProcess {
     })
   }
 
+  private async refreshChatgptAuthTokens(params: ChatgptAuthTokensRefreshParams): Promise<ChatgptAuthTokensRefreshResponse> {
+    if (!this.chatgptAuthRefreshPromise) {
+      this.chatgptAuthRefreshPromise = refreshChatgptAuthTokensForExternalAuth(params).finally(() => {
+        this.chatgptAuthRefreshPromise = null
+      })
+    }
+    return await this.chatgptAuthRefreshPromise
+  }
+
+  private async handleChatgptAuthTokensRefreshRequest(requestId: number, params: unknown): Promise<void> {
+    const requestParams = asRecord(params)
+    const previousAccountId = readNonEmptyString(requestParams?.previousAccountId ?? requestParams?.previous_account_id)
+    try {
+      const result = await this.refreshChatgptAuthTokens({
+        reason: readNonEmptyString(requestParams?.reason) || undefined,
+        previousAccountId: previousAccountId || undefined,
+      })
+      this.sendServerRequestReply(requestId, { result })
+      this.emitNotification({
+        method: 'server/request/resolved',
+        params: {
+          id: requestId,
+          method: 'account/chatgptAuthTokens/refresh',
+          mode: 'automatic',
+          resolvedAtIso: new Date().toISOString(),
+        },
+      })
+    } catch (error) {
+      this.sendServerRequestReply(requestId, {
+        error: {
+          code: -32001,
+          message: getErrorMessage(error, 'Failed to refresh ChatGPT auth tokens'),
+        },
+      })
+    }
+  }
+
   private handleServerRequest(requestId: number, method: string, params: unknown): void {
+    if (method === 'account/chatgptAuthTokens/refresh') {
+      void this.handleChatgptAuthTokensRefreshRequest(requestId, params)
+      return
+    }
+
     const pendingRequest: PendingServerRequest = {
       id: requestId,
       method,
@@ -3665,6 +5957,249 @@ class AppServerProcess {
   }
 }
 
+export class BackendQueueProcessor {
+  private readonly processingThreadIds = new Set<string>()
+  private readonly queueDrainTimersByThreadId = new Map<string, ReturnType<typeof setTimeout>>()
+  private readonly queueDrainDueAtByThreadId = new Map<string, number>()
+  private readonly unsubscribe: () => void
+
+  constructor(private readonly appServer: AppServerProcess) {
+    this.unsubscribe = appServer.onNotification((notification) => {
+      if (!isTurnCompletedNotification(notification)) return
+      const threadId = extractThreadIdFromNotificationParams(notification.params)
+      if (!threadId) return
+      void this.processThreadQueue(threadId)
+    })
+    void this.scheduleAllQueuedThreads(1000)
+  }
+
+  dispose(): void {
+    this.unsubscribe()
+    for (const timer of this.queueDrainTimersByThreadId.values()) {
+      clearTimeout(timer)
+    }
+    this.queueDrainTimersByThreadId.clear()
+    this.queueDrainDueAtByThreadId.clear()
+    this.processingThreadIds.clear()
+  }
+
+  async scheduleAllQueuedThreads(delayMs = 0): Promise<void> {
+    try {
+      const state = await readThreadQueueState()
+      for (const threadId of Object.keys(state)) {
+        this.scheduleThreadQueueDrain(threadId, delayMs)
+      }
+    } catch {
+      // Queue recovery is best-effort; normal turn-completed events can still drain later.
+    }
+  }
+
+  scheduleThreadQueueDrain(threadId: string, delayMs = 5000): void {
+    if (!threadId) return
+    const normalizedDelayMs = Math.max(0, delayMs)
+    const nextDueAt = Date.now() + normalizedDelayMs
+    const existingDueAt = this.queueDrainDueAtByThreadId.get(threadId)
+    const existingTimer = this.queueDrainTimersByThreadId.get(threadId)
+    if (existingTimer) {
+      if (existingDueAt !== undefined && existingDueAt <= nextDueAt) return
+      clearTimeout(existingTimer)
+      this.queueDrainTimersByThreadId.delete(threadId)
+      this.queueDrainDueAtByThreadId.delete(threadId)
+    }
+    const timer = setTimeout(() => {
+      this.queueDrainTimersByThreadId.delete(threadId)
+      this.queueDrainDueAtByThreadId.delete(threadId)
+      void this.processThreadQueue(threadId)
+    }, normalizedDelayMs)
+    timer.unref?.()
+    this.queueDrainTimersByThreadId.set(threadId, timer)
+    this.queueDrainDueAtByThreadId.set(threadId, nextDueAt)
+  }
+
+  async processThreadQueue(threadId: string): Promise<void> {
+    if (this.processingThreadIds.has(threadId)) return
+    this.processingThreadIds.add(threadId)
+    try {
+      const canStart = await this.canStartQueuedTurn(threadId)
+      if (!canStart) {
+        if (await this.hasQueuedTurns(threadId)) {
+          this.scheduleThreadQueueDrain(threadId)
+        }
+        return
+      }
+      const next = await this.popNextQueuedTurn(threadId)
+      if (!next) return
+      try {
+        await this.startQueuedTurn(next)
+        if (await this.hasQueuedTurns(threadId)) {
+          this.scheduleThreadQueueDrain(threadId)
+        }
+      } catch {
+        await this.restoreQueuedTurn(next)
+        this.scheduleThreadQueueDrain(threadId)
+      }
+    } catch {
+      // Queue processing is best-effort. Keep the bridge alive if app-server is unavailable.
+      this.scheduleThreadQueueDrain(threadId)
+    } finally {
+      this.processingThreadIds.delete(threadId)
+    }
+  }
+
+  private async hasQueuedTurns(threadId: string): Promise<boolean> {
+    const state = await readThreadQueueState()
+    const queue = state[threadId]
+    return Array.isArray(queue) && queue.length > 0
+  }
+
+  private async canStartQueuedTurn(threadId: string): Promise<boolean> {
+    const response = asRecord(await this.appServer.rpc('thread/read', { threadId, includeTurns: true }))
+    const thread = asRecord(response?.thread)
+    if (!thread) return false
+
+    const status = asRecord(thread.status)
+    const statusType = readNonEmptyString(status?.type)
+    if (statusType === 'inProgress' || statusType === 'running' || statusType === 'active') return false
+
+    const turns = Array.isArray(thread.turns) ? thread.turns : []
+    return !turns.some((turn) => readNonEmptyString(asRecord(turn)?.status) === 'inProgress')
+  }
+
+  private async popNextQueuedTurn(threadId: string): Promise<BackendQueuedTurn | null> {
+    return withThreadQueueStateUpdate((state) => {
+      const queue = state[threadId]
+      if (!queue || queue.length === 0) {
+        return { nextState: state, result: null }
+      }
+
+      const [message, ...rest] = queue
+      const nextState = { ...state }
+      if (rest.length > 0) {
+        nextState[threadId] = rest
+      } else {
+        delete nextState[threadId]
+      }
+      return { nextState, result: { threadId, message } }
+    })
+  }
+
+  private async restoreQueuedTurn(turn: BackendQueuedTurn): Promise<void> {
+    await withThreadQueueStateUpdate((state) => {
+      const queue = state[turn.threadId] ?? []
+      return {
+        nextState: {
+          ...state,
+          [turn.threadId]: [turn.message, ...queue],
+        },
+        result: undefined,
+      }
+    })
+  }
+
+  private async resolveCollaborationModeSettings(mode: CollaborationModeKind): Promise<ResolvedCollaborationModeSettings> {
+    let currentConfig: Record<string, unknown> | null = null
+    try {
+      const configPayload = asRecord(await this.appServer.rpc('config/read', {}))
+      currentConfig = asRecord(configPayload?.config)
+    } catch {
+      currentConfig = null
+    }
+
+    const configuredModel = readNonEmptyString(currentConfig?.model)
+    if (configuredModel) {
+      return {
+        model: configuredModel,
+        reasoningEffort: normalizeCollaborationModeReasoningEffort(normalizeReasoningEffort(currentConfig?.model_reasoning_effort)),
+      }
+    }
+
+    try {
+      const modelsPayload = asRecord(await this.appServer.rpc('model/list', {}))
+      const models = Array.isArray(modelsPayload?.data) ? modelsPayload.data : []
+      for (const row of models) {
+        const record = asRecord(row)
+        const candidate = readNonEmptyString(record?.id) || readNonEmptyString(record?.model)
+        if (candidate) {
+          return {
+            model: candidate,
+            reasoningEffort: normalizeCollaborationModeReasoningEffort(normalizeReasoningEffort(currentConfig?.model_reasoning_effort)),
+          }
+        }
+      }
+    } catch {
+      // Fall through to no collaboration-mode payload.
+    }
+
+    throw new Error(`${mode === 'plan' ? 'Plan' : 'Default'} mode requires an available model.`)
+  }
+
+  private async buildQueuedTurnParams(turn: BackendQueuedTurn): Promise<Record<string, unknown>> {
+    const localImageAttachments: StoredQueuedMessage['fileAttachments'] = []
+    for (const imageUrl of turn.message.imageUrls) {
+      const localImagePath = extractLocalImagePathFromUrl(imageUrl.trim())
+      if (!localImagePath) continue
+      localImageAttachments.push({
+        label: fileNameFromPath(localImagePath),
+        path: localImagePath,
+        fsPath: localImagePath,
+      })
+    }
+
+    const allFileAttachments = [...turn.message.fileAttachments, ...localImageAttachments]
+    const dedupedFileAttachments = allFileAttachments.filter((entry, index) =>
+      allFileAttachments.findIndex((candidate) => candidate.fsPath === entry.fsPath) === index)
+
+    const input: Array<Record<string, unknown>> = [{
+      type: 'text',
+      text: buildTextWithAttachments(turn.message.text, dedupedFileAttachments),
+    }]
+
+    for (const imageUrl of turn.message.imageUrls) {
+      const normalizedUrl = imageUrl.trim()
+      if (!normalizedUrl) continue
+      const localImagePath = extractLocalImagePathFromUrl(normalizedUrl)
+      if (localImagePath) {
+        input.push({ type: 'localImage', path: localImagePath })
+      } else {
+        input.push({ type: 'image', url: normalizedUrl, image_url: normalizedUrl })
+      }
+    }
+
+    for (const skill of turn.message.skills) {
+      input.push({ type: 'skill', name: skill.name, path: skill.path })
+    }
+
+    const params: Record<string, unknown> = {
+      threadId: turn.threadId,
+      input,
+    }
+    if (dedupedFileAttachments.length > 0) {
+      params.attachments = dedupedFileAttachments.map((f) => ({ label: f.label, path: f.path, fsPath: f.fsPath }))
+    }
+
+    try {
+      const settings = await this.resolveCollaborationModeSettings(turn.message.collaborationMode)
+      params.collaborationMode = {
+        mode: turn.message.collaborationMode,
+        settings: {
+          model: settings.model,
+          reasoning_effort: settings.reasoningEffort,
+          developer_instructions: null,
+        },
+      }
+    } catch {
+      // Older app-server versions still accept a plain turn/start without collaborationMode.
+    }
+
+    return params
+  }
+
+  private async startQueuedTurn(turn: BackendQueuedTurn): Promise<void> {
+    await this.appServer.rpc('thread/resume', { threadId: turn.threadId })
+    await this.appServer.rpc('turn/start', await this.buildQueuedTurnParams(turn))
+  }
+}
+
 class MethodCatalog {
   private methodCache: string[] | null = null
   private notificationCache: string[] | null = null
@@ -3791,6 +6326,7 @@ type SharedBridgeState = {
   telegramBridge: TelegramThreadBridge
   pushNotifications: WebPushNotifications
   threadAutoTitleManager: ThreadAutoTitleManager
+  backendQueueProcessor: BackendQueueProcessor
 }
 
 const SHARED_BRIDGE_KEY = '__codexRemoteSharedBridge__'
@@ -3807,6 +6343,7 @@ function getSharedBridgeState(): SharedBridgeState {
       return existing
     }
     existing.appServer.dispose()
+    existing.backendQueueProcessor?.dispose()
     existing.terminalManager?.dispose()
     existing.pushNotifications?.dispose()
     existing.threadAutoTitleManager?.dispose()
@@ -3814,6 +6351,7 @@ function getSharedBridgeState(): SharedBridgeState {
 
   const appServer = new AppServerProcess()
   const terminalManager = new ThreadTerminalManager()
+  const backendQueueProcessor = new BackendQueueProcessor(appServer)
   const pushNotifications = new WebPushNotifications(appServer)
   const threadAutoTitleManager = new ThreadAutoTitleManager(appServer)
   appServer.onNotification((notification) => {
@@ -3830,6 +6368,7 @@ function getSharedBridgeState(): SharedBridgeState {
     appServer,
     terminalManager,
     methodCatalog: new MethodCatalog(),
+    backendQueueProcessor,
     telegramBridge: new TelegramThreadBridge(appServer, {
       onChatSeen: (chatId) => {
         void rememberTelegramChatId(chatId).catch(() => {})
@@ -3919,7 +6458,7 @@ async function buildThreadSearchIndex(appServer: AppServerProcess): Promise<Thre
 }
 
 export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
-  const { appServer, terminalManager, methodCatalog, telegramBridge, pushNotifications, threadAutoTitleManager } = getSharedBridgeState()
+  const { appServer, terminalManager, methodCatalog, telegramBridge, pushNotifications, threadAutoTitleManager, backendQueueProcessor } = getSharedBridgeState()
   let threadSearchIndex: ThreadSearchIndex | null = null
   let threadSearchIndexPromise: Promise<ThreadSearchIndex> | null = null
 
@@ -4045,6 +6584,10 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
       }
 
       if (url.pathname === '/codex-api/zen-proxy/v1/responses' && req.method === 'POST') {
+        if (!isLoopbackRemoteAddress(req.socket.remoteAddress)) {
+          setJson(res, 403, { error: 'Zen proxy is only available from localhost' })
+          return
+        }
         const statePath = join(getCodexHomeDir(), FREE_MODE_STATE_FILE)
         let bearerToken = ''
         let wireApi: 'responses' | 'chat' = 'chat'
@@ -4062,9 +6605,9 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         let bearerToken = ''
         let wireApi: 'responses' | 'chat' = 'responses'
         try {
-          const state = JSON.parse(readFileSync(statePath, 'utf8')) as FreeModeState
-          bearerToken = state.apiKey ?? ''
-          wireApi = state.wireApi === 'chat' ? 'chat' : 'responses'
+          const state = ensureDefaultFreeModeStateForMissingAuthSync(statePath)
+          bearerToken = state?.apiKey ?? ''
+          wireApi = state?.wireApi === 'chat' ? 'chat' : 'responses'
         } catch { /* use empty */ }
         handleOpenRouterProxyRequest(req, res, bearerToken, wireApi)
         return
@@ -4089,11 +6632,8 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         const statePath = join(getCodexHomeDir(), FREE_MODE_STATE_FILE)
 
         function readFreeModeState(): FreeModeState {
-          try {
-            return JSON.parse(readFileSync(statePath, 'utf8')) as FreeModeState
-          } catch {
-            return { enabled: false, apiKey: null, model: FREE_MODE_DEFAULT_MODEL }
-          }
+          return ensureDefaultFreeModeStateForMissingAuthSync(statePath)
+            ?? { enabled: false, apiKey: null, model: FREE_MODE_DEFAULT_MODEL }
         }
 
         if (req.method === 'POST' && url.pathname === '/codex-api/free-mode') {
@@ -4157,20 +6697,48 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         if (req.method === 'GET' && url.pathname === '/codex-api/free-mode/status') {
           try {
             const state = readFreeModeState()
-            const freeModels = await getFreeModels()
             const maskedKey = state.apiKey && state.customKey
               ? state.apiKey.substring(0, 12) + '...' + state.apiKey.substring(state.apiKey.length - 4)
               : null
+            let models = getCachedFreeModels()
+            let currentModel = state.enabled ? state.model : null
+            let wireApi = state.wireApi ?? null
+            if (state.provider === OPENCODE_ZEN_PROVIDER_ID) {
+              currentModel = state.enabled ? (state.model?.trim() || OPENCODE_ZEN_DEFAULT_MODEL) : null
+              try {
+                const zenModels = sortOpenCodeZenModelIds(await fetchOpenCodeZenModelIds(state.apiKey))
+                if (zenModels.length > 0) {
+                  models = zenModels
+                } else {
+                  models = [
+                    OPENCODE_ZEN_DEFAULT_MODEL,
+                    'minimax-m2.5-free',
+                    'nemotron-3-super-free',
+                    'trinity-large-preview-free',
+                  ]
+                }
+              } catch {
+                models = [
+                  OPENCODE_ZEN_DEFAULT_MODEL,
+                  'minimax-m2.5-free',
+                  'nemotron-3-super-free',
+                  'trinity-large-preview-free',
+                ]
+              }
+              wireApi = 'responses'
+            } else {
+              refreshFreeModelsInBackground()
+            }
             setJson(res, 200, {
               enabled: state.enabled,
               keyCount: getFreeKeyCount(),
-              models: freeModels,
-              currentModel: state.enabled ? state.model : null,
+              models,
+              currentModel,
               customKey: Boolean(state.customKey),
               maskedKey,
               provider: state.provider ?? 'openrouter',
               customBaseUrl: state.customBaseUrl ?? null,
-              wireApi: state.wireApi ?? null,
+              wireApi,
             })
           } catch (error) {
             setJson(res, 500, { error: getErrorMessage(error, 'Failed to read free mode status') })
@@ -4261,7 +6829,7 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
               ? (current.model || FREE_MODE_DEFAULT_MODEL)
               : providerType === 'custom'
                 ? await fetchCustomEndpointDefaultModel(baseUrl, resolvedKey)
-                : ''
+                : OPENCODE_ZEN_DEFAULT_MODEL
             const state: FreeModeState = {
               enabled: true,
               apiKey: resolvedKey,
@@ -4297,7 +6865,31 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         return
       }
 
+      if (req.method === 'GET' && url.pathname === '/codex-api/thread-terminal/status') {
+        setJson(res, 200, terminalManager.getAvailability())
+        return
+      }
+
+      if (req.method === 'GET' && url.pathname === '/codex-api/thread-terminal/quick-commands') {
+        const cwd = url.searchParams.get('cwd')?.trim() ?? ''
+        if (!cwd) {
+          setJson(res, 400, { error: 'Missing cwd' })
+          return
+        }
+        try {
+          setJson(res, 200, { commands: await listTerminalQuickCommands(cwd) })
+        } catch (error) {
+          setJson(res, 500, { error: getErrorMessage(error, 'Failed to load terminal quick commands') })
+        }
+        return
+      }
+
       if (req.method === 'POST' && url.pathname === '/codex-api/thread-terminal/attach') {
+        const availability = terminalManager.getAvailability()
+        if (!availability.available) {
+          setJson(res, 503, { error: availability.reason || 'Integrated terminal is unavailable on this host' })
+          return
+        }
         const body = asRecord(await readJsonBody(req))
         const threadId = readNonEmptyString(body?.threadId)
         const cwd = readNonEmptyString(body?.cwd)
@@ -4318,6 +6910,11 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
       }
 
       if (req.method === 'POST' && url.pathname === '/codex-api/thread-terminal/input') {
+        const availability = terminalManager.getAvailability()
+        if (!availability.available) {
+          setJson(res, 503, { error: availability.reason || 'Integrated terminal is unavailable on this host' })
+          return
+        }
         const body = asRecord(await readJsonBody(req))
         const sessionId = readNonEmptyString(body?.sessionId)
         const data = typeof body?.data === 'string' ? body.data : ''
@@ -4331,6 +6928,11 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
       }
 
       if (req.method === 'POST' && url.pathname === '/codex-api/thread-terminal/resize') {
+        const availability = terminalManager.getAvailability()
+        if (!availability.available) {
+          setJson(res, 503, { error: availability.reason || 'Integrated terminal is unavailable on this host' })
+          return
+        }
         const body = asRecord(await readJsonBody(req))
         const sessionId = readNonEmptyString(body?.sessionId)
         if (!sessionId) {
@@ -4343,6 +6945,11 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
       }
 
       if (req.method === 'POST' && url.pathname === '/codex-api/thread-terminal/close') {
+        const availability = terminalManager.getAvailability()
+        if (!availability.available) {
+          setJson(res, 503, { error: availability.reason || 'Integrated terminal is unavailable on this host' })
+          return
+        }
         const body = asRecord(await readJsonBody(req))
         const sessionId = readNonEmptyString(body?.sessionId)
         if (!sessionId) {
@@ -4377,34 +6984,122 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         }
         rpcMethod = body?.method && typeof body.method === 'string' ? body.method : null
 
-        if (!body || typeof body.method !== 'string' || body.method.length === 0) {
-          setJson(res, 400, { error: 'Invalid body: expected { method, params? }' })
-          return
-        }
+	        if (!body || typeof body.method !== 'string' || body.method.length === 0) {
+	          setJson(res, 400, { error: 'Invalid body: expected { method, params? }' })
+	          return
+	        }
+
+	        if (body.method === 'generate-thread-title') {
+	          setJson(res, 200, { result: { title: '' } })
+	          return
+	        }
+
+	        if (body.method === 'account/rateLimits/read' && !(await hasUsableCodexAuth())) {
+	          setJson(res, 200, { result: null })
+	          return
+	        }
 
         let rpcResult: unknown
         try {
-          rpcResult = await appServer.rpc(body.method, body.params ?? null)
+          rpcResult = await callRpcWithArchiveRecovery(appServer, body.method, body.params ?? null)
         } catch (error) {
           if (isAccountRateLimitsUnavailableError(body.method, error)) {
             setJson(res, 200, { result: null })
             return
           }
-          throw error
-        }
+	          if (body.method === 'account/rateLimits/read' && isUnauthenticatedRateLimitError(error)) {
+	            setJson(res, 200, { result: null })
+	            return
+	          }
+	          if (body.method === 'thread/read' && isEmptyThreadReadError(error)) {
+	            const params = asRecord(body.params)
+	            const threadId = typeof params?.threadId === 'string' ? params.threadId.trim() : ''
+	            const snapshot = threadId ? appServer.getLastThreadReadSnapshot(threadId) : null
+	            if (snapshot) {
+	              setJson(res, 200, { result: snapshot })
+	              return
+	            }
+	          }
+	          throw error
+	        }
         const trimmedResult = trimThreadTurnsInRpcResult(body.method, rpcResult)
-        const result = await sanitizeThreadTurnsInlinePayloads(body.method, trimmedResult)
+        const sanitizedResult = await sanitizeThreadTurnsInlinePayloads(body.method, trimmedResult)
+        const result = THREAD_METHODS_WITH_TURNS.has(body.method)
+          ? await mergeSessionSkillInputsIntoThreadResult(sanitizedResult)
+          : sanitizedResult
 
-        if (THREAD_METHODS_WITH_TURNS.has(body.method)) {
-          const rpcRecord = asRecord(result)
-          const rpcThread = asRecord(rpcRecord?.thread)
-          const rpcThreadId = typeof rpcThread?.id === 'string' ? rpcThread.id : ''
+	        if (THREAD_METHODS_WITH_THREAD_SNAPSHOT.has(body.method)) {
+	          const rpcRecord = asRecord(result)
+	          const rpcThread = asRecord(rpcRecord?.thread)
+	          const rpcThreadId = typeof rpcThread?.id === 'string' ? rpcThread.id : ''
           if (rpcThreadId) {
             appServer.storeThreadReadSnapshot(rpcThreadId, result)
           }
         }
 
         setJson(res, 200, { result })
+        return
+      }
+
+      if (req.method === 'GET' && url.pathname === '/codex-api/thread-turn-page') {
+        try {
+          const threadId = url.searchParams.get('threadId')?.trim() ?? ''
+          const beforeTurnId = url.searchParams.get('beforeTurnId')?.trim() ?? ''
+          const limitRaw = url.searchParams.get('limit')?.trim() ?? String(THREAD_RESPONSE_TURN_LIMIT)
+          const limit = Math.max(1, Math.min(50, Number.parseInt(limitRaw, 10) || THREAD_RESPONSE_TURN_LIMIT))
+          if (!threadId) {
+            setJson(res, 400, { error: 'Missing threadId' })
+            return
+          }
+
+          const threadReadResult = await appServer.readThreadForTurnPage(threadId)
+          const record = asRecord(threadReadResult)
+          const thread = asRecord(record?.thread)
+          if (!record || !thread) {
+            setJson(res, 502, { error: 'thread/read returned an invalid thread response' })
+            return
+          }
+
+          const turns = Array.isArray(thread.turns) ? thread.turns : []
+          const beforeIndex = beforeTurnId
+            ? turns.findIndex((turn) => asRecord(turn)?.id === beforeTurnId)
+            : turns.length
+          if (beforeTurnId && beforeIndex < 0) {
+            setJson(res, 200, {
+              result: {
+                ...record,
+                thread: {
+                  ...thread,
+                  turns: [],
+                },
+              },
+              startTurnIndex: 0,
+              hasMoreOlder: false,
+            })
+            return
+          }
+
+          const endIndex = beforeIndex
+          const startIndex = Math.max(0, endIndex - limit)
+          const pageTurns = turns.slice(startIndex, endIndex)
+          const pagedResult = {
+            ...record,
+            thread: {
+              ...thread,
+              turns: pageTurns,
+            },
+          }
+          const sanitized = await sanitizeThreadTurnsInlinePayloads('thread/read', pagedResult)
+          const result = await mergeSessionSkillInputsIntoThreadResult(sanitized)
+
+          setJson(res, 200, {
+            result,
+            startTurnIndex: startIndex,
+            hasMoreOlder: startIndex > 0,
+          })
+        } catch (error) {
+          setJson(res, 500, { error: getErrorMessage(error, 'Failed to load earlier thread messages') })
+        }
         return
       }
 
@@ -4642,6 +7337,84 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         return
       }
 
+      if (req.method === 'GET' && url.pathname === '/codex-api/composio/status') {
+        try {
+          setJson(res, 200, await readComposioStatus())
+        } catch (error) {
+          setJson(res, 500, { error: getErrorMessage(error, 'Failed to read Composio status') })
+        }
+        return
+      }
+
+      if (req.method === 'GET' && url.pathname === '/codex-api/composio/connectors') {
+        try {
+          const query = url.searchParams.get('query') ?? ''
+          const cursor = url.searchParams.get('cursor')?.trim() ?? null
+          const limit = parseComposioLimit(url.searchParams.get('limit'))
+          setJson(res, 200, await listComposioConnectors(query, cursor, limit))
+        } catch (error) {
+          setJson(res, 500, { error: getErrorMessage(error, 'Failed to list Composio connectors') })
+        }
+        return
+      }
+
+      if (req.method === 'GET' && url.pathname === '/codex-api/composio/connector') {
+        try {
+          const slug = url.searchParams.get('slug') ?? ''
+          setJson(res, 200, await readComposioConnectorDetail(slug))
+        } catch (error) {
+          setJson(res, 500, { error: getErrorMessage(error, 'Failed to load Composio connector') })
+        }
+        return
+      }
+
+      if (req.method === 'POST' && url.pathname === '/codex-api/composio/link') {
+        try {
+          const payload = asRecord(await readJsonBody(req))
+          const slug = readNonEmptyString(payload?.slug)
+          setJson(res, 200, await startComposioLink(slug))
+        } catch (error) {
+          setJson(res, 500, { error: getErrorMessage(error, 'Failed to start Composio login') })
+        }
+        return
+      }
+
+      if (req.method === 'POST' && url.pathname === '/codex-api/composio/login') {
+        try {
+          setJson(res, 200, await startComposioLogin())
+        } catch (error) {
+          setJson(res, 500, { error: getErrorMessage(error, 'Failed to start Composio CLI login') })
+        }
+        return
+      }
+
+      if (req.method === 'POST' && url.pathname === '/codex-api/composio/install') {
+        try {
+          setJson(res, 200, await installComposioCli())
+        } catch (error) {
+          setJson(res, 500, { error: getErrorMessage(error, 'Failed to install Composio CLI') })
+        }
+        return
+      }
+
+      if (req.method === 'GET' && url.pathname === '/codex-api/connector-logo') {
+        const src = url.searchParams.get('src')?.trim() ?? ''
+        if (!src) {
+          setJson(res, 400, { error: 'Missing src' })
+          return
+        }
+        try {
+          const logo = await fetchConnectorLogo(src)
+          res.statusCode = 200
+          res.setHeader('Content-Type', logo.contentType)
+          res.setHeader('Cache-Control', 'private, max-age=3600')
+          res.end(logo.body)
+        } catch (error) {
+          setJson(res, 502, { error: getErrorMessage(error, 'Failed to fetch connector logo') })
+        }
+        return
+      }
+
       if (req.method === 'POST' && url.pathname === '/codex-api/server-requests/respond') {
         const payload = await readJsonBody(req)
         await appServer.respondToServerRequest(payload)
@@ -4714,22 +7487,13 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
 
       if (req.method === 'GET' && url.pathname === '/codex-api/provider-models') {
         try {
-          const fmState = JSON.parse(readFileSync(join(getCodexHomeDir(), FREE_MODE_STATE_FILE), 'utf8')) as FreeModeState
-          if (fmState.enabled) {
+          const fmState = ensureDefaultFreeModeStateForMissingAuthSync(join(getCodexHomeDir(), FREE_MODE_STATE_FILE))
+          if (fmState?.enabled) {
             if (fmState.provider === 'opencode-zen') {
               try {
-                const modelsUrl = 'https://opencode.ai/zen/v1/models'
-                const headers: Record<string, string> = {}
-                if (fmState.apiKey && fmState.apiKey !== 'dummy') {
-                  headers['Authorization'] = `Bearer ${fmState.apiKey}`
-                }
-                const resp = await fetch(modelsUrl, { headers, signal: AbortSignal.timeout(8000) })
-                if (resp.ok) {
-                  const json = await resp.json() as { data?: Array<{ id: string }> }
-                  const allIds = (json.data ?? []).map(m => m.id).filter(Boolean)
-                  const freeIds = allIds.filter(id => id.endsWith('-free') || id === 'big-pickle')
-                  const paidIds = allIds.filter(id => !id.endsWith('-free') && id !== 'big-pickle')
-                  setJson(res, 200, { data: [...freeIds, ...paidIds], exclusive: true, source: 'opencode-zen' })
+                const modelIds = sortOpenCodeZenModelIds(await fetchOpenCodeZenModelIds(fmState.apiKey))
+                if (modelIds.length > 0) {
+                  setJson(res, 200, { data: modelIds, exclusive: true, source: 'opencode-zen' })
                   return
                 }
               } catch {
@@ -4780,23 +7544,14 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         return
       }
 
-      if (req.method === 'GET' && url.pathname === '/codex-api/home-directory') {
-        setJson(res, 200, { data: { path: homedir() } })
+      if (req.method === 'GET' && url.pathname === '/codex-api/thread-queue-state') {
+        const state = await readThreadQueueState()
+        setJson(res, 200, { data: state })
         return
       }
 
-      if (req.method === 'GET' && url.pathname === '/codex-api/github-trending') {
-        const sinceRaw = (url.searchParams.get('since') ?? '').trim().toLowerCase()
-        const since: 'daily' | 'weekly' | 'monthly' =
-          sinceRaw === 'weekly' ? 'weekly' : sinceRaw === 'monthly' ? 'monthly' : 'daily'
-        const limitRaw = Number.parseInt((url.searchParams.get('limit') ?? '6').trim(), 10)
-        const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(10, limitRaw)) : 6
-        try {
-          const data = await fetchGithubTrending(since, limit)
-          setJson(res, 200, { data })
-        } catch (error) {
-          setJson(res, 502, { error: getErrorMessage(error, 'Failed to fetch GitHub trending') })
-        }
+      if (req.method === 'GET' && url.pathname === '/codex-api/home-directory') {
+        setJson(res, 200, { data: { path: homedir() } })
         return
       }
 
@@ -4865,11 +7620,92 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
             await ensureRepoHasInitialCommit(gitRoot)
             await runCommand('git', ['worktree', 'add', '--detach', worktreeCwd, startPoint], { cwd: gitRoot })
           }
+          try {
+            await persistWorkspaceRoot(worktreeCwd)
+          } catch (error) {
+            await rollbackCreatedWorktree(gitRoot, worktreeCwd, worktreeParent)
+            throw error
+          }
 
           setJson(res, 200, {
             data: {
               cwd: worktreeCwd,
               branch: null,
+              gitRoot,
+            },
+          })
+        } catch (error) {
+          setJson(res, 500, { error: getErrorMessage(error, 'Failed to create worktree') })
+        }
+        return
+      }
+
+      if (req.method === 'POST' && url.pathname === '/codex-api/worktree/create-permanent') {
+        const payload = asRecord(await readJsonBody(req))
+        const rawSourceCwd = typeof payload?.sourceCwd === 'string' ? payload.sourceCwd.trim() : ''
+        const rawWorktreeName = typeof payload?.worktreeName === 'string' ? payload.worktreeName.trim() : ''
+        if (!rawSourceCwd) {
+          setJson(res, 400, { error: 'Missing sourceCwd' })
+          return
+        }
+        if (!rawWorktreeName) {
+          setJson(res, 400, { error: 'Missing worktreeName' })
+          return
+        }
+        if (rawWorktreeName.includes('/') || rawWorktreeName.includes('\\') || rawWorktreeName === '.' || rawWorktreeName === '..') {
+          setJson(res, 400, { error: 'Worktree name must be a single folder name' })
+          return
+        }
+
+        const sourceCwd = isAbsolute(rawSourceCwd) ? rawSourceCwd : resolve(rawSourceCwd)
+        try {
+          const sourceInfo = await stat(sourceCwd)
+          if (!sourceInfo.isDirectory()) {
+            setJson(res, 400, { error: 'sourceCwd is not a directory' })
+            return
+          }
+        } catch {
+          setJson(res, 404, { error: 'sourceCwd does not exist' })
+          return
+        }
+
+        try {
+          let gitRoot = ''
+          try {
+            gitRoot = await runCommandCapture('git', ['rev-parse', '--show-toplevel'], { cwd: sourceCwd })
+          } catch (error) {
+            if (!isNotGitRepositoryError(error)) throw error
+            await runCommand('git', ['init'], { cwd: sourceCwd })
+            gitRoot = await runCommandCapture('git', ['rev-parse', '--show-toplevel'], { cwd: sourceCwd })
+          }
+          const worktreeCwd = join(dirname(gitRoot), rawWorktreeName)
+          try {
+            await stat(worktreeCwd)
+            setJson(res, 409, { error: 'Worktree folder already exists' })
+            return
+          } catch {
+            // Expected for a new worktree path.
+          }
+
+          const branchName = await allocatePermanentWorktreeBranchName(gitRoot, rawWorktreeName)
+          try {
+            await runCommand('git', ['worktree', 'add', '-b', branchName, worktreeCwd, 'HEAD'], { cwd: gitRoot })
+          } catch (error) {
+            if (!isMissingHeadError(error)) throw error
+            await ensureRepoHasInitialCommit(gitRoot)
+            await runCommand('git', ['worktree', 'add', '-b', branchName, worktreeCwd, 'HEAD'], { cwd: gitRoot })
+          }
+          try {
+            await persistWorkspaceRoot(worktreeCwd)
+          } catch (error) {
+            await rollbackCreatedWorktree(gitRoot, worktreeCwd, undefined, branchName)
+            throw error
+          }
+
+          setJson(res, 200, {
+            data: {
+              cwd: worktreeCwd,
+              branch: branchName,
               gitRoot,
             },
           })
@@ -4972,44 +7808,91 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
             return
           }
 
-          const currentBranchRaw = await runCommandCapture('git', ['branch', '--show-current'], { cwd: gitRoot })
-          const currentBranch = currentBranchRaw.trim() || null
+          const state = await readGitHeaderState(gitRoot)
+          const currentBranch = state.currentBranch
           const output = await runCommandCapture(
             'git',
-            ['for-each-ref', '--format=%(committerdate:unix)\t%(refname)', 'refs/heads', 'refs/remotes'],
+            ['for-each-ref', '--format=%(committerdate:unix)\t%(refname)\t%(objectname)', 'refs/heads', 'refs/remotes'],
             { cwd: gitRoot },
           )
-          const branchActivityByName = new Map<string, number>()
+          const branchActivityByName = new Map<string, { timestamp: number; isRemote: boolean }>()
           for (const line of output.split('\n')) {
             const [rawTimestamp = '', rawRefName = ''] = line.split('\t')
             const normalized = normalizeBranchRefName(rawRefName)
             if (!normalized || normalized === 'origin/HEAD') continue
             const parsedTimestamp = Number.parseInt(rawTimestamp.trim(), 10)
             const timestamp = Number.isFinite(parsedTimestamp) ? parsedTimestamp : 0
-            const current = branchActivityByName.get(normalized) ?? Number.MIN_SAFE_INTEGER
-            if (timestamp > current) {
-              branchActivityByName.set(normalized, timestamp)
+            const isRemote = rawRefName.trim().startsWith('refs/remotes/')
+            const current = branchActivityByName.get(normalized)
+            if (!current || timestamp > current.timestamp) {
+              branchActivityByName.set(normalized, { timestamp, isRemote })
             }
           }
           if (currentBranch && !branchActivityByName.has(currentBranch)) {
-            branchActivityByName.set(currentBranch, Number.MAX_SAFE_INTEGER)
+            branchActivityByName.set(currentBranch, { timestamp: Number.MAX_SAFE_INTEGER, isRemote: false })
           }
           const options = Array.from(branchActivityByName.entries())
-            .map(([value]) => ({ value, label: value }))
+            .map(([value, metadata]) => ({
+              value,
+              label: value,
+              isCurrent: value === currentBranch,
+              isRemote: metadata.isRemote,
+            }))
             .sort((a, b) => {
-              const aActivity = branchActivityByName.get(a.value) ?? 0
-              const bActivity = branchActivityByName.get(b.value) ?? 0
+              const aActivity = branchActivityByName.get(a.value)?.timestamp ?? 0
+              const bActivity = branchActivityByName.get(b.value)?.timestamp ?? 0
               if (bActivity !== aActivity) return bActivity - aActivity
               return a.value.localeCompare(b.value)
             })
           setJson(res, 200, {
             data: {
-              currentBranch,
+              ...state,
               options,
             },
           })
         } catch (error) {
           setJson(res, 500, { error: getErrorMessage(error, 'Failed to read Git branches') })
+        }
+        return
+      }
+
+      if (req.method === 'GET' && url.pathname === '/codex-api/git/repository-status') {
+        const rawCwd = (url.searchParams.get('cwd') ?? '').trim()
+        if (!rawCwd) {
+          setJson(res, 400, { error: 'Missing cwd' })
+          return
+        }
+        const cwd = isAbsolute(rawCwd) ? rawCwd : resolve(rawCwd)
+        try {
+          const cwdInfo = await stat(cwd)
+          if (!cwdInfo.isDirectory()) {
+            setJson(res, 400, { error: 'cwd is not a directory' })
+            return
+          }
+        } catch {
+          setJson(res, 404, { error: 'cwd does not exist' })
+          return
+        }
+
+        try {
+          const gitRoot = await runCommandCapture('git', ['rev-parse', '--show-toplevel'], { cwd })
+          setJson(res, 200, {
+            data: {
+              isGitRepo: true,
+              gitRoot,
+            },
+          })
+        } catch (error) {
+          if (!isNotGitRepositoryError(error)) {
+            setJson(res, 500, { error: getErrorMessage(error, 'Failed to read Git repository status') })
+            return
+          }
+          setJson(res, 200, {
+            data: {
+              isGitRepo: false,
+              gitRoot: '',
+            },
+          })
         }
         return
       }
@@ -5044,20 +7927,101 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         }
         try {
           const gitRoot = await runCommandCapture('git', ['rev-parse', '--show-toplevel'], { cwd })
-          try {
-            await runCommand('git', ['checkout', targetBranch], { cwd: gitRoot })
-          } catch (checkoutError) {
-            const blockingWorktreePath = extractBranchLockedWorktreePath(checkoutError, targetBranch)
-            if (!blockingWorktreePath) {
-              throw checkoutError
-            }
-            await runCommand('git', ['checkout', '--detach'], { cwd: blockingWorktreePath })
-            await runCommand('git', ['checkout', targetBranch], { cwd: gitRoot })
-          }
-          const currentBranch = (await runCommandCapture('git', ['branch', '--show-current'], { cwd: gitRoot })).trim() || null
-          setJson(res, 200, { data: { currentBranch } })
+          await assertNoTrackedGitChanges(gitRoot)
+          await checkoutGitBranchWithWorktreeRecovery(gitRoot, targetBranch)
+          setJson(res, 200, { data: await readGitHeaderState(gitRoot) })
         } catch (error) {
           setJson(res, 500, { error: getErrorMessage(error, 'Failed to switch branch') })
+        }
+        return
+      }
+
+      if (req.method === 'GET' && url.pathname === '/codex-api/git/branch-commits') {
+        const rawCwd = (url.searchParams.get('cwd') ?? '').trim()
+        const branch = (url.searchParams.get('branch') ?? '').trim()
+        if (!rawCwd) {
+          setJson(res, 400, { error: 'Missing cwd' })
+          return
+        }
+        if (!branch) {
+          setJson(res, 400, { error: 'Missing branch' })
+          return
+        }
+        const cwd = isAbsolute(rawCwd) ? rawCwd : resolve(rawCwd)
+        try {
+          const gitRoot = await runCommandCapture('git', ['rev-parse', '--show-toplevel'], { cwd })
+          await runCommandCapture('git', ['rev-parse', '--verify', `${branch}^{commit}`], { cwd: gitRoot })
+          const resetHistoryRefPrefix = `refs/codex/header-git-reset-history/${branch}/`
+          const resetHistoryRefsRaw = await runCommandCapture(
+            'git',
+            ['for-each-ref', '--sort=-creatordate', '--format=%(refname)', resetHistoryRefPrefix],
+            { cwd: gitRoot },
+          ).catch(() => '')
+          const resetHistoryRefs = resetHistoryRefsRaw
+            .split('\n')
+            .map((entry) => entry.trim())
+            .filter(Boolean)
+            .slice(0, HEADER_GIT_RESET_HISTORY_REF_LIMIT)
+          const output = await runCommandCapture(
+            'git',
+            ['log', '-n', '12', '--date=short', '--format=%H%x09%h%x09%cd%x09%s', branch, ...resetHistoryRefs],
+            { cwd: gitRoot },
+          )
+          const commits = output.split('\n').flatMap((line) => {
+            const [sha = '', shortSha = '', date = '', ...subjectParts] = line.split('\t')
+            const subject = subjectParts.join('\t').trim()
+            return sha.trim() && shortSha.trim()
+              ? [{ sha: sha.trim(), shortSha: shortSha.trim(), date: date.trim(), subject: subject || shortSha.trim() }]
+              : []
+          })
+          setJson(res, 200, { data: commits })
+        } catch (error) {
+          setJson(res, 500, { error: getErrorMessage(error, 'Failed to load branch commits') })
+        }
+        return
+      }
+
+      if (req.method === 'POST' && url.pathname === '/codex-api/git/reset-to-commit') {
+        const payload = await readJsonBody(req)
+        const record = asRecord(payload)
+        if (!record) {
+          setJson(res, 400, { error: 'Invalid body: expected object' })
+          return
+        }
+        const rawCwd = readNonEmptyString(record.cwd)
+        const branch = readNonEmptyString(record.branch)
+        const sha = readNonEmptyString(record.sha)
+        if (!rawCwd) {
+          setJson(res, 400, { error: 'Missing cwd' })
+          return
+        }
+        if (!branch) {
+          setJson(res, 400, { error: 'Missing branch' })
+          return
+        }
+        if (!sha) {
+          setJson(res, 400, { error: 'Missing commit' })
+          return
+        }
+        const cwd = isAbsolute(rawCwd) ? rawCwd : resolve(rawCwd)
+        try {
+          const gitRoot = await runCommandCapture('git', ['rev-parse', '--show-toplevel'], { cwd })
+          await assertNoTrackedGitChanges(gitRoot)
+          await assertLocalGitBranch(gitRoot, branch)
+          const currentBranch = (await runCommandCapture('git', ['branch', '--show-current'], { cwd: gitRoot })).trim()
+          if (currentBranch && currentBranch !== branch) {
+            await checkoutGitBranchWithWorktreeRecovery(gitRoot, branch)
+          } else if (!currentBranch) {
+            await checkoutGitBranchWithWorktreeRecovery(gitRoot, branch)
+          }
+          const previousTip = await runCommandCapture('git', ['rev-parse', 'HEAD'], { cwd: gitRoot })
+          const targetSha = await runCommandCapture('git', ['rev-parse', '--verify', `${sha}^{commit}`], { cwd: gitRoot })
+          await runCommand('git', ['update-ref', toHeaderGitResetHistoryRef(branch, previousTip.trim()), previousTip.trim()], { cwd: gitRoot })
+          await pruneHeaderGitResetHistoryRefs(gitRoot, branch)
+          await runCommand('git', ['reset', '--hard', targetSha.trim()], { cwd: gitRoot })
+          setJson(res, 200, { data: await readGitHeaderState(gitRoot) })
+        } catch (error) {
+          setJson(res, 500, { error: getErrorMessage(error, 'Failed to reset branch to commit') })
         }
         return
       }
@@ -5071,12 +8035,28 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
           setJson(res, 400, { error: 'Invalid body: expected object' })
           return
         }
-        const nextState: WorkspaceRootsState = {
+        await updateWorkspaceRootsState((existingState) => ({
           order: normalizeStringArray(record.order),
           labels: normalizeStringRecord(record.labels),
           active: normalizeStringArray(record.active),
+          projectOrder: Array.isArray(record.projectOrder)
+            ? normalizeStringArray(record.projectOrder)
+            : existingState.projectOrder,
+          remoteProjects: existingState.remoteProjects,
+        }))
+        setJson(res, 200, { ok: true })
+        return
+      }
+
+      if (req.method === 'PUT' && url.pathname === '/codex-api/thread-queue-state') {
+        const payload = await readJsonBody(req)
+        const record = asRecord(payload)
+        if (!record) {
+          setJson(res, 400, { error: 'Invalid body: expected object' })
+          return
         }
-        await writeWorkspaceRootsState(nextState)
+        await writeThreadQueueState(normalizeThreadQueueState(record))
+        void backendQueueProcessor.scheduleAllQueuedThreads()
         setJson(res, 200, { ok: true })
         return
       }
@@ -5110,18 +8090,7 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
           return
         }
 
-        const existingState = await readWorkspaceRootsState()
-        const nextOrder = [normalizedPath, ...existingState.order.filter((item) => item !== normalizedPath)]
-        const nextActive = [normalizedPath, ...existingState.active.filter((item) => item !== normalizedPath)]
-        const nextLabels = { ...existingState.labels }
-        if (label.trim().length > 0) {
-          nextLabels[normalizedPath] = label.trim()
-        }
-        await writeWorkspaceRootsState({
-          order: nextOrder,
-          labels: nextLabels,
-          active: nextActive,
-        })
+        await persistWorkspaceRoot(normalizedPath, label)
         setJson(res, 200, { data: { path: normalizedPath } })
         return
       }
@@ -5146,6 +8115,31 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         }
 
         setJson(res, 200, { data: { path: normalizedPath } })
+        return
+      }
+
+      if (req.method === 'POST' && url.pathname === '/codex-api/github-clone') {
+        const payload = asRecord(await readJsonBody(req))
+        const repoUrl = typeof payload?.url === 'string' ? payload.url.trim() : ''
+        const basePath = typeof payload?.basePath === 'string' ? payload.basePath.trim() : ''
+        try {
+          const clonedPath = await cloneGithubRepositoryIntoBase(repoUrl, basePath)
+          setJson(res, 200, { data: { path: clonedPath } })
+        } catch (error) {
+          setJson(res, 400, { error: error instanceof Error ? error.message : 'Failed to clone GitHub repository' })
+        }
+        return
+      }
+
+      if (req.method === 'POST' && url.pathname === '/codex-api/projectless-thread-cwd') {
+        const payload = asRecord(await readJsonBody(req))
+        const prompt = typeof payload?.prompt === 'string' ? payload.prompt : null
+        try {
+          const directory = await createProjectlessThreadDirectory(prompt)
+          setJson(res, 200, { data: directory })
+        } catch (error) {
+          setJson(res, 500, { error: error instanceof Error ? error.message : 'Failed to create new chat folder' })
+        }
         return
       }
 
@@ -5222,6 +8216,43 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         return
       }
 
+      if (req.method === 'GET' && url.pathname === '/codex-api/prompts') {
+        setJson(res, 200, { data: await listComposerPrompts() })
+        return
+      }
+
+      if (req.method === 'POST' && url.pathname === '/codex-api/prompts') {
+        const payload = asRecord(await readJsonBody(req))
+        const name = typeof payload?.name === 'string' ? payload.name.trim() : ''
+        const content = typeof payload?.content === 'string' ? payload.content : ''
+        if (!name || !content.trim()) {
+          setJson(res, 400, { error: 'Prompt name and content are required' })
+          return
+        }
+        try {
+          const prompt = await createComposerPromptFile(name, content)
+          setJson(res, 200, { data: prompt })
+        } catch (error) {
+          setJson(res, 500, { error: getErrorMessage(error, 'Failed to create prompt') })
+        }
+        return
+      }
+
+      if (req.method === 'DELETE' && url.pathname === '/codex-api/prompts') {
+        const promptPath = url.searchParams.get('path')?.trim() ?? ''
+        if (!promptPath) {
+          setJson(res, 400, { error: 'Missing path' })
+          return
+        }
+        try {
+          const removed = await removeComposerPromptFile(promptPath)
+          setJson(res, 200, { data: { removed } })
+        } catch (error) {
+          setJson(res, 400, { error: getErrorMessage(error, 'Failed to remove prompt') })
+        }
+        return
+      }
+
       if (req.method === 'GET' && url.pathname === '/codex-api/thread-titles') {
         const cache = await readMergedThreadTitleCache()
         setJson(res, 200, { data: cache })
@@ -5240,20 +8271,49 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         return
       }
 
+      if (req.method === 'GET' && url.pathname === '/codex-api/preferences/first-launch-plugins-card') {
+        const dismissed = await readFirstLaunchPluginsCardDismissed()
+        setJson(res, 200, { data: { dismissed } })
+        return
+      }
+
       if (req.method === 'GET' && url.pathname === '/codex-api/thread-automations') {
         const automationsByThreadId = await listThreadHeartbeatAutomations()
-        setJson(res, 200, { data: automationsByThreadId })
+        setJson(res, 200, { data: toAutomationApiMap(automationsByThreadId) })
+        return
+      }
+
+      if (req.method === 'GET' && url.pathname === '/codex-api/project-automations') {
+        const automationsByProjectName = await listProjectCronAutomations()
+        setJson(res, 200, { data: toAutomationApiMap(automationsByProjectName) })
         return
       }
 
       if (req.method === 'GET' && url.pathname === '/codex-api/thread-automation') {
         const threadId = url.searchParams.get('threadId')?.trim() ?? ''
+        const automationId = url.searchParams.get('automationId')?.trim() ?? ''
         if (!threadId) {
           setJson(res, 400, { error: 'Missing threadId' })
           return
         }
-        const automation = await readThreadHeartbeatAutomation(threadId)
-        setJson(res, 200, { data: automation })
+        const automation = automationId
+          ? await readThreadHeartbeatAutomation(threadId, automationId)
+          : await readThreadHeartbeatAutomations(threadId)
+        setJson(res, 200, { data: toAutomationApiData(automation) })
+        return
+      }
+
+      if (req.method === 'GET' && url.pathname === '/codex-api/project-automation') {
+        const projectName = url.searchParams.get('projectName')?.trim() ?? ''
+        const automationId = url.searchParams.get('automationId')?.trim() ?? ''
+        if (!projectName) {
+          setJson(res, 400, { error: 'Missing projectName' })
+          return
+        }
+        const automation = automationId
+          ? await readProjectCronAutomation(projectName, automationId)
+          : await readProjectCronAutomations(projectName)
+        setJson(res, 200, { data: toAutomationApiData(automation) })
         return
       }
 
@@ -5314,9 +8374,18 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         return
       }
 
+      if (req.method === 'PUT' && url.pathname === '/codex-api/preferences/first-launch-plugins-card') {
+        const payload = asRecord(await readJsonBody(req))
+        const dismissed = payload?.dismissed === true
+        await writeFirstLaunchPluginsCardDismissed(dismissed)
+        setJson(res, 200, { ok: true })
+        return
+      }
+
       if (req.method === 'PUT' && url.pathname === '/codex-api/thread-automation') {
         const payload = asRecord(await readJsonBody(req))
         const threadId = typeof payload?.threadId === 'string' ? payload.threadId.trim() : ''
+        const id = typeof payload?.id === 'string' ? payload.id.trim() : ''
         const name = typeof payload?.name === 'string' ? payload.name.trim() : ''
         const prompt = typeof payload?.prompt === 'string' ? payload.prompt.trim() : ''
         const rrule = typeof payload?.rrule === 'string' ? payload.rrule.trim() : ''
@@ -5325,18 +8394,71 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
           setJson(res, 400, { error: 'threadId, name, prompt, and rrule are required' })
           return
         }
-        const automation = await writeThreadHeartbeatAutomation({ threadId, name, prompt, rrule, status })
-        setJson(res, 200, { data: automation })
+        const automation = await writeThreadHeartbeatAutomation({ threadId, id, name, prompt, rrule, status })
+        setJson(res, 200, { data: toAutomationApiRecord(automation) })
+        return
+      }
+
+      if (req.method === 'PUT' && url.pathname === '/codex-api/project-automation') {
+        const payload = asRecord(await readJsonBody(req))
+        const projectName = typeof payload?.projectName === 'string' ? payload.projectName.trim() : ''
+        const id = typeof payload?.id === 'string' ? payload.id.trim() : ''
+        const name = typeof payload?.name === 'string' ? payload.name.trim() : ''
+        const prompt = typeof payload?.prompt === 'string' ? payload.prompt.trim() : ''
+        const rrule = typeof payload?.rrule === 'string' ? payload.rrule.trim() : ''
+        const status = payload?.status === 'PAUSED' ? 'PAUSED' : 'ACTIVE'
+        if (!projectName || !name || !prompt || !rrule) {
+          setJson(res, 400, { error: 'projectName, name, prompt, and rrule are required' })
+          return
+        }
+        if (!isAbsoluteLikePath(projectName)) {
+          setJson(res, 400, { error: 'Project automation cwd must be an absolute path' })
+          return
+        }
+        const automation = await writeProjectCronAutomation({ projectName, id, name, prompt, rrule, status })
+        setJson(res, 200, { data: toAutomationApiRecord(automation) })
+        return
+      }
+
+      if (req.method === 'POST' && url.pathname === '/codex-api/thread-automation/run') {
+        const payload = asRecord(await readJsonBody(req))
+        const threadId = typeof payload?.threadId === 'string' ? payload.threadId.trim() : ''
+        const automationId = typeof payload?.automationId === 'string' ? payload.automationId.trim() : ''
+        if (!threadId || !automationId) {
+          setJson(res, 400, { error: 'threadId and automationId are required' })
+          return
+        }
+        const automation = await readThreadHeartbeatAutomation(threadId, automationId)
+        if (!automation) {
+          setJson(res, 404, { error: 'Automation not found for thread' })
+          return
+        }
+        await appendThreadQueuedMessage(threadId, buildHeartbeatQueuedMessage(automation))
+        backendQueueProcessor.scheduleThreadQueueDrain(threadId, 0)
+        setJson(res, 200, { data: { queued: true } })
         return
       }
 
       if (req.method === 'DELETE' && url.pathname === '/codex-api/thread-automation') {
         const threadId = url.searchParams.get('threadId')?.trim() ?? ''
+        const automationId = url.searchParams.get('automationId')?.trim() ?? ''
         if (!threadId) {
           setJson(res, 400, { error: 'Missing threadId' })
           return
         }
-        const removed = await deleteThreadHeartbeatAutomation(threadId)
+        const removed = await deleteThreadHeartbeatAutomation(threadId, automationId)
+        setJson(res, 200, { data: { removed } })
+        return
+      }
+
+      if (req.method === 'DELETE' && url.pathname === '/codex-api/project-automation') {
+        const projectName = url.searchParams.get('projectName')?.trim() ?? ''
+        const automationId = url.searchParams.get('automationId')?.trim() ?? ''
+        if (!projectName) {
+          setJson(res, 400, { error: 'Missing projectName' })
+          return
+        }
+        const removed = await deleteProjectCronAutomation(projectName, automationId)
         setJson(res, 200, { data: { removed } })
         return
       }
@@ -5430,6 +8552,7 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
     terminalManager.dispose()
     pushNotifications.dispose()
     threadAutoTitleManager.dispose()
+    backendQueueProcessor.dispose()
     appServer.dispose()
   }
   middleware.subscribeNotifications = (

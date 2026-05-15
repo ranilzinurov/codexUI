@@ -1,6 +1,6 @@
 {
   "name": "codexapp",
-  "version": "0.1.84",
+  "version": "0.1.87",
   "description": "A lightweight web interface for Codex that runs on top of the Codex app-server, allowing remote access from any browser",
   "type": "module",
   "license": "MIT",
@@ -32,15 +32,27 @@
   },
   "files": [
     "dist/",
-    "dist-cli/"
+    "dist-cli/",
+    "scripts/dev.cjs",
+    "scripts/fix-pty-native-build.cjs"
   ],
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@firebase/util",
+      "esbuild",
+      "node-pty",
+      "protobufjs"
+    ]
+  },
   "scripts": {
-    "dev": "pnpm install && CODEXUI_SANDBOX_MODE=danger-full-access CODEXUI_APPROVAL_POLICY=never vite",
+    "dev": "node scripts/dev.cjs",
     "dev:open": "pnpm run build:cli && sh -c 'pnpm run dev & VPID=$!; node dist-cli/index.js --open-project \"${1:-.}\"; wait $VPID' --",
     "build:frontend": "vue-tsc --noEmit && vite build",
     "build:cli": "tsup",
     "build": "pnpm run build:frontend && pnpm run build:cli",
+    "postinstall": "node scripts/fix-pty-native-build.cjs",
     "test": "pnpm run build && node scripts/test-thread-auto-title.mjs && node scripts/test-web-push-notifications.mjs && node scripts/test-codexui-runtime-config.mjs && node scripts/test-codexui-transcription-override.mjs && node scripts/test-codexui-auth-shell-cache.mjs && node scripts/test-codexui-browser-startup-hardening.mjs",
+    "test:unit": "vitest run",
     "preview": "vite preview",
     "prepublishOnly": "pnpm run build",
     "profile:browser": "node scripts/profile-browser-runtime.cjs",
@@ -48,16 +60,19 @@
   },
   "dependencies": {
     "@capacitor/core": "^6.2.1",
+    "@composio/client": "0.1.0-alpha.66",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "commander": "^13.1.0",
     "express": "^5.1.0",
     "firebase": "^12.2.1",
     "highlight.js": "^11.11.1",
-    "node-pty": "^1.1.0",
     "qrcode-terminal": "^0.12.0",
     "web-push": "^3.6.7",
     "ws": "^8.18.3"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.1.0"
   },
   "devDependencies": {
     "@capacitor/cli": "^6.2.1",
@@ -74,6 +89,7 @@
     "tsup": "^8.4.0",
     "typescript": "^5.7.3",
     "vite": "^6.1.0",
+    "vitest": "^4.1.5",
     "vue": "^3.5.13",
     "vue-router": "^4.6.4",
     "vue-tsc": "^2.2.0"

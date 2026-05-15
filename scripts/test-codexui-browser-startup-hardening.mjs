@@ -108,7 +108,10 @@ async function run() {
     })
 
     await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
-    await page.waitForFunction(() => document.body.innerText.includes('Threads'), undefined, { timeout: 15000 })
+    await page.waitForFunction(() => {
+      const text = document.body.innerText
+      return text.includes('Threads') || text.includes('Projects')
+    }, undefined, { timeout: 15000 })
 
     const initialStartupState = await page.evaluate(() => ({
       hash: window.location.hash,
@@ -132,7 +135,10 @@ async function run() {
     pageErrors.length = 0
 
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 })
-    await page.waitForFunction(() => document.body.innerText.includes('Threads'), undefined, { timeout: 15000 })
+    await page.waitForFunction(() => {
+      const text = document.body.innerText
+      return text.includes('Threads') || text.includes('Projects')
+    }, undefined, { timeout: 15000 })
     await page.waitForTimeout(1000)
 
     const workerState = await page.evaluate(async () => {
@@ -162,8 +168,8 @@ async function run() {
       throw new Error(`Expected hosted mode to register /sw.js, got ${JSON.stringify(workerState)}`)
     }
 
-    if (workerState.cacheKeys.some((key) => key.startsWith('codexweb-shell-'))) {
-      throw new Error(`Expected hosted mode cleanup to remove codexweb caches, got ${JSON.stringify(workerState)}`)
+    if (workerState.cacheKeys.some((key) => key.startsWith('codexweb-shell-') && key !== 'codexweb-shell-v2')) {
+      throw new Error(`Expected hosted mode cleanup to remove legacy codexweb caches, got ${JSON.stringify(workerState)}`)
     }
 
     const relevantPageErrors = pageErrors.filter((message) => !message.includes('due to access control checks.'))

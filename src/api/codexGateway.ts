@@ -26,6 +26,7 @@ import {
   normalizeActiveCollabAgentsFromResponse,
   normalizeThreadGroupsV2,
   normalizeThreadMessagesV2,
+  normalizeThreadSummaryV2,
   readThreadInProgressFromResponse,
 } from './normalizers/v2'
 import type {
@@ -40,6 +41,7 @@ import type {
   UiFileChange,
   UiMessage,
   UiProjectGroup,
+  UiThread,
   UiReviewAction,
   UiReviewActionLevel,
   UiReviewFile,
@@ -65,6 +67,188 @@ type CurrentModelConfig = {
   speedMode: SpeedMode
 }
 
+export type DirectoryPluginSummary = {
+  id: string
+  name: string
+  displayName: string
+  description: string
+  longDescription: string
+  developerName: string
+  category: string
+  marketplaceName: string
+  marketplaceDisplayName: string
+  marketplacePath: string | null
+  remoteMarketplaceName: string | null
+  sourceType: string
+  sourceUrl: string
+  installed: boolean
+  enabled: boolean
+  installPolicy: string
+  authPolicy: string
+  logoUrl: string
+  logoPath: string
+  composerIconUrl: string
+  composerIconPath: string
+  brandColor: string
+  capabilities: string[]
+  defaultPrompt: string[]
+  screenshotUrls: string[]
+  screenshots: string[]
+  websiteUrl: string
+  privacyPolicyUrl: string
+  termsOfServiceUrl: string
+}
+
+export type DirectoryPluginDetail = {
+  summary: DirectoryPluginSummary
+  description: string
+  apps: DirectoryPluginAppSummary[]
+  skills: DirectoryPluginSkillSummary[]
+  mcpServers: string[]
+}
+
+export type DirectoryPluginAppSummary = {
+  id: string
+  name: string
+  description: string
+  installUrl: string
+  needsAuth: boolean
+}
+
+export type DirectoryPluginSkillSummary = {
+  name: string
+  description: string
+  path: string
+  enabled: boolean
+  displayName: string
+  shortDescription: string
+}
+
+export type DirectoryPluginInstallResult = {
+  authPolicy: string
+  appsNeedingAuth: DirectoryPluginAppSummary[]
+}
+
+export type DirectoryAppInfo = {
+  id: string
+  name: string
+  description: string
+  logoUrl: string
+  logoUrlDark: string
+  distributionChannel: string
+  installUrl: string
+  isAccessible: boolean
+  isEnabled: boolean
+  pluginDisplayNames: string[]
+  category: string
+  developer: string
+  website: string
+  privacyPolicy: string
+  termsOfService: string
+  catalogRank: number
+}
+
+export type DirectoryMcpServerStatus = {
+  name: string
+  authStatus: string
+  tools: Array<{ name: string; title: string; description: string }>
+  resources: Array<{ name: string; title: string; uri: string; description: string }>
+  resourceTemplates: Array<{ name: string; title: string; uriTemplate: string; description: string }>
+}
+
+export type DirectoryMcpLoginResult = {
+  authorizationUrl: string
+}
+
+export type DirectoryComposioStatus = {
+  available: boolean
+  authenticated: boolean
+  cliVersion: string
+  email: string
+  defaultOrgName: string
+  defaultOrgId: string
+  webUrl: string
+  baseUrl: string
+  testUserId: string
+}
+
+export type DirectoryComposioConnection = {
+  id: string
+  wordId: string
+  alias: string
+  status: string
+  authScheme: string
+  createdAt: string
+  updatedAt: string
+  isComposioManaged: boolean
+  isDisabled: boolean
+}
+
+export type DirectoryComposioConnector = {
+  slug: string
+  name: string
+  description: string
+  logoUrl: string
+  latestVersion: string
+  toolsCount: number
+  triggersCount: number
+  isNoAuth: boolean
+  enabled: boolean
+  authModes: string[]
+  activeCount: number
+  totalConnections: number
+  connectionStatuses: string[]
+}
+
+export type DirectoryComposioTool = {
+  slug: string
+  name: string
+  description: string
+}
+
+export type DirectoryComposioConnectorDetail = {
+  connector: DirectoryComposioConnector
+  connections: DirectoryComposioConnection[]
+  tools: DirectoryComposioTool[]
+  dashboardUrl: string
+}
+
+export type DirectoryComposioLinkResult = {
+  status: string
+  message: string
+  connectedAccountId: string
+  redirectUrl: string
+  toolkit: string
+  projectType: string
+}
+
+export type DirectoryComposioLoginResult = {
+  status: string
+  message: string
+  loginUrl: string
+  cliKey: string
+  expiresAt: string
+}
+
+export type ComposerPromptInfo = {
+  name: string
+  path: string
+  content: string
+  description: string
+}
+
+export type DirectoryComposioInstallResult = {
+  ok: boolean
+  command: string
+  output: string
+}
+
+type DirectoryComposioConnectorPage = {
+  data: DirectoryComposioConnector[]
+  nextCursor: string | null
+  total: number
+}
+
 type ProviderModelsResponse = {
   data?: unknown
 }
@@ -88,7 +272,28 @@ export type WorkspaceRootsState = {
   order: string[]
   labels: Record<string, string>
   active: string[]
+  projectOrder: string[]
+  remoteProjects?: Array<{
+    id: string
+    hostId: string
+    remotePath: string
+    label: string
+  }>
 }
+
+let workspaceRootsStatePromise: Promise<WorkspaceRootsState> | null = null
+let cachedWorkspaceRootsState: WorkspaceRootsState | null = null
+
+export type StoredQueuedMessage = {
+  id: string
+  text: string
+  imageUrls: string[]
+  skills: Array<{ name: string; path: string }>
+  fileAttachments: Array<{ label: string; path: string; fsPath: string }>
+  collaborationMode: CollaborationModeKind
+}
+
+export type ThreadQueueState = Record<string, StoredQueuedMessage[]>
 
 export type ComposerFileSuggestion = {
   path: string
@@ -108,11 +313,31 @@ export type WorktreeCreateResult = {
 export type WorktreeBranchOption = {
   value: string
   label: string
+  isCurrent?: boolean
+  isRemote?: boolean
 }
 
 export type GitBranchState = {
   currentBranch: string | null
+  headSha: string | null
+  headSubject: string | null
+  headDate: string | null
+  detached: boolean
+  dirty: boolean
+  gitRoot: string
   options: WorktreeBranchOption[]
+}
+
+export type GitCommitOption = {
+  sha: string
+  shortSha: string
+  subject: string
+  date: string
+}
+
+export type GitRepositoryStatus = {
+  isGitRepo: boolean
+  gitRoot: string
 }
 
 
@@ -216,23 +441,10 @@ export type ThreadTerminalAttachInput = {
   newSession?: boolean
 }
 
-function normalizeGithubProjectDescription(fullName: string, rawDescription: string): string {
-  const description = rawDescription.trim()
-  if (!description) return ''
-  const escapedName = fullName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const [owner = '', repo = ''] = fullName.split('/', 2)
-  const escapedOwner = owner.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const escapedRepo = repo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const ownerRepoSpaced = owner && repo
-    ? `${escapedOwner}\\s*/\\s*${escapedRepo}`
-    : escapedName
-  return description
-    .replace(/^[★☆*\s:|\-]+/u, '')
-    .replace(/^(sponsor|star)\s+/i, '')
-    .replace(new RegExp(`^${escapedName}\\s*[-:|]*\\s*`, 'i'), '')
-    .replace(new RegExp(`^${ownerRepoSpaced}\\s*[-:|]*\\s*`, 'i'), '')
-    .replace(/^(sponsor|star)\s+/i, '')
-    .trim()
+export type ThreadTerminalQuickCommand = {
+  label: string
+  value: string
+  source: 'package' | 'script' | 'make'
 }
 
 export type AccountsListResult = {
@@ -267,6 +479,10 @@ function readNumber(value: unknown): number | null {
 
 function readBoolean(value: unknown): boolean | null {
   return typeof value === 'boolean' ? value : null
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.length > 0) : []
 }
 
 function normalizeAccountUnavailableReason(value: unknown): UiAccountUnavailableReason | null {
@@ -420,17 +636,24 @@ function normalizeThreadFileChangeFallback(value: unknown): ThreadFileChangeFall
   return normalized
 }
 
-function buildTurnIndexByTurnId(payload: ThreadReadResponse): ThreadTurnIndexById {
+function buildTurnIndexByTurnId(payload: ThreadReadResponse, baseTurnIndex = 0): ThreadTurnIndexById {
   const turns = Array.isArray(payload.thread.turns) ? payload.thread.turns : []
   const lookup: ThreadTurnIndexById = {}
 
-  for (let turnIndex = 0; turnIndex < turns.length; turnIndex += 1) {
-    const turn = turns[turnIndex]
+  for (let turnOffset = 0; turnOffset < turns.length; turnOffset += 1) {
+    const turnIndex = baseTurnIndex + turnOffset
+    const turn = turns[turnOffset]
     if (typeof turn?.id !== 'string' || turn.id.length === 0) continue
     lookup[turn.id] = turnIndex
   }
 
   return lookup
+}
+
+function readThreadTurnStartIndex(payload: ThreadReadResponse): number {
+  const record = asRecord(payload)
+  const raw = record?.threadTurnStartIndex
+  return Math.max(0, Math.floor(typeof raw === 'number' ? raw : 0))
 }
 
 async function fetchThreadFileChangeFallback(threadId: string): Promise<ThreadFileChangeFallbackEntry[]> {
@@ -603,6 +826,15 @@ export type ThreadGroupsPage = {
   nextCursor: string | null
 }
 
+export type ThreadTurnPage = {
+  messages: UiMessage[]
+  inProgress: boolean
+  activeTurnId: string
+  hasMoreOlder: boolean
+  startTurnIndex: number
+  turnIndexByTurnId: ThreadTurnIndexById
+}
+
 async function getThreadGroupsPageV2(cursor: string | null, limit: number): Promise<ThreadGroupsPage> {
   const payload = await callRpc<ThreadListResponse>('thread/list', {
     archived: false,
@@ -624,13 +856,22 @@ async function getThreadMessagesV2(threadId: string): Promise<UiMessage[]> {
     threadId,
     includeTurns: true,
   })
-  return enrichThreadMessagesWithFallback(threadId, normalizeThreadMessagesV2(payload))
+  return enrichThreadMessagesWithFallback(threadId, normalizeThreadMessagesV2(payload, readThreadTurnStartIndex(payload)))
+}
+
+async function getThreadSummaryV2(threadId: string): Promise<UiThread> {
+  const payload = await callRpc<ThreadReadResponse>('thread/read', {
+    threadId,
+    includeTurns: false,
+  })
+  return normalizeThreadSummaryV2(payload)
 }
 
 async function getThreadDetailV2(threadId: string): Promise<{
   messages: UiMessage[]
   inProgress: boolean
   activeTurnId: string
+  hasMoreOlder: boolean
   turnIndexByTurnId: ThreadTurnIndexById
   collabAgents: UiCollabAgentStatus[]
 }> {
@@ -638,13 +879,45 @@ async function getThreadDetailV2(threadId: string): Promise<{
     threadId,
     includeTurns: true,
   })
-  const normalized = await enrichThreadMessagesWithFallback(threadId, normalizeThreadMessagesV2(payload))
+  const startTurnIndex = readThreadTurnStartIndex(payload)
+  const normalized = await enrichThreadMessagesWithFallback(threadId, normalizeThreadMessagesV2(payload, startTurnIndex))
   return {
     messages: normalized,
     inProgress: readThreadInProgressFromResponse(payload),
     activeTurnId: readActiveTurnIdFromResponse(payload),
-    turnIndexByTurnId: buildTurnIndexByTurnId(payload),
+    hasMoreOlder: startTurnIndex > 0,
+    turnIndexByTurnId: buildTurnIndexByTurnId(payload, startTurnIndex),
     collabAgents: normalizeActiveCollabAgentsFromResponse(payload),
+  }
+}
+
+async function getOlderThreadMessagesV2(threadId: string, beforeTurnId: string, limit = 10): Promise<ThreadTurnPage> {
+  const params = new URLSearchParams({
+    threadId,
+    beforeTurnId,
+    limit: String(limit),
+  })
+  const response = await fetch(`/codex-api/thread-turn-page?${params.toString()}`)
+  if (!response.ok) {
+    throw new Error(`Older thread page request failed with ${response.status}`)
+  }
+  const payload = await response.json() as {
+    result?: ThreadReadResponse
+    hasMoreOlder?: unknown
+    startTurnIndex?: unknown
+  }
+  if (!payload.result) {
+    throw new Error('Older thread page response did not include a thread result')
+  }
+  const startTurnIndex = Math.max(0, Math.floor(typeof payload.startTurnIndex === 'number' ? payload.startTurnIndex : 0))
+
+  return {
+    messages: await enrichThreadMessagesWithFallback(threadId, normalizeThreadMessagesV2(payload.result, startTurnIndex)),
+    inProgress: readThreadInProgressFromResponse(payload.result),
+    activeTurnId: readActiveTurnIdFromResponse(payload.result),
+    hasMoreOlder: payload.hasMoreOlder === true,
+    startTurnIndex,
+    turnIndexByTurnId: buildTurnIndexByTurnId(payload.result, startTurnIndex),
   }
 }
 
@@ -679,10 +952,19 @@ export async function getThreadMessages(threadId: string): Promise<UiMessage[]> 
   }
 }
 
+export async function getThreadSummary(threadId: string): Promise<UiThread> {
+  try {
+    return await getThreadSummaryV2(threadId)
+  } catch (error) {
+    throw normalizeCodexApiError(error, `Failed to load thread ${threadId}`, 'thread/read')
+  }
+}
+
 export async function getThreadDetail(threadId: string): Promise<{
   messages: UiMessage[]
   inProgress: boolean
   activeTurnId: string
+  hasMoreOlder: boolean
   turnIndexByTurnId: ThreadTurnIndexById
   collabAgents: UiCollabAgentStatus[]
 }> {
@@ -690,6 +972,14 @@ export async function getThreadDetail(threadId: string): Promise<{
     return await getThreadDetailV2(threadId)
   } catch (error) {
     throw normalizeCodexApiError(error, `Failed to load thread ${threadId}`, 'thread/read')
+  }
+}
+
+export async function getOlderThreadMessages(threadId: string, beforeTurnId: string, limit?: number): Promise<ThreadTurnPage> {
+  try {
+    return await getOlderThreadMessagesV2(threadId, beforeTurnId, limit)
+  } catch (error) {
+    throw normalizeCodexApiError(error, `Failed to load earlier messages for thread ${threadId}`, 'thread/read')
   }
 }
 
@@ -936,39 +1226,70 @@ function asAutomation(record: unknown): UiThreadAutomation | null {
     rrule,
     status,
     targetThreadId: readString(row.targetThreadId),
+    cwds: Array.isArray(row.cwds) ? row.cwds.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : [],
     createdAtMs: readNumber(row.createdAtMs),
     updatedAtMs: readNumber(row.updatedAtMs),
     nextRunAtMs: readNumber(row.nextRunAtMs),
   }
 }
 
-export async function getThreadAutomationMap(): Promise<Record<string, UiThreadAutomation>> {
+function asAutomationArray(value: unknown): UiThreadAutomation[] {
+  if (Array.isArray(value)) return value.flatMap((item) => {
+    const automation = asAutomation(item)
+    return automation ? [automation] : []
+  })
+  const automation = asAutomation(value)
+  return automation ? [automation] : []
+}
+
+export async function getThreadAutomationMap(): Promise<Record<string, UiThreadAutomation[]>> {
   const response = await fetch('/codex-api/thread-automations')
   const payload = await response.json().catch(() => null)
   if (!response.ok) {
     throw new Error(extractErrorMessage(payload, 'Failed to load thread automations'))
   }
   const data = asRecord(asRecord(payload)?.data)
-  const next: Record<string, UiThreadAutomation> = {}
+  const next: Record<string, UiThreadAutomation[]> = {}
   if (!data) return next
   for (const [threadId, value] of Object.entries(data)) {
-    const automation = asAutomation(value)
-    if (automation) next[threadId] = automation
+    const automations = asAutomationArray(value)
+    if (automations.length > 0) next[threadId] = automations
   }
   return next
 }
 
-export async function getThreadAutomation(threadId: string): Promise<UiThreadAutomation | null> {
-  const response = await fetch(`/codex-api/thread-automation?threadId=${encodeURIComponent(threadId)}`)
+export async function getProjectAutomationMap(): Promise<Record<string, UiThreadAutomation[]>> {
+  const response = await fetch('/codex-api/project-automations')
+  const payload = await response.json().catch(() => null)
+  if (!response.ok) {
+    throw new Error(extractErrorMessage(payload, 'Failed to load project automations'))
+  }
+  const data = asRecord(asRecord(payload)?.data)
+  const next: Record<string, UiThreadAutomation[]> = {}
+  if (!data) return next
+  for (const [projectName, value] of Object.entries(data)) {
+    const automations = asAutomationArray(value)
+    if (automations.length > 0) next[projectName] = automations
+  }
+  return next
+}
+
+export async function getThreadAutomation(threadId: string, automationId?: string): Promise<UiThreadAutomation | null> {
+  const query = new URLSearchParams({ threadId })
+  if (automationId) query.set('automationId', automationId)
+  const response = await fetch(`/codex-api/thread-automation?${query.toString()}`)
   const payload = await response.json().catch(() => null)
   if (!response.ok) {
     throw new Error(extractErrorMessage(payload, 'Failed to load thread automation'))
   }
-  return asAutomation(asRecord(payload)?.data)
+  const data = asRecord(payload)?.data
+  if (automationId) return asAutomation(data)
+  return asAutomationArray(data)[0] ?? null
 }
 
 export async function upsertThreadAutomation(input: {
   threadId: string
+  id?: string
   name: string
   prompt: string
   rrule: string
@@ -988,13 +1309,61 @@ export async function upsertThreadAutomation(input: {
   return automation
 }
 
-export async function deleteThreadAutomation(threadId: string): Promise<void> {
-  const response = await fetch(`/codex-api/thread-automation?threadId=${encodeURIComponent(threadId)}`, {
+export async function upsertProjectAutomation(input: {
+  projectName: string
+  id?: string
+  name: string
+  prompt: string
+  rrule: string
+  status: UiThreadAutomationStatus
+}): Promise<UiThreadAutomation> {
+  const response = await fetch('/codex-api/project-automation', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  const payload = await response.json().catch(() => null)
+  if (!response.ok) {
+    throw new Error(extractErrorMessage(payload, 'Failed to save project automation'))
+  }
+  const automation = asAutomation(asRecord(payload)?.data)
+  if (!automation) throw new Error('Project automation response was malformed')
+  return automation
+}
+
+export async function deleteThreadAutomation(threadId: string, automationId?: string): Promise<void> {
+  const query = new URLSearchParams({ threadId })
+  if (automationId) query.set('automationId', automationId)
+  const response = await fetch(`/codex-api/thread-automation?${query.toString()}`, {
     method: 'DELETE',
   })
   const payload = await response.json().catch(() => null)
   if (!response.ok) {
     throw new Error(extractErrorMessage(payload, 'Failed to delete thread automation'))
+  }
+}
+
+export async function deleteProjectAutomation(projectName: string, automationId?: string): Promise<void> {
+  const query = new URLSearchParams({ projectName })
+  if (automationId) query.set('automationId', automationId)
+  const response = await fetch(`/codex-api/project-automation?${query.toString()}`, {
+    method: 'DELETE',
+  })
+  const payload = await response.json().catch(() => null)
+  if (!response.ok) {
+    throw new Error(extractErrorMessage(payload, 'Failed to delete project automation'))
+  }
+}
+
+export async function runThreadAutomationNow(threadId: string, automationId: string): Promise<void> {
+  const response = await fetch('/codex-api/thread-automation/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ threadId, automationId }),
+  })
+  const payload = await response.json().catch(() => null)
+  if (!response.ok) {
+    throw new Error(extractErrorMessage(payload, 'Failed to run thread automation'))
   }
 }
 
@@ -1040,6 +1409,29 @@ export async function attachThreadTerminal(input: ThreadTerminalAttachInput): Pr
   const session = normalizeThreadTerminalSession(asRecord(payload)?.session)
   if (!session) throw new Error('Terminal attach response was malformed')
   return session
+}
+
+export async function getThreadTerminalStatus(): Promise<{ available: boolean, reason: string | null }> {
+  const payload = await fetchTerminalJson('/codex-api/thread-terminal/status')
+  const record = asRecord(payload)
+  return {
+    available: readBoolean(record?.available) ?? false,
+    reason: readString(record?.reason) || null,
+  }
+}
+
+export async function getThreadTerminalQuickCommands(cwd: string): Promise<ThreadTerminalQuickCommand[]> {
+  const payload = await fetchTerminalJson(`/codex-api/thread-terminal/quick-commands?cwd=${encodeURIComponent(cwd)}`)
+  const payloadRecord = asRecord(payload)
+  const rows: unknown[] = Array.isArray(payloadRecord?.commands) ? payloadRecord.commands : []
+  return rows.flatMap((row: unknown) => {
+    const record = asRecord(row)
+    const label = readString(record?.label)
+    const value = readString(record?.value)
+    const source = readString(record?.source)
+    if (!label || !value || (source !== 'package' && source !== 'script' && source !== 'make')) return []
+    return [{ label, value, source }]
+  })
 }
 
 export async function sendThreadTerminalInput(sessionId: string, data: string): Promise<void> {
@@ -1129,6 +1521,37 @@ export async function refreshAccountsFromAuth(): Promise<AccountsListResult> {
   return normalizeAccountsListResult(envelope?.data)
 }
 
+export async function startCodexLogin(): Promise<string> {
+  const response = await fetch('/codex-api/accounts/login/start', {
+    method: 'POST',
+  })
+  const payload = (await response.json()) as unknown
+  if (!response.ok) {
+    throw new Error(getErrorMessageFromPayload(payload, 'Failed to start Codex login'))
+  }
+  const envelope = asRecord(payload)
+  const data = asRecord(envelope?.data)
+  const loginUrl = readString(data?.loginUrl)
+  if (!loginUrl) {
+    throw new Error('Failed to start Codex login')
+  }
+  return loginUrl
+}
+
+export async function completeCodexLogin(callbackUrl: string): Promise<AccountsListResult> {
+  const response = await fetch('/codex-api/accounts/login/complete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ callbackUrl }),
+  })
+  const payload = (await response.json()) as unknown
+  if (!response.ok) {
+    throw new Error(getErrorMessageFromPayload(payload, 'Failed to complete Codex login'))
+  }
+  const envelope = asRecord(payload)
+  return normalizeAccountsListResult(envelope?.data)
+}
+
 export async function switchAccount(accountId: string): Promise<UiAccountEntry> {
   const response = await fetch('/codex-api/accounts/switch', {
     method: 'POST',
@@ -1167,19 +1590,22 @@ export type ResumedThread = {
   messages: UiMessage[]
   inProgress: boolean
   activeTurnId: string
+  hasMoreOlder: boolean
   turnIndexByTurnId: ThreadTurnIndexById
   collabAgents: UiCollabAgentStatus[]
 }
 
 export async function resumeThread(threadId: string): Promise<ResumedThread> {
   const payload = await callRpc<ThreadResumeResponse>('thread/resume', { threadId })
-  const messages = await enrichThreadMessagesWithFallback(threadId, normalizeThreadMessagesV2(payload))
+  const startTurnIndex = readThreadTurnStartIndex(payload)
+  const messages = await enrichThreadMessagesWithFallback(threadId, normalizeThreadMessagesV2(payload, startTurnIndex))
   return {
     model: normalizeThreadModelFromPayload(payload),
     messages,
     inProgress: readThreadInProgressFromResponse(payload),
     activeTurnId: readActiveTurnIdFromResponse(payload),
-    turnIndexByTurnId: buildTurnIndexByTurnId(payload),
+    hasMoreOlder: startTurnIndex > 0,
+    turnIndexByTurnId: buildTurnIndexByTurnId(payload, startTurnIndex),
     collabAgents: normalizeActiveCollabAgentsFromResponse(payload),
   }
 }
@@ -1239,7 +1665,7 @@ export async function startThreadCompaction(threadId: string): Promise<void> {
 
 export async function rollbackThread(threadId: string, numTurns: number): Promise<UiMessage[]> {
   const payload = await callRpc<ThreadReadResponse>('thread/rollback', { threadId, numTurns })
-  return normalizeThreadMessagesV2(payload)
+  return normalizeThreadMessagesV2(payload, readThreadTurnStartIndex(payload))
 }
 
 export async function revertThreadFileChanges(threadId: string, turnId: string, cwd: string): Promise<{ reverted: number; errors: string[] }> {
@@ -1346,7 +1772,7 @@ export async function forkThread(
         threadId: forkedThreadId,
         cwd: normalizeThreadCwdFromPayload(payload),
         model: normalizeThreadModelFromPayload(payload),
-        messages: normalizeThreadMessagesV2(payload),
+        messages: normalizeThreadMessagesV2(payload, readThreadTurnStartIndex(payload)),
       }
     } catch (error) {
       throw normalizeCodexApiError(error, `Failed to fork thread ${threadId}`, 'thread/fork')
@@ -1526,7 +1952,7 @@ export async function startThreadTurn(
     if (typeof effort === 'string' && effort.length > 0) {
       params.effort = effort
     }
-    if (collaborationMode && collaborationMode !== 'default') {
+    if (collaborationMode) {
       const collaborationModeSettings = await resolveCollaborationModeSettings(collaborationMode, normalizedModel, effort)
       params.collaborationMode = {
         mode: collaborationMode,
@@ -1736,7 +2162,7 @@ export async function scheduleRestart(): Promise<RestartStatus> {
   return readRestartStatusEnvelope(payload)
 }
 
-export async function getAvailableModelIds(options: { includeProviderModels?: boolean } = {}): Promise<string[]> {
+export async function getAvailableModelIds(options: { includeProviderModels?: boolean; requireProviderModels?: boolean } = {}): Promise<string[]> {
   const payload = await callRpc<ModelListResponse>('model/list', {})
   const ids: string[] = []
   for (const row of payload.data) {
@@ -1749,6 +2175,7 @@ export async function getAvailableModelIds(options: { includeProviderModels?: bo
     return ids
   }
 
+  let sawProviderModels = false
   try {
     const response = await fetch('/codex-api/provider-models', {
       signal: AbortSignal.timeout(PROVIDER_MODELS_FETCH_TIMEOUT_MS),
@@ -1761,6 +2188,7 @@ export async function getAvailableModelIds(options: { includeProviderModels?: bo
     }
 
     if (response.ok && Array.isArray(providerPayload?.data)) {
+      sawProviderModels = true
       if (providerPayload.exclusive) {
         return providerPayload.data.filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
       }
@@ -1775,6 +2203,10 @@ export async function getAvailableModelIds(options: { includeProviderModels?: bo
     // Keep Codex usable when the provider-models endpoint is unavailable.
   }
 
+  if (options.requireProviderModels && !sawProviderModels) {
+    return []
+  }
+
   return ids
 }
 
@@ -1785,6 +2217,364 @@ export async function getCurrentModelConfig(): Promise<CurrentModelConfig> {
   const reasoningEffort = normalizeReasoningEffort(payload.config.model_reasoning_effort)
   const speedMode = normalizeSpeedMode(payload.config.service_tier)
   return { model, providerId, reasoningEffort, speedMode }
+}
+
+function normalizeDirectoryPluginApp(value: unknown): DirectoryPluginAppSummary | null {
+  const record = asRecord(value)
+  if (!record) return null
+  const id = readString(record.id)
+  const name = readString(record.name)
+  if (!id || !name) return null
+  return {
+    id,
+    name,
+    description: readString(record.description) ?? '',
+    installUrl: readString(record.installUrl ?? record.install_url) ?? '',
+    needsAuth: readBoolean(record.needsAuth ?? record.needs_auth) ?? false,
+  }
+}
+
+function normalizeDirectoryPluginSkill(value: unknown): DirectoryPluginSkillSummary | null {
+  const record = asRecord(value)
+  if (!record) return null
+  const name = readString(record.name)
+  const path = readString(record.path)
+  if (!name || !path) return null
+  const iface = asRecord(record.interface)
+  return {
+    name,
+    path,
+    description: readString(record.description) ?? '',
+    enabled: readBoolean(record.enabled) ?? true,
+    displayName: readString(iface?.displayName ?? iface?.display_name) ?? name,
+    shortDescription: readString(record.shortDescription ?? record.short_description) ?? '',
+  }
+}
+
+function normalizeDirectoryPluginSummary(
+  value: unknown,
+  marketplace: { name?: string; displayName?: string; path?: string | null } = {},
+): DirectoryPluginSummary | null {
+  const record = asRecord(value)
+  if (!record) return null
+  const id = readString(record.id)
+  const name = readString(record.name)
+  if (!id || !name) return null
+  const iface = asRecord(record.interface)
+  const source = asRecord(record.source)
+  const sourceType = readString(source?.type) ?? ''
+  const sourcePath = readString(source?.path)
+  const sourceUrl = readString(source?.url) ?? ''
+  const remoteMarketplaceName = sourceType === 'remote' ? marketplace.name ?? null : null
+  const marketplacePath = marketplace.path ?? (sourceType === 'local' ? sourcePath : null)
+  const displayName = readString(iface?.displayName ?? iface?.display_name) ?? name
+  const shortDescription = readString(iface?.shortDescription ?? iface?.short_description)
+  const longDescription = readString(iface?.longDescription ?? iface?.long_description) ?? ''
+
+  return {
+    id,
+    name,
+    displayName,
+    description: shortDescription ?? longDescription,
+    longDescription,
+    developerName: readString(iface?.developerName ?? iface?.developer_name) ?? '',
+    category: readString(iface?.category) ?? '',
+    marketplaceName: marketplace.name ?? '',
+    marketplaceDisplayName: marketplace.displayName ?? marketplace.name ?? '',
+    marketplacePath,
+    remoteMarketplaceName,
+    sourceType,
+    sourceUrl,
+    installed: readBoolean(record.installed) ?? false,
+    enabled: readBoolean(record.enabled) ?? true,
+    installPolicy: readString(record.installPolicy ?? record.install_policy) ?? '',
+    authPolicy: readString(record.authPolicy ?? record.auth_policy) ?? '',
+    logoUrl: readString(iface?.logoUrl ?? iface?.logo_url) ?? '',
+    logoPath: readString(iface?.logo) ?? '',
+    composerIconUrl: readString(iface?.composerIconUrl ?? iface?.composer_icon_url) ?? '',
+    composerIconPath: readString(iface?.composerIcon ?? iface?.composer_icon) ?? '',
+    brandColor: readString(iface?.brandColor ?? iface?.brand_color) ?? '',
+    capabilities: readStringArray(iface?.capabilities),
+    defaultPrompt: readStringArray(iface?.defaultPrompt ?? iface?.default_prompt),
+    screenshotUrls: readStringArray(iface?.screenshotUrls ?? iface?.screenshot_urls),
+    screenshots: readStringArray(iface?.screenshots),
+    websiteUrl: readString(iface?.websiteUrl ?? iface?.website_url) ?? '',
+    privacyPolicyUrl: readString(iface?.privacyPolicyUrl ?? iface?.privacy_policy_url) ?? '',
+    termsOfServiceUrl: readString(iface?.termsOfServiceUrl ?? iface?.terms_of_service_url) ?? '',
+  }
+}
+
+function normalizeDirectoryApp(value: unknown, catalogRank = 0): DirectoryAppInfo | null {
+  const record = asRecord(value)
+  if (!record) return null
+  const id = readString(record.id)
+  const name = readString(record.name)
+  if (!id || !name) return null
+  const branding = asRecord(record.branding)
+  const metadata = asRecord(record.appMetadata ?? record.app_metadata)
+  return {
+    id,
+    name,
+    description: readString(record.description) ?? readString(metadata?.seoDescription ?? metadata?.seo_description) ?? '',
+    logoUrl: readString(record.logoUrl ?? record.logo_url) ?? '',
+    logoUrlDark: readString(record.logoUrlDark ?? record.logo_url_dark) ?? '',
+    distributionChannel: readString(record.distributionChannel ?? record.distribution_channel) ?? '',
+    installUrl: readString(record.installUrl ?? record.install_url) ?? '',
+    isAccessible: readBoolean(record.isAccessible ?? record.is_accessible) ?? false,
+    isEnabled: readBoolean(record.isEnabled ?? record.is_enabled) ?? true,
+    pluginDisplayNames: readStringArray(record.pluginDisplayNames ?? record.plugin_display_names),
+    category: readString(branding?.category) ?? '',
+    developer: readString(branding?.developer) ?? readString(metadata?.developer) ?? '',
+    website: readString(branding?.website) ?? '',
+    privacyPolicy: readString(branding?.privacyPolicy ?? branding?.privacy_policy) ?? '',
+    termsOfService: readString(branding?.termsOfService ?? branding?.terms_of_service) ?? '',
+    catalogRank,
+  }
+}
+
+function normalizeDirectoryMcpServer(value: unknown): DirectoryMcpServerStatus | null {
+  const record = asRecord(value)
+  if (!record) return null
+  const name = readString(record.name)
+  if (!name) return null
+  const toolsRecord = asRecord(record.tools) ?? {}
+  const tools = Object.entries(toolsRecord).map(([fallbackName, raw]) => {
+    const tool = asRecord(raw)
+    return {
+      name: readString(tool?.name) ?? fallbackName,
+      title: readString(tool?.title) ?? '',
+      description: readString(tool?.description) ?? '',
+    }
+  })
+  const resources = Array.isArray(record.resources)
+    ? record.resources.map((raw) => {
+      const resource = asRecord(raw)
+      return {
+        name: readString(resource?.name) ?? '',
+        title: readString(resource?.title) ?? '',
+        uri: readString(resource?.uri) ?? '',
+        description: readString(resource?.description) ?? '',
+      }
+    }).filter((resource) => resource.name || resource.uri)
+    : []
+  const rawResourceTemplates = record.resourceTemplates ?? record.resource_templates
+  const resourceTemplates = Array.isArray(rawResourceTemplates)
+    ? rawResourceTemplates.map((raw: unknown) => {
+      const template = asRecord(raw)
+      return {
+        name: readString(template?.name) ?? '',
+        title: readString(template?.title) ?? '',
+        uriTemplate: readString(template?.uriTemplate ?? template?.uri_template) ?? '',
+        description: readString(template?.description) ?? '',
+      }
+    }).filter((template) => template.name || template.uriTemplate)
+    : []
+
+  return {
+    name,
+    authStatus: readString(record.authStatus ?? record.auth_status) ?? 'unsupported',
+    tools,
+    resources,
+    resourceTemplates,
+  }
+}
+
+export async function listDirectoryPlugins(cwds?: string[]): Promise<DirectoryPluginSummary[]> {
+  const params: Record<string, unknown> = {}
+  if (cwds && cwds.length > 0) params.cwds = cwds
+  const payload = await callRpc<{ marketplaces?: unknown[] }>('plugin/list', params)
+  const plugins: DirectoryPluginSummary[] = []
+  for (const marketplaceValue of payload.marketplaces ?? []) {
+    const marketplace = asRecord(marketplaceValue)
+    if (!marketplace) continue
+    const iface = asRecord(marketplace.interface)
+    const meta = {
+      name: readString(marketplace.name) ?? '',
+      displayName: readString(iface?.displayName ?? iface?.display_name) ?? '',
+      path: readString(marketplace.path),
+    }
+    const rows = Array.isArray(marketplace.plugins) ? marketplace.plugins : []
+    for (const row of rows) {
+      const plugin = normalizeDirectoryPluginSummary(row, meta)
+      if (plugin) plugins.push(plugin)
+    }
+  }
+  return plugins
+}
+
+export async function readDirectoryPlugin(plugin: DirectoryPluginSummary): Promise<DirectoryPluginDetail> {
+  const params: Record<string, unknown> = { pluginName: plugin.name }
+  if (plugin.marketplacePath) params.marketplacePath = plugin.marketplacePath
+  if (plugin.remoteMarketplaceName) params.remoteMarketplaceName = plugin.remoteMarketplaceName
+  const payload = await callRpc<{ plugin?: unknown }>('plugin/read', params)
+  const detailRecord = asRecord(payload.plugin)
+  if (!detailRecord) throw new Error('Plugin detail response is empty')
+  const summary = normalizeDirectoryPluginSummary(detailRecord.summary, {
+    name: readString(detailRecord.marketplaceName) ?? plugin.marketplaceName,
+    displayName: plugin.marketplaceDisplayName,
+    path: readString(detailRecord.marketplacePath) ?? plugin.marketplacePath,
+  }) ?? plugin
+  return {
+    summary,
+    description: readString(detailRecord.description) ?? summary.longDescription,
+    apps: Array.isArray(detailRecord.apps)
+      ? detailRecord.apps.map(normalizeDirectoryPluginApp).filter((row): row is DirectoryPluginAppSummary => row !== null)
+      : [],
+    skills: Array.isArray(detailRecord.skills)
+      ? detailRecord.skills.map(normalizeDirectoryPluginSkill).filter((row): row is DirectoryPluginSkillSummary => row !== null)
+      : [],
+    mcpServers: readStringArray(detailRecord.mcpServers ?? detailRecord.mcp_servers),
+  }
+}
+
+export async function installDirectoryPlugin(plugin: DirectoryPluginSummary): Promise<DirectoryPluginInstallResult> {
+  const params: Record<string, unknown> = { pluginName: plugin.name }
+  if (plugin.marketplacePath) params.marketplacePath = plugin.marketplacePath
+  if (plugin.remoteMarketplaceName) params.remoteMarketplaceName = plugin.remoteMarketplaceName
+  const payload = await callRpc<{ authPolicy?: string; auth_policy?: string; appsNeedingAuth?: unknown[]; apps_needing_auth?: unknown[] }>('plugin/install', params)
+  const apps = payload.appsNeedingAuth ?? payload.apps_needing_auth ?? []
+  return {
+    authPolicy: readString(payload.authPolicy ?? payload.auth_policy) ?? '',
+    appsNeedingAuth: apps.map(normalizeDirectoryPluginApp).filter((row): row is DirectoryPluginAppSummary => row !== null),
+  }
+}
+
+export async function uninstallDirectoryPlugin(pluginId: string): Promise<void> {
+  await callRpc('plugin/uninstall', { pluginId })
+}
+
+export async function setDirectoryPluginEnabled(pluginId: string, enabled: boolean): Promise<void> {
+  await callRpc('config/batchWrite', {
+    edits: [{ keyPath: `plugins.${pluginId}.enabled`, value: enabled, mergeStrategy: 'upsert' }],
+    filePath: null,
+    expectedVersion: null,
+    reloadUserConfig: true,
+  })
+}
+
+export async function listDirectoryApps(threadId?: string): Promise<DirectoryAppInfo[]> {
+  const apps: DirectoryAppInfo[] = []
+  let cursor: string | null = null
+  let catalogRank = 0
+  do {
+    const params: Record<string, unknown> = { limit: 100 }
+    if (cursor) params.cursor = cursor
+    if (threadId) params.threadId = threadId
+    const payload = await callRpc<{ data?: unknown[]; nextCursor?: string | null; next_cursor?: string | null }>('app/list', params)
+    for (const item of payload.data ?? []) {
+      const app = normalizeDirectoryApp(item, catalogRank)
+      if (app) apps.push(app)
+      catalogRank += 1
+    }
+    cursor = readString(payload.nextCursor ?? payload.next_cursor)
+  } while (cursor)
+  return apps
+}
+
+export async function setDirectoryAppEnabled(appId: string, enabled: boolean): Promise<void> {
+  await callRpc('config/batchWrite', {
+    edits: [{ keyPath: `apps.${appId}.enabled`, value: enabled, mergeStrategy: 'upsert' }],
+    filePath: null,
+    expectedVersion: null,
+    reloadUserConfig: true,
+  })
+}
+
+export async function listDirectoryMcpServers(): Promise<DirectoryMcpServerStatus[]> {
+  const servers: DirectoryMcpServerStatus[] = []
+  let cursor: string | null = null
+  do {
+    const params: Record<string, unknown> = {}
+    if (cursor) params.cursor = cursor
+    const payload = await callRpc<{ data?: unknown[]; nextCursor?: string | null; next_cursor?: string | null }>('mcpServerStatus/list', params)
+    for (const item of payload.data ?? []) {
+      const server = normalizeDirectoryMcpServer(item)
+      if (server) servers.push(server)
+    }
+    cursor = readString(payload.nextCursor ?? payload.next_cursor)
+  } while (cursor)
+  return servers
+}
+
+export async function reloadDirectoryMcpServers(): Promise<void> {
+  await callRpc('config/mcpServer/reload', {})
+}
+
+export async function startDirectoryMcpLogin(name: string): Promise<DirectoryMcpLoginResult> {
+  const payload = await callRpc<{ authorizationUrl?: string; authorization_url?: string }>('mcpServer/oauth/login', { name })
+  return {
+    authorizationUrl: readString(payload.authorizationUrl ?? payload.authorization_url) ?? '',
+  }
+}
+
+export async function getDirectoryComposioStatus(): Promise<DirectoryComposioStatus> {
+  const response = await fetch('/codex-api/composio/status')
+  if (!response.ok) {
+    throw new Error(`Failed to load Composio status (${response.status})`)
+  }
+  return await response.json() as DirectoryComposioStatus
+}
+
+export async function listDirectoryComposioConnectors(
+  query = '',
+  cursor: string | null = null,
+  limit = 50,
+): Promise<DirectoryComposioConnectorPage> {
+  const params = new URLSearchParams()
+  if (query.trim()) params.set('query', query.trim())
+  if (cursor) params.set('cursor', cursor)
+  if (limit && Number.isFinite(limit)) params.set('limit', String(Math.max(1, Math.floor(limit))))
+  const suffix = params.toString()
+  const response = await fetch(`/codex-api/composio/connectors${suffix ? `?${suffix}` : ''}`)
+  if (!response.ok) {
+    throw new Error(`Failed to list Composio connectors (${response.status})`)
+  }
+  const payload = await response.json() as DirectoryComposioConnectorPage | { data?: DirectoryComposioConnector[]; nextCursor?: string | null; total?: number }
+  return {
+    data: Array.isArray(payload.data) ? payload.data : [],
+    nextCursor: typeof payload.nextCursor === 'string' && payload.nextCursor.length > 0 ? payload.nextCursor : null,
+    total: typeof payload.total === 'number' && Number.isFinite(payload.total) ? Math.max(0, Math.floor(payload.total)) : 0,
+  }
+}
+
+export async function readDirectoryComposioConnector(slug: string): Promise<DirectoryComposioConnectorDetail> {
+  const response = await fetch(`/codex-api/composio/connector?slug=${encodeURIComponent(slug)}`)
+  if (!response.ok) {
+    throw new Error(`Failed to load Composio connector (${response.status})`)
+  }
+  return await response.json() as DirectoryComposioConnectorDetail
+}
+
+export async function startDirectoryComposioLogin(slug: string): Promise<DirectoryComposioLinkResult> {
+  const response = await fetch('/codex-api/composio/link', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ slug }),
+  })
+  if (!response.ok) {
+    throw new Error(`Failed to start Composio login (${response.status})`)
+  }
+  return await response.json() as DirectoryComposioLinkResult
+}
+
+export async function startDirectoryComposioCliLogin(): Promise<DirectoryComposioLoginResult> {
+  const response = await fetch('/codex-api/composio/login', {
+    method: 'POST',
+  })
+  if (!response.ok) {
+    throw new Error(`Failed to start Composio CLI login (${response.status})`)
+  }
+  return await response.json() as DirectoryComposioLoginResult
+}
+
+export async function installDirectoryComposioCli(): Promise<DirectoryComposioInstallResult> {
+  const response = await fetch('/codex-api/composio/install', {
+    method: 'POST',
+  })
+  if (!response.ok) {
+    throw new Error(`Failed to install Composio CLI (${response.status})`)
+  }
+  return await response.json() as DirectoryComposioInstallResult
 }
 
 export async function getAccountRateLimitsResponse(): Promise<GetAccountRateLimitsResponse> {
@@ -1864,10 +2654,98 @@ function normalizeWorkspaceRootsState(payload: unknown): WorkspaceRootsState {
     order: normalizeArray(record.order).map((value) => normalizePathForUi(value)),
     labels,
     active: normalizeArray(record.active).map((value) => normalizePathForUi(value)),
+    projectOrder: normalizeArray(record.projectOrder).map((value) => normalizePathForUi(value)),
+    remoteProjects: Array.isArray(record.remoteProjects)
+      ? record.remoteProjects.flatMap((item) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return []
+        const remote = item as Record<string, unknown>
+        const id = typeof remote.id === 'string' ? remote.id.trim() : ''
+        if (!id) return []
+        return [{
+          id,
+          hostId: typeof remote.hostId === 'string' ? remote.hostId.trim() : '',
+          remotePath: typeof remote.remotePath === 'string' ? normalizePathForUi(remote.remotePath) : '',
+          label: typeof remote.label === 'string' ? remote.label.trim() : '',
+        }]
+      })
+      : [],
   }
 }
 
+function normalizeStoredQueuedMessage(value: unknown): StoredQueuedMessage | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  const id = typeof record.id === 'string' ? record.id.trim() : ''
+  if (!id) return null
+
+  const imageUrls = Array.isArray(record.imageUrls)
+    ? record.imageUrls.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : []
+  const skills = Array.isArray(record.skills)
+    ? record.skills.flatMap((item) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return []
+      const itemRecord = item as Record<string, unknown>
+      const name = typeof itemRecord.name === 'string' ? itemRecord.name.trim() : ''
+      const path = typeof itemRecord.path === 'string' ? itemRecord.path.trim() : ''
+      return name && path ? [{ name, path }] : []
+    })
+    : []
+  const fileAttachments = Array.isArray(record.fileAttachments)
+    ? record.fileAttachments.flatMap((item) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return []
+      const itemRecord = item as Record<string, unknown>
+      const label = typeof itemRecord.label === 'string' ? itemRecord.label.trim() : ''
+      const path = typeof itemRecord.path === 'string' ? itemRecord.path.trim() : ''
+      const fsPath = typeof itemRecord.fsPath === 'string' ? itemRecord.fsPath.trim() : ''
+      return label && path && fsPath ? [{ label, path, fsPath }] : []
+    })
+    : []
+
+  return {
+    id,
+    text: typeof record.text === 'string' ? record.text : '',
+    imageUrls,
+    skills,
+    fileAttachments,
+    collaborationMode: record.collaborationMode === 'plan' ? 'plan' : 'default',
+  }
+}
+
+function normalizeThreadQueueState(value: unknown): ThreadQueueState {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const state: ThreadQueueState = {}
+  for (const [threadId, rawMessages] of Object.entries(value as Record<string, unknown>)) {
+    const normalizedThreadId = threadId.trim()
+    if (!normalizedThreadId || !Array.isArray(rawMessages)) continue
+    const messages = rawMessages.flatMap((item) => {
+      const message = normalizeStoredQueuedMessage(item)
+      return message ? [message] : []
+    })
+    if (messages.length > 0) {
+      state[normalizedThreadId] = messages
+    }
+  }
+  return state
+}
+
 export async function getWorkspaceRootsState(): Promise<WorkspaceRootsState> {
+  if (cachedWorkspaceRootsState) {
+    return cloneWorkspaceRootsState(cachedWorkspaceRootsState)
+  }
+  if (!workspaceRootsStatePromise) {
+    workspaceRootsStatePromise = fetchWorkspaceRootsState()
+      .then((state) => {
+        cachedWorkspaceRootsState = state
+        return state
+      })
+      .finally(() => {
+        workspaceRootsStatePromise = null
+      })
+  }
+  return cloneWorkspaceRootsState(await workspaceRootsStatePromise)
+}
+
+async function fetchWorkspaceRootsState(): Promise<WorkspaceRootsState> {
   const response = await fetch('/codex-api/workspace-roots-state')
   const payload = (await response.json()) as unknown
   if (!response.ok) {
@@ -1880,6 +2758,44 @@ export async function getWorkspaceRootsState(): Promise<WorkspaceRootsState> {
   return normalizeWorkspaceRootsState(envelope.data)
 }
 
+function cloneWorkspaceRootsState(state: WorkspaceRootsState): WorkspaceRootsState {
+  return {
+    order: [...state.order],
+    labels: { ...state.labels },
+    active: [...state.active],
+    projectOrder: [...state.projectOrder],
+    remoteProjects: state.remoteProjects?.map((item) => ({ ...item })) ?? [],
+  }
+}
+
+function invalidateWorkspaceRootsStateCache(): void {
+  cachedWorkspaceRootsState = null
+}
+
+export async function getThreadQueueState(): Promise<ThreadQueueState> {
+  const response = await fetch('/codex-api/thread-queue-state')
+  const payload = (await response.json()) as unknown
+  if (!response.ok) {
+    throw new Error('Failed to load thread queue state')
+  }
+  const envelope =
+    payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)
+      : {}
+  return normalizeThreadQueueState(envelope.data)
+}
+
+export async function setThreadQueueState(nextState: ThreadQueueState): Promise<void> {
+  const response = await fetch('/codex-api/thread-queue-state', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(normalizeThreadQueueState(nextState)),
+  })
+  if (!response.ok) {
+    throw new Error('Failed to save thread queue state')
+  }
+}
+
 export async function createWorktree(sourceCwd: string, baseBranch?: string): Promise<WorktreeCreateResult> {
   const normalizedBaseBranch = (baseBranch ?? '').trim()
   const response = await fetch('/codex-api/worktree/create', {
@@ -1888,6 +2804,26 @@ export async function createWorktree(sourceCwd: string, baseBranch?: string): Pr
     body: JSON.stringify({
       sourceCwd,
       baseBranch: normalizedBaseBranch || undefined,
+    }),
+  })
+  const payload = (await response.json()) as { data?: WorktreeCreateResult; error?: string }
+  if (!response.ok || !payload.data) {
+    throw new Error(payload.error || 'Failed to create worktree')
+  }
+  return {
+    ...payload.data,
+    cwd: normalizePathForUi(payload.data.cwd),
+    gitRoot: normalizePathForUi(payload.data.gitRoot),
+  }
+}
+
+export async function createPermanentWorktree(sourceCwd: string, worktreeName: string): Promise<WorktreeCreateResult> {
+  const response = await fetch('/codex-api/worktree/create-permanent', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sourceCwd,
+      worktreeName,
     }),
   })
   const payload = (await response.json()) as { data?: WorktreeCreateResult; error?: string }
@@ -1931,7 +2867,7 @@ export async function getWorktreeBranchOptions(sourceCwd: string): Promise<Workt
 export async function getGitBranchState(cwd: string): Promise<GitBranchState> {
   const normalizedCwd = cwd.trim()
   if (!normalizedCwd) {
-    return { currentBranch: null, options: [] }
+    return { currentBranch: null, headSha: null, headSubject: null, headDate: null, detached: false, dirty: false, gitRoot: '', options: [] }
   }
   const query = new URLSearchParams({ cwd: normalizedCwd })
   const response = await fetch(`/codex-api/git/branches?${query.toString()}`)
@@ -1959,12 +2895,47 @@ export async function getGitBranchState(cwd: string): Promise<GitBranchState> {
     options.push({
       value,
       label: label || value,
+      isCurrent: option.isCurrent === true,
+      isRemote: option.isRemote === true,
     })
   }
   if (currentBranch && !seen.has(currentBranch)) {
-    options.unshift({ value: currentBranch, label: currentBranch })
+    options.unshift({ value: currentBranch, label: currentBranch, isCurrent: true })
   }
-  return { currentBranch, options }
+  const headShaRaw = record.headSha
+  const headSubjectRaw = record.headSubject
+  const headDateRaw = record.headDate
+  const gitRootRaw = record.gitRoot
+  return {
+    currentBranch,
+    headSha: typeof headShaRaw === 'string' && headShaRaw.trim() ? headShaRaw.trim() : null,
+    headSubject: typeof headSubjectRaw === 'string' && headSubjectRaw.trim() ? headSubjectRaw.trim() : null,
+    headDate: typeof headDateRaw === 'string' && headDateRaw.trim() ? headDateRaw.trim() : null,
+    detached: record.detached === true,
+    dirty: record.dirty === true,
+    gitRoot: typeof gitRootRaw === 'string' ? normalizePathForUi(gitRootRaw) : '',
+    options,
+  }
+}
+
+export async function getGitRepositoryStatus(cwd: string): Promise<GitRepositoryStatus> {
+  const normalizedCwd = cwd.trim()
+  if (!normalizedCwd) {
+    return { isGitRepo: false, gitRoot: '' }
+  }
+  const query = new URLSearchParams({ cwd: normalizedCwd })
+  const response = await fetch(`/codex-api/git/repository-status?${query.toString()}`)
+  const payload = (await response.json()) as { data?: unknown; error?: string }
+  if (!response.ok) {
+    throw new Error(payload.error || 'Failed to read Git repository status')
+  }
+  const record = payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data)
+    ? (payload.data as Record<string, unknown>)
+    : {}
+  return {
+    isGitRepo: record.isGitRepo === true,
+    gitRoot: typeof record.gitRoot === 'string' ? normalizePathForUi(record.gitRoot) : '',
+  }
 }
 
 export async function checkoutGitBranch(cwd: string, branch: string): Promise<string | null> {
@@ -1982,6 +2953,58 @@ export async function checkoutGitBranch(cwd: string, branch: string): Promise<st
   }
   const branchName = payload.data?.currentBranch
   return typeof branchName === 'string' && branchName.trim() ? branchName.trim() : null
+}
+
+export async function getGitBranchCommits(cwd: string, branch: string): Promise<GitCommitOption[]> {
+  const normalizedCwd = cwd.trim()
+  const normalizedBranch = branch.trim()
+  if (!normalizedCwd || !normalizedBranch) return []
+  const query = new URLSearchParams({ cwd: normalizedCwd, branch: normalizedBranch })
+  const response = await fetch(`/codex-api/git/branch-commits?${query.toString()}`)
+  const payload = (await response.json()) as { data?: unknown; error?: string }
+  if (!response.ok) {
+    throw new Error(payload.error || 'Failed to load branch commits')
+  }
+  const rawList = Array.isArray(payload.data) ? payload.data : []
+  return rawList.flatMap((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return []
+    const record = item as Record<string, unknown>
+    const sha = typeof record.sha === 'string' ? record.sha.trim() : ''
+    const shortSha = typeof record.shortSha === 'string' ? record.shortSha.trim() : ''
+    const subject = typeof record.subject === 'string' ? record.subject.trim() : ''
+    const date = typeof record.date === 'string' ? record.date.trim() : ''
+    if (!sha || !shortSha) return []
+    return [{ sha, shortSha, subject: subject || shortSha, date }]
+  })
+}
+
+export async function resetGitBranchToCommit(cwd: string, branch: string, sha: string): Promise<GitBranchState> {
+  const response = await fetch('/codex-api/git/reset-to-commit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      cwd: cwd.trim(),
+      branch: branch.trim(),
+      sha: sha.trim(),
+    }),
+  })
+  const payload = (await response.json()) as { data?: unknown; error?: string }
+  if (!response.ok) {
+    throw new Error(payload.error || 'Failed to reset branch to commit')
+  }
+  const record = payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data)
+    ? (payload.data as Record<string, unknown>)
+    : {}
+  return {
+    currentBranch: typeof record.currentBranch === 'string' && record.currentBranch.trim() ? record.currentBranch.trim() : null,
+    headSha: typeof record.headSha === 'string' && record.headSha.trim() ? record.headSha.trim() : null,
+    headSubject: typeof record.headSubject === 'string' && record.headSubject.trim() ? record.headSubject.trim() : null,
+    headDate: typeof record.headDate === 'string' && record.headDate.trim() ? record.headDate.trim() : null,
+    detached: record.detached === true,
+    dirty: record.dirty === true,
+    gitRoot: typeof record.gitRoot === 'string' ? normalizePathForUi(record.gitRoot) : '',
+    options: [],
+  }
 }
 
 export async function getReviewSnapshot(
@@ -2138,6 +3161,7 @@ export async function setWorkspaceRootsState(nextState: WorkspaceRootsState): Pr
   if (!response.ok) {
     throw new Error('Failed to save workspace roots state')
   }
+  cachedWorkspaceRootsState = cloneWorkspaceRootsState(nextState)
 }
 
 export async function openProjectRoot(path: string, options?: { createIfMissing?: boolean; label?: string }): Promise<string> {
@@ -2164,6 +3188,7 @@ export async function openProjectRoot(path: string, options?: { createIfMissing?
       ? (record.data as Record<string, unknown>)
       : {}
   const normalizedPath = typeof data.path === 'string' ? normalizePathForUi(data.path) : ''
+  invalidateWorkspaceRootsStateCache()
   return normalizedPath
 }
 
@@ -2186,7 +3211,63 @@ export async function createLocalDirectory(path: string): Promise<string> {
     record.data && typeof record.data === 'object' && !Array.isArray(record.data)
       ? (record.data as Record<string, unknown>)
       : {}
+  const normalizedPath = typeof data.path === 'string' ? normalizePathForUi(data.path) : ''
+  if (normalizedPath) {
+    invalidateWorkspaceRootsStateCache()
+  }
+  return normalizedPath
+}
+
+export async function cloneGithubRepository(url: string, basePath: string): Promise<string> {
+  const response = await fetch('/codex-api/github-clone', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url, basePath }),
+  })
+  const payload = await readJsonResponse(response)
+  if (!response.ok) {
+    const message = getErrorMessageFromPayload(payload, 'Failed to clone GitHub repository')
+    throw new Error(message)
+  }
+  const record =
+    payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)
+      : {}
+  const data =
+    record.data && typeof record.data === 'object' && !Array.isArray(record.data)
+      ? (record.data as Record<string, unknown>)
+      : {}
   return typeof data.path === 'string' ? normalizePathForUi(data.path) : ''
+}
+
+export async function createProjectlessThreadDirectory(prompt?: string): Promise<{ cwd: string; outputDirectory: string; workspaceRoot: string }> {
+  const response = await fetch('/codex-api/projectless-thread-cwd', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt: prompt ?? null }),
+  })
+  const payload = await readJsonResponse(response)
+  if (!response.ok) {
+    const message = getErrorMessageFromPayload(payload, 'Failed to create new chat folder')
+    throw new Error(message)
+  }
+  const record =
+    payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)
+      : {}
+  const data =
+    record.data && typeof record.data === 'object' && !Array.isArray(record.data)
+      ? (record.data as Record<string, unknown>)
+      : {}
+  const cwd = typeof data.cwd === 'string' ? normalizePathForUi(data.cwd) : ''
+  if (!cwd) {
+    throw new Error('Failed to create new chat folder')
+  }
+  return {
+    cwd,
+    outputDirectory: typeof data.outputDirectory === 'string' ? normalizePathForUi(data.outputDirectory) : cwd,
+    workspaceRoot: typeof data.workspaceRoot === 'string' ? normalizePathForUi(data.workspaceRoot) : '',
+  }
 }
 
 export async function getProjectRootSuggestion(basePath: string): Promise<{ name: string; path: string }> {
@@ -2338,166 +3419,6 @@ export async function getTelegramStatus(): Promise<TelegramStatus> {
   }
 }
 
-function formatGithubDate(date: Date): string {
-  const year = date.getUTCFullYear()
-  const month = String(date.getUTCMonth() + 1).padStart(2, '0')
-  const day = String(date.getUTCDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
-export async function getGithubTrendingProjects(limit = 5): Promise<GithubTrendingProject[]> {
-  const safeLimit = Math.min(10, Math.max(1, Math.floor(limit)))
-  const sinceDate = new Date()
-  sinceDate.setUTCDate(sinceDate.getUTCDate() - 7)
-  const query = new URLSearchParams({
-    q: `created:>=${formatGithubDate(sinceDate)}`,
-    sort: 'stars',
-    order: 'desc',
-    per_page: String(safeLimit),
-  })
-  const response = await fetch(`https://api.github.com/search/repositories?${query.toString()}`, {
-    headers: {
-      Accept: 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
-  })
-  if (!response.ok) {
-    throw new Error(`Failed to fetch GitHub trending projects (${response.status})`)
-  }
-  const payload = (await response.json()) as unknown
-  const record =
-    payload && typeof payload === 'object' && !Array.isArray(payload)
-      ? (payload as Record<string, unknown>)
-      : {}
-  const items = Array.isArray(record.items) ? record.items : []
-  const projects: GithubTrendingProject[] = []
-  for (const item of items) {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) continue
-    const row = item as Record<string, unknown>
-    const id = typeof row.id === 'number' ? row.id : 0
-    const fullName = typeof row.full_name === 'string' ? row.full_name.trim() : ''
-    const htmlUrl = typeof row.html_url === 'string' ? row.html_url.trim() : ''
-    if (!id || !fullName || !htmlUrl) continue
-    const [owner = '', repo = ''] = fullName.split('/', 2)
-    projects.push({
-      id,
-      fullName,
-      owner,
-      repo,
-      url: htmlUrl,
-      description: normalizeGithubProjectDescription(
-        fullName,
-        typeof row.description === 'string' ? row.description : '',
-      ),
-      language: typeof row.language === 'string' ? row.language.trim() : '',
-      stars: typeof row.stargazers_count === 'number' ? row.stargazers_count : 0,
-    })
-  }
-  return projects
-}
-
-export async function getGithubProjectsForScope(
-  scope: GithubTipsScope,
-  limit = 6,
-): Promise<GithubTrendingProject[]> {
-  const safeLimit = Math.min(10, Math.max(1, Math.floor(limit)))
-  if (scope.startsWith('search-')) {
-    const sinceDate = new Date()
-    if (scope === 'search-daily') sinceDate.setUTCDate(sinceDate.getUTCDate() - 1)
-    else if (scope === 'search-weekly') sinceDate.setUTCDate(sinceDate.getUTCDate() - 7)
-    else sinceDate.setUTCDate(sinceDate.getUTCDate() - 30)
-
-    const query = new URLSearchParams({
-      q: `created:>=${formatGithubDate(sinceDate)}`,
-      sort: 'stars',
-      order: 'desc',
-      per_page: String(safeLimit),
-    })
-    const response = await fetch(`https://api.github.com/search/repositories?${query.toString()}`, {
-      headers: {
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to fetch GitHub search projects (${response.status})`)
-    }
-    const payload = (await response.json()) as unknown
-    const record =
-      payload && typeof payload === 'object' && !Array.isArray(payload)
-        ? (payload as Record<string, unknown>)
-        : {}
-    const items = Array.isArray(record.items) ? record.items : []
-    const projects: GithubTrendingProject[] = []
-    for (const item of items) {
-      if (!item || typeof item !== 'object' || Array.isArray(item)) continue
-      const row = item as Record<string, unknown>
-      const id = typeof row.id === 'number' ? row.id : 0
-      const fullName = typeof row.full_name === 'string' ? row.full_name.trim() : ''
-      const htmlUrl = typeof row.html_url === 'string' ? row.html_url.trim() : ''
-      if (!id || !fullName || !htmlUrl) continue
-      const [owner = '', repo = ''] = fullName.split('/', 2)
-      projects.push({
-        id,
-        fullName,
-        owner,
-        repo,
-        url: htmlUrl,
-        description: normalizeGithubProjectDescription(
-          fullName,
-          typeof row.description === 'string' ? row.description : '',
-        ),
-        language: typeof row.language === 'string' ? row.language.trim() : '',
-        stars: typeof row.stargazers_count === 'number' ? row.stargazers_count : 0,
-      })
-    }
-    return projects
-  }
-
-  const since =
-    scope === 'trending-daily'
-      ? 'daily'
-      : scope === 'trending-weekly'
-        ? 'weekly'
-        : 'monthly'
-  const query = new URLSearchParams({ since, limit: String(safeLimit) })
-  const response = await fetch(`/codex-api/github-trending?${query.toString()}`)
-  const payload = (await response.json()) as unknown
-  if (!response.ok) {
-    const message = getErrorMessageFromPayload(payload, 'Failed to fetch GitHub trending projects')
-    throw new Error(message)
-  }
-  const record =
-    payload && typeof payload === 'object' && !Array.isArray(payload)
-      ? (payload as Record<string, unknown>)
-      : {}
-  const data = Array.isArray(record.data) ? record.data : []
-  const projects: GithubTrendingProject[] = []
-  for (const item of data) {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) continue
-    const row = item as Record<string, unknown>
-    const id = typeof row.id === 'number' ? row.id : 0
-    const fullName = typeof row.fullName === 'string' ? row.fullName.trim() : ''
-    const url = typeof row.url === 'string' ? row.url.trim() : ''
-    if (!id || !fullName || !url) continue
-    const [owner = '', repo = ''] = fullName.split('/', 2)
-    projects.push({
-      id,
-      fullName,
-      owner,
-      repo,
-      url,
-      description: normalizeGithubProjectDescription(
-        fullName,
-        typeof row.description === 'string' ? row.description : '',
-      ),
-      language: typeof row.language === 'string' ? row.language.trim() : '',
-      stars: typeof row.stars === 'number' ? row.stars : 0,
-    })
-  }
-  return projects
-}
-
 function getErrorMessageFromPayload(payload: unknown, fallback: string): string {
   const record = payload && typeof payload === 'object' && !Array.isArray(payload)
     ? (payload as Record<string, unknown>)
@@ -2513,6 +3434,7 @@ function getErrorMessageFromPayload(payload: unknown, fallback: string): string 
 export type ThreadTitleCache = { titles: Record<string, string>; order: string[] }
 export type ThreadPinnedState = { threadIds: string[] }
 export type ThreadReadState = { readAtByThreadId: Record<string, string> }
+export type FirstLaunchPluginsCardPreference = { dismissed: boolean }
 
 export async function getThreadTitleCache(): Promise<ThreadTitleCache> {
   try {
@@ -2571,6 +3493,38 @@ export async function getThreadReadState(): Promise<ThreadReadState> {
   }
 }
 
+export async function getFirstLaunchPluginsCardPreference(): Promise<FirstLaunchPluginsCardPreference> {
+  try {
+    const response = await fetch('/codex-api/preferences/first-launch-plugins-card')
+    if (!response.ok) return { dismissed: false }
+    const envelope = (await response.json()) as { data?: FirstLaunchPluginsCardPreference }
+    return { dismissed: envelope.data?.dismissed === true }
+  } catch {
+    return { dismissed: false }
+  }
+}
+
+export async function persistFirstLaunchPluginsCardPreference(dismissed: boolean): Promise<void> {
+  try {
+    await fetch('/codex-api/preferences/first-launch-plugins-card', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dismissed }),
+    })
+  } catch {
+    // Best-effort persist
+  }
+}
+
+export async function generateThreadTitle(prompt: string, cwd: string | null): Promise<string> {
+  try {
+    const result = await callRpc<{ title?: string }>('generate-thread-title', { prompt, cwd })
+    return result.title?.trim() ?? ''
+  } catch {
+    return ''
+  }
+}
+
 export async function persistThreadReadState(
   input: { threadId: string; readAtIso: string } | { readAtByThreadId: Record<string, string> },
 ): Promise<void> {
@@ -2587,10 +3541,44 @@ export async function persistThreadReadState(
 
 export type SkillInfo = {
   name: string
+  displayName?: string
   description: string
   path: string
   scope: string
   enabled: boolean
+}
+
+function normalizeSkillMarkdownPath(skillPath: string): string {
+  if (!skillPath) return ''
+  return skillPath.endsWith('/SKILL.md') ? skillPath : `${skillPath}/SKILL.md`
+}
+
+function deriveGroupedSkillRoot(
+  skillPath: string,
+  knownPaths: Set<string>,
+): { rootPath: string; rootName: string; isNested: boolean } | null {
+  const normalizedPath = normalizeSkillMarkdownPath(skillPath)
+  const parts = normalizedPath.split('/').filter(Boolean)
+  if (parts.length < 2) return null
+
+  const pluginSkillsIndex = parts.lastIndexOf('skills')
+  if (pluginSkillsIndex >= 2) {
+    const pluginName = parts[pluginSkillsIndex - 2] ?? ''
+    if (pluginName) {
+      const pluginRootPath = `/${[...parts.slice(0, pluginSkillsIndex + 1), pluginName, 'SKILL.md'].join('/')}`
+      if (knownPaths.has(pluginRootPath)) {
+        return { rootPath: pluginRootPath, rootName: pluginName, isNested: pluginRootPath !== normalizedPath }
+      }
+    }
+  }
+
+  const firstSkillsIndex = parts.indexOf('skills')
+  if (firstSkillsIndex < 0 || firstSkillsIndex + 1 >= parts.length - 1) return null
+  const rootName = parts[firstSkillsIndex + 1] ?? ''
+  if (!rootName) return null
+  const rootPath = `/${[...parts.slice(0, firstSkillsIndex + 2), 'SKILL.md'].join('/')}`
+  if (!knownPaths.has(rootPath)) return { rootPath, rootName, isNested: rootPath !== normalizedPath }
+  return { rootPath, rootName, isNested: rootPath !== normalizedPath }
 }
 
 type SkillsListResponseEntry = {
@@ -2611,24 +3599,85 @@ export async function getSkillsList(cwds?: string[]): Promise<SkillInfo[]> {
     const params: Record<string, unknown> = {}
     if (cwds && cwds.length > 0) params.cwds = cwds
     const payload = await callRpc<{ data: SkillsListResponseEntry[] }>('skills/list', params)
-    const skills: SkillInfo[] = []
-    const seen = new Set<string>()
+    const allSkills = payload.data.flatMap((entry) => entry.skills)
+    const pathSet = new Set(allSkills.map((skill) => normalizeSkillMarkdownPath(skill.path)).filter(Boolean))
+    const grouped = new Map<string, SkillInfo & { __hasRoot: boolean }>()
     for (const entry of payload.data) {
       for (const skill of entry.skills) {
-        if (!skill.name || seen.has(skill.path)) continue
-        seen.add(skill.path)
-        skills.push({
+        if (!skill.name) continue
+        const groupInfo = deriveGroupedSkillRoot(skill.path, pathSet)
+        const normalizedPath = normalizeSkillMarkdownPath(skill.path)
+        const shouldCollapseIntoRoot = Boolean(groupInfo?.isNested && pathSet.has(groupInfo.rootPath))
+        const key = shouldCollapseIntoRoot ? groupInfo!.rootPath : normalizedPath
+        const isRoot = normalizedPath === key
+        const existing = grouped.get(key)
+        const candidate: SkillInfo & { __hasRoot: boolean } = {
           name: skill.name,
+          displayName: groupInfo && key === groupInfo.rootPath ? groupInfo.rootName : undefined,
           description: skill.shortDescription || skill.description || '',
-          path: skill.path,
+          path: key,
           scope: skill.scope,
           enabled: skill.enabled,
-        })
+          __hasRoot: isRoot,
+        }
+        if (!existing) {
+          grouped.set(key, candidate)
+          continue
+        }
+        existing.enabled = existing.enabled || skill.enabled
+        if (!existing.__hasRoot && isRoot) {
+          grouped.set(key, candidate)
+          continue
+        }
+        if (!existing.displayName && candidate.displayName) {
+          existing.displayName = candidate.displayName
+        }
+        if (!existing.description && candidate.description) {
+          existing.description = candidate.description
+        }
       }
     }
-    return skills
+    return Array.from(grouped.values()).map(({ __hasRoot: _ignored, ...skill }) => skill)
   } catch {
     return []
+  }
+}
+
+export async function getComposerPrompts(): Promise<ComposerPromptInfo[]> {
+  try {
+    const response = await fetch('/codex-api/prompts')
+    if (!response.ok) return []
+    const payload = (await response.json()) as { data?: ComposerPromptInfo[] }
+    return Array.isArray(payload.data) ? payload.data : []
+  } catch {
+    return []
+  }
+}
+
+export async function createComposerPrompt(name: string, content: string): Promise<ComposerPromptInfo | null> {
+  try {
+    const response = await fetch('/codex-api/prompts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, content }),
+    })
+    if (!response.ok) return null
+    const payload = (await response.json()) as { data?: ComposerPromptInfo }
+    return payload.data ?? null
+  } catch {
+    return null
+  }
+}
+
+export async function removeComposerPrompt(path: string): Promise<boolean> {
+  try {
+    const params = new URLSearchParams({ path })
+    const response = await fetch(`/codex-api/prompts?${params.toString()}`, {
+      method: 'DELETE',
+    })
+    return response.ok
+  } catch {
+    return false
   }
 }
 

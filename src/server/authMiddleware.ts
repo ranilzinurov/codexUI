@@ -1,10 +1,22 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import type { IncomingMessage } from 'node:http'
+import { homedir } from 'node:os'
+import { dirname, join } from 'node:path'
 import type { RequestHandler, Request, Response, NextFunction } from 'express'
 
 const TOKEN_COOKIE = 'portal_session'
 const SESSION_TTL_SECONDS = 365 * 24 * 60 * 60
 const SESSION_TTL_MS = SESSION_TTL_SECONDS * 1000
+const SESSION_STORE_FILE = 'webui-auth-sessions.json'
+const MAX_PERSISTED_TOKENS = 128
+
+type PersistedAuthState = {
+  tokens?: Array<{
+    value?: unknown
+    expiresAt?: unknown
+  }>
+}
 
 function constantTimeCompare(a: string, b: string): boolean {
   const bufA = Buffer.from(a)
@@ -66,16 +78,6 @@ function signSessionCookie(secret: string, payload: string): string {
   return createHmac('sha256', secret).update(payload).digest('hex')
 }
 
-function createSignedSessionToken(secret: string): { token: string; expiresAtMs: number } {
-  const expiresAtMs = Date.now() + SESSION_TTL_MS
-  const payload = String(expiresAtMs) + '.' + randomBytes(16).toString('hex')
-  const signature = signSessionCookie(secret, payload)
-  return {
-    token: payload + '.' + signature,
-    expiresAtMs,
-  }
-}
-
 function isSignedSessionTokenValid(token: string | undefined, secret: string): boolean {
   if (!token) return false
   const parts = token.split('.')
@@ -95,11 +97,74 @@ function isSignedSessionTokenValid(token: string | undefined, secret: string): b
   return constantTimeCompare(providedSignature, expectedSignature)
 }
 
+function getCodexHomeDir(): string {
+  const codexHome = process.env.CODEX_HOME?.trim()
+  return codexHome && codexHome.length > 0 ? codexHome : join(homedir(), '.codex')
+}
+
+function getSessionStorePath(): string {
+  return join(getCodexHomeDir(), SESSION_STORE_FILE)
+}
+
+function readPersistedSessions(): Map<string, number> {
+  const sessionStorePath = getSessionStorePath()
+  if (!existsSync(sessionStorePath)) return new Map()
+
+  try {
+    const raw = readFileSync(sessionStorePath, 'utf8')
+    const parsed = JSON.parse(raw) as PersistedAuthState
+    const now = Date.now()
+    const sessions = new Map<string, number>()
+    for (const entry of parsed.tokens ?? []) {
+      const token = typeof entry?.value === 'string' ? entry.value : ''
+      const expiresAt = typeof entry?.expiresAt === 'number' ? entry.expiresAt : 0
+      if (!token || !Number.isFinite(expiresAt) || expiresAt <= now) continue
+      sessions.set(token, expiresAt)
+    }
+    return sessions
+  } catch {
+    return new Map()
+  }
+}
+
+function persistSessions(validTokens: Map<string, number>): void {
+  const sessionStorePath = getSessionStorePath()
+  mkdirSync(dirname(sessionStorePath), { recursive: true })
+
+  const tokens = Array.from(validTokens.entries())
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, MAX_PERSISTED_TOKENS)
+    .map(([value, expiresAt]) => ({ value, expiresAt }))
+  const tmpPath = `${sessionStorePath}.tmp`
+  writeFileSync(tmpPath, `${JSON.stringify({ tokens }, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
+  renameSync(tmpPath, sessionStorePath)
+}
+
+function tryPersistSessions(validTokens: Map<string, number>): void {
+  try {
+    persistSessions(validTokens)
+  } catch (error) {
+    console.warn('[auth] failed to persist login sessions:', error)
+  }
+}
+
+function pruneExpiredSessions(validTokens: Map<string, number>): boolean {
+  const now = Date.now()
+  let changed = false
+  for (const [token, expiresAt] of validTokens.entries()) {
+    if (expiresAt > now) continue
+    validTokens.delete(token)
+    changed = true
+  }
+  return changed
+}
+
 function isAuthorizedByRequestLike(
   remoteAddress: string | undefined,
   hostHeader: string | undefined,
   cookieHeader: string | undefined,
   sessionSecret: string,
+  validTokens: Map<string, number>,
 ): boolean {
   const remote = remoteAddress ?? ''
   // SSH reverse tunnels terminate on loopback, so remoteAddress alone is not enough
@@ -113,6 +178,11 @@ function isAuthorizedByRequestLike(
 
   const cookies = parseCookies(cookieHeader)
   const token = cookies[TOKEN_COOKIE]
+  if (!token) return false
+  const expiresAt = validTokens.get(token)
+  if (typeof expiresAt === 'number' && expiresAt > Date.now()) {
+    return true
+  }
   return isSignedSessionTokenValid(token, sessionSecret)
 }
 
@@ -223,61 +293,79 @@ export type AuthSession = {
 }
 
 export function createAuthSession(password: string): AuthSession {
+  const validTokens = readPersistedSessions()
+  if (pruneExpiredSessions(validTokens)) {
+    tryPersistSessions(validTokens)
+  }
+
+  const createSession = (req: Request, res: Response): void => {
+    const token = randomBytes(32).toString('hex')
+    const expiresAt = Date.now() + SESSION_TTL_MS
+    validTokens.set(token, expiresAt)
+    tryPersistSessions(validTokens)
+    markHtmlAuthResponseNoStore(res)
+    res.setHeader('Set-Cookie', buildSessionCookie(req, token, expiresAt))
+  }
+
   const middleware: RequestHandler = (req: Request, res: Response, next: NextFunction): void => {
-    if (isAuthorizedByRequestLike(req.socket.remoteAddress, req.headers.host, req.headers.cookie, password)) {
+    if (pruneExpiredSessions(validTokens)) {
+      tryPersistSessions(validTokens)
+    }
+
+    if (isAuthorizedByRequestLike(req.socket.remoteAddress, req.headers.host, req.headers.cookie, password, validTokens)) {
       appendVaryCookie(res)
       next()
       return
     }
 
-    // Handle login POST
     if (req.method === 'POST' && req.path === '/auth/login') {
       let body = ''
       req.setEncoding('utf8')
       req.on('data', (chunk: string) => { body += chunk })
       req.on('end', () => {
+        let parsed: { password?: string }
         try {
-          const parsed = JSON.parse(body) as { password?: string }
-          const provided = typeof parsed.password === 'string' ? parsed.password : ''
-
-          if (!constantTimeCompare(provided, password)) {
-            markHtmlAuthResponseNoStore(res)
-            res.status(401).json({ error: 'Invalid password' })
-            return
-          }
-
-          const { token, expiresAtMs } = createSignedSessionToken(password)
-          markHtmlAuthResponseNoStore(res)
-          res.setHeader('Set-Cookie', buildSessionCookie(req, token, expiresAtMs))
-          res.json({ ok: true })
+          parsed = JSON.parse(body) as { password?: string }
         } catch {
           markHtmlAuthResponseNoStore(res)
           res.status(400).json({ error: 'Invalid request body' })
+          return
+        }
+
+        const provided = typeof parsed.password === 'string' ? parsed.password : ''
+        if (!constantTimeCompare(provided, password)) {
+          markHtmlAuthResponseNoStore(res)
+          res.status(401).json({ error: 'Invalid password' })
+          return
+        }
+
+        try {
+          createSession(req, res)
+          res.json({ ok: true })
+        } catch {
+          markHtmlAuthResponseNoStore(res)
+          res.status(500).json({ error: 'Failed to create login session' })
         }
       })
       return
     }
 
-    // Handle one-click auth links like /password=<value>
     if (req.method === 'GET' && req.path.startsWith('/password=')) {
       const provided = req.path.slice('/password='.length)
       if (constantTimeCompare(provided, password)) {
-        const { token, expiresAtMs } = createSignedSessionToken(password)
-        markHtmlAuthResponseNoStore(res)
-        res.setHeader('Set-Cookie', buildSessionCookie(req, token, expiresAtMs))
+        createSession(req, res)
         res.redirect(302, '/')
         return
       }
     }
 
-    // No valid session
     sendUnauthorizedResponse(req, res)
   }
 
   return {
     middleware,
     isRequestAuthorized: (req: IncomingMessage) => (
-      isAuthorizedByRequestLike(req.socket.remoteAddress, req.headers.host, req.headers.cookie, password)
+      isAuthorizedByRequestLike(req.socket.remoteAddress, req.headers.host, req.headers.cookie, password, validTokens)
     ),
   }
 }

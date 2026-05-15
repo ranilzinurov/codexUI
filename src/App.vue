@@ -15,8 +15,8 @@
               class="sidebar-search-toggle"
               type="button"
               :aria-pressed="isSidebarSearchVisible"
-              aria-label="Search threads"
-              title="Search threads"
+              :aria-label="t('Search threads')"
+              :title="t('Search threads')"
               @click="toggleSidebarSearch"
             >
               <IconTablerSearch class="sidebar-search-toggle-icon" />
@@ -30,14 +30,14 @@
               v-model="sidebarSearchQuery"
               class="sidebar-search-input"
               type="text"
-              placeholder="Filter threads..."
+              :placeholder="t('Filter threads...')"
               @keydown="onSidebarSearchKeydown"
             />
             <button
               v-if="sidebarSearchQuery.length > 0"
               class="sidebar-search-clear"
               type="button"
-              aria-label="Clear search"
+              :aria-label="t('Clear search')"
               @click="clearSidebarSearch"
             >
               <IconTablerX class="sidebar-search-clear-icon" />
@@ -51,23 +51,53 @@
             type="button"
             @click="router.push({ name: 'skills' }); isMobile && setSidebarCollapsed(true)"
           >
-            Skills Hub
+            <span class="sidebar-skills-link-icon" aria-hidden="true">
+              <IconTablerBolt />
+            </span>
+            <span class="sidebar-skills-link-copy">
+              <span class="sidebar-skills-link-title">{{ t('Skills') }}</span>
+              <span class="sidebar-skills-link-subtitle">{{ t('Plugins, apps, MCPs') }}</span>
+            </span>
           </button>
 
-          <SidebarThreadTree :groups="projectGroups" :project-display-name-by-id="projectDisplayNameById"
+          <button
+            v-if="!isSidebarCollapsed"
+            class="sidebar-skills-link"
+            :class="{ 'is-active': isAutomationsRoute }"
+            type="button"
+            @click="router.push({ name: 'automations' }); isMobile && setSidebarCollapsed(true)"
+          >
+            <span class="sidebar-skills-link-icon sidebar-automations-link-icon" aria-hidden="true">
+              <IconTablerBolt />
+            </span>
+            <span class="sidebar-skills-link-copy">
+              <span class="sidebar-skills-link-title">{{ t('Automations') }}</span>
+              <span class="sidebar-skills-link-subtitle">{{ t('Scheduled work') }}</span>
+            </span>
+          </button>
+
+          <SidebarThreadTree ref="sidebarThreadTreeRef" :groups="projectGroups" :project-display-name-by-id="projectDisplayNameById"
+            :project-git-repo-by-name="projectGitRepoByName"
+            :project-cwd-by-name="projectCwdByName"
             v-if="!isSidebarCollapsed"
             :selected-thread-id="selectedThreadId" :is-loading="isLoadingThreads"
+            :is-thread-list-fully-loaded="isThreadListFullyLoaded"
             :search-query="sidebarSearchQuery"
             :search-matched-thread-ids="serverMatchedThreadIds"
             @select="onSelectThread"
             @archive="onArchiveThread" @start-new-thread="onStartNewThread" @rename-project="onRenameProject"
             @browse-thread-files="onBrowseThreadFiles"
+            @browse-project-files="onBrowseProjectFiles"
+            @request-project-git-status="onRequestProjectGitStatus"
+            @create-project-worktree="onCreateProjectWorktree"
             @rename-thread="onRenameThread"
             @mark-thread-read="onMarkThreadRead"
             @mark-thread-unread="onMarkThreadUnread"
             @fork-thread="onForkThread"
             @remove-project="onRemoveProject" @reorder-project="onReorderProject"
-            @export-thread="onExportThread" />
+            @export-thread="onExportThread"
+            @automations-changed="onAutomationsChanged"
+            @start-new-chat="onStartNewThreadFromToolbar" />
         </div>
 
         <div
@@ -90,27 +120,49 @@
                       class="sidebar-settings-account-collapse"
                       type="button"
                       :aria-expanded="!isAccountsSectionCollapsed"
-                      :title="isAccountsSectionCollapsed ? 'Expand accounts' : 'Collapse accounts'"
+                      :title="isAccountsSectionCollapsed ? t('Expand accounts') : t('Collapse accounts')"
                       @click="toggleAccountsSectionCollapsed"
                     >
                       <span class="sidebar-settings-account-collapse-icon">{{ isAccountsSectionCollapsed ? '▸' : '▾' }}</span>
                     </button>
-                    <span class="sidebar-settings-account-title">Accounts</span>
+                    <span class="sidebar-settings-account-title">{{ t('Accounts') }}</span>
                     <span class="sidebar-settings-account-count">{{ accounts.length }}</span>
                   </div>
                   <button
                     class="sidebar-settings-account-refresh"
                     type="button"
-                    :disabled="isRefreshingAccounts || isSwitchingAccounts"
+                    :disabled="isRefreshingAccounts || isSwitchingAccounts || isStartingCodexLogin || isCompletingCodexLogin"
                     @click="onRefreshAccounts"
                   >
-                    {{ isRefreshingAccounts ? 'Reloading…' : 'Reload' }}
+                    {{ isRefreshingAccounts ? t('Reloading…') : t('Reload') }}
                   </button>
                 </div>
                 <template v-if="!isAccountsSectionCollapsed">
-                  <p v-if="accountActionError" class="sidebar-settings-account-error">{{ accountActionError }}</p>
+                  <div v-if="accountActionError" class="sidebar-settings-account-error visible-error-with-feedback">
+                    <span>{{ accountActionError }}</span>
+                    <a class="visible-error-feedback" :href="feedbackMailto" @click="prepareFeedbackLink($event, accountActionError)">{{ t('Send feedback') }}</a>
+                  </div>
+                  <div class="sidebar-settings-account-login">
+                    <button
+                      class="sidebar-settings-account-login-button"
+                      type="button"
+                      :disabled="isRefreshingAccounts || isSwitchingAccounts || isStartingCodexLogin || isCompletingCodexLogin"
+                      @click="onStartCodexLogin"
+                    >
+                      {{ isStartingCodexLogin ? t('Starting login…') : t('Login') }}
+                    </button>
+                    <a
+                      v-if="codexLoginUrl"
+                      class="sidebar-settings-account-login-link"
+                      :href="codexLoginUrl"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {{ t('Open login URL') }}
+                    </a>
+                  </div>
                   <p v-if="accounts.length === 0" class="sidebar-settings-account-empty">
-                    Run `codex login`, then click reload.
+                    {{ t('Click Login, or run `codex login`, then click reload.') }}
                   </p>
                   <div v-else class="sidebar-settings-account-list">
                   <article
@@ -128,7 +180,7 @@
                     @mouseleave="onAccountCardPointerLeave(account.accountId)"
                   >
                     <div class="sidebar-settings-account-main">
-                      <p class="sidebar-settings-account-email">{{ account.email || 'Account' }}</p>
+                      <p class="sidebar-settings-account-email">{{ account.email || t('Account') }}</p>
                       <p class="sidebar-settings-account-meta">
                         {{ formatAccountMeta(account) }}
                       </p>
@@ -166,36 +218,46 @@
                 </template>
               </div>
               <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.sendWithEnter" @click="toggleSendWithEnter">
-                <span class="sidebar-settings-label">Require ⌘ + enter to send</span>
+                <span class="sidebar-settings-label">{{ t('Require ⌘ + enter to send') }}</span>
                 <span class="sidebar-settings-toggle" :class="{ 'is-on': !sendWithEnter }" />
               </button>
               <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.inProgressSendMode" @click="cycleInProgressSendMode">
-                <span class="sidebar-settings-label">When busy, send as</span>
-                <span class="sidebar-settings-value">{{ inProgressSendMode === 'steer' ? 'Steer' : 'Queue' }}</span>
+                <span class="sidebar-settings-label">{{ t('When busy, send as') }}</span>
+                <span class="sidebar-settings-value">{{ inProgressSendMode === 'steer' ? t('Steer') : t('Queue') }}</span>
               </button>
               <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.appearance" @click="cycleDarkMode">
-                <span class="sidebar-settings-label">Appearance</span>
-                <span class="sidebar-settings-value">{{ darkMode === 'system' ? 'System' : darkMode === 'dark' ? 'Dark' : 'Light' }}</span>
+                <span class="sidebar-settings-label">{{ t('Appearance') }}</span>
+                <span class="sidebar-settings-value">{{ darkMode === 'system' ? t('System') : darkMode === 'dark' ? t('Dark') : t('Light') }}</span>
               </button>
+              <div class="sidebar-settings-row sidebar-settings-row--select" :title="t('Choose the interface language for the app.')">
+                <span class="sidebar-settings-label">{{ t('UI language') }}</span>
+                <select
+                  class="sidebar-settings-provider-select"
+                  :value="uiLanguage"
+                  @change="setUiLanguage(($event.target as HTMLSelectElement).value as 'en' | 'zh-CN')"
+                >
+                  <option v-for="option in uiLanguageOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                </select>
+              </div>
               <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.chatWidth" @click="cycleChatWidth">
-                <span class="sidebar-settings-label">Chat width</span>
+                <span class="sidebar-settings-label">{{ t('Chat width') }}</span>
                 <span class="sidebar-settings-value">{{ chatWidthLabel }}</span>
               </button>
               <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.dictationClickToToggle" @click="toggleDictationClickToToggle">
-                <span class="sidebar-settings-label">Click to toggle dictation</span>
+                <span class="sidebar-settings-label">{{ t('Click to toggle dictation') }}</span>
                 <span class="sidebar-settings-toggle" :class="{ 'is-on': dictationClickToToggle }" />
               </button>
               <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.dictationAutoSend" @click="toggleDictationAutoSend">
-                <span class="sidebar-settings-label">Auto send dictation</span>
+                <span class="sidebar-settings-label">{{ t('Auto send dictation') }}</span>
                 <span class="sidebar-settings-toggle" :class="{ 'is-on': dictationAutoSend }" />
               </button>
               <div class="sidebar-settings-row sidebar-settings-dictation-input" :title="dictationLastInputLabel">
-                <span class="sidebar-settings-label">Last mic</span>
+                <span class="sidebar-settings-label">{{ t('Last mic') }}</span>
                 <span class="sidebar-settings-value sidebar-settings-value--truncate">{{ dictationLastInputLabel }}</span>
               </div>
               <div class="sidebar-settings-row sidebar-settings-row--input" :title="SETTINGS_HELP.backendUrl">
                 <div class="sidebar-settings-provider-info">
-                  <span class="sidebar-settings-label">Remote backend</span>
+                  <span class="sidebar-settings-label">{{ t('Remote backend') }}</span>
                   <span class="sidebar-settings-value sidebar-settings-value--truncate">{{ backendUrlStatusLabel }}</span>
                 </div>
                 <div class="sidebar-settings-key-group">
@@ -217,21 +279,31 @@
                     v-if="backendUrlDraft.trim()"
                     class="sidebar-settings-key-clear"
                     type="button"
-                    title="Use current origin"
+                    :title="t('Use current origin')"
                     @click="clearBackendUrlSetting"
                   >&#x2715;</button>
                 </div>
                 <div v-if="backendUrlError" class="sidebar-settings-telegram-error">{{ backendUrlError }}</div>
-                <p v-else class="sidebar-settings-field-help">Leave empty for browser/PWA same-origin mode. Reload after changing to reconnect active streams.</p>
+                <p v-else class="sidebar-settings-field-help">{{ t('Leave empty for browser/PWA same-origin mode. Reload after changing to reconnect active streams.') }}</p>
               </div>
 
               <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.githubTrendingProjects" @click="toggleGithubTrendingProjects">
-                <span class="sidebar-settings-label">GitHub trending projects</span>
+                <span class="sidebar-settings-label">{{ t('GitHub trending projects') }}</span>
                 <span class="sidebar-settings-toggle" :class="{ 'is-on': showGithubTrendingProjects }" />
               </button>
               <TaskNotificationsSetting />
-              <div class="sidebar-settings-row sidebar-settings-row--select" title="Choose the API provider for the Codex backend">
-                <span class="sidebar-settings-label">Provider</span>
+              <a
+                v-if="hasFeedbackDiagnostics"
+                class="sidebar-settings-row sidebar-settings-feedback-row"
+                :href="feedbackMailto"
+                @click="prepareFeedbackLink"
+              >
+                <span class="sidebar-settings-label">{{ t('Send feedback') }}</span>
+                <span class="sidebar-settings-value">{{ t('Issue detected') }}</span>
+              </a>
+
+              <div class="sidebar-settings-row sidebar-settings-row--select" :title="t('Choose the API provider for the Codex backend')">
+                <span class="sidebar-settings-label">{{ t('Provider') }}</span>
                 <select
                   class="sidebar-settings-provider-select"
                   :value="selectedProvider"
@@ -245,17 +317,18 @@
                 </select>
               </div>
               <div v-if="providerError" class="sidebar-settings-row sidebar-settings-error">
-                {{ providerError }}
+                <span>{{ providerError }}</span>
+                <a class="visible-error-feedback" :href="feedbackMailto" @click="prepareFeedbackLink($event, providerError)">{{ t('Send feedback') }}</a>
               </div>
               <div v-if="selectedProvider === 'openrouter'" class="sidebar-settings-row sidebar-settings-row--input">
                 <div class="sidebar-settings-provider-info">
-                  <span class="sidebar-settings-label">OpenRouter API key</span>
+                  <span class="sidebar-settings-label">{{ t('OpenRouter API key') }}</span>
                   <a
                     class="sidebar-settings-provider-link"
                     href="https://openrouter.ai/keys"
                     target="_blank"
                     rel="noopener noreferrer"
-                  >Get API key</a>
+                  >{{ t('Get API key') }}</a>
                 </div>
                 <div class="sidebar-settings-key-group">
                   <template v-if="freeModeHasCustomKey && !freeModeCustomKey">
@@ -264,7 +337,7 @@
                       class="sidebar-settings-key-clear"
                       type="button"
                       :disabled="freeModeCustomKeySaving"
-                      title="Remove custom key, use community keys"
+                      :title="t('Remove custom key, use community keys')"
                       @click="clearFreeModeCustomKey"
                     >&#x2715;</button>
                   </template>
@@ -273,7 +346,7 @@
                       v-model="freeModeCustomKey"
                       class="sidebar-settings-key-input"
                       type="password"
-                      placeholder="sk-or-v1-... (optional, uses free keys if empty)"
+                      :placeholder="t('sk-or-v1-... (optional, uses free keys if empty)')"
                       @keydown.enter="saveFreeModeCustomKey"
                     />
                     <button
@@ -281,12 +354,12 @@
                       type="button"
                       :disabled="freeModeCustomKeySaving || !freeModeCustomKey.trim()"
                       @click="saveFreeModeCustomKey"
-                    >{{ freeModeCustomKeySaving ? '...' : 'Set' }}</button>
+                    >{{ freeModeCustomKeySaving ? '...' : t('Set') }}</button>
                   </template>
                 </div>
                 <div class="sidebar-settings-row sidebar-settings-row--select" style="margin-top: 4px; padding: 0">
-                  <span class="sidebar-settings-label">API format</span>
-                  <div class="sidebar-settings-segmented" role="group" aria-label="OpenRouter API format">
+                  <span class="sidebar-settings-label">{{ t('API format') }}</span>
+                  <div class="sidebar-settings-segmented" role="group" :aria-label="t('OpenRouter API format')">
                     <button
                       type="button"
                       class="sidebar-settings-segmented-option"
@@ -310,20 +383,20 @@
               </div>
               <div v-if="selectedProvider === 'opencode-zen'" class="sidebar-settings-row sidebar-settings-row--input">
                 <div class="sidebar-settings-provider-info">
-                  <span class="sidebar-settings-label">OpenCode Zen API key</span>
+                  <span class="sidebar-settings-label">{{ t('OpenCode Zen API key') }}</span>
                   <a
                     class="sidebar-settings-provider-link"
                     href="https://opencode.ai/auth"
                     target="_blank"
                     rel="noopener noreferrer"
-                  >Get API key</a>
+                  >{{ t('Get API key') }}</a>
                 </div>
                 <div class="sidebar-settings-key-group">
                   <input
                     v-model="opencodeZenKey"
                     class="sidebar-settings-key-input"
                     type="password"
-                    placeholder="sk-..."
+                    :placeholder="t('sk-...')"
                     @keydown.enter="saveOpencodeZen"
                   />
                   <button
@@ -331,27 +404,27 @@
                     type="button"
                     :disabled="freeModeCustomKeySaving || !opencodeZenKey.trim()"
                     @click="saveOpencodeZen"
-                  >{{ freeModeCustomKeySaving ? '...' : 'Save' }}</button>
+                  >{{ freeModeCustomKeySaving ? '...' : t('Save') }}</button>
                 </div>
               </div>
               <div v-if="selectedProvider === 'custom'" class="sidebar-settings-row sidebar-settings-row--input">
-                <span class="sidebar-settings-label">Custom endpoint URL</span>
+                <span class="sidebar-settings-label">{{ t('Custom endpoint URL') }}</span>
                 <div class="sidebar-settings-key-group">
                   <input
                     v-model="customEndpointUrl"
                     class="sidebar-settings-key-input"
                     type="url"
-                    placeholder="https://api.example.com/v1"
+                    :placeholder="t('https://api.example.com/v1')"
                     @keydown.enter="saveCustomEndpoint"
                   />
                 </div>
-                <span class="sidebar-settings-label" style="margin-top: 4px">API key</span>
+                <span class="sidebar-settings-label" style="margin-top: 4px">{{ t('API key') }}</span>
                 <div class="sidebar-settings-key-group">
                   <input
                     v-model="customEndpointKey"
                     class="sidebar-settings-key-input"
                     type="password"
-                    placeholder="Bearer token (optional)"
+                    :placeholder="t('Bearer token (optional)')"
                     @keydown.enter="saveCustomEndpoint"
                   />
                   <button
@@ -359,11 +432,11 @@
                     type="button"
                     :disabled="freeModeCustomKeySaving || !customEndpointUrl.trim()"
                     @click="saveCustomEndpoint"
-                  >{{ freeModeCustomKeySaving ? '...' : 'Save' }}</button>
+                  >{{ freeModeCustomKeySaving ? '...' : t('Save') }}</button>
                 </div>
                 <div class="sidebar-settings-row sidebar-settings-row--select" style="margin-top: 4px; padding: 0">
-                  <span class="sidebar-settings-label">API format</span>
-                  <div class="sidebar-settings-segmented" role="group" aria-label="Custom endpoint API format">
+                  <span class="sidebar-settings-label">{{ t('API format') }}</span>
+                  <div class="sidebar-settings-segmented" role="group" :aria-label="t('Custom endpoint API format')">
                     <button
                       type="button"
                       class="sidebar-settings-segmented-option"
@@ -384,25 +457,25 @@
                 </div>
               </div>
               <div class="sidebar-settings-row sidebar-settings-row--select" :title="SETTINGS_HELP.dictationLanguage">
-                <span class="sidebar-settings-label">Dictation language</span>
+                <span class="sidebar-settings-label">{{ t('Dictation language') }}</span>
                 <ComposerDropdown
                   class="sidebar-settings-language-dropdown"
                   :model-value="dictationLanguage"
                   :options="dictationLanguageOptions"
-                  placeholder="Auto-detect"
+                  :placeholder="t('Auto-detect')"
                   open-direction="up"
                   :enable-search="true"
-                  search-placeholder="Search language..."
+                  :search-placeholder="t('Search language...')"
                   @update:model-value="onDictationLanguageChange"
                 />
               </div>
               <button class="sidebar-settings-row" type="button" aria-live="polite" @click="isTelegramConfigOpen = !isTelegramConfigOpen">
-                <span class="sidebar-settings-label">Telegram</span>
+                <span class="sidebar-settings-label">{{ t('Telegram') }}</span>
                 <span class="sidebar-settings-value">{{ telegramStatusText }}</span>
               </button>
               <div v-if="isTelegramConfigOpen" class="sidebar-settings-telegram-panel">
                 <label class="sidebar-settings-field">
-                  <span class="sidebar-settings-field-label">Bot token</span>
+                  <span class="sidebar-settings-field-label">{{ t('Bot token') }}</span>
                   <input
                     v-model="telegramBotTokenDraft"
                     class="sidebar-settings-input"
@@ -413,7 +486,7 @@
                   >
                 </label>
                 <label class="sidebar-settings-field">
-                  <span class="sidebar-settings-field-label">Allowed Telegram user IDs</span>
+                  <span class="sidebar-settings-field-label">{{ t('Allowed Telegram user IDs') }}</span>
                   <textarea
                     v-model="telegramAllowedUserIdsDraft"
                     class="sidebar-settings-textarea"
@@ -423,10 +496,11 @@
                   />
                 </label>
                 <div class="sidebar-settings-field-help">
-                  Put one Telegram user ID per line or separate them with commas. Use `*` to allow all Telegram users. Unauthorized users will see their own ID in the rejection message so they can copy it here.
+                  {{ t('Put one Telegram user ID per line or separate them with commas. Use `*` to allow all Telegram users. Unauthorized users will see their own ID in the rejection message so they can copy it here.') }}
                 </div>
                 <div v-if="telegramConfigError" class="sidebar-settings-telegram-error">
-                  {{ telegramConfigError }}
+                  <span>{{ telegramConfigError }}</span>
+                  <a class="visible-error-feedback" :href="feedbackMailto" @click="prepareFeedbackLink($event, telegramConfigError)">{{ t('Send feedback') }}</a>
                 </div>
                 <div class="sidebar-settings-telegram-actions">
                   <button
@@ -435,7 +509,7 @@
                     :disabled="isTelegramSaving"
                     @click="saveTelegramConfig"
                   >
-                    {{ isTelegramSaving ? 'Saving…' : 'Save Telegram config' }}
+                    {{ isTelegramSaving ? t('Saving…') : t('Save Telegram config') }}
                   </button>
                 </div>
               </div>
@@ -445,7 +519,7 @@
                 :data-state="threadContextBadgeState"
                 :title="threadContextTooltip"
               >
-                <span class="sidebar-settings-label">Context</span>
+                <span class="sidebar-settings-label">{{ t('Context') }}</span>
                 <span class="sidebar-settings-context-value" :data-state="threadContextBadgeState">
                   {{ threadContextPrimaryText }}
                   <span class="sidebar-settings-context-meta">{{ threadContextSecondaryText }}</span>
@@ -492,7 +566,7 @@
                   {{ updateAndRestartButtonLabel }}
                 </span>
               </button>
-              <div class="sidebar-settings-build-label" aria-label="Worktree name and version">
+              <div class="sidebar-settings-build-label" :aria-label="t('Worktree name and version')">
                 WT {{ worktreeName }} · v{{ appVersion }}
               </div>
             </div>
@@ -504,7 +578,7 @@
             @click.stop="isSettingsOpen = !isSettingsOpen"
           >
             <IconTablerSettings class="sidebar-settings-icon" />
-            <span>Settings</span>
+            <span>{{ t('Settings') }}</span>
             <span class="sidebar-settings-button-meta">
               <span class="sidebar-settings-button-version">{{ worktreeName }} · v{{ appVersion }}</span>
               <span
@@ -522,8 +596,16 @@
     </template>
 
     <template #content>
-      <section class="content-root" :style="contentStyle">
-        <ContentHeader :title="contentTitle">
+      <section
+        class="content-root"
+        :class="{
+          'is-virtual-keyboard-open': isTerminalKeyboardLayoutActive,
+          'is-terminal-open': isComposerTerminalOpen,
+        }"
+        :style="contentStyle"
+      >
+        <span v-if="isVirtualKeyboardOpen" class="content-keyboard-spacer" aria-hidden="true" />
+        <ContentHeader :title="contentTitle" :accent="isSkillsRoute || isAutomationsRoute">
           <template #leading>
             <SidebarThreadControls
               v-if="isSidebarCollapsed || isMobile"
@@ -533,79 +615,153 @@
               @toggle-sidebar="setSidebarCollapsed(!isSidebarCollapsed)"
               @start-new-thread="onStartNewThreadFromToolbar"
             />
+            <span v-if="isSkillsRoute" class="skills-route-header-icon" aria-hidden="true">
+              <IconTablerBolt />
+            </span>
+            <span v-else-if="isAutomationsRoute" class="skills-route-header-icon automations-route-header-icon" aria-hidden="true">
+              <IconTablerBolt />
+            </span>
           </template>
           <template #actions>
-            <button
-              v-if="route.name === 'thread' && selectedThreadId"
-              class="content-header-terminal-toggle"
-              type="button"
-              :aria-pressed="selectedThreadTerminalOpen"
-              :title="`Toggle terminal (${terminalShortcutLabel})`"
-              aria-label="Toggle terminal"
-              @click="toggleSelectedThreadTerminal"
-            >
-              <IconTablerTerminal class="content-header-terminal-toggle-icon" />
-              <span class="content-header-terminal-shortcut">{{ terminalShortcutLabel }}</span>
-            </button>
             <ComposerDropdown
-              v-if="route.name === 'thread' && selectedThreadId"
+              v-if="canShowTerminalToggle"
+              class="content-header-terminal-command"
+              :class="{ 'is-open': isComposerTerminalOpen }"
+              :model-value="terminalHeaderDropdownValue"
+              :options="terminalHeaderDropdownOptions"
+              :placeholder="terminalCommandPlaceholder"
+              :selected-prefix-icon="IconTablerTerminal"
+              :icon-only="true"
+              :empty-label="t('No commands')"
+              @update:model-value="onSelectHeaderTerminalCommand"
+            />
+            <HeaderGitBranchDropdown
+              v-if="canShowContentHeaderBranchDropdown"
               class="content-header-branch-dropdown"
-              :class="{ 'is-review-open': isReviewPaneOpen }"
-              :model-value="contentHeaderBranchDropdownValue"
-              :options="contentHeaderBranchDropdownOptions"
-              :disabled="isLoadingThreadBranches || isSwitchingThreadBranch"
-              :enable-search="true"
-              search-placeholder="Search branches..."
-              @update:model-value="onSelectContentHeaderBranch"
+              :current-branch="currentThreadBranch"
+              :head-sha="currentThreadHeadSha"
+              :head-subject="currentThreadHeadSubject"
+              :head-date="currentThreadHeadDate"
+              :detached="isThreadDetachedHead"
+              :dirty="isThreadWorktreeDirty"
+              :branches="threadBranchOptions"
+              :commits-by-branch="threadBranchCommitsByBranch"
+              :commits-loading-for="threadBranchCommitsLoadingFor"
+              :commits-error="threadBranchCommitsError"
+              :loading="isLoadingThreadBranches"
+              :busy="isSwitchingThreadBranch"
+              :error="threadBranchError"
+              :review-open="isReviewPaneOpen"
+              :show-review="route.name === 'thread' && selectedThreadId.length > 0"
+              @toggle-review="isReviewPaneOpen = !isReviewPaneOpen"
+              @checkout-branch="onCheckoutContentHeaderBranch"
+              @reset-branch-to-commit="onResetContentHeaderBranchToCommit"
+              @load-commits="loadThreadBranchCommits"
             />
           </template>
         </ContentHeader>
 
         <section class="content-body">
           <template v-if="isSkillsRoute">
-            <SkillsHub @skills-changed="onSkillsChanged" />
+            <DirectoryHub
+              :cwd="directoryCwd"
+              :thread-id="routeThreadId"
+              :try-in-flight-key="directoryTryInFlightKey"
+              @skills-changed="onSkillsChanged"
+              @try-item="onTryDirectoryItem"
+            />
+          </template>
+          <template v-else-if="isAutomationsRoute">
+            <AutomationsPanel
+              ref="automationsPanelRef"
+              :groups="projectGroups"
+              :project-cwd-by-name="projectCwdByName"
+              :project-display-name-by-id="projectDisplayNameById"
+              :selected-automation-id="routeAutomationId"
+              @select-automation="onSelectAutomationInPanel"
+              @edit-automation="onEditAutomationFromPanel"
+              @create-automation="onCreateAutomationFromPanel"
+            />
           </template>
           <template v-else-if="isHomeRoute">
             <div class="content-grid content-grid-home">
               <div class="new-thread-empty">
-                <p class="new-thread-hero">Let's build</p>
+                <p class="new-thread-hero">{{ t("Let's build") }}</p>
                 <ComposerDropdown class="new-thread-folder-dropdown" :model-value="newThreadCwd"
-                  :options="newThreadFolderOptions" placeholder="Choose folder"
+                  :options="newThreadFolderOptions" :placeholder="t('Choose folder')"
                   :enable-search="true"
-                  search-placeholder="Quick search project"
+                  :search-placeholder="t('Quick search project')"
                   :disabled="false" @update:model-value="onSelectNewThreadFolder" />
                 <p v-if="newThreadCwd" class="new-thread-folder-selected" :title="newThreadCwd">
-                  Selected folder: {{ newThreadCwd }}
+                  {{ t('Selected folder') }}: {{ newThreadCwd }}
                 </p>
                 <div class="new-thread-folder-actions">
                   <button class="new-thread-folder-action new-thread-folder-action-primary" type="button" @click="onOpenExistingFolder">
-                    Select folder
+                    {{ t('Select folder') }}
                   </button>
-                  <button class="new-thread-folder-action" type="button" @click="onCreateProject">
-                    Create Project
+                  <button class="new-thread-folder-action" type="button" @click="onOpenProjectSetupModal">
+                    {{ t('Create Project') }}
                   </button>
                 </div>
+                <section v-if="showFirstLaunchPluginsCard" class="new-thread-launch-card" aria-label="Plugins and Apps announcement">
+                  <div class="new-thread-launch-card-copy">
+                    <div class="new-thread-launch-card-topline">
+                      <span class="new-thread-launch-card-badge" aria-hidden="true">
+                        <IconTablerBolt />
+                      </span>
+                      <p class="new-thread-launch-card-eyebrow">{{ t('New in Codex') }}</p>
+                    </div>
+                    <h2 class="new-thread-launch-card-title">{{ t('Plugins are here') }}</h2>
+                    <p class="new-thread-launch-card-text">
+                      {{ t('Hook Codex up to Gmail, Calendar, GitHub, Slack, Browser Use, and more so it can actually help with real work right away.') }}
+                    </p>
+                    <div class="new-thread-launch-card-pills" aria-label="Example integrations">
+                      <span class="new-thread-launch-card-pill">Gmail</span>
+                      <span class="new-thread-launch-card-pill">Calendar</span>
+                      <span class="new-thread-launch-card-pill">GitHub</span>
+                      <span class="new-thread-launch-card-pill">Slack</span>
+                      <span class="new-thread-launch-card-pill">Browser Use</span>
+                    </div>
+                  </div>
+                  <div class="new-thread-launch-card-actions">
+                    <button class="new-thread-launch-card-button new-thread-launch-card-button-primary" type="button" @click="onOpenPluginsHomeCard">
+                      {{ t('Explore Plugins & Apps') }}
+                    </button>
+                    <button class="new-thread-launch-card-button" type="button" @click="dismissFirstLaunchPluginsCard">
+                      {{ t('Dismiss') }}
+                    </button>
+                  </div>
+                </section>
                 <Teleport to="body">
                   <div v-if="isExistingFolderPickerOpen" class="new-thread-open-folder-overlay" @click.self="onCloseExistingFolderPanel">
-                    <div class="new-thread-open-folder" role="dialog" aria-modal="true" aria-label="Select folder" @keydown.esc.prevent="onCloseExistingFolderPanel">
+                    <div class="new-thread-open-folder" role="dialog" aria-modal="true" :aria-label="t('Select folder')" @keydown.esc.prevent="onCloseExistingFolderPanel">
                       <div class="new-thread-open-folder-header">
-                        <p class="new-thread-open-folder-title">Select folder</p>
+                        <p class="new-thread-open-folder-title">{{ t('Select folder') }}</p>
                         <button class="new-thread-open-folder-close" type="button" @click="onCloseExistingFolderPanel">
-                          Cancel
+                          {{ t('Cancel') }}
                         </button>
                       </div>
-                      <p class="new-thread-open-folder-label">Current folder</p>
+                      <p class="new-thread-open-folder-label">{{ t('Current folder') }}</p>
                       <div class="new-thread-open-folder-current">
-                        <p class="new-thread-open-folder-path" :title="existingFolderBrowsePath || 'Unavailable'">
-                          {{ existingFolderBrowsePath || 'Unavailable' }}
-                        </p>
+                        <input
+                          ref="existingFolderPathInputRef"
+                          v-model="existingFolderPathDraft"
+                          class="new-thread-open-folder-path"
+                          type="text"
+                          :placeholder="t('Current folder')"
+                          :title="existingFolderPathDraft || t('Unavailable')"
+                          :disabled="isExistingFolderLoading || isOpeningExistingFolder"
+                          @blur="onExistingFolderPathBlur"
+                          @keydown.enter.prevent="onSubmitExistingFolderPath"
+                          @keydown.esc.prevent="onCloseExistingFolderPanel"
+                        />
                         <button
                           class="new-thread-folder-action new-thread-folder-action-primary"
                           type="button"
-                          :disabled="!existingFolderBrowsePath || !!existingFolderError || isExistingFolderLoading || isOpeningExistingFolder"
+                          :disabled="!resolvedExistingFolderPath || isExistingFolderLoading || isOpeningExistingFolder"
                           @click="onConfirmExistingFolder()"
                         >
-                          {{ isOpeningExistingFolder ? 'Opening…' : 'Open' }}
+                          {{ isOpeningExistingFolder ? t('Opening…') : t('Open') }}
                         </button>
                       </div>
                       <div class="new-thread-open-folder-actions">
@@ -616,7 +772,7 @@
                             type="checkbox"
                             @change="onToggleHiddenFolders"
                           />
-                          <span>Show hidden folders</span>
+                          <span>{{ t('Show hidden folders') }}</span>
                         </label>
                         <button
                           class="new-thread-folder-action"
@@ -626,7 +782,7 @@
                           :disabled="!existingFolderBrowsePath || isExistingFolderLoading || isOpeningExistingFolder || isCreatingFolder || (!!existingFolderError && !isCreateFolderOpen)"
                           @click="onOpenCreateFolderPanel"
                         >
-                          New folder
+                          {{ t('New folder') }}
                         </button>
                       </div>
                       <div v-if="isCreateFolderOpen" class="new-thread-open-folder-create">
@@ -636,7 +792,7 @@
                             v-model="createFolderDraft"
                             class="new-thread-open-folder-create-input"
                             type="text"
-                            placeholder="Folder name"
+                            :placeholder="t('Folder name')"
                             @keydown.enter.prevent="onCreateFolder"
                             @keydown.esc.prevent="onCloseCreateFolderPanel"
                           />
@@ -649,30 +805,36 @@
                             {{ createFolderSubmitLabel }}
                           </button>
                         </div>
-                        <p v-if="createFolderError" class="new-thread-open-folder-error">{{ createFolderError }}</p>
+                        <div v-if="createFolderError" class="new-thread-open-folder-error visible-error-with-feedback">
+                          <span>{{ createFolderError }}</span>
+                          <a class="visible-error-feedback" :href="feedbackMailto" @click="prepareFeedbackLink($event, createFolderError)">{{ t('Send feedback') }}</a>
+                        </div>
                       </div>
                       <input
                         ref="existingFolderFilterInputRef"
                         v-model="existingFolderFilter"
                         class="new-thread-open-folder-filter"
                         type="text"
-                        placeholder="Filter folders..."
+                        :placeholder="t('Filter folders...')"
                         @keydown.esc.prevent="onCloseExistingFolderPanel"
                       />
                       <div v-if="existingFolderError" class="new-thread-open-folder-error-actions">
-                        <p class="new-thread-open-folder-error">{{ existingFolderError }}</p>
+                        <div class="new-thread-open-folder-error visible-error-with-feedback">
+                          <span>{{ existingFolderError }}</span>
+                          <a class="visible-error-feedback" :href="feedbackMailto" @click="prepareFeedbackLink($event, existingFolderError)">{{ t('Send feedback') }}</a>
+                        </div>
                         <button
                           class="new-thread-folder-action"
                           type="button"
                           :disabled="isExistingFolderLoading || isOpeningExistingFolder"
                           @click="onRetryExistingFolderBrowse"
                         >
-                          Retry
+                          {{ t('Retry') }}
                         </button>
                       </div>
-                      <p v-if="isExistingFolderLoading" class="new-thread-open-folder-status">Loading folders…</p>
+                      <p v-if="isExistingFolderLoading" class="new-thread-open-folder-status">{{ t('Loading folders…') }}</p>
                       <p v-else-if="!existingFolderError && existingFolderFilteredEntries.length === 0" class="new-thread-open-folder-status">
-                        {{ existingFolderFilter.trim() ? 'No folders match this filter.' : 'No subfolders found here.' }}
+                        {{ existingFolderFilter.trim() ? t('No folders match this filter.') : t('No subfolders found here.') }}
                       </p>
                       <ul v-else-if="existingFolderFilteredEntries.length > 0" class="new-thread-open-folder-list">
                         <li v-for="entry in existingFolderFilteredEntries" :key="entry.key" class="new-thread-open-folder-item">
@@ -692,41 +854,129 @@
                             :disabled="isExistingFolderLoading || isOpeningExistingFolder"
                             @click="onConfirmExistingFolder(entry.path)"
                           >
-                            Open
+                            {{ t('Open') }}
                           </button>
                         </li>
                       </ul>
                     </div>
                   </div>
                 </Teleport>
+                <Teleport to="body">
+                  <div v-if="isProjectSetupModalOpen" class="new-thread-open-folder-overlay" @click.self="onCloseProjectSetupModal">
+                    <div class="new-thread-project-modal" role="dialog" aria-modal="true" :aria-label="t('Create or clone project')" @keydown.esc.prevent="onCloseProjectSetupModal">
+                      <div class="new-thread-open-folder-header">
+                        <p class="new-thread-open-folder-title">{{ t('Create or clone project') }}</p>
+                        <button class="new-thread-open-folder-close" type="button" :disabled="isProjectSetupSubmitting" @click="onCloseProjectSetupModal">
+                          {{ t('Cancel') }}
+                        </button>
+                      </div>
+                      <div class="new-thread-project-mode-tabs" role="tablist" :aria-label="t('Project source')">
+                        <button
+                          class="new-thread-project-mode-tab"
+                          :class="{ 'is-active': projectSetupMode === 'create' }"
+                          type="button"
+                          role="tab"
+                          :aria-selected="projectSetupMode === 'create'"
+                          :disabled="isProjectSetupSubmitting"
+                          @click="projectSetupMode = 'create'"
+                        >
+                          {{ t('New project') }}
+                        </button>
+                        <button
+                          class="new-thread-project-mode-tab"
+                          :class="{ 'is-active': projectSetupMode === 'clone' }"
+                          type="button"
+                          role="tab"
+                          :aria-selected="projectSetupMode === 'clone'"
+                          :disabled="isProjectSetupSubmitting"
+                          @click="projectSetupMode = 'clone'"
+                        >
+                          {{ t('Clone from GitHub') }}
+                        </button>
+                      </div>
+                      <label class="new-thread-project-field">
+                        <span class="new-thread-open-folder-label">{{ t('Destination folder') }}</span>
+                        <input
+                          v-model="projectSetupBaseDir"
+                          class="new-thread-open-folder-path"
+                          type="text"
+                          :disabled="isProjectSetupSubmitting"
+                          :placeholder="t('Destination folder')"
+                        />
+                      </label>
+                      <label v-if="projectSetupMode === 'create'" class="new-thread-project-field">
+                        <span class="new-thread-open-folder-label">{{ t('Project name') }}</span>
+                        <input
+                          ref="projectSetupPrimaryInputRef"
+                          v-model="projectNameDraft"
+                          class="new-thread-open-folder-create-input"
+                          type="text"
+                          :disabled="isProjectSetupSubmitting"
+                          :placeholder="t('Project name')"
+                          @keydown.enter.prevent="onSubmitProjectSetup"
+                        />
+                      </label>
+                      <label v-else class="new-thread-project-field">
+                        <span class="new-thread-open-folder-label">{{ t('GitHub repository URL') }}</span>
+                        <input
+                          ref="projectSetupPrimaryInputRef"
+                          v-model="githubCloneUrlDraft"
+                          class="new-thread-open-folder-create-input"
+                          type="url"
+                          :disabled="isProjectSetupSubmitting"
+                          placeholder="https://github.com/owner/repo"
+                          @keydown.enter.prevent="onSubmitProjectSetup"
+                        />
+                      </label>
+                      <div v-if="projectSetupError" class="new-thread-open-folder-error visible-error-with-feedback">
+                        <span>{{ projectSetupError }}</span>
+                        <a class="visible-error-feedback" :href="feedbackMailto" @click="prepareFeedbackLink($event, projectSetupError)">{{ t('Send feedback') }}</a>
+                      </div>
+                      <div class="new-thread-project-modal-actions">
+                        <button class="new-thread-folder-action" type="button" :disabled="isProjectSetupSubmitting" @click="onCloseProjectSetupModal">
+                          {{ t('Cancel') }}
+                        </button>
+                        <button
+                          class="new-thread-folder-action new-thread-folder-action-primary"
+                          type="button"
+                          :disabled="!canSubmitProjectSetup || isProjectSetupSubmitting"
+                          @click="onSubmitProjectSetup"
+                        >
+                          {{ projectSetupSubmitLabel }}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </Teleport>
                 <ComposerRuntimeDropdown
+                  v-if="isNewThreadCwdGitRepo"
                   class="new-thread-runtime-dropdown"
                   v-model="newThreadRuntime"
                 />
                 <div v-if="newThreadRuntime === 'worktree'" class="new-thread-branch-select">
-                  <p class="new-thread-branch-select-label">Base branch</p>
+                  <p class="new-thread-branch-select-label">{{ t('Base branch') }}</p>
                   <ComposerDropdown
                     class="new-thread-branch-dropdown"
                     :model-value="newWorktreeBaseBranch"
                     :options="newWorktreeBranchDropdownOptions"
-                    placeholder="Select branch"
+                    :placeholder="t('Select branch')"
                     :enable-search="true"
-                    search-placeholder="Search branches..."
+                    :search-placeholder="t('Search branches...')"
                     :disabled="isLoadingWorktreeBranches || newWorktreeBranchDropdownOptions.length === 0"
                     @update:model-value="onSelectNewWorktreeBranch"
                   />
                   <p class="new-thread-branch-select-help">
                     {{
                       isLoadingWorktreeBranches
-                        ? 'Loading branches…'
+                        ? t('Loading branches…')
                         : selectedWorktreeBranchLabel
-                          ? `New worktree branch will start from ${selectedWorktreeBranchLabel}.`
-                          : 'No Git branches found for this folder.'
+                          ? t('New worktree branch will start from {branch}.', { branch: selectedWorktreeBranchLabel })
+                          : t('No Git branches found for this folder.')
                     }}
                   </p>
                 </div>
-                <p class="new-thread-runtime-help">
-                  <code>Local project</code> uses the selected folder directly. <code>New worktree</code> creates an isolated Git worktree before the first prompt.
+                <p v-if="isNewThreadCwdGitRepo" class="new-thread-runtime-help">
+                  {{ t('Local project uses the selected folder directly. New worktree creates an isolated Git worktree before the first prompt.') }}
                 </p>
                 <div
                   v-if="worktreeInitStatus.phase !== 'idle'"
@@ -739,48 +989,22 @@
                   <strong class="worktree-init-status-title">{{ worktreeInitStatus.title }}</strong>
                   <span class="worktree-init-status-message">{{ worktreeInitStatus.message }}</span>
                 </div>
-                <div v-if="showGithubTrendingProjects" class="new-thread-trending">
-                  <div class="new-thread-trending-header">
-                    <p class="new-thread-trending-title">Trending GitHub projects</p>
-                    <ComposerDropdown
-                      class="new-thread-trending-scope-dropdown"
-                      :model-value="githubTipsScope"
-                      :options="githubTipsScopeOptions"
-                      @update:model-value="onGithubTipsScopeChange"
-                    />
-                  </div>
-                  <p v-if="isTrendingProjectsLoading" class="new-thread-trending-empty">Loading trending projects...</p>
-                  <p v-else-if="trendingProjects.length === 0" class="new-thread-trending-empty">
-                    Trending repos are unavailable right now.
-                  </p>
-                  <div v-else class="new-thread-trending-list">
-                    <button
-                      v-for="project in trendingProjects"
-                      :key="project.id"
-                      type="button"
-                      class="new-thread-trending-tip"
-                      @click="onSelectTrendingProjectTip(project)"
-                    >
-                      <span class="new-thread-trending-tip-name" :title="project.fullName">
-                        <template v-if="project.owner && project.repo">
-                          <span class="new-thread-trending-tip-name-owner">{{ project.owner }}</span>
-                          <span class="new-thread-trending-tip-name-slash">/</span>
-                          <span class="new-thread-trending-tip-name-repo">{{ project.repo }}</span>
-                        </template>
-                        <template v-else>
-                          <span class="new-thread-trending-tip-name-repo">{{ project.fullName }}</span>
-                        </template>
-                      </span>
-                      <span class="new-thread-trending-tip-meta">{{ formatTrendingTipMeta(project) }}</span>
-                      <span class="new-thread-trending-tip-description">
-                        {{ project.description || 'No description available.' }}
-                      </span>
-                    </button>
-                  </div>
-                </div>
               </div>
 
               <div class="composer-with-queue">
+                <div v-if="codexCliMissingError" class="composer-runtime-error" role="alert">
+                  <span>{{ t(codexCliMissingError) }}</span>
+                  <a class="visible-error-feedback" :href="feedbackMailto" @click="prepareFeedbackLink($event, codexCliMissingError)">{{ t('Send feedback') }}</a>
+                </div>
+                <ThreadTerminalPanel
+                  v-if="homeTerminalOpen && composerCwd"
+                  ref="homeTerminalPanelRef"
+                  class="content-thread-terminal-panel"
+                  :thread-id="composerThreadContextId"
+                  :cwd="composerCwd"
+                  @hide="onHideHomeTerminal"
+                  @terminal-focus-change="onTerminalFocusChange"
+                />
                 <ThreadComposer ref="homeThreadComposerRef" :active-thread-id="composerThreadContextId"
                   :cwd="composerCwd"
                   :collaboration-modes="availableCollaborationModes"
@@ -821,21 +1045,38 @@
               <template v-else>
                 <div class="content-thread">
                   <ThreadConversation ref="threadConversationRef" :messages="filteredMessages" :is-loading="isLoadingMessages"
-                    :active-thread-id="composerThreadContextId" :cwd="composerCwd" :scroll-state="selectedThreadScrollState"
+                    :active-thread-id="composerThreadContextId" :cwd="composerCwd"
                     :live-overlay="liveOverlay"
                     :pending-requests="selectedThreadServerRequests"
-                    @update-scroll-state="onUpdateThreadScrollState"
+                    :has-more-persisted-above="hasMoreOlderMessages"
+                    :is-loading-persisted-above="isLoadingOlderMessages"
+                    :load-earlier-messages="loadOlderMessages"
                     @fork-thread="onForkThreadFromMessage"
                     @rollback="onRollback"
+                    @implement-plan="onImplementPlan"
                     @respond-server-request="onRespondServerRequest" />
                 </div>
 
                 <div class="composer-with-queue">
+                  <div v-if="codexCliMissingError" class="composer-runtime-error" role="alert">
+                    <span>{{ t(codexCliMissingError) }}</span>
+                    <a class="visible-error-feedback" :href="feedbackMailto" @click="prepareFeedbackLink($event, codexCliMissingError)">{{ t('Send feedback') }}</a>
+                  </div>
                   <QueuedMessages
                     :messages="selectedThreadQueuedMessages"
                     @edit="onEditQueuedMessage"
                     @steer="steerQueuedMessage"
                     @delete="removeQueuedMessage"
+                    @reorder="onReorderQueuedMessage"
+                  />
+                  <ThreadTerminalPanel
+                    v-if="selectedThreadTerminalOpen && selectedThreadId && composerCwd"
+                    ref="threadTerminalPanelRef"
+                    class="content-thread-terminal-panel"
+                    :thread-id="selectedThreadId"
+                    :cwd="composerCwd"
+                    @hide="onHideSelectedThreadTerminal"
+                    @terminal-focus-change="onTerminalFocusChange"
                   />
                   <ThreadPendingRequestPanel
                     v-if="selectedThreadPendingRequest"
@@ -844,14 +1085,10 @@
                     :has-queue-above="selectedThreadQueuedMessages.length > 0"
                     @respond-server-request="onRespondServerRequest"
                   />
-                  <ThreadTerminalPanel
-                    v-if="selectedThreadTerminalOpen && selectedThreadId && composerCwd"
-                    class="content-thread-terminal-panel"
-                    :thread-id="selectedThreadId"
-                    :cwd="composerCwd"
-                    @hide="setThreadTerminalOpen(selectedThreadId, false)"
-                  />
-                  <ThreadComposer v-else ref="threadComposerRef" :active-thread-id="composerThreadContextId"
+                  <ThreadComposer
+                    v-else
+                    ref="threadComposerRef"
+                    :active-thread-id="composerThreadContextId"
                     :cwd="composerCwd"
                     :collaboration-modes="availableCollaborationModes"
                     :selected-collaboration-mode="selectedCollaborationMode"
@@ -901,6 +1138,76 @@
       </div>
     </div>
   </Teleport>
+  <div
+    v-if="isCodexLoginModalOpen"
+    class="codex-login-modal-backdrop"
+    role="presentation"
+    @click="onCancelCodexLoginModal"
+  >
+    <form
+      class="codex-login-modal"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="t('Complete Codex login')"
+      @submit.prevent="onSubmitCodexLoginCallback"
+      @click.stop
+    >
+      <div class="codex-login-modal-header">
+        <h2 class="codex-login-modal-title">{{ t('Complete Codex login') }}</h2>
+        <button
+          class="codex-login-modal-close"
+          type="button"
+          :aria-label="t('Close')"
+          :disabled="isCompletingCodexLogin"
+          @click="onCancelCodexLoginModal"
+        >
+          ×
+        </button>
+      </div>
+      <p class="codex-login-modal-copy">
+        {{ t('Finish login in the browser, then paste the localhost callback URL here.') }}
+      </p>
+      <a
+        v-if="codexLoginUrl"
+        class="codex-login-modal-link"
+        :href="codexLoginUrl"
+        target="_blank"
+        rel="noreferrer"
+      >
+        {{ t('Open login URL') }}
+      </a>
+      <input
+        ref="codexLoginCallbackInputRef"
+        v-model="codexLoginCallbackUrl"
+        class="codex-login-modal-input"
+        type="url"
+        inputmode="url"
+        :placeholder="t('Paste localhost callback URL')"
+        :disabled="isCompletingCodexLogin"
+      >
+      <div v-if="accountActionError" class="codex-login-modal-error visible-error-with-feedback">
+        <span>{{ accountActionError }}</span>
+        <a class="visible-error-feedback" :href="feedbackMailto" @click="prepareFeedbackLink($event, accountActionError)">{{ t('Send feedback') }}</a>
+      </div>
+      <div class="codex-login-modal-actions">
+        <button
+          class="codex-login-modal-cancel"
+          type="button"
+          :disabled="isCompletingCodexLogin"
+          @click="onCancelCodexLoginModal"
+        >
+          {{ t('Cancel') }}
+        </button>
+        <button
+          class="codex-login-modal-submit"
+          type="submit"
+          :disabled="isCompletingCodexLogin || codexLoginCallbackUrl.trim().length === 0"
+        >
+          {{ isCompletingCodexLogin ? t('Completing…') : t('Complete') }}
+        </button>
+      </div>
+    </form>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -915,8 +1222,10 @@ import QueuedMessages from './components/content/QueuedMessages.vue'
 import RateLimitStatus from './components/content/RateLimitStatus.vue'
 import TaskNotificationsSetting from './components/content/TaskNotificationsSetting.vue'
 import ComposerDropdown from './components/content/ComposerDropdown.vue'
+import HeaderGitBranchDropdown from './components/content/HeaderGitBranchDropdown.vue'
 import ComposerRuntimeDropdown from './components/content/ComposerRuntimeDropdown.vue'
 import SidebarThreadControls from './components/sidebar/SidebarThreadControls.vue'
+import IconTablerBolt from './components/icons/IconTablerBolt.vue'
 import IconTablerSearch from './components/icons/IconTablerSearch.vue'
 import IconTablerSettings from './components/icons/IconTablerSettings.vue'
 import IconTablerTerminal from './components/icons/IconTablerTerminal.vue'
@@ -926,24 +1235,37 @@ import { useDesktopState } from './composables/useDesktopState'
 import { useCodexUiRestart } from './composables/useCodexUiRestart'
 import { useMobile } from './composables/useMobile'
 import { useTaskNotificationClientPresence } from './composables/useTaskNotificationClientPresence'
+import { useUiLanguage } from './composables/useUiLanguage'
+import { useFeedbackDiagnostics } from './composables/useFeedbackDiagnostics'
 import {
   checkoutGitBranch,
+  cloneGithubRepository,
   configureTelegramBot,
+  createPermanentWorktree,
   createWorktree,
+  createProjectlessThreadDirectory,
   getGitBranchState,
+  getGitBranchCommits,
+  getGitRepositoryStatus,
   getWorktreeBranchOptions,
-  getGithubProjectsForScope,
   getAccounts,
+  completeCodexLogin,
   createLocalDirectory,
+  getFirstLaunchPluginsCardPreference,
   getHomeDirectory,
   getTelegramConfig,
   getProjectRootSuggestion,
   getTelegramStatus,
+  getThreadTerminalQuickCommands,
+  getThreadTerminalStatus,
   getWorkspaceRootsState,
   listLocalDirectories,
   openProjectRoot,
+  persistFirstLaunchPluginsCardPreference,
   removeAccount,
   refreshAccountsFromAuth,
+  resetGitBranchToCommit,
+  startCodexLogin,
   searchThreads,
   clearThreadGoal,
   getThreadGoal,
@@ -953,7 +1275,7 @@ import {
   startThreadCustomReview,
   switchAccount,
 } from './api/codexGateway'
-import type { ReasoningEffort, SpeedMode, ThreadScrollState, UiAccountEntry, UiRateLimitWindow, UiServerRequest, UiServerRequestReply, UiThreadTokenUsage } from './types/codex'
+import type { ReasoningEffort, SpeedMode, UiAccountEntry, UiRateLimitWindow, UiServerRequest, UiServerRequestReply, UiThreadAutomation, UiThreadTokenUsage } from './types/codex'
 import type { ComposerDraftPayload, ThreadComposerExposed } from './components/content/ThreadComposer.vue'
 import type { DictationAudioInputInfo } from './composables/useDictation'
 import type { GithubTipsScope, GithubTrendingProject, LocalDirectoryEntry, TelegramStatus, WorktreeBranchOption } from './api/codexGateway'
@@ -961,32 +1283,58 @@ import type { ParsedCodexSlashCommand } from './codexSlashCommands'
 import { getFreeModeStatus, setFreeMode, setFreeModeCustomKey, setCustomProvider } from './api/codexGateway'
 import { safeLocalStorageGetItem, safeLocalStorageSetItem, subscribeMediaQueryChange } from './browserCompat'
 import { getConfiguredBackendUrl, normalizeBackendBaseUrl, resolveBackendHttpUrl, setConfiguredBackendUrl, subscribeBackendUrlChanges } from './backendUrl'
-import { getPathLeafName, getPathParent, normalizePathForUi } from './pathUtils.js'
+import { getPathLeafName, getPathParent, isProjectlessChatPath, normalizePathForUi } from './pathUtils.js'
+import type { GitCommitOption, ThreadTerminalQuickCommand } from './api/codexGateway'
 
 const ThreadConversation = defineAsyncComponent(() => import('./components/content/ThreadConversation.vue'))
 const ThreadTerminalPanel = defineAsyncComponent(() => import('./components/content/ThreadTerminalPanel.vue'))
 const ReviewPane = defineAsyncComponent(() => import('./components/content/ReviewPane.vue'))
-const SkillsHub = defineAsyncComponent(() => import('./components/content/SkillsHub.vue'))
+const DirectoryHub = defineAsyncComponent(() => import('./components/content/DirectoryHub.vue'))
+const AutomationsPanel = defineAsyncComponent(() => import('./components/content/AutomationsPanel.vue'))
+const { t, uiLanguage, uiLanguageOptions, setUiLanguage } = useUiLanguage()
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'codex-web-local.sidebar-collapsed.v1'
 const ACCOUNTS_SECTION_COLLAPSED_STORAGE_KEY = 'codex-web-local.accounts-section-collapsed.v1'
+const TERMINAL_QUICK_COMMAND_STORAGE_KEY = 'codex-web-local.terminal-quick-commands.v1'
+const TOGGLE_TERMINAL_COMMAND_VALUE = '__toggle_terminal__'
 const worktreeName = import.meta.env.VITE_WORKTREE_NAME ?? 'unknown'
 const appVersion = import.meta.env.VITE_APP_VERSION ?? 'unknown'
 const SETTINGS_HELP = {
-  sendWithEnter: 'When enabled, press Enter to send. When disabled, use Command+Enter to send.',
-  inProgressSendMode: 'If a turn is still running, choose whether a new prompt should steer the current turn or be queued.',
-  appearance: 'Switch between system theme, light mode, and dark mode.',
-  chatWidth: 'Choose how wide the conversation column and composer can grow on desktop screens.',
-  dictationClickToToggle: 'Use click-to-start and click-to-stop dictation instead of hold-to-talk.',
-  dictationAutoSend: 'Automatically send transcribed dictation when recording stops.',
-  dictationLastInput: 'Last microphone reported by the browser after dictation starts.',
-  backendUrl: 'Remote Codex UI server used by the iOS shell for API and WebSocket traffic.',
-
-  githubTrendingProjects: 'Show or hide GitHub trending project cards on the new thread screen.',
-  dictationLanguage: 'Choose transcription language or keep auto-detect.',
+  sendWithEnter: t('When enabled, press Enter to send. When disabled, use Command+Enter to send.'),
+  inProgressSendMode: t('If a turn is still running, choose whether a new prompt should steer the current turn or be queued.'),
+  appearance: t('Switch between system theme, light mode, and dark mode.'),
+  chatWidth: t('Choose how wide the conversation column and composer can grow on desktop screens.'),
+  dictationClickToToggle: t('Use click-to-start and click-to-stop dictation instead of hold-to-talk.'),
+  dictationAutoSend: t('Automatically send transcribed dictation when recording stops.'),
+  dictationLastInput: t('Last microphone reported by the browser after dictation starts.'),
+  backendUrl: t('Remote Codex UI server used by the iOS shell for API and WebSocket traffic.'),
+  githubTrendingProjects: t('Show or hide GitHub trending project cards on the new thread screen.'),
+  dictationLanguage: t('Choose transcription language or keep auto-detect.'),
 } as const
 
 type ChatWidthMode = 'standard' | 'wide' | 'extra-wide'
+
+type TerminalHeaderQuickCommand = {
+  label: string
+  value: string
+  custom?: boolean
+  usageCount: number
+  lastUsedAt: number
+  sourceIndex?: number
+}
+
+type ThreadTerminalPanelExposed = {
+  runQuickCommand: (command: string, custom?: boolean) => Promise<void>
+}
+
+type DirectoryTryItemPayload = {
+  kind: 'app' | 'plugin' | 'skill' | 'composio'
+  name: string
+  displayName: string
+  skillPath?: string
+  prompt?: string
+  attachedSkills?: Array<{ name: string; path: string }>
+}
 
 type ChatWidthPreset = {
   label: string
@@ -1120,7 +1468,6 @@ const {
   projectDisplayNameById,
   selectedThread,
   selectedThreadTokenUsage,
-  selectedThreadScrollState,
   selectedThreadTerminalOpen,
   selectedThreadServerRequests,
   selectedLiveOverlay,
@@ -1132,21 +1479,25 @@ const {
   selectedModelId,
   selectedReasoningEffort,
   selectedSpeedMode,
+  codexCliMissingError,
   installedSkills,
   accountRateLimitSnapshots,
   messages,
+  hasMoreOlderMessages,
   isLoadingThreads,
+  isThreadListFullyLoaded,
   isLoadingMessages,
+  isLoadingOlderMessages,
   isSendingMessage,
   isInterruptingTurn,
   isSelectedThreadInterruptPending,
   isUpdatingSpeedMode,
-  error,
+  error: desktopError,
   refreshAll,
   refreshSkills,
   selectThread,
   ensureThreadMessagesLoaded,
-  setThreadScrollState,
+  loadOlderMessages,
   setThreadTerminalOpen,
   toggleSelectedThreadTerminal,
   archiveThreadById,
@@ -1160,6 +1511,7 @@ const {
   interruptSelectedThreadTurn,
   selectedThreadQueuedMessages,
   removeQueuedMessage,
+  reorderQueuedMessage,
   steerQueuedMessage,
   setSelectedCollaborationMode,
   readModelIdForThread,
@@ -1182,22 +1534,67 @@ const route = useRoute()
 const router = useRouter()
 const { isMobile } = useMobile()
 useTaskNotificationClientPresence(selectedThreadId)
+type SidebarThreadTreeExposed = {
+  openAutomationEditorFromPanel: (payload: AutomationEditRequest) => void
+  openAutomationCreatorFromPanel: () => void
+}
+type AutomationsPanelExposed = {
+  loadAutomations: () => Promise<void>
+}
+type AutomationEditRequest = {
+  scope: 'thread' | 'project'
+  target: string
+  automation: UiThreadAutomation
+}
+const sidebarThreadTreeRef = ref<SidebarThreadTreeExposed | null>(null)
+const automationsPanelRef = ref<AutomationsPanelExposed | null>(null)
+const {
+  hasFeedbackDiagnostics,
+  buildFeedbackMailto,
+  feedbackMailtoBase,
+  recordVisibleFailure,
+} = useFeedbackDiagnostics()
+const feedbackMailto = feedbackMailtoBase()
+
+function prepareFeedbackLink(event: MouseEvent, message?: string): void {
+  if (message) {
+    recordVisibleFailure(message)
+  }
+  const target = event.currentTarget
+  if (target instanceof HTMLAnchorElement) {
+    target.href = buildFeedbackMailto()
+  }
+}
+const error = desktopError
 const homeThreadComposerRef = ref<ThreadComposerExposed | null>(null)
 const threadComposerRef = ref<ThreadComposerExposed | null>(null)
 const threadConversationRef = ref<{ jumpToLatest: () => void } | null>(null)
-const trendingProjects = ref<GithubTrendingProject[]>([])
-const isTrendingProjectsLoading = ref(false)
-const githubTipsScope = ref<GithubTipsScope>('trending-daily')
+const homeTerminalPanelRef = ref<ThreadTerminalPanelExposed | null>(null)
+const threadTerminalPanelRef = ref<ThreadTerminalPanelExposed | null>(null)
+const homeTerminalOpen = ref(false)
+const isTerminalInputFocused = ref(false)
+const isTerminalKeyboardFocusFallbackActive = ref(false)
+const isThreadTerminalAvailable = ref(true)
+const terminalProjectQuickCommands = ref<ThreadTerminalQuickCommand[]>([])
+const terminalStoredQuickCommands = ref<TerminalHeaderQuickCommand[]>(loadTerminalStoredQuickCommands())
+const terminalHeaderDropdownValue = ref('')
 const editingQueuedMessageState = ref<{ threadId: string; queueIndex: number } | null>(null)
 const isRouteSyncInProgress = ref(false)
+const directoryTryInFlightKey = ref('')
 let hasPendingRouteSync = false
 const hasInitialized = ref(false)
 const newThreadCwd = ref('')
 const newThreadRuntime = ref<'local' | 'worktree'>('local')
+const gitRepoStatusByCwd = ref<Record<string, boolean>>({})
+const gitRepoStatusRequestByCwd = new Map<string, Promise<boolean>>()
 const newWorktreeBaseBranch = ref('')
 const worktreeBranchOptions = ref<WorktreeBranchOption[]>([])
 const isLoadingWorktreeBranches = ref(false)
-const workspaceRootOptionsState = ref<{ order: string[]; labels: Record<string, string> }>({ order: [], labels: {} })
+const workspaceRootOptionsState = ref<{ order: string[]; labels: Record<string, string>; projectOrder: string[] }>({
+  order: [],
+  labels: {},
+  projectOrder: [],
+})
 const worktreeInitStatus = ref<{ phase: 'idle' | 'running' | 'error'; title: string; message: string }>({
   phase: 'idle',
   title: '',
@@ -1212,6 +1609,9 @@ const settingsPanelRef = ref<HTMLElement | null>(null)
 const settingsButtonRef = ref<HTMLElement | null>(null)
 const serverMatchedThreadIds = ref<string[] | null>(null)
 let threadSearchTimer: ReturnType<typeof setTimeout> | null = null
+let terminalKeyboardFocusFallbackTimer: ReturnType<typeof setTimeout> | null = null
+let threadBranchesRequestId = 0
+let threadBranchCommitsRequestId = 0
 const defaultNewProjectName = ref('New Project (1)')
 const homeDirectory = ref('')
 const isSettingsOpen = ref(false)
@@ -1219,12 +1619,27 @@ const isAccountsSectionCollapsed = ref(loadAccountsSectionCollapsed())
 const isReviewPaneOpen = ref(false)
 const threadBranchOptions = ref<WorktreeBranchOption[]>([])
 const currentThreadBranch = ref<string | null>(null)
+const currentThreadHeadSha = ref<string | null>(null)
+const currentThreadHeadSubject = ref<string | null>(null)
+const currentThreadHeadDate = ref<string | null>(null)
+const isThreadDetachedHead = ref(false)
+const isThreadWorktreeDirty = ref(false)
+const threadBranchError = ref('')
+const threadBranchCommitsByBranch = ref<Record<string, GitCommitOption[]>>({})
+const threadBranchCommitsLoadingFor = ref('')
+const threadBranchCommitsError = ref('')
 const isLoadingThreadBranches = ref(false)
 const isSwitchingThreadBranch = ref(false)
 const createFolderInputRef = ref<HTMLInputElement | null>(null)
 const accounts = ref<UiAccountEntry[]>([])
 const isRefreshingAccounts = ref(false)
 const isSwitchingAccounts = ref(false)
+const isStartingCodexLogin = ref(false)
+const isCompletingCodexLogin = ref(false)
+const isCodexLoginModalOpen = ref(false)
+const codexLoginUrl = ref('')
+const codexLoginCallbackUrl = ref('')
+const codexLoginCallbackInputRef = ref<HTMLInputElement | null>(null)
 const removingAccountId = ref('')
 const confirmingRemoveAccountId = ref('')
 const hoveredAccountId = ref('')
@@ -1236,9 +1651,9 @@ const DICTATION_CLICK_TO_TOGGLE_KEY = 'codex-web-local.dictation-click-to-toggle
 const DICTATION_AUTO_SEND_KEY = 'codex-web-local.dictation-auto-send.v1'
 const DICTATION_LANGUAGE_KEY = 'codex-web-local.dictation-language.v1'
 const DICTATION_LAST_INPUT_KEY = 'codex-web-local.dictation-last-input.v1'
+const GITHUB_TRENDING_PROJECTS_KEY = 'codex-web-local.github-trending-projects.v1'
 const CODEX_CLI_STATUS_POLL_INTERVAL_MS = 60 * 60 * 1000
 
-const GITHUB_TRENDING_PROJECTS_KEY = 'codex-web-local.github-trending-projects.v1'
 const CHAT_WIDTH_KEY = 'codex-web-local.chat-width.v1'
 const MOBILE_RESUME_RELOAD_MIN_HIDDEN_MS = 400
 const sendWithEnter = ref(loadBoolPref(SEND_WITH_ENTER_KEY, true))
@@ -1254,6 +1669,8 @@ const backendUrlDraft = ref(getConfiguredBackendUrl())
 const backendUrlError = ref('')
 
 const showGithubTrendingProjects = ref(loadBoolPref(GITHUB_TRENDING_PROJECTS_KEY, false))
+const githubTipsScope = ref<GithubTipsScope>('trending-daily')
+const showFirstLaunchPluginsCard = ref(false)
 const freeModeEnabled = ref(false)
 const freeModeLoading = ref(false)
 const freeModeCustomKey = ref('')
@@ -1276,8 +1693,18 @@ const isCreateFolderOpen = ref(false)
 const createFolderDraft = ref('')
 const createFolderError = ref('')
 const isCreatingFolder = ref(false)
+const isProjectSetupModalOpen = ref(false)
+const projectSetupMode = ref<'create' | 'clone'>('create')
+const projectSetupBaseDir = ref('')
+const projectNameDraft = ref('')
+const githubCloneUrlDraft = ref('')
+const projectSetupError = ref('')
+const isProjectSetupSubmitting = ref(false)
+const projectSetupPrimaryInputRef = ref<HTMLInputElement | null>(null)
 const isExistingFolderPickerOpen = ref(false)
+const existingFolderPathInputRef = ref<HTMLInputElement | null>(null)
 const existingFolderFilterInputRef = ref<HTMLInputElement | null>(null)
+const existingFolderPathDraft = ref('')
 const existingFolderBrowsePath = ref('')
 const existingFolderParentPath = ref('')
 const existingFolderEntries = ref<LocalDirectoryEntry[]>([])
@@ -1286,6 +1713,18 @@ const isExistingFolderLoading = ref(false)
 const isOpeningExistingFolder = ref(false)
 const showHiddenFolders = ref(false)
 const existingFolderFilter = ref('')
+const visibleFeedbackErrors = [
+  desktopError,
+  codexCliMissingError,
+  threadBranchError,
+  threadBranchCommitsError,
+  accountActionError,
+  providerError,
+  telegramConfigError,
+  createFolderError,
+  projectSetupError,
+  existingFolderError,
+]
 const telegramStatus = ref<TelegramStatus>({
   configured: false,
   active: false,
@@ -1323,6 +1762,9 @@ const {
 const mobileHiddenAtMs = ref<number | null>(null)
 const mobileResumeReloadTriggered = ref(false)
 const mobileResumeSyncInProgress = ref(false)
+const visualViewportHeight = ref(typeof window !== 'undefined' ? window.visualViewport?.height ?? window.innerHeight : 0)
+const visualViewportOffsetTop = ref(typeof window !== 'undefined' ? window.visualViewport?.offsetTop ?? 0 : 0)
+const layoutViewportHeight = ref(typeof window !== 'undefined' ? window.innerHeight : 0)
 let accountStatePollTimer: number | null = null
 let codexCliStatusTimer: number | null = null
 let isAccountStatePollInFlight = false
@@ -1336,10 +1778,16 @@ const routeThreadId = computed(() => {
 
 const isHomeRoute = computed(() => route.name === 'home')
 const isSkillsRoute = computed(() => route.name === 'skills')
+const isAutomationsRoute = computed(() => route.name === 'automations')
+const routeAutomationId = computed(() => {
+  const raw = route.query.automationId
+  return typeof raw === 'string' ? raw : ''
+})
 const contentTitle = computed(() => {
-  if (isSkillsRoute.value) return 'Skills'
-  if (isHomeRoute.value) return 'New thread'
-  return selectedThread.value?.title ?? 'Choose a thread'
+  if (isAutomationsRoute.value) return t('Automations')
+  if (isSkillsRoute.value) return t('Skills')
+  if (isHomeRoute.value) return t('Start new thread')
+  return selectedThread.value?.title ?? t('Choose a thread')
 })
 const browserHostName =
   typeof window !== 'undefined'
@@ -1378,8 +1826,31 @@ const composerCwd = computed(() => {
   if (isHomeRoute.value) return newThreadCwd.value.trim()
   return selectedThread.value?.cwd?.trim() ?? ''
 })
+const canShowTerminalToggle = computed(() => (
+  isThreadTerminalAvailable.value && (
+    (isHomeRoute.value && composerCwd.value.length > 0) ||
+    (route.name === 'thread' && selectedThreadId.value.length > 0)
+  )
+))
+const canShowContentHeaderBranchDropdown = computed(() => (
+  (route.name === 'thread' && selectedThreadId.value.length > 0) ||
+  (isHomeRoute.value && isNewThreadCwdGitRepo.value)
+))
+const isComposerTerminalOpen = computed(() => (
+  isHomeRoute.value ? homeTerminalOpen.value : selectedThreadTerminalOpen.value
+))
+const isVirtualKeyboardOpen = computed(() => {
+  if (!isMobile.value) return false
+  if (visualViewportHeight.value <= 0 || layoutViewportHeight.value <= 0) return false
+  return layoutViewportHeight.value - visualViewportHeight.value > 120
+})
+const isTerminalKeyboardLayoutActive = computed(() => (
+  isVirtualKeyboardOpen.value ||
+  (isComposerTerminalOpen.value && isTerminalKeyboardFocusFallbackActive.value)
+))
+const directoryCwd = computed(() => selectedThread.value?.cwd?.trim() ?? newThreadCwd.value.trim())
 const isSelectedThreadInProgress = computed(() => !isHomeRoute.value && selectedThread.value?.inProgress === true)
-const showThreadContextBadge = computed(() => !isHomeRoute.value && !isSkillsRoute.value && selectedThreadId.value.trim().length > 0)
+const showThreadContextBadge = computed(() => !isHomeRoute.value && !isSkillsRoute.value && !isAutomationsRoute.value && selectedThreadId.value.trim().length > 0)
 const isAccountSwitchBlocked = computed(() =>
   isSendingMessage.value ||
   isInterruptingTurn.value ||
@@ -1397,22 +1868,33 @@ function formatCompactTokenCount(value: number): string {
 
 function buildThreadContextTooltip(usage: UiThreadTokenUsage | null): string {
   if (!usage) {
-    return 'Waiting for Codex thread/tokenUsage/updated events for this thread.'
+    return t('Waiting for Codex thread/tokenUsage/updated events for this thread.')
   }
 
   const lines = [
-    `Current context usage: ${usage.currentContextTokens.toLocaleString()} tokens`,
-    `Cumulative thread usage: ${usage.total.totalTokens.toLocaleString()} tokens`,
+    `${t('Current context usage')}: ${usage.currentContextTokens.toLocaleString()} ${t('tokens')}`,
+    `${t('Cumulative thread usage')}: ${usage.total.totalTokens.toLocaleString()} ${t('tokens')}`,
   ]
 
   if (typeof usage.modelContextWindow === 'number') {
-    lines.unshift(`Model context window: ${usage.modelContextWindow.toLocaleString()} tokens`)
-    lines.push(`Remaining context: ${(usage.remainingContextTokens ?? 0).toLocaleString()} tokens`)
+    lines.unshift(`${t('Model context window')}: ${usage.modelContextWindow.toLocaleString()} ${t('tokens')}`)
+    lines.push(`${t('Remaining context')}: ${(usage.remainingContextTokens ?? 0).toLocaleString()} ${t('tokens')}`)
   } else {
-    lines.push('Model context window is unavailable in the latest usage event.')
+    lines.push(t('Model context window is unavailable in the latest usage event.'))
   }
 
   return lines.join('\n')
+}
+
+function dismissFirstLaunchPluginsCard(): void {
+  if (!showFirstLaunchPluginsCard.value) return
+  showFirstLaunchPluginsCard.value = false
+  void persistFirstLaunchPluginsCardPreference(true)
+}
+
+function onOpenPluginsHomeCard(): void {
+  dismissFirstLaunchPluginsCard()
+  void router.push({ name: 'skills', query: { tab: 'plugins' } })
 }
 
 const threadContextBadgeState = computed(() => {
@@ -1425,44 +1907,104 @@ const threadContextBadgeState = computed(() => {
 
 const threadContextPrimaryText = computed(() => {
   const usage = selectedThreadTokenUsage.value
-  if (!usage) return 'Awaiting data'
+  if (!usage) return t('Awaiting data')
   if (typeof usage.remainingContextTokens === 'number') {
-    return `${formatCompactTokenCount(usage.remainingContextTokens)} left`
+    return `${formatCompactTokenCount(usage.remainingContextTokens)} ${t('left')}`
   }
-  return `${formatCompactTokenCount(usage.currentContextTokens)} used`
+  return `${formatCompactTokenCount(usage.currentContextTokens)} ${t('used')}`
 })
 
 const threadContextSecondaryText = computed(() => {
   const usage = selectedThreadTokenUsage.value
-  if (!usage) return 'Updates after the next token usage event'
+  if (!usage) return t('Updates after the next token usage event')
   if (typeof usage.modelContextWindow === 'number') {
-    return `${formatCompactTokenCount(usage.currentContextTokens)} used / ${formatCompactTokenCount(usage.modelContextWindow)}`
+    return `${formatCompactTokenCount(usage.currentContextTokens)} ${t('used')} / ${formatCompactTokenCount(usage.modelContextWindow)}`
   }
-  return 'Window size unavailable'
+  return t('Window size unavailable')
 })
 
 const threadContextTooltip = computed(() => buildThreadContextTooltip(selectedThreadTokenUsage.value))
+
+function hasDuplicateFolderLeaf(path: string, knownPaths: string[]): boolean {
+  const normalizedPath = normalizePathForUi(path).trim()
+  const leafName = getPathLeafName(normalizedPath)
+  if (!normalizedPath || !leafName) return false
+  return knownPaths.some((knownPath) => {
+    const normalizedKnownPath = normalizePathForUi(knownPath).trim()
+    return normalizedKnownPath !== normalizedPath && getPathLeafName(normalizedKnownPath) === leafName
+  })
+}
+
+function getFolderOptionLabel(path: string, fallbackLabel = ''): string {
+  const normalizedPath = normalizePathForUi(path).trim()
+  const explicitLabel = fallbackLabel.trim()
+  if (explicitLabel) return explicitLabel
+  const leafName = getPathLeafName(normalizedPath)
+  const knownPaths = [
+    ...workspaceRootOptionsState.value.order,
+    ...projectGroups.value.map((group) => group.threads[0]?.cwd?.trim() ?? '').filter(Boolean),
+  ]
+  return hasDuplicateFolderLeaf(normalizedPath, knownPaths) ? normalizedPath : leafName
+}
+
+function getOrderedWorkspaceRootOptions(): string[] {
+  const savedRoots = new Set(workspaceRootOptionsState.value.order)
+  const orderedRoots = workspaceRootOptionsState.value.projectOrder.filter((item) => savedRoots.has(item))
+  for (const rootPath of workspaceRootOptionsState.value.order) {
+    if (!orderedRoots.includes(rootPath)) orderedRoots.push(rootPath)
+  }
+  return orderedRoots
+}
+
+function getProjectOrderNameForPath(path: string): string {
+  const normalizedPath = normalizePathForUi(path).trim()
+  const knownPaths = [
+    ...workspaceRootOptionsState.value.order,
+    ...projectGroups.value.map((group) => group.threads[0]?.cwd?.trim() ?? '').filter(Boolean),
+  ]
+  return hasDuplicateFolderLeaf(normalizedPath, knownPaths) ? normalizedPath : getPathLeafName(normalizedPath)
+}
+
+function resolveWorkspaceRootCwd(projectName: string): string {
+  const normalizedProjectName = normalizePathForUi(projectName).trim()
+  if (!normalizedProjectName) return ''
+  const knownPaths = [
+    ...workspaceRootOptionsState.value.order,
+    ...projectGroups.value.map((group) => group.threads[0]?.cwd?.trim() ?? '').filter(Boolean),
+  ]
+  for (const cwdRaw of workspaceRootOptionsState.value.order) {
+    const cwd = normalizePathForUi(cwdRaw).trim()
+    if (!cwd) continue
+    const leafName = getPathLeafName(cwd)
+    const orderName = hasDuplicateFolderLeaf(cwd, knownPaths) ? cwd : leafName
+    if (cwd === normalizedProjectName || orderName === normalizedProjectName || leafName === normalizedProjectName) {
+      return cwd
+    }
+  }
+  return ''
+}
+
 const newThreadFolderOptions = computed(() => {
   const options: Array<{ value: string; label: string }> = []
   const seenCwds = new Set<string>()
 
-  for (const cwdRaw of workspaceRootOptionsState.value.order) {
+  for (const cwdRaw of getOrderedWorkspaceRootOptions()) {
     const cwd = cwdRaw.trim()
     if (!cwd || seenCwds.has(cwd)) continue
     seenCwds.add(cwd)
     options.push({
       value: cwd,
-      label: workspaceRootOptionsState.value.labels[cwd] || getPathLeafName(cwd),
+      label: getFolderOptionLabel(cwd, workspaceRootOptionsState.value.labels[cwd]),
     })
   }
 
   for (const group of projectGroups.value) {
     const cwd = group.threads[0]?.cwd?.trim() ?? ''
-    if (!cwd || seenCwds.has(cwd)) continue
+    if (!cwd || seenCwds.has(cwd) || isProjectlessChatPath(cwd)) continue
     seenCwds.add(cwd)
     options.push({
       value: cwd,
-      label: projectDisplayNameById.value[group.projectName] ?? group.projectName,
+      label: getFolderOptionLabel(cwd, projectDisplayNameById.value[group.projectName]),
     })
   }
 
@@ -1470,11 +2012,23 @@ const newThreadFolderOptions = computed(() => {
   if (selectedCwd && !seenCwds.has(selectedCwd)) {
     options.unshift({
       value: selectedCwd,
-      label: getPathLeafName(selectedCwd),
+      label: getFolderOptionLabel(selectedCwd),
     })
   }
 
   return options
+})
+const isNewThreadCwdGitRepo = computed(() => {
+  const cwd = newThreadCwd.value.trim()
+  return cwd ? gitRepoStatusByCwd.value[cwd] === true : false
+})
+const projectGitRepoByName = computed<Record<string, boolean>>(() => {
+  const result: Record<string, boolean> = {}
+  for (const group of projectGroups.value) {
+    const cwd = resolvePreferredLocalCwd(group.projectName, group.threads[0]?.cwd?.trim() ?? '')
+    result[group.projectName] = cwd ? gitRepoStatusByCwd.value[cwd] === true : false
+  }
+  return result
 })
 const newWorktreeBranchDropdownOptions = computed<Array<{ value: string; label: string }>>(() => {
   const selectedBranch = newWorktreeBaseBranch.value.trim()
@@ -1490,30 +2044,6 @@ const selectedWorktreeBranchLabel = computed(() => {
   const selected = newWorktreeBranchDropdownOptions.value.find((option) => option.value === selectedBranch)
   return selected?.label ?? selectedBranch
 })
-const contentHeaderBranchDropdownValue = computed(() => currentThreadBranch.value ?? '__detached_head__')
-const contentHeaderBranchDropdownOptions = computed<Array<{ value: string; label: string }>>(() => {
-  const options: Array<{ value: string; label: string }> = [
-    {
-      value: '__review__',
-      label: isReviewPaneOpen.value ? 'Review (Open)' : 'Review',
-    },
-  ]
-  const seen = new Set<string>()
-  const currentBranch = currentThreadBranch.value?.trim() ?? ''
-  if (currentBranch) {
-    options.push({ value: currentBranch, label: currentBranch })
-    seen.add(currentBranch)
-  } else {
-    options.push({ value: '__detached_head__', label: 'Detached HEAD' })
-    seen.add('__detached_head__')
-  }
-  for (const option of threadBranchOptions.value) {
-    if (!option.value || seen.has(option.value)) continue
-    seen.add(option.value)
-    options.push(option)
-  }
-  return options
-})
 const createFolderParentPath = computed(() => existingFolderBrowsePath.value.trim())
 const isCreateFolderNameValid = computed(() => {
   const draft = createFolderDraft.value.trim()
@@ -1524,9 +2054,32 @@ const isCreateFolderNameValid = computed(() => {
 const canCreateFolder = computed(() => {
   return isCreateFolderNameValid.value && createFolderParentPath.value.trim().length > 0 && !existingFolderError.value
 })
+const isProjectNameDraftValid = computed(() => {
+  const draft = projectNameDraft.value.trim()
+  if (!draft) return false
+  if (draft === '.' || draft === '..') return false
+  return !/[\\/]/u.test(draft)
+})
+const canSubmitProjectSetup = computed(() => {
+  const baseDir = projectSetupBaseDir.value.trim()
+  if (!baseDir) return false
+  if (projectSetupMode.value === 'create') return isProjectNameDraftValid.value
+  return githubCloneUrlDraft.value.trim().length > 0
+})
+const resolvedExistingFolderPath = computed(() => {
+  const draftedPath = normalizePathForUi(existingFolderPathDraft.value).trim()
+  if (draftedPath) return draftedPath
+  return existingFolderBrowsePath.value.trim()
+})
 const createFolderSubmitLabel = computed(() => {
   if (isCreatingFolder.value) return 'Creating…'
   return 'Create'
+})
+const projectSetupSubmitLabel = computed(() => {
+  if (isProjectSetupSubmitting.value) {
+    return projectSetupMode.value === 'clone' ? t('Cloning…') : t('Creating…')
+  }
+  return projectSetupMode.value === 'clone' ? t('Clone repository') : t('Create project')
 })
 const canBrowseExistingFolderParent = computed(() => {
   const current = existingFolderBrowsePath.value.trim()
@@ -1562,17 +2115,17 @@ const existingFolderFilteredEntries = computed(() => {
 })
 const darkModeMediaQuery = typeof window !== 'undefined' ? window.matchMedia('(prefers-color-scheme: dark)') : null
 const githubTipsScopeOptions = computed<Array<{ value: GithubTipsScope; label: string }>>(() => [
-  { value: 'search-daily', label: 'Search daily' },
-  { value: 'search-weekly', label: 'Search weekly' },
-  { value: 'search-monthly', label: 'Search monthly' },
-  { value: 'trending-daily', label: 'Trending daily' },
-  { value: 'trending-weekly', label: 'Trending weekly' },
-  { value: 'trending-monthly', label: 'Trending monthly' },
+  { value: 'search-daily', label: t('Search daily') },
+  { value: 'search-weekly', label: t('Search weekly') },
+  { value: 'search-monthly', label: t('Search monthly') },
+  { value: 'trending-daily', label: t('Trending daily') },
+  { value: 'trending-weekly', label: t('Trending weekly') },
+  { value: 'trending-monthly', label: t('Trending monthly') },
 ])
-const chatWidthLabel = computed(() => CHAT_WIDTH_PRESETS[chatWidth.value].label)
+const chatWidthLabel = computed(() => t(CHAT_WIDTH_PRESETS[chatWidth.value].label))
 const backendUrlStatusLabel = computed(() => {
   const normalized = normalizeBackendBaseUrl(backendUrlDraft.value).value
-  return normalized ? new URL(normalized).host : 'Same origin'
+  return normalized ? new URL(normalized).host : t('Same origin')
 })
 const terminalShortcutLabel = computed(() => {
   if (typeof navigator !== 'undefined' && /mac|iphone|ipad|ipod/i.test(navigator.platform)) {
@@ -1580,21 +2133,51 @@ const terminalShortcutLabel = computed(() => {
   }
   return 'Ctrl+J'
 })
+const terminalCommandPlaceholder = computed(() => (
+  isComposerTerminalOpen.value ? t('Terminal') : t('Open terminal')
+))
+const terminalHeaderQuickCommands = computed<TerminalHeaderQuickCommand[]>(() => {
+  const storedByValue = new Map(terminalStoredQuickCommands.value.map((command) => [command.value, command]))
+  const combined: TerminalHeaderQuickCommand[] = [
+    ...terminalProjectQuickCommands.value.map((command, index) => ({
+      label: command.label,
+      value: command.value,
+      usageCount: 0,
+      lastUsedAt: 0,
+      ...(storedByValue.get(command.value) ?? {}),
+      custom: false,
+      sourceIndex: index,
+    })),
+  ]
+  return combined
+    .sort(compareTerminalQuickCommands)
+})
+const terminalHeaderDropdownOptions = computed(() => [
+  { label: isComposerTerminalOpen.value ? t('Hide terminal') : t('Open terminal'), value: TOGGLE_TERMINAL_COMMAND_VALUE },
+  ...terminalHeaderQuickCommands.value.map((command) => ({ label: command.label, value: command.value })),
+])
 const contentStyle = computed(() => {
   const preset = CHAT_WIDTH_PRESETS[chatWidth.value]
+  const keyboardInset = Math.max(
+    0,
+    layoutViewportHeight.value - visualViewportHeight.value - visualViewportOffsetTop.value,
+  )
   return {
     '--chat-column-max': preset.columnMax,
     '--chat-card-max': preset.cardMax,
+    '--visual-viewport-height': visualViewportHeight.value > 0 ? `${visualViewportHeight.value}px` : '100dvh',
+    '--visual-viewport-offset-top': `${Math.max(0, visualViewportOffsetTop.value)}px`,
+    '--virtual-keyboard-inset': `${keyboardInset}px`,
   }
 })
 const telegramStatusText = computed(() => {
-  if (!telegramStatus.value.configured) return 'Not configured'
-  const base = telegramStatus.value.active ? 'Online' : 'Configured (offline)'
+  if (!telegramStatus.value.configured) return t('Not configured')
+  const base = telegramStatus.value.active ? t('Online') : t('Configured (offline)')
   const allowlist = telegramStatus.value.allowAllUsers
-    ? 'allow all users'
-    : `${telegramStatus.value.allowedUsers} allowed user(s)`
-  const mapped = `${telegramStatus.value.mappedChats} chat(s), ${telegramStatus.value.mappedThreads} thread(s), ${allowlist}`
-  const error = telegramStatus.value.lastError ? `, error: ${telegramStatus.value.lastError}` : ''
+    ? t('allow all users')
+    : `${telegramStatus.value.allowedUsers} ${t('allowed user(s)')}`
+  const mapped = `${telegramStatus.value.mappedChats} ${t('chat(s)')}, ${telegramStatus.value.mappedThreads} ${t('thread(s)')}, ${allowlist}`
+  const error = telegramStatus.value.lastError ? `, ${t('error')}: ${telegramStatus.value.lastError}` : ''
   return `${base}, ${mapped}${error}`
 })
 onMounted(() => {
@@ -1603,6 +2186,10 @@ onMounted(() => {
   document.addEventListener('visibilitychange', onDocumentVisibilityChange)
   window.addEventListener('pageshow', onWindowPageShow)
   window.addEventListener('focus', onWindowFocus)
+  window.addEventListener('resize', updateVisualViewportState)
+  window.visualViewport?.addEventListener('resize', updateVisualViewportState)
+  window.visualViewport?.addEventListener('scroll', updateVisualViewportState)
+  updateVisualViewportState()
   applyDarkMode()
   if (darkModeMediaQuery) {
     stopDarkModeMediaQuerySubscription = subscribeMediaQueryChange(darkModeMediaQuery, applyDarkMode)
@@ -1613,6 +2200,7 @@ onMounted(() => {
   })
   void initialize()
   void loadHomeDirectory()
+  void loadFirstLaunchPluginsCardPreference()
   void loadWorkspaceRootOptionsState()
   void refreshDefaultProjectName()
   void refreshTelegramConfig()
@@ -1623,9 +2211,18 @@ onMounted(() => {
     void loadCodexCliStatus()
   }, CODEX_CLI_STATUS_POLL_INTERVAL_MS)
   void loadFreeModeStatus()
-  if (showGithubTrendingProjects.value) {
-    void loadTrendingProjects()
-  }
+  void refreshThreadTerminalStatus()
+  void refreshTerminalQuickCommands()
+})
+
+watch(visibleFeedbackErrors, (values, oldValues) => {
+  values.forEach((value, index) => {
+    if (value === oldValues[index]) return
+    const message = value.trim()
+    if (message) {
+      recordVisibleFailure(message)
+    }
+  })
 })
 
 onUnmounted(() => {
@@ -1634,6 +2231,9 @@ onUnmounted(() => {
   document.removeEventListener('visibilitychange', onDocumentVisibilityChange)
   window.removeEventListener('pageshow', onWindowPageShow)
   window.removeEventListener('focus', onWindowFocus)
+  window.removeEventListener('resize', updateVisualViewportState)
+  window.visualViewport?.removeEventListener('resize', updateVisualViewportState)
+  window.visualViewport?.removeEventListener('scroll', updateVisualViewportState)
   stopDarkModeMediaQuerySubscription?.()
   stopDarkModeMediaQuerySubscription = null
   stopBackendUrlSubscription?.()
@@ -1651,8 +2251,16 @@ onUnmounted(() => {
     threadSearchTimer = null
   }
   clearRestartPollTimer()
+  clearTerminalKeyboardFocusFallbackTimer()
   stopPolling()
 })
+
+function updateVisualViewportState(): void {
+  if (typeof window === 'undefined') return
+  layoutViewportHeight.value = Math.max(layoutViewportHeight.value, window.innerHeight)
+  visualViewportHeight.value = window.visualViewport?.height ?? window.innerHeight
+  visualViewportOffsetTop.value = window.visualViewport?.offsetTop ?? 0
+}
 
 watch(sidebarSearchQuery, (value) => {
   const query = value.trim()
@@ -1676,6 +2284,11 @@ watch(sidebarSearchQuery, (value) => {
         serverMatchedThreadIds.value = null
       })
   }, 220)
+})
+
+watch(isVirtualKeyboardOpen, (open) => {
+  if (open) return
+  isTerminalKeyboardFocusFallbackActive.value = false
 })
 
 watch(accounts, () => {
@@ -1730,6 +2343,11 @@ async function refreshTelegramConfig(): Promise<void> {
   }
 }
 
+async function loadFirstLaunchPluginsCardPreference(): Promise<void> {
+  const preference = await getFirstLaunchPluginsCardPreference()
+  showFirstLaunchPluginsCard.value = preference.dismissed !== true
+}
+
 function parseTelegramAllowedUserIdsInput(value: string): Array<number | '*'> {
   const rawEntries = value
     .split(/[\n,]/)
@@ -1746,11 +2364,11 @@ async function saveTelegramConfig(): Promise<void> {
   const botToken = telegramBotTokenDraft.value.trim()
   const allowedUserIds = parseTelegramAllowedUserIdsInput(telegramAllowedUserIdsDraft.value)
   if (!botToken) {
-    telegramConfigError.value = 'Telegram bot token is required.'
+    telegramConfigError.value = t('Telegram bot token is required.')
     return
   }
   if (allowedUserIds.length === 0) {
-    telegramConfigError.value = 'At least one allowed Telegram user ID or * is required.'
+    telegramConfigError.value = t('At least one allowed Telegram user ID or * is required.')
     return
   }
 
@@ -1763,9 +2381,9 @@ async function saveTelegramConfig(): Promise<void> {
       refreshTelegramConfig(),
       refreshTelegramStatus(),
     ])
-    window.alert('Telegram bot configured. Only allowlisted Telegram users can use the bridge.')
+    window.alert(t('Telegram bot configured. Only allowlisted Telegram users can use the bridge.'))
   } catch (error) {
-    telegramConfigError.value = error instanceof Error ? error.message : 'Failed to connect Telegram bot'
+    telegramConfigError.value = error instanceof Error ? error.message : t('Failed to connect Telegram bot')
     void refreshTelegramStatus()
   } finally {
     isTelegramSaving.value = false
@@ -1800,6 +2418,33 @@ function onSelectThread(threadId: string): void {
   if (isMobile.value) setSidebarCollapsed(true)
 }
 
+function onSelectAutomationInPanel(automationId: string): void {
+  if (route.name !== 'automations') return
+  if (routeAutomationId.value === automationId) return
+  void router.replace({ name: 'automations', query: automationId ? { automationId } : {} })
+}
+
+async function onEditAutomationFromPanel(payload: AutomationEditRequest): Promise<void> {
+  if (isSidebarCollapsed.value) {
+    setSidebarCollapsed(false)
+    await nextTick()
+  }
+  sidebarThreadTreeRef.value?.openAutomationEditorFromPanel(payload)
+}
+
+async function onCreateAutomationFromPanel(): Promise<void> {
+  if (isSidebarCollapsed.value) {
+    setSidebarCollapsed(false)
+    await nextTick()
+  }
+  sidebarThreadTreeRef.value?.openAutomationCreatorFromPanel()
+}
+
+function onAutomationsChanged(): void {
+  if (route.name !== 'automations') return
+  void automationsPanelRef.value?.loadAutomations()
+}
+
 async function onExportThread(threadId: string): Promise<void> {
   if (!threadId) return
   if (selectedThreadId.value !== threadId) {
@@ -1815,7 +2460,7 @@ function shortAccountId(accountId: string): string {
 }
 
 function formatAccountMeta(account: UiAccountEntry): string {
-  const segments = [account.planType || 'unknown']
+  const segments = [account.planType || t('unknown')]
   if (account.authMode) {
     segments.unshift(account.authMode)
   }
@@ -1833,7 +2478,7 @@ function isAccountUnavailable(account: UiAccountEntry): boolean {
 }
 
 function isAccountActionDisabled(account: UiAccountEntry): boolean {
-  return isRefreshingAccounts.value || isSwitchingAccounts.value || removingAccountId.value.length > 0
+  return isRefreshingAccounts.value || isSwitchingAccounts.value || isStartingCodexLogin.value || isCompletingCodexLogin.value || removingAccountId.value.length > 0
     || (account.isActive && removingAccountId.value !== account.accountId && isAccountSwitchBlocked.value)
 }
 
@@ -1846,16 +2491,16 @@ function isRemoveVisible(account: UiAccountEntry): boolean {
 }
 
 function getAccountSwitchLabel(account: UiAccountEntry): string {
-  if (isAccountUnavailable(account)) return 'Unavailable'
-  if (account.isActive) return 'Active'
-  if (isSwitchingAccounts.value) return 'Switching…'
-  return 'Switch'
+  if (isAccountUnavailable(account)) return t('Unavailable')
+  if (account.isActive) return t('Active')
+  if (isSwitchingAccounts.value) return t('Switching…')
+  return t('Switch')
 }
 
 function getAccountRemoveLabel(account: UiAccountEntry): string {
-  if (removingAccountId.value === account.accountId) return 'Removing…'
-  if (isRemoveConfirmationActive(account)) return 'Click again to remove'
-  return 'Remove'
+  if (removingAccountId.value === account.accountId) return t('Removing…')
+  if (isRemoveConfirmationActive(account)) return t('Click again to remove')
+  return t('Remove')
 }
 
 function onAccountCardPointerEnter(accountId: string): void {
@@ -1897,7 +2542,7 @@ function formatResetDateCompact(resetsAt: number | null): string {
 
 function formatAccountQuota(account: UiAccountEntry): string {
   if (isAccountUnavailable(account)) {
-    return account.quotaError || '402 Payment Required'
+    return account.quotaError || t('402 Payment Required')
   }
   const quota = account.quotaSnapshot
   const window = pickWeeklyQuotaWindow(account)
@@ -1907,34 +2552,34 @@ function formatAccountQuota(account: UiAccountEntry): string {
     const remainingPercent = Math.max(0, Math.min(100, 100 - Math.round(displayWindow.usedPercent)))
     const refreshDate = formatResetDateCompact(displayWindow.resetsAt)
     return refreshDate
-      ? `${remainingPercent}% weekly remaining · ${refreshDate}`
-      : `${remainingPercent}% weekly remaining`
+      ? `${remainingPercent}% ${t('weekly remaining')} · ${refreshDate}`
+      : `${remainingPercent}% ${t('weekly remaining')}`
   }
   if (quota?.credits?.unlimited) {
-    return 'Unlimited credits'
+    return t('Unlimited credits')
   }
   if (quota?.credits?.hasCredits && quota.credits.balance) {
-    return `${quota.credits.balance} credits`
+    return `${quota.credits.balance} ${t('credits')}`
   }
   if (account.quotaStatus === 'loading') {
-    return 'Loading quota…'
+    return t('Loading quota…')
   }
   if (account.quotaStatus === 'error') {
-    return account.quotaError || 'Quota unavailable'
+    return account.quotaError || t('Quota unavailable')
   }
   if (account.quotaStatus === 'ready' || account.quotaStatus === 'idle') {
-    return 'Quota unavailable'
+    return t('Quota unavailable')
   }
-  return 'Fetching account details…'
+  return t('Fetching account details…')
 }
 
 function buildAccountTitle(account: UiAccountEntry): string {
   return [
-    account.email || 'Account',
+    account.email || t('Account'),
     formatAccountMeta(account),
-    isAccountUnavailable(account) ? 'Unavailable account' : null,
+    isAccountUnavailable(account) ? t('Unavailable account') : null,
     formatAccountQuota(account),
-    `Workspace ${account.accountId}`,
+    `${t('Workspace')} ${account.accountId}`,
   ].filter(Boolean).join('\n')
 }
 
@@ -1950,12 +2595,12 @@ async function loadAccountsState(options: { silent?: boolean } = {}): Promise<vo
     }
   } catch (error) {
     if (options.silent === true) return
-    accountActionError.value = error instanceof Error ? error.message : 'Failed to load accounts'
+    accountActionError.value = error instanceof Error ? error.message : t('Failed to load accounts')
   }
 }
 
 async function onRefreshAccounts(): Promise<void> {
-  if (isRefreshingAccounts.value || isSwitchingAccounts.value) return
+  if (isRefreshingAccounts.value || isSwitchingAccounts.value || isStartingCodexLogin.value || isCompletingCodexLogin.value) return
   accountActionError.value = ''
   hoveredAccountId.value = ''
   confirmingRemoveAccountId.value = ''
@@ -1969,16 +2614,69 @@ async function onRefreshAccounts(): Promise<void> {
       includeSelectedThreadMessages: true,
     })
   } catch (error) {
-    accountActionError.value = error instanceof Error ? error.message : 'Failed to refresh accounts'
+    accountActionError.value = error instanceof Error ? error.message : t('Failed to refresh accounts')
   } finally {
     isRefreshingAccounts.value = false
   }
 }
 
+async function onStartCodexLogin(): Promise<void> {
+  if (isRefreshingAccounts.value || isSwitchingAccounts.value || isStartingCodexLogin.value || isCompletingCodexLogin.value) return
+  accountActionError.value = ''
+  codexLoginCallbackUrl.value = ''
+  isStartingCodexLogin.value = true
+  try {
+    const loginUrl = await startCodexLogin()
+    codexLoginUrl.value = loginUrl
+    isCodexLoginModalOpen.value = true
+    window.open(loginUrl, '_blank', 'noopener,noreferrer')
+    await nextTick()
+    codexLoginCallbackInputRef.value?.focus()
+  } catch (error) {
+    accountActionError.value = error instanceof Error ? error.message : t('Failed to start Codex login')
+  } finally {
+    isStartingCodexLogin.value = false
+  }
+}
+
+function onCancelCodexLoginModal(): void {
+  if (isCompletingCodexLogin.value) return
+  isCodexLoginModalOpen.value = false
+  codexLoginCallbackUrl.value = ''
+}
+
+async function onSubmitCodexLoginCallback(): Promise<void> {
+  const callbackUrl = codexLoginCallbackUrl.value.trim()
+  if (!callbackUrl) return
+  await completeCodexLoginFromCallback(callbackUrl)
+}
+
+async function completeCodexLoginFromCallback(callbackUrl: string): Promise<void> {
+  if (isCompletingCodexLogin.value || callbackUrl.length === 0) return
+  accountActionError.value = ''
+  isCompletingCodexLogin.value = true
+  try {
+    const result = await completeCodexLogin(callbackUrl)
+    accounts.value = result.accounts
+    codexLoginUrl.value = ''
+    codexLoginCallbackUrl.value = ''
+    isCodexLoginModalOpen.value = false
+    stopPolling()
+    startPolling()
+    void refreshAll({
+      includeSelectedThreadMessages: true,
+    })
+  } catch (error) {
+    accountActionError.value = error instanceof Error ? error.message : t('Failed to complete Codex login')
+  } finally {
+    isCompletingCodexLogin.value = false
+  }
+}
+
 async function onSwitchAccount(accountId: string): Promise<void> {
-  if (isSwitchingAccounts.value || isRefreshingAccounts.value) return
+  if (isSwitchingAccounts.value || isRefreshingAccounts.value || isStartingCodexLogin.value || isCompletingCodexLogin.value) return
   if (isAccountSwitchBlocked.value) {
-    accountActionError.value = 'Finish the current turn and pending requests before switching accounts.'
+    accountActionError.value = t('Finish the current turn and pending requests before switching accounts.')
     return
   }
   accountActionError.value = ''
@@ -1999,14 +2697,14 @@ async function onSwitchAccount(accountId: string): Promise<void> {
     })
     void loadAccountsState({ silent: true })
   } catch (error) {
-    accountActionError.value = error instanceof Error ? error.message : 'Failed to switch account'
+    accountActionError.value = error instanceof Error ? error.message : t('Failed to switch account')
   } finally {
     isSwitchingAccounts.value = false
   }
 }
 
 async function onRemoveAccount(accountId: string): Promise<void> {
-  if (isRefreshingAccounts.value || isSwitchingAccounts.value || removingAccountId.value.length > 0) return
+  if (isRefreshingAccounts.value || isSwitchingAccounts.value || isStartingCodexLogin.value || isCompletingCodexLogin.value || removingAccountId.value.length > 0) return
   const targetAccount = accounts.value.find((account) => account.accountId === accountId) ?? null
   if (!targetAccount) return
   if (confirmingRemoveAccountId.value !== accountId) {
@@ -2014,7 +2712,7 @@ async function onRemoveAccount(accountId: string): Promise<void> {
     return
   }
   if (targetAccount.isActive && isAccountSwitchBlocked.value) {
-    accountActionError.value = 'Finish the current turn and pending requests before removing the active account.'
+    accountActionError.value = t('Finish the current turn and pending requests before removing the active account.')
     return
   }
 
@@ -2034,7 +2732,7 @@ async function onRemoveAccount(accountId: string): Promise<void> {
     }
     void loadAccountsState({ silent: true })
   } catch (error) {
-    accountActionError.value = error instanceof Error ? error.message : 'Failed to remove account'
+    accountActionError.value = error instanceof Error ? error.message : t('Failed to remove account')
   } finally {
     removingAccountId.value = ''
   }
@@ -2071,10 +2769,10 @@ function isWorktreePath(cwdRaw: string): boolean {
 
 function resolvePreferredLocalCwd(projectName: string, fallbackCwd = ''): string {
   const group = projectGroups.value.find((row) => row.projectName === projectName)
-  if (!group) return fallbackCwd.trim()
+  if (!group) return resolveWorkspaceRootCwd(projectName) || fallbackCwd.trim()
   const nonWorktreeThread = group.threads.find((thread) => !isWorktreePath(thread.cwd))
   const candidate = nonWorktreeThread?.cwd?.trim() ?? group.threads[0]?.cwd?.trim() ?? ''
-  return candidate || fallbackCwd.trim()
+  return candidate || resolveWorkspaceRootCwd(projectName) || fallbackCwd.trim()
 }
 
 function onStartNewThread(projectName: string): void {
@@ -2114,17 +2812,116 @@ function clearBackendUrlSetting(): void {
   void setConfiguredBackendUrl('')
 }
 
-function onStartNewThreadFromToolbar(): void {
-  const selected = selectedThread.value
-  const cwd = selected
-    ? resolvePreferredLocalCwd(selected.projectName, selected.cwd?.trim() ?? '')
-    : ''
-  if (cwd) {
-    newThreadCwd.value = cwd
+function getProjectCwd(projectName: string): string {
+  const projectGroup = projectGroups.value.find((group) => group.projectName === projectName)
+  return resolvePreferredLocalCwd(projectName, projectGroup?.threads[0]?.cwd?.trim() ?? '')
+}
+
+const projectCwdByName = computed<Record<string, string>>(() =>
+  Object.fromEntries(
+    projectGroups.value
+      .map((group) => [group.projectName, getProjectCwd(group.projectName).trim()] as const)
+      .filter(([, cwd]) => cwd.length > 0),
+  ),
+)
+
+function getProjectDisplayNameForWorktree(projectName: string): string {
+  return (projectDisplayNameById.value[projectName] ?? projectName).trim() || projectName
+}
+
+function toWorktreeFolderNameDraft(projectName: string): string {
+  const displayName = getProjectDisplayNameForWorktree(projectName)
+  const sanitized = displayName
+    .replace(/[\\/]+/gu, '-')
+    .replace(/[\u0000-\u001f]+/gu, '')
+    .trim()
+  return sanitized || 'worktree'
+}
+
+function onBrowseProjectFiles(projectName: string): void {
+  const targetCwd = getProjectCwd(projectName)
+  if (!targetCwd || typeof window === 'undefined') return
+  window.open(`/codex-local-browse${encodeURI(targetCwd)}`, '_blank', 'noopener,noreferrer')
+}
+
+async function onCreateProjectWorktree(projectName: string): Promise<void> {
+  const sourceCwd = getProjectCwd(projectName)
+  if (!sourceCwd || typeof window === 'undefined') return
+  await loadGitRepoStatus(sourceCwd)
+  if (gitRepoStatusByCwd.value[sourceCwd] !== true) return
+
+  const suggestedName = `${toWorktreeFolderNameDraft(projectName)}-`
+  const worktreeName = window.prompt('New worktree folder name', suggestedName)
+  if (worktreeName === null) return
+
+  const normalizedWorktreeName = worktreeName.trim()
+  if (!normalizedWorktreeName) return
+  if (normalizedWorktreeName.includes('/') || normalizedWorktreeName.includes('\\') || normalizedWorktreeName === '.' || normalizedWorktreeName === '..') {
+    window.alert('Worktree name must be a single folder name.')
+    return
   }
+
+  try {
+    const created = await createPermanentWorktree(sourceCwd, normalizedWorktreeName)
+    const normalizedPath = await openProjectRoot(created.cwd, {
+      createIfMissing: false,
+      label: '',
+    })
+    if (!normalizedPath) return
+
+    newThreadCwd.value = normalizedPath
+    newThreadRuntime.value = 'local'
+    pinProjectToTop(getProjectOrderNameForPath(normalizedPath))
+    await loadWorkspaceRootOptionsState()
+    await refreshDefaultProjectName()
+    if (isMobile.value) setSidebarCollapsed(true)
+    if (!isHomeRoute.value) {
+      await router.push({ name: 'home' })
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to create worktree.'
+    window.alert(message)
+  }
+}
+
+function onStartNewThreadFromToolbar(): void {
+  newThreadCwd.value = ''
+  newThreadRuntime.value = 'local'
   if (isMobile.value) setSidebarCollapsed(true)
   if (isHomeRoute.value) return
   void router.push({ name: 'home' })
+}
+
+async function loadGitRepoStatus(cwdRaw: string): Promise<void> {
+  const cwd = cwdRaw.trim()
+  if (!cwd || Object.prototype.hasOwnProperty.call(gitRepoStatusByCwd.value, cwd)) return
+
+  const existingRequest = gitRepoStatusRequestByCwd.get(cwd)
+  if (existingRequest) {
+    const isGitRepo = await existingRequest
+    if (!Object.prototype.hasOwnProperty.call(gitRepoStatusByCwd.value, cwd)) {
+      gitRepoStatusByCwd.value = {
+        ...gitRepoStatusByCwd.value,
+        [cwd]: isGitRepo,
+      }
+    }
+    return
+  }
+
+  const request = getGitRepositoryStatus(cwd)
+    .then((status) => status.isGitRepo)
+    .catch(() => false)
+    .finally(() => {
+      gitRepoStatusRequestByCwd.delete(cwd)
+    })
+  gitRepoStatusRequestByCwd.set(cwd, request)
+
+  const isGitRepo = await request
+  if (Object.prototype.hasOwnProperty.call(gitRepoStatusByCwd.value, cwd)) return
+  gitRepoStatusByCwd.value = {
+    ...gitRepoStatusByCwd.value,
+    [cwd]: isGitRepo,
+  }
 }
 
 function onRenameProject(payload: { projectName: string; displayName: string }): void {
@@ -2145,8 +2942,10 @@ function onReorderProject(payload: { projectName: string; toIndex: number }): vo
   reorderProject(payload.projectName, payload.toIndex)
 }
 
-function onUpdateThreadScrollState(payload: { threadId: string; state: ThreadScrollState }): void {
-  setThreadScrollState(payload.threadId, payload.state)
+function onRequestProjectGitStatus(projectName: string): void {
+  const group = projectGroups.value.find((entry) => entry.projectName === projectName)
+  const cwd = resolvePreferredLocalCwd(projectName, group?.threads[0]?.cwd?.trim() ?? '')
+  void loadGitRepoStatus(cwd)
 }
 
 function onRespondServerRequest(payload: UiServerRequestReply): void {
@@ -2197,14 +2996,242 @@ function onWindowKeyDown(event: KeyboardEvent): void {
   }
   if (key === 'j' && route.name === 'thread' && selectedThreadId.value) {
     event.preventDefault()
-    toggleSelectedThreadTerminal()
+    toggleComposerTerminal()
+    return
+  }
+  if (key === 'j' && isHomeRoute.value && composerCwd.value) {
+    event.preventDefault()
+    toggleComposerTerminal()
+  }
+}
+
+function toggleComposerTerminal(): void {
+  if (!isThreadTerminalAvailable.value) return
+  if (isHomeRoute.value) {
+    if (!composerCwd.value) return
+    homeTerminalOpen.value = !homeTerminalOpen.value
+    if (!homeTerminalOpen.value) {
+      resetTerminalKeyboardFocusState()
+    }
+    return
+  }
+  toggleSelectedThreadTerminal()
+  if (!selectedThreadTerminalOpen.value) {
+    resetTerminalKeyboardFocusState()
+  }
+}
+
+function onSelectHeaderTerminalCommand(command: string): void {
+  terminalHeaderDropdownValue.value = ''
+  if (!command) return
+  if (command === TOGGLE_TERMINAL_COMMAND_VALUE) {
+    toggleComposerTerminal()
+    return
+  }
+  void openTerminalAndRunCommand(command)
+}
+
+async function openTerminalAndRunCommand(command: string): Promise<void> {
+  if (!isThreadTerminalAvailable.value || !composerCwd.value) return
+  if (isHomeRoute.value) {
+    homeTerminalOpen.value = true
+  } else if (selectedThreadId.value) {
+    setThreadTerminalOpen(selectedThreadId.value, true)
+  } else {
+    return
+  }
+  const panel = await waitForTerminalPanel()
+  if (!panel) return
+  try {
+    await panel.runQuickCommand(command)
+    recordHeaderTerminalCommandUse(command)
+  } catch {
+    // ThreadTerminalPanel renders the terminal-specific error in place.
+  }
+}
+
+async function waitForTerminalPanel(): Promise<ThreadTerminalPanelExposed | null> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await nextTick()
+    const panel = isHomeRoute.value ? homeTerminalPanelRef.value : threadTerminalPanelRef.value
+    if (panel) return panel
+    await new Promise((resolve) => window.setTimeout(resolve, 25))
+  }
+  return null
+}
+
+async function refreshTerminalQuickCommands(): Promise<void> {
+  const cwd = composerCwd.value.trim()
+  if (!cwd) {
+    terminalProjectQuickCommands.value = []
+    return
+  }
+  try {
+    terminalProjectQuickCommands.value = await getThreadTerminalQuickCommands(cwd)
+  } catch {
+    terminalProjectQuickCommands.value = []
+  }
+}
+
+function recordHeaderTerminalCommandUse(command: string): void {
+  const normalized = normalizeTerminalQuickCommandValue(command)
+  if (!normalized) return
+  const existing = terminalStoredQuickCommands.value.find((row) => row.value === normalized)
+  const projectCommandIndex = terminalProjectQuickCommands.value.findIndex((row) => row.value === normalized)
+  const projectCommand = projectCommandIndex >= 0 ? terminalProjectQuickCommands.value[projectCommandIndex] : null
+  if (!projectCommand) return
+  const nextCommand: TerminalHeaderQuickCommand = {
+    label: existing?.label || projectCommand?.label || normalized,
+    value: normalized,
+    custom: false,
+    usageCount: (existing?.usageCount ?? 0) + 1,
+    lastUsedAt: Date.now(),
+    sourceIndex: projectCommandIndex >= 0 ? projectCommandIndex : undefined,
+  }
+  const next = [
+    ...terminalStoredQuickCommands.value.filter((row) => row.value !== normalized),
+    nextCommand,
+  ]
+  terminalStoredQuickCommands.value = next
+  saveTerminalStoredQuickCommands(next)
+}
+
+function normalizeTerminalQuickCommandValue(value: string): string {
+  return value.trim().replace(/\s+/g, ' ')
+}
+
+function compareTerminalQuickCommands(first: TerminalHeaderQuickCommand, second: TerminalHeaderQuickCommand): number {
+  if (second.usageCount !== first.usageCount) return second.usageCount - first.usageCount
+  if (second.lastUsedAt !== first.lastUsedAt) return second.lastUsedAt - first.lastUsedAt
+  const firstSource = typeof first.sourceIndex === 'number' ? first.sourceIndex : Number.MAX_SAFE_INTEGER
+  const secondSource = typeof second.sourceIndex === 'number' ? second.sourceIndex : Number.MAX_SAFE_INTEGER
+  return firstSource - secondSource
+}
+
+function loadTerminalStoredQuickCommands(): TerminalHeaderQuickCommand[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = safeLocalStorageGetItem(TERMINAL_QUICK_COMMAND_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    const seen = new Set<string>()
+    const commands: TerminalHeaderQuickCommand[] = []
+    for (const row of parsed) {
+      const record = row !== null && typeof row === 'object' && !Array.isArray(row)
+        ? row as Record<string, unknown>
+        : null
+      const value = normalizeTerminalQuickCommandValue(readTerminalString(record?.value))
+      if (!value || seen.has(value)) continue
+      seen.add(value)
+      commands.push({
+        label: readTerminalString(record?.label) || value,
+        value,
+        custom: record?.custom !== false,
+        usageCount: readTerminalPositiveInteger(record?.usageCount),
+        lastUsedAt: readTerminalPositiveInteger(record?.lastUsedAt),
+      })
+    }
+    return commands
+  } catch {
+    return []
+  }
+}
+
+function saveTerminalStoredQuickCommands(commands: TerminalHeaderQuickCommand[]): void {
+  if (typeof window === 'undefined') return
+  safeLocalStorageSetItem(
+    TERMINAL_QUICK_COMMAND_STORAGE_KEY,
+    JSON.stringify(commands.map((command) => ({
+      label: command.label,
+      value: command.value,
+      custom: command.custom === true,
+      usageCount: command.usageCount,
+      lastUsedAt: command.lastUsedAt,
+    }))),
+  )
+}
+
+function readTerminalString(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function readTerminalPositiveInteger(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.trunc(value))
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return Math.max(0, Math.trunc(parsed))
+  }
+  return 0
+}
+
+function onTerminalFocusChange(focused: boolean): void {
+  isTerminalInputFocused.value = focused
+  if (!focused) {
+    isTerminalKeyboardFocusFallbackActive.value = false
+    clearTerminalKeyboardFocusFallbackTimer()
+    return
+  }
+  isTerminalKeyboardFocusFallbackActive.value = true
+  clearTerminalKeyboardFocusFallbackTimer()
+  terminalKeyboardFocusFallbackTimer = setTimeout(() => {
+    terminalKeyboardFocusFallbackTimer = null
+    if (!isVirtualKeyboardOpen.value) {
+      isTerminalKeyboardFocusFallbackActive.value = false
+    }
+  }, 1500)
+}
+
+function onHideHomeTerminal(): void {
+  homeTerminalOpen.value = false
+  resetTerminalKeyboardFocusState()
+}
+
+function onHideSelectedThreadTerminal(): void {
+  if (selectedThreadId.value) {
+    setThreadTerminalOpen(selectedThreadId.value, false)
+  }
+  resetTerminalKeyboardFocusState()
+}
+
+function resetTerminalKeyboardFocusState(): void {
+  isTerminalInputFocused.value = false
+  isTerminalKeyboardFocusFallbackActive.value = false
+  clearTerminalKeyboardFocusFallbackTimer()
+}
+
+function clearTerminalKeyboardFocusFallbackTimer(): void {
+  if (!terminalKeyboardFocusFallbackTimer) return
+  clearTimeout(terminalKeyboardFocusFallbackTimer)
+  terminalKeyboardFocusFallbackTimer = null
+}
+
+async function refreshThreadTerminalStatus(): Promise<void> {
+  try {
+    const status = await getThreadTerminalStatus()
+    isThreadTerminalAvailable.value = status.available
+    if (!status.available) {
+      homeTerminalOpen.value = false
+      if (selectedThreadId.value) {
+        setThreadTerminalOpen(selectedThreadId.value, false)
+      }
+    }
+  } catch {
+    isThreadTerminalAvailable.value = false
+    homeTerminalOpen.value = false
   }
 }
 
 function onDocumentPointerDown(event: PointerEvent): void {
-  if (!isSettingsOpen.value) return
   const target = event.target
   if (!(target instanceof Node)) return
+  if (isTerminalInputFocused.value) {
+    const targetElement = target instanceof Element ? target : target.parentElement
+    if (!targetElement?.closest('.thread-terminal-panel')) {
+      resetTerminalKeyboardFocusState()
+    }
+  }
+  if (!isSettingsOpen.value) return
   if (settingsPanelRef.value?.contains(target)) return
   if (settingsButtonRef.value?.contains(target)) return
   isSettingsOpen.value = false
@@ -2507,32 +3534,74 @@ function onSelectNewWorktreeBranch(branch: string): void {
   newWorktreeBaseBranch.value = branch.trim()
 }
 
+function canLoadBranchStateForCwd(cwd: string): boolean {
+  const currentCwd = composerCwd.value.trim()
+  if (!cwd || currentCwd !== cwd) return false
+  return route.name === 'thread' || (route.name === 'home' && isNewThreadCwdGitRepo.value)
+}
+
+function resetThreadBranchState(): void {
+  threadBranchesRequestId += 1
+  threadBranchCommitsRequestId += 1
+  threadBranchOptions.value = []
+  currentThreadBranch.value = null
+  currentThreadHeadSha.value = null
+  currentThreadHeadSubject.value = null
+  currentThreadHeadDate.value = null
+  isThreadDetachedHead.value = false
+  isThreadWorktreeDirty.value = false
+  threadBranchCommitsByBranch.value = {}
+  threadBranchCommitsLoadingFor.value = ''
+  threadBranchCommitsError.value = ''
+  threadBranchError.value = ''
+  isLoadingThreadBranches.value = false
+}
+
 async function loadThreadBranches(cwd: string): Promise<void> {
   const targetCwd = cwd.trim()
-  if (!targetCwd || route.name !== 'thread') {
-    threadBranchOptions.value = []
-    currentThreadBranch.value = null
+  if (!targetCwd) {
+    resetThreadBranchState()
     return
   }
+  const requestId = ++threadBranchesRequestId
   isLoadingThreadBranches.value = true
+  threadBranchError.value = ''
   try {
     const state = await getGitBranchState(targetCwd)
+    if (requestId !== threadBranchesRequestId || !canLoadBranchStateForCwd(targetCwd)) return
     threadBranchOptions.value = state.options
     currentThreadBranch.value = state.currentBranch
+    currentThreadHeadSha.value = state.headSha
+    currentThreadHeadSubject.value = state.headSubject
+    currentThreadHeadDate.value = state.headDate
+    isThreadDetachedHead.value = state.detached
+    isThreadWorktreeDirty.value = state.dirty
   } catch {
+    if (requestId !== threadBranchesRequestId || !canLoadBranchStateForCwd(targetCwd)) return
     threadBranchOptions.value = []
     currentThreadBranch.value = null
+    currentThreadHeadSha.value = null
+    currentThreadHeadSubject.value = null
+    currentThreadHeadDate.value = null
+    isThreadDetachedHead.value = false
+    isThreadWorktreeDirty.value = false
   } finally {
-    isLoadingThreadBranches.value = false
+    if (requestId === threadBranchesRequestId) {
+      isLoadingThreadBranches.value = false
+    }
   }
 }
 
-function onSelectContentHeaderBranch(value: string): void {
-  if (value === '__review__') {
-    isReviewPaneOpen.value = !isReviewPaneOpen.value
-    return
-  }
-  if (value === '__detached_head__') return
+function applyThreadGitState(state: { currentBranch: string | null; headSha: string | null; headSubject: string | null; headDate: string | null; detached: boolean; dirty: boolean }): void {
+  currentThreadBranch.value = state.currentBranch
+  currentThreadHeadSha.value = state.headSha
+  currentThreadHeadSubject.value = state.headSubject
+  currentThreadHeadDate.value = state.headDate
+  isThreadDetachedHead.value = state.detached
+  isThreadWorktreeDirty.value = state.dirty
+}
+
+function onCheckoutContentHeaderBranch(value: string): void {
   if (isSwitchingThreadBranch.value) return
   const targetBranch = value.trim()
   if (!targetBranch || targetBranch === (currentThreadBranch.value ?? '')) return
@@ -2540,50 +3609,144 @@ function onSelectContentHeaderBranch(value: string): void {
   if (!cwd) return
 
   isSwitchingThreadBranch.value = true
+  threadBranchError.value = ''
   void checkoutGitBranch(cwd, targetBranch)
     .then((branch) => {
       currentThreadBranch.value = branch || targetBranch
+      currentThreadHeadSha.value = null
+      currentThreadHeadSubject.value = null
+      currentThreadHeadDate.value = null
+      isThreadDetachedHead.value = false
       isReviewPaneOpen.value = false
       return loadThreadBranches(cwd)
     })
     .catch((error: unknown) => {
       const message = error instanceof Error ? error.message : 'Failed to switch branch'
-      window.alert(message)
+      void loadThreadBranches(cwd).finally(() => {
+        threadBranchError.value = message
+      })
     })
     .finally(() => {
       isSwitchingThreadBranch.value = false
     })
 }
 
-async function onCreateProject(): Promise<void> {
+function onResetContentHeaderBranchToCommit(payload: { branch: string; sha: string }): void {
+  if (isSwitchingThreadBranch.value) return
+  const targetBranch = payload.branch.trim()
+  const targetSha = payload.sha.trim()
+  const cwd = composerCwd.value.trim()
+  if (!targetBranch || !targetSha || !cwd) return
+  isSwitchingThreadBranch.value = true
+  threadBranchError.value = ''
+  void resetGitBranchToCommit(cwd, targetBranch, targetSha)
+    .then((state) => {
+      applyThreadGitState(state)
+      isReviewPaneOpen.value = false
+      return loadThreadBranches(cwd)
+    })
+    .catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : 'Failed to reset branch to commit'
+      void loadThreadBranches(cwd).finally(() => {
+        threadBranchError.value = message
+      })
+    })
+    .finally(() => {
+      isSwitchingThreadBranch.value = false
+    })
+}
+
+function loadThreadBranchCommits(branch: string): void {
+  const targetBranch = branch.trim()
+  const cwd = composerCwd.value.trim()
+  if (!targetBranch || !cwd || threadBranchCommitsLoadingFor.value === targetBranch) return
+  if (threadBranchCommitsByBranch.value[targetBranch]) return
+  const requestId = ++threadBranchCommitsRequestId
+  threadBranchCommitsLoadingFor.value = targetBranch
+  threadBranchCommitsError.value = ''
+  void getGitBranchCommits(cwd, targetBranch)
+    .then((commits) => {
+      if (requestId !== threadBranchCommitsRequestId || !canLoadBranchStateForCwd(cwd)) return
+      threadBranchCommitsByBranch.value = {
+        ...threadBranchCommitsByBranch.value,
+        [targetBranch]: commits,
+      }
+    })
+    .catch((error: unknown) => {
+      if (requestId !== threadBranchCommitsRequestId || !canLoadBranchStateForCwd(cwd)) return
+      threadBranchCommitsError.value = error instanceof Error ? error.message : 'Failed to load branch commits'
+    })
+    .finally(() => {
+      if (requestId === threadBranchCommitsRequestId && threadBranchCommitsLoadingFor.value === targetBranch) {
+        threadBranchCommitsLoadingFor.value = ''
+      }
+    })
+}
+
+async function onOpenProjectSetupModal(): Promise<void> {
   const baseDir = await resolveProjectBaseDirectory()
   if (!baseDir) return
 
   await refreshDefaultProjectName()
-  const suggestedName = defaultNewProjectName.value.trim() || 'New Project (1)'
-  const projectName = window.prompt(`Create project in ${baseDir}`, suggestedName)
-  if (projectName === null) return
+  projectSetupBaseDir.value = baseDir
+  projectNameDraft.value = defaultNewProjectName.value.trim() || 'New Project (1)'
+  githubCloneUrlDraft.value = ''
+  projectSetupError.value = ''
+  projectSetupMode.value = 'create'
+  isProjectSetupModalOpen.value = true
+  void nextTick(() => projectSetupPrimaryInputRef.value?.focus())
+}
 
-  const normalizedProjectName = projectName.trim()
-  if (!normalizedProjectName) return
+function onCloseProjectSetupModal(): void {
+  if (isProjectSetupSubmitting.value) return
+  isProjectSetupModalOpen.value = false
+  projectSetupError.value = ''
+}
 
+async function createProjectFromSetupModal(): Promise<string> {
+  const baseDir = projectSetupBaseDir.value.trim()
+  const normalizedProjectName = projectNameDraft.value.trim()
+  if (!isProjectNameDraftValid.value) {
+    throw new Error('Enter a single project folder name.')
+  }
   const targetPath = normalizeAbsolutePath(joinPath(baseDir, normalizedProjectName))
-  if (!targetPath) return
+  if (!targetPath) return ''
 
+  return openProjectRoot(targetPath, {
+    createIfMissing: true,
+    label: '',
+  })
+}
+
+async function cloneGithubRepositoryFromSetupModal(): Promise<string> {
+  const baseDir = projectSetupBaseDir.value.trim()
+  const normalizedRepoUrl = githubCloneUrlDraft.value.trim()
+  if (!normalizedRepoUrl) return ''
+
+  return cloneGithubRepository(normalizedRepoUrl, baseDir)
+}
+
+async function onSubmitProjectSetup(): Promise<void> {
+  if (!canSubmitProjectSetup.value || isProjectSetupSubmitting.value) return
+
+  projectSetupError.value = ''
+  isProjectSetupSubmitting.value = true
   try {
-    const normalizedPath = await openProjectRoot(targetPath, {
-      createIfMissing: true,
-      label: '',
-    })
+    const normalizedPath =
+      projectSetupMode.value === 'clone'
+        ? await cloneGithubRepositoryFromSetupModal()
+        : await createProjectFromSetupModal()
     if (!normalizedPath) return
 
     newThreadCwd.value = normalizedPath
-    pinProjectToTop(getPathLeafName(normalizedPath))
+    pinProjectToTop(getProjectOrderNameForPath(normalizedPath))
     await loadWorkspaceRootOptionsState()
     await refreshDefaultProjectName()
+    isProjectSetupModalOpen.value = false
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to create the project.'
-    window.alert(message)
+    projectSetupError.value = error instanceof Error ? error.message : 'Failed to create or clone project.'
+  } finally {
+    isProjectSetupSubmitting.value = false
   }
 }
 
@@ -2595,7 +3758,7 @@ async function onOpenExistingFolder(): Promise<void> {
   existingFolderFilter.value = ''
   await loadExistingFolderListing(startPath)
   if (!existingFolderError.value) {
-    void nextTick(() => existingFolderFilterInputRef.value?.focus())
+    void nextTick(() => existingFolderPathInputRef.value?.focus())
   }
 }
 
@@ -2605,6 +3768,7 @@ function onCloseExistingFolderPanel(): void {
   isExistingFolderLoading.value = false
   existingFolderError.value = ''
   existingFolderFilter.value = ''
+  existingFolderPathDraft.value = ''
   onCloseCreateFolderPanel()
 }
 
@@ -2621,13 +3785,32 @@ function onToggleHiddenFolders(): void {
 }
 
 function onRetryExistingFolderBrowse(): void {
-  const currentPath = existingFolderBrowsePath.value.trim()
+  const currentPath = resolvedExistingFolderPath.value
   if (!isExistingFolderPickerOpen.value || !currentPath || isExistingFolderLoading.value) return
   void loadExistingFolderListing(currentPath)
 }
 
-async function onConfirmExistingFolder(path = existingFolderBrowsePath.value): Promise<void> {
-  const targetPath = path.trim()
+function onExistingFolderPathBlur(): void {
+  if (!isExistingFolderPickerOpen.value || isExistingFolderLoading.value || isOpeningExistingFolder.value) return
+  const draftedPath = resolvedExistingFolderPath.value
+  const currentPath = existingFolderBrowsePath.value.trim()
+  if (!draftedPath || draftedPath === currentPath) return
+  void loadExistingFolderListing(draftedPath)
+}
+
+function onSubmitExistingFolderPath(): void {
+  const draftedPath = resolvedExistingFolderPath.value
+  const currentPath = existingFolderBrowsePath.value.trim()
+  if (!draftedPath) return
+  if (draftedPath !== currentPath) {
+    void loadExistingFolderListing(draftedPath)
+    return
+  }
+  void onConfirmExistingFolder(draftedPath)
+}
+
+async function onConfirmExistingFolder(path = resolvedExistingFolderPath.value): Promise<void> {
+  const targetPath = normalizePathForUi(path).trim()
   if (!targetPath) return
 
   existingFolderError.value = ''
@@ -2643,7 +3826,7 @@ async function onConfirmExistingFolder(path = existingFolderBrowsePath.value): P
     }
 
     newThreadCwd.value = normalizedPath
-    pinProjectToTop(getPathLeafName(normalizedPath))
+    pinProjectToTop(getProjectOrderNameForPath(normalizedPath))
     await loadWorkspaceRootOptionsState()
     await refreshDefaultProjectName()
     onCloseExistingFolderPanel()
@@ -2735,7 +3918,7 @@ async function applyLaunchProjectPathFromUrl(): Promise<boolean> {
     })
     if (!normalizedPath) return false
     newThreadCwd.value = normalizedPath
-    pinProjectToTop(getPathLeafName(normalizedPath))
+    pinProjectToTop(getProjectOrderNameForPath(normalizedPath))
     await router.replace({ name: 'home' })
     await loadWorkspaceRootOptionsState()
     const nextUrl = new URL(window.location.href)
@@ -2800,21 +3983,25 @@ async function loadWorkspaceRootOptionsState(): Promise<void> {
     workspaceRootOptionsState.value = {
       order: [...state.order],
       labels: { ...state.labels },
+      projectOrder: [...state.projectOrder],
     }
   } catch {
-    workspaceRootOptionsState.value = { order: [], labels: {} }
+    workspaceRootOptionsState.value = { order: [], labels: {}, projectOrder: [] }
   }
 }
 
 async function loadExistingFolderListing(path: string): Promise<void> {
   const requestId = ++existingFolderBrowseRequestId
-  existingFolderBrowsePath.value = normalizePathForUi(path).trim()
+  const normalizedRequestedPath = normalizePathForUi(path).trim()
+  existingFolderPathDraft.value = normalizedRequestedPath
+  existingFolderBrowsePath.value = normalizedRequestedPath
   existingFolderError.value = ''
   isExistingFolderLoading.value = true
 
   try {
     const listing = await listLocalDirectories(path, { showHidden: showHiddenFolders.value })
     if (requestId !== existingFolderBrowseRequestId) return
+    existingFolderPathDraft.value = listing.path
     existingFolderBrowsePath.value = listing.path
     existingFolderParentPath.value = listing.parentPath
     existingFolderEntries.value = listing.entries
@@ -2831,16 +4018,6 @@ async function loadExistingFolderListing(path: string): Promise<void> {
   }
 }
 
-async function loadTrendingProjects(): Promise<void> {
-  isTrendingProjectsLoading.value = true
-  try {
-    trendingProjects.value = await getGithubProjectsForScope(githubTipsScope.value, 6)
-  } catch {
-    trendingProjects.value = []
-  } finally {
-    isTrendingProjectsLoading.value = false
-  }
-}
 function joinPath(parent: string, child: string): string {
   const rawParent = normalizePathForUi(parent).trim()
   const normalizedChild = normalizePathForUi(child).trim().replace(/^[\\/]+/u, '')
@@ -2902,6 +4079,10 @@ function collapsePathSegments(rawSegments: readonly string[]): string[] {
   return segments
 }
 
+function onReorderQueuedMessage(payload: { draggedId: string; targetId: string }): void {
+  reorderQueuedMessage(payload.draggedId, payload.targetId)
+}
+
 function onSelectModel(modelId: string): void {
   setSelectedModelIdForThread(composerThreadContextId.value, modelId)
 }
@@ -2935,9 +4116,16 @@ function onRollback(payload: { turnId: string }): void {
   void rollbackSelectedThread(payload.turnId)
 }
 
+function onImplementPlan(payload: { turnId: string }): void {
+  if (isHomeRoute.value || !selectedThreadId.value) return
+  setSelectedCollaborationMode('default')
+  scheduleMobileConversationJumpToLatest()
+  void sendMessageToSelectedThread('Implement', [], [], 'steer', [], undefined, 'default')
+}
+
 
 function onExportChat(): void {
-  if (isHomeRoute.value || isSkillsRoute.value || typeof document === 'undefined') return
+  if (isHomeRoute.value || isSkillsRoute.value || isAutomationsRoute.value || typeof document === 'undefined') return
   if (!selectedThread.value || filteredMessages.value.length === 0) return
   const markdown = buildThreadMarkdown()
   const fileName = buildExportFileName()
@@ -3085,7 +4273,6 @@ function toggleDictationAutoSend(): void {
   safeLocalStorageSetItem(DICTATION_AUTO_SEND_KEY, dictationAutoSend.value ? '1' : '0')
 }
 
-
 function toggleGithubTrendingProjects(): void {
   showGithubTrendingProjects.value = !showGithubTrendingProjects.value
   safeLocalStorageSetItem(GITHUB_TRENDING_PROJECTS_KEY, showGithubTrendingProjects.value ? '1' : '0')
@@ -3110,7 +4297,7 @@ async function onProviderChange(provider: string): Promise<void> {
     } else if (provider === 'opencode-zen') {
       selectedProvider.value = 'opencode-zen'
       await setCustomProvider('', opencodeZenKey.value.trim(), {
-        wireApi: 'chat',
+        wireApi: 'responses',
         provider: 'opencode-zen',
       })
       freeModeEnabled.value = true
@@ -3184,7 +4371,7 @@ async function saveOpencodeZen(): Promise<void> {
   try {
     providerError.value = ''
     await setCustomProvider('', key, {
-      wireApi: 'chat',
+      wireApi: 'responses',
       provider: 'opencode-zen',
     })
     freeModeEnabled.value = true
@@ -3292,7 +4479,7 @@ function loadDictationLanguagePref(): string {
 }
 
 function buildDictationLanguageOptions(): Array<{ value: string; label: string }> {
-  const options: Array<{ value: string; label: string }> = [{ value: 'auto', label: 'Auto-detect' }]
+  const options: Array<{ value: string; label: string }> = [{ value: 'auto', label: t('Auto-detect') }]
   const seen = new Set<string>(['auto'])
   function formatLanguageLabel(value: string): string {
     const languageName = WHISPER_LANGUAGES[value] || value
@@ -3416,6 +4603,11 @@ async function initialize(): Promise<void> {
   startPolling()
 }
 
+function threadExistsInSidebar(threadId: string): boolean {
+  if (!threadId) return false
+  return projectGroups.value.some((group) => group.threads.some((thread) => thread.id === threadId))
+}
+
 async function syncThreadSelectionWithRoute(): Promise<void> {
   if (isRouteSyncInProgress.value) {
     hasPendingRouteSync = true
@@ -3427,7 +4619,7 @@ async function syncThreadSelectionWithRoute(): Promise<void> {
     do {
       hasPendingRouteSync = false
 
-      if (route.name === 'home' || route.name === 'skills') {
+      if (route.name === 'home' || route.name === 'skills' || route.name === 'automations') {
         if (selectedThreadId.value !== '') {
           await selectThread('')
         }
@@ -3439,6 +4631,14 @@ async function syncThreadSelectionWithRoute(): Promise<void> {
         if (!threadId) continue
 
         if (selectedThreadId.value !== threadId) {
+          if (!threadExistsInSidebar(threadId)) {
+            if (selectedThreadId.value) {
+              await router.replace({ name: 'thread', params: { threadId: selectedThreadId.value } })
+            } else {
+              await router.replace({ name: 'home' })
+            }
+            continue
+          }
           await selectThread(threadId)
         } else {
           void ensureThreadMessagesLoaded(threadId, { silent: true })
@@ -3466,11 +4666,27 @@ watch(
 )
 
 watch(
+  () => composerCwd.value,
+  () => {
+    void refreshTerminalQuickCommands()
+  },
+)
+
+watch(
+  () => [route.name, composerCwd.value] as const,
+  ([routeName, cwd]) => {
+    if (routeName !== 'thread') return
+    void loadGitRepoStatus(cwd)
+  },
+  { immediate: true },
+)
+
+watch(
   () => selectedThreadId.value,
   async (threadId) => {
     if (!hasInitialized.value) return
     if (isRouteSyncInProgress.value) return
-    if (isHomeRoute.value || isSkillsRoute.value) return
+    if (isHomeRoute.value || isSkillsRoute.value || isAutomationsRoute.value) return
 
     if (!threadId) {
       if (route.name !== 'home') {
@@ -3485,44 +4701,19 @@ watch(
 )
 
 watch(
-  () => githubTipsScope.value,
-  () => {
-    if (!showGithubTrendingProjects.value) return
-    void loadTrendingProjects()
-  },
-)
-
-watch(
-  () => showGithubTrendingProjects.value,
-  (enabled) => {
-    if (!enabled) {
-      trendingProjects.value = []
-      return
-    }
-    void loadTrendingProjects()
-  },
-)
-
-watch(
-  () => [hasInitialized.value, route.name, selectedThreadId.value] as const,
-  ([ready, routeName, threadId]) => {
-    if (!ready) return
-    if (routeName !== 'thread') return
-    if (!threadId) return
-    void ensureThreadMessagesLoaded(threadId, { silent: true })
-  },
-)
-
-watch(
   () => newThreadFolderOptions.value,
   (options) => {
     if (options.length === 0) {
       newThreadCwd.value = ''
+      void refreshDefaultProjectName()
       return
     }
-    const hasSelected = options.some((option) => option.value === newThreadCwd.value)
-    if (!hasSelected) {
-      newThreadCwd.value = options[0].value
+    const selected = newThreadCwd.value.trim()
+    if (selected) {
+      const hasSelected = options.some((option) => option.value === selected)
+      if (!hasSelected) {
+        newThreadCwd.value = ''
+      }
     }
     void refreshDefaultProjectName()
   },
@@ -3538,9 +4729,28 @@ watch(
 )
 
 watch(
+  () => [route.name, newThreadCwd.value] as const,
+  ([routeName, cwd]) => {
+    if (routeName !== 'home') return
+    void loadGitRepoStatus(cwd)
+  },
+  { immediate: true },
+)
+
+watch(
+  isNewThreadCwdGitRepo,
+  (isGitRepo) => {
+    if (!isGitRepo && newThreadRuntime.value === 'worktree') {
+      newThreadRuntime.value = 'local'
+    }
+  },
+  { immediate: true },
+)
+
+watch(
   () => [newThreadRuntime.value, newThreadCwd.value] as const,
   ([runtime, cwd]) => {
-    if (runtime !== 'worktree') return
+    if (runtime !== 'worktree' || !isNewThreadCwdGitRepo.value) return
     void loadWorktreeBranches(cwd)
   },
   { immediate: true },
@@ -3561,7 +4771,9 @@ watch(
       }
       return
     }
-    void loadWorktreeBranches(newThreadCwd.value)
+    if (isNewThreadCwdGitRepo.value) {
+      void loadWorktreeBranches(newThreadCwd.value)
+    }
   },
 )
 
@@ -3585,13 +4797,17 @@ watch(
 )
 
 watch(
-  () => [route.name, composerCwd.value] as const,
-  ([routeName, cwd]) => {
-    if (routeName !== 'thread') {
-      threadBranchOptions.value = []
-      currentThreadBranch.value = null
+  () => [route.name, composerCwd.value, isNewThreadCwdGitRepo.value] as const,
+  ([routeName, cwd, isNewThreadGitRepo]) => {
+    const shouldLoadBranches = routeName === 'thread' || (routeName === 'home' && isNewThreadGitRepo)
+    if (!shouldLoadBranches) {
+      resetThreadBranchState()
       return
     }
+    threadBranchCommitsRequestId += 1
+    threadBranchCommitsByBranch.value = {}
+    threadBranchCommitsLoadingFor.value = ''
+    threadBranchCommitsError.value = ''
     void loadThreadBranches(cwd)
   },
   { immediate: true },
@@ -3611,7 +4827,7 @@ watch(isMobile, (mobile) => {
   if (mobile && !isSidebarCollapsed.value) {
     setSidebarCollapsed(true)
   }
-})
+}, { immediate: true })
 
 async function submitFirstMessageForNewThread(
   text: string,
@@ -3625,8 +4841,8 @@ async function submitFirstMessageForNewThread(
     if (newThreadRuntime.value === 'worktree') {
       worktreeInitStatus.value = {
         phase: 'running',
-        title: 'Creating worktree',
-        message: 'Creating a worktree and running setup.',
+        title: t('Creating worktree'),
+        message: t('Creating a worktree and running setup.'),
       }
       try {
         const created = await createWorktree(newThreadCwd.value, newWorktreeBaseBranch.value)
@@ -3636,11 +4852,15 @@ async function submitFirstMessageForNewThread(
       } catch {
         worktreeInitStatus.value = {
           phase: 'error',
-          title: 'Worktree setup failed',
-          message: 'Unable to create worktree. Try again or switch to Local project.',
+          title: t('Worktree setup failed'),
+          message: t('Unable to create worktree. Try again or switch to Local project.'),
         }
         return
       }
+    } else if (!targetCwd.trim()) {
+      const directory = await createProjectlessThreadDirectory(text)
+      targetCwd = directory.cwd
+      newThreadCwd.value = directory.cwd
     }
     const threadId = await sendMessageToNewThread(text, targetCwd, imageUrls, skills, fileAttachments)
     if (!threadId) return
@@ -3648,6 +4868,45 @@ async function submitFirstMessageForNewThread(
     scheduleMobileConversationJumpToLatest()
   } catch {
     // Error is already reflected in state.
+  }
+}
+
+function buildDirectoryTryPrompt(payload: DirectoryTryItemPayload): string {
+  if (payload.prompt?.trim()) return payload.prompt.trim()
+  const label = payload.displayName.trim() || payload.name.trim()
+  const itemType = payload.kind === 'skill'
+    ? 'skill'
+    : payload.kind === 'plugin'
+      ? 'plugin'
+      : payload.kind === 'composio'
+        ? 'Composio connector'
+        : 'app'
+  return `Test ${label} ${itemType}. Give me a list of what it can do and one useful example.`
+}
+
+function getDirectoryTryItemKey(payload: DirectoryTryItemPayload): string {
+  return `${payload.kind}:${payload.name}:${payload.skillPath ?? ''}`
+}
+
+async function onTryDirectoryItem(payload: DirectoryTryItemPayload): Promise<void> {
+  if (directoryTryInFlightKey.value) return
+  directoryTryInFlightKey.value = getDirectoryTryItemKey(payload)
+  const text = buildDirectoryTryPrompt(payload)
+  const skills = payload.attachedSkills?.length
+    ? payload.attachedSkills
+    : payload.kind === 'skill' && payload.skillPath
+    ? [{ name: payload.name, path: payload.skillPath }]
+    : []
+  try {
+    const targetCwd = directoryCwd.value.trim() || composerCwd.value.trim()
+    const threadId = await sendMessageToNewThread(text, targetCwd, [], skills, [])
+    if (!threadId) return
+    await router.replace({ name: 'thread', params: { threadId } })
+    scheduleMobileConversationJumpToLatest()
+  } catch {
+    // Error is already reflected in shared thread state.
+  } finally {
+    directoryTryInFlightKey.value = ''
   }
 }
 
@@ -3699,6 +4958,12 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
   @apply h-full min-h-0 min-w-0 w-full flex flex-col overflow-y-hidden overflow-x-hidden bg-white;
 }
 
+.content-root.is-virtual-keyboard-open {
+  height: var(--visual-viewport-height);
+  max-height: var(--visual-viewport-height);
+  transform: translateY(var(--visual-viewport-offset-top));
+}
+
 .sidebar-thread-controls-host {
   @apply mt-1 -translate-y-px px-2 pb-1;
 }
@@ -3736,19 +5001,88 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 }
 
 .sidebar-skills-link {
-  @apply mx-2 flex items-center rounded-lg border-0 bg-transparent px-2 py-1.5 text-sm text-zinc-600 transition hover:bg-zinc-200 hover:text-zinc-900 cursor-pointer;
+  @apply mx-2 flex items-center gap-3 rounded-2xl border border-transparent bg-transparent px-3 py-2.5 text-left text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-950 cursor-pointer;
 }
 
 .sidebar-skills-link.is-active {
-  @apply bg-zinc-200 text-zinc-900 font-medium;
+  @apply border-transparent bg-zinc-100 text-zinc-950;
+}
+
+.sidebar-skills-link-icon {
+  @apply flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-emerald-600 text-white;
+}
+
+.sidebar-automations-link-icon {
+  @apply bg-amber-500;
+}
+
+.sidebar-skills-link-icon :deep(svg) {
+  @apply h-5 w-5;
+}
+
+.sidebar-skills-link-copy {
+  @apply flex min-w-0 flex-col;
+}
+
+.sidebar-skills-link-title {
+  @apply truncate text-sm font-semibold leading-5 tracking-[-0.01em];
+}
+
+.sidebar-skills-link-subtitle {
+  @apply truncate text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500;
 }
 
 .sidebar-thread-controls-header-host {
   @apply ml-1;
 }
 
+.skills-route-header-icon {
+  @apply flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-[0_16px_32px_-20px_rgba(5,150,105,0.9)];
+}
+
+.automations-route-header-icon {
+  @apply bg-amber-500 shadow-[0_16px_32px_-20px_rgba(245,158,11,0.9)];
+}
+
+.skills-route-header-icon :deep(svg) {
+  @apply h-4.5 w-4.5;
+}
+
+:global(:root.dark) .sidebar-skills-link-title {
+  @apply text-zinc-50;
+}
+
+:global(:root.dark) .sidebar-skills-link-subtitle {
+  @apply text-zinc-400;
+}
+
 .content-body {
   @apply flex-1 min-h-0 min-w-0 w-full flex flex-col gap-2 sm:gap-3 pt-1 pb-2 sm:pb-4 overflow-x-hidden;
+}
+
+.content-root.is-virtual-keyboard-open .content-body {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+.content-root.is-virtual-keyboard-open .content-grid {
+  gap: 0.5rem;
+}
+
+.content-root.is-virtual-keyboard-open .content-thread {
+  min-height: 0;
+}
+
+.content-root.is-virtual-keyboard-open .composer-with-queue {
+  gap: 0.375rem;
+  padding-bottom: max(0.25rem, env(safe-area-inset-bottom));
+}
+
+.content-root.is-virtual-keyboard-open .content-thread-terminal-panel {
+  min-height: 0;
+}
+
+.content-root.is-virtual-keyboard-open .content-keyboard-spacer {
+  display: none;
 }
 
 
@@ -3773,28 +5107,68 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
   @apply w-full shrink-0 px-2 sm:px-6 flex flex-col gap-2;
 }
 
+.composer-runtime-error {
+  @apply flex w-full items-start justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-800 shadow-sm;
+}
+
+.visible-error-with-feedback {
+  @apply flex items-start justify-between gap-3;
+}
+
+.visible-error-feedback {
+  @apply shrink-0 rounded-full border border-rose-200 bg-white px-2.5 py-1 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 focus:outline-none focus:ring-2 focus:ring-rose-300;
+}
+
 .content-thread-terminal-panel {
   @apply w-full;
 }
 
-.content-header-terminal-toggle {
-  @apply flex h-8 items-center gap-1.5 rounded-full border border-zinc-200 bg-white px-2.5 text-xs text-zinc-700 transition hover:bg-zinc-50;
+.content-header-terminal-command {
+  @apply max-w-48;
 }
 
-.content-header-terminal-toggle[aria-pressed='true'] {
+.content-header-terminal-command :deep(.composer-dropdown-trigger) {
+  @apply h-8 rounded-full border border-zinc-200 bg-white px-3 text-xs text-zinc-700 outline-none transition hover:bg-zinc-50 focus:border-zinc-300;
+}
+
+.content-header-terminal-command :deep(.composer-dropdown-prefix-icon) {
+  @apply h-4 w-4 text-zinc-500;
+}
+
+.content-header-terminal-command.is-open :deep(.composer-dropdown-trigger) {
   @apply border-zinc-300 bg-zinc-100 text-zinc-950;
 }
 
-.content-header-terminal-toggle-icon {
-  @apply h-4 w-4;
+.content-header-terminal-command :deep(.composer-dropdown-menu-wrap) {
+  left: auto;
+  right: 0;
 }
 
-.content-header-terminal-shortcut {
-  @apply hidden text-[11px] text-zinc-500 sm:inline;
+.content-header-terminal-command :deep(.composer-dropdown-menu) {
+  width: min(18rem, calc(100vw - 1rem));
+  min-width: min(14rem, calc(100vw - 1rem));
+}
+
+.content-header-terminal-command :deep(.composer-dropdown-option) {
+  @apply block truncate;
+}
+
+.content-header-terminal-command :deep(.composer-dropdown-trigger) {
+  @apply rounded-full border border-zinc-200 bg-white px-2.5 py-1.5 text-xs text-zinc-700 transition hover:bg-zinc-50;
+}
+
+.content-header-terminal-command :deep(.composer-dropdown-prefix-icon),
+.content-header-branch-dropdown :deep(.composer-dropdown-prefix-icon) {
+  @apply h-4 w-4 text-zinc-600;
+}
+
+.content-header-terminal-command :deep(.composer-dropdown-trigger),
+.content-header-branch-dropdown :deep(.composer-dropdown-trigger) {
+  @apply gap-0.5;
 }
 
 .content-header-branch-dropdown :deep(.composer-dropdown-trigger) {
-  @apply rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs text-zinc-700 transition hover:bg-zinc-50;
+  @apply rounded-full border border-zinc-200 bg-white px-2.5 py-1.5 text-xs text-zinc-700 transition hover:bg-zinc-50;
 }
 
 .content-header-branch-dropdown :deep(.composer-dropdown-value) {
@@ -3844,6 +5218,90 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 
 .new-thread-folder-actions {
   @apply mt-3 flex w-full max-w-3xl flex-wrap items-center justify-center gap-2;
+}
+
+.new-thread-launch-card {
+  @apply mt-4 w-full max-w-3xl rounded-[28px] border border-emerald-200 bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.2),_transparent_42%),linear-gradient(135deg,_#f4fff8,_#ffffff_58%)] px-5 py-5 text-left shadow-[0_18px_50px_-28px_rgba(5,150,105,0.45)];
+}
+
+.new-thread-launch-card-copy {
+  @apply flex flex-col gap-2;
+}
+
+.new-thread-launch-card-topline {
+  @apply flex items-center gap-2;
+}
+
+.new-thread-launch-card-badge {
+  @apply flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl bg-emerald-700 text-white shadow-[0_12px_28px_-18px_rgba(5,150,105,0.9)];
+}
+
+.new-thread-launch-card-badge :deep(svg) {
+  @apply h-4 w-4;
+}
+
+.new-thread-launch-card-eyebrow {
+  @apply m-0 text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-700;
+}
+
+.new-thread-launch-card-title {
+  @apply m-0 text-xl font-semibold leading-tight text-zinc-950 sm:text-2xl;
+}
+
+.new-thread-launch-card-text {
+  @apply m-0 max-w-2xl text-sm leading-6 text-zinc-700 sm:text-[15px];
+}
+
+.new-thread-launch-card-actions {
+  @apply mt-4 flex flex-wrap items-center gap-2;
+}
+
+.new-thread-launch-card-pills {
+  @apply mt-1 flex flex-wrap gap-2;
+}
+
+.new-thread-launch-card-pill {
+  @apply inline-flex items-center rounded-full border border-emerald-100 bg-white/80 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-700;
+}
+
+.new-thread-launch-card-button {
+  @apply inline-flex h-10 items-center justify-center rounded-full border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50;
+}
+
+.new-thread-launch-card-button-primary {
+  @apply border-emerald-700 bg-emerald-700 text-white hover:bg-emerald-600;
+}
+
+:global(:root.dark) .new-thread-launch-card {
+  @apply border-emerald-900/80 bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.2),_transparent_38%),linear-gradient(135deg,_rgba(6,78,59,0.32),_rgba(24,24,27,0.96)_58%)] shadow-[0_24px_64px_-34px_rgba(16,185,129,0.35)];
+}
+
+:global(:root.dark) .new-thread-launch-card-eyebrow {
+  @apply text-emerald-300;
+}
+
+:global(:root.dark) .new-thread-launch-card-badge {
+  @apply bg-emerald-500 text-white;
+}
+
+:global(:root.dark) .new-thread-launch-card-title {
+  @apply text-zinc-50;
+}
+
+:global(:root.dark) .new-thread-launch-card-text {
+  @apply text-zinc-300;
+}
+
+:global(:root.dark) .new-thread-launch-card-pill {
+  @apply border-emerald-900 bg-zinc-900/70 text-emerald-300;
+}
+
+:global(:root.dark) .new-thread-launch-card-button {
+  @apply border-zinc-700 bg-zinc-900 text-zinc-100 hover:bg-zinc-800;
+}
+
+:global(:root.dark) .new-thread-launch-card-button-primary {
+  @apply border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-500;
 }
 
 .new-thread-folder-action {
@@ -3922,6 +5380,10 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
   @apply flex w-full max-w-3xl max-h-[90vh] flex-col gap-2 overflow-y-auto rounded-2xl border border-zinc-200 bg-white px-4 py-4 text-left shadow-xl;
 }
 
+.new-thread-project-modal {
+  @apply flex w-full max-w-xl max-h-[90vh] flex-col gap-3 overflow-y-auto rounded-2xl border border-zinc-200 bg-white px-4 py-4 text-left shadow-xl;
+}
+
 .new-thread-open-folder-header {
   @apply flex items-center justify-between gap-3;
 }
@@ -3943,11 +5405,31 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 }
 
 .new-thread-open-folder-path {
-  @apply m-0 min-w-0 flex-1 rounded-xl bg-zinc-100 px-3 py-2 font-mono text-xs text-zinc-700 break-all;
+  @apply min-w-0 flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-700 outline-none transition focus:border-zinc-400;
 }
 
 .new-thread-open-folder-actions {
   @apply flex flex-wrap items-center gap-2;
+}
+
+.new-thread-project-mode-tabs {
+  @apply grid grid-cols-2 rounded-xl border border-zinc-200 bg-zinc-50 p-1;
+}
+
+.new-thread-project-mode-tab {
+  @apply inline-flex h-9 items-center justify-center rounded-lg border-0 bg-transparent px-3 text-sm font-medium text-zinc-600 transition hover:bg-white hover:text-zinc-900 disabled:cursor-default disabled:opacity-60;
+}
+
+.new-thread-project-mode-tab.is-active {
+  @apply bg-white text-zinc-950 shadow-sm;
+}
+
+.new-thread-project-field {
+  @apply flex flex-col gap-1.5;
+}
+
+.new-thread-project-modal-actions {
+  @apply mt-1 flex flex-wrap justify-end gap-2;
 }
 
 .new-thread-open-folder-toggle {
@@ -4089,71 +5571,6 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 
 .new-thread-runtime-help {
   @apply mt-2 mb-0 max-w-3xl text-center text-xs text-zinc-500;
-}
-
-.new-thread-trending {
-  @apply mt-4 w-full max-w-3xl;
-}
-
-.new-thread-trending-header {
-  @apply mb-2 flex items-center justify-between gap-2;
-}
-
-.new-thread-trending-title {
-  @apply m-0 text-xs font-medium uppercase tracking-wide text-zinc-500;
-}
-
-.new-thread-trending-scope-dropdown {
-  @apply min-w-40;
-}
-
-.new-thread-trending-scope-dropdown :deep(.composer-dropdown-trigger) {
-  @apply h-8 rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700;
-}
-
-.new-thread-trending-empty {
-  @apply m-0 text-sm text-zinc-500;
-}
-
-.new-thread-trending-list {
-  @apply grid grid-cols-2 sm:grid-cols-3 gap-2;
-  grid-template-rows: repeat(2, minmax(0, 1fr));
-}
-
-.new-thread-trending-tip {
-  @apply flex cursor-pointer flex-col items-start gap-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left transition hover:border-zinc-300 hover:bg-zinc-50;
-  container-type: inline-size;
-}
-
-.new-thread-trending-tip-name {
-  @apply w-full truncate text-sm font-medium text-zinc-900;
-}
-
-.new-thread-trending-tip-name-owner {
-  @apply inline;
-}
-
-.new-thread-trending-tip-name-slash {
-  @apply inline;
-}
-
-.new-thread-trending-tip-name-repo {
-  @apply inline;
-}
-
-@container (max-width: 220px) {
-  .new-thread-trending-tip-name-owner,
-  .new-thread-trending-tip-name-slash {
-    display: none;
-  }
-}
-
-.new-thread-trending-tip-meta {
-  @apply text-xs text-zinc-500;
-}
-
-.new-thread-trending-tip-description {
-  @apply line-clamp-2 text-xs text-zinc-600;
 }
 
 .worktree-init-status {
@@ -4340,8 +5757,102 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
   @apply shrink-0 rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-xs text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-default disabled:opacity-60;
 }
 
+.sidebar-settings-account-login {
+  @apply mb-2 flex items-center gap-2;
+}
+
+.sidebar-settings-account-login-button {
+  @apply shrink-0 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-default disabled:opacity-60;
+}
+
+.sidebar-settings-account-login-link {
+  @apply min-w-0 truncate text-xs text-blue-600 hover:text-blue-700 hover:underline;
+}
+
 .sidebar-settings-account-empty {
   @apply text-xs text-zinc-500;
+}
+
+.codex-login-modal-backdrop {
+  @apply fixed inset-0 z-[100] flex items-center justify-center bg-black/35 px-4;
+}
+
+.codex-login-modal {
+  @apply flex w-full max-w-md flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-4 shadow-2xl;
+}
+
+.codex-login-modal-header {
+  @apply flex items-center justify-between gap-3;
+}
+
+.codex-login-modal-title {
+  @apply text-base font-semibold text-zinc-900;
+}
+
+.codex-login-modal-close {
+  @apply inline-flex h-7 w-7 items-center justify-center rounded-full border border-zinc-200 bg-white text-lg leading-none text-zinc-600 transition hover:bg-zinc-50 disabled:cursor-default disabled:opacity-60;
+}
+
+.codex-login-modal-copy {
+  @apply text-sm leading-5 text-zinc-600;
+}
+
+.codex-login-modal-link {
+  @apply min-w-0 truncate text-sm text-blue-600 hover:text-blue-700 hover:underline;
+}
+
+.codex-login-modal-input {
+  @apply w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-400 disabled:cursor-default disabled:opacity-60;
+}
+
+.codex-login-modal-error {
+  @apply rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-700;
+}
+
+.codex-login-modal-actions {
+  @apply flex items-center justify-end gap-2;
+}
+
+.codex-login-modal-cancel,
+.codex-login-modal-submit {
+  @apply rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-default disabled:opacity-60;
+}
+
+.codex-login-modal-submit {
+  @apply border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800;
+}
+
+:global(:root.dark) .codex-login-modal {
+  @apply border-zinc-700 bg-zinc-900;
+}
+
+:global(:root.dark) .codex-login-modal-title {
+  @apply text-zinc-100;
+}
+
+:global(:root.dark) .codex-login-modal-close,
+:global(:root.dark) .codex-login-modal-cancel {
+  @apply border-zinc-600 bg-zinc-800 text-zinc-200 hover:bg-zinc-700;
+}
+
+:global(:root.dark) .codex-login-modal-copy {
+  @apply text-zinc-300;
+}
+
+:global(:root.dark) .codex-login-modal-link {
+  @apply text-sky-300 hover:text-sky-200;
+}
+
+:global(:root.dark) .codex-login-modal-input {
+  @apply border-zinc-600 bg-zinc-950 text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-400;
+}
+
+:global(:root.dark) .codex-login-modal-error {
+  @apply bg-rose-950/40 text-rose-200;
+}
+
+:global(:root.dark) .codex-login-modal-submit {
+  @apply border-zinc-200 bg-zinc-100 text-zinc-900 hover:bg-white;
 }
 
 .sidebar-settings-account-list {

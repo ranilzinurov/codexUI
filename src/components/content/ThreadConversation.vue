@@ -14,10 +14,10 @@
         <button
           type="button"
           class="load-more-button"
-          :disabled="isLoadingMore"
+          :disabled="isLoadingMore || isLoadingPersistedAbove"
           @click="loadMoreAbove"
         >
-          {{ isLoadingMore ? 'Loading…' : 'Load earlier messages' }}
+          {{ isLoadingMore || isLoadingPersistedAbove ? 'Loading…' : 'Load earlier messages' }}
         </button>
       </li>
       <template v-for="message in visibleMessages" :key="message.id">
@@ -230,7 +230,24 @@
                 </span>
               </div>
 
+              <div v-if="message.skills && message.skills.length > 0" class="message-skill-attachments">
+                <a
+                  v-for="skill in message.skills"
+                  :key="`${message.id}:${skill.path}`"
+                  class="message-skill-chip"
+                  :href="toBrowseUrl(skill.path)"
+                  :title="skill.path"
+                >
+                  <span class="message-skill-chip-prefix">Skill</span>
+                  <span class="message-skill-chip-name">{{ skill.name }}</span>
+                </a>
+              </div>
+
               <article v-if="message.text.length > 0" class="message-card" :data-role="message.role">
+                <div v-if="message.isAutomationRun" class="automation-message-label">
+                  <span>Sent via automation</span>
+                  <code v-if="message.automationDisplayName">{{ message.automationDisplayName }}</code>
+                </div>
                 <div v-if="message.messageType === 'worked'" class="worked-separator-wrap" aria-live="polite">
                   <button type="button" class="worked-separator" @click="toggleWorkedExpand(message)">
                     <span class="worked-chevron" :class="{ 'worked-chevron-open': isWorkedExpanded(message) }">▶</span>
@@ -309,11 +326,24 @@
                     </li>
                   </ol>
                   <div v-else class="plan-card-markdown" v-html="renderMarkdownBlocksAsHtml(message.text)" />
+                  <div v-if="showImplementPlanButton(message)" class="plan-card-actions">
+                    <button
+                      type="button"
+                      class="plan-card-implement-button"
+                      @click="implementPlan(message)"
+                    >
+                      Implement plan
+                    </button>
+                  </div>
                 </div>
-                <div v-else class="message-text-flow">
-                  <template v-for="(block, blockIndex) in parseMessageBlocks(message.text)" :key="`block-${blockIndex}`">
+                <div
+                  v-else
+                  class="message-text-flow"
+                  v-memo="[message.id, message.text, props.cwd, highlightCacheVersion, markdownImageFailureVersion]"
+                >
+                  <template v-for="(block, blockIndex) in getMessageBlocks(message)" :key="`block-${blockIndex}`">
                     <p v-if="block.kind === 'paragraph'" class="message-text">
-                      <template v-for="(segment, segmentIndex) in parseInlineSegments(block.value)" :key="`seg-${blockIndex}-${segmentIndex}`">
+                      <template v-for="(segment, segmentIndex) in getInlineSegments(block.value)" :key="`seg-${blockIndex}-${segmentIndex}`">
                         <span v-if="segment.kind === 'text'">{{ segment.value }}</span>
                         <strong v-else-if="segment.kind === 'bold'" class="message-bold-text">{{ segment.value }}</strong>
                         <em v-else-if="segment.kind === 'italic'" class="message-italic-text">{{ segment.value }}</em>
@@ -347,7 +377,7 @@
                       class="message-heading"
                       :class="headingClass(block.level)"
                     >
-                      <template v-for="(segment, segmentIndex) in parseInlineSegments(block.value)" :key="`heading-seg-${blockIndex}-${segmentIndex}`">
+                      <template v-for="(segment, segmentIndex) in getInlineSegments(block.value)" :key="`heading-seg-${blockIndex}-${segmentIndex}`">
                         <span v-if="segment.kind === 'text'">{{ segment.value }}</span>
                         <strong v-else-if="segment.kind === 'bold'" class="message-bold-text">{{ segment.value }}</strong>
                         <em v-else-if="segment.kind === 'italic'" class="message-italic-text">{{ segment.value }}</em>
@@ -376,7 +406,7 @@
                       </template>
                     </component>
                     <blockquote v-else-if="block.kind === 'blockquote'" class="message-blockquote">
-                      <template v-for="(segment, segmentIndex) in parseInlineSegments(block.value)" :key="`quote-seg-${blockIndex}-${segmentIndex}`">
+                      <template v-for="(segment, segmentIndex) in getInlineSegments(block.value)" :key="`quote-seg-${blockIndex}-${segmentIndex}`">
                         <span v-if="segment.kind === 'text'">{{ segment.value }}</span>
                         <strong v-else-if="segment.kind === 'bold'" class="message-bold-text">{{ segment.value }}</strong>
                         <em v-else-if="segment.kind === 'italic'" class="message-italic-text">{{ segment.value }}</em>
@@ -413,7 +443,7 @@
                       <li v-for="(item, itemIndex) in block.items" :key="`task-${blockIndex}-${itemIndex}`" class="message-task-item">
                         <span class="message-task-checkbox" :data-checked="item.checked">{{ item.checked ? '☑' : '☐' }}</span>
                         <div class="message-list-item-text">
-                          <template v-for="(segment, segmentIndex) in parseInlineSegments(item.text)" :key="`task-seg-${blockIndex}-${itemIndex}-${segmentIndex}`">
+                          <template v-for="(segment, segmentIndex) in getInlineSegments(item.text)" :key="`task-seg-${blockIndex}-${itemIndex}-${segmentIndex}`">
                             <span v-if="segment.kind === 'text'">{{ segment.value }}</span>
                             <strong v-else-if="segment.kind === 'bold'" class="message-bold-text">{{ segment.value }}</strong>
                             <em v-else-if="segment.kind === 'italic'" class="message-italic-text">{{ segment.value }}</em>
@@ -462,7 +492,7 @@
                               class="message-table-head-cell"
                               :style="{ textAlign: block.alignments[cellIndex] ?? 'left' }"
                             >
-                              <template v-for="(segment, segmentIndex) in parseInlineSegments(cell)" :key="`th-seg-${blockIndex}-${cellIndex}-${segmentIndex}`">
+                              <template v-for="(segment, segmentIndex) in getInlineSegments(cell)" :key="`th-seg-${blockIndex}-${cellIndex}-${segmentIndex}`">
                                 <span v-if="segment.kind === 'text'">{{ segment.value }}</span>
                                 <strong v-else-if="segment.kind === 'bold'" class="message-bold-text">{{ segment.value }}</strong>
                                 <em v-else-if="segment.kind === 'italic'" class="message-italic-text">{{ segment.value }}</em>
@@ -500,7 +530,7 @@
                               class="message-table-cell"
                               :style="{ textAlign: block.alignments[cellIndex] ?? 'left' }"
                             >
-                              <template v-for="(segment, segmentIndex) in parseInlineSegments(cell)" :key="`td-seg-${blockIndex}-${rowIndex}-${cellIndex}-${segmentIndex}`">
+                              <template v-for="(segment, segmentIndex) in getInlineSegments(cell)" :key="`td-seg-${blockIndex}-${rowIndex}-${cellIndex}-${segmentIndex}`">
                                 <span v-if="segment.kind === 'text'">{{ segment.value }}</span>
                                 <strong v-else-if="segment.kind === 'bold'" class="message-bold-text">{{ segment.value }}</strong>
                                 <em v-else-if="segment.kind === 'italic'" class="message-italic-text">{{ segment.value }}</em>
@@ -545,7 +575,7 @@
                           <IconTablerCopy class="icon-svg message-code-copy-icon" />
                         </button>
                       </div>
-                      <pre class="message-code-pre"><code class="hljs" v-html="renderHighlightedCodeAsHtml(block.language, block.value)"></code></pre>
+                      <pre class="message-code-pre"><code class="hljs" v-html="renderCachedHighlightedCodeAsHtml(block.language, block.value)"></code></pre>
                     </div>
                     <hr v-else-if="block.kind === 'thematicBreak'" class="message-divider" />
                     <p v-else-if="isMarkdownImageFailed(message.id, blockIndex)" class="message-text">{{ block.markdown }}</p>
@@ -693,7 +723,10 @@
               >
                 {{ liveOverlay.reasoningText }}
               </p>
-              <p v-if="liveOverlay.errorText" class="live-overlay-error">{{ liveOverlay.errorText }}</p>
+              <div v-if="liveOverlay.errorText" class="live-overlay-error">
+                <span>{{ liveOverlay.errorText }}</span>
+                <a class="live-overlay-feedback" :href="feedbackMailto" @click="prepareLiveErrorFeedback($event, liveOverlay.errorText)">Send feedback</a>
+              </div>
             </article>
           </div>
         </div>
@@ -865,7 +898,8 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { ThreadScrollState, UiFileChange, UiLiveOverlay, UiMessage, UiPlanStep, UiServerRequest } from '../../types/codex'
+import type { UiFileChange, UiLiveOverlay, UiMessage, UiPlanStep, UiServerRequest } from '../../types/codex'
+import { useFeedbackDiagnostics } from '../../composables/useFeedbackDiagnostics'
 import { useMobile } from '../../composables/useMobile'
 import { resolveBackendHttpUrl } from '../../backendUrl'
 
@@ -892,6 +926,16 @@ const fileLinkContextMenuY = ref(0)
 const fileLinkContextBrowseUrl = ref('')
 const fileLinkContextEditUrl = ref('')
 const { isMobile } = useMobile()
+const { buildFeedbackMailto, feedbackMailtoBase, recordVisibleFailure } = useFeedbackDiagnostics()
+const feedbackMailto = feedbackMailtoBase()
+
+function prepareLiveErrorFeedback(event: MouseEvent, message: string): void {
+  recordVisibleFailure(message)
+  const target = event.currentTarget
+  if (target instanceof HTMLAnchorElement) {
+    target.href = buildFeedbackMailto()
+  }
+}
 
 function parsePlanFromMessageText(text: string): { explanation: string; steps: UiPlanStep[] } | null {
   const normalized = text.replace(/\r\n/g, '\n').trim()
@@ -950,6 +994,31 @@ function isAssistantWorkDetail(message: UiMessage): boolean {
 
 function isPlanMessage(message: UiMessage): boolean {
   return message.messageType === 'plan' || message.messageType === 'plan.live'
+}
+
+function buildPlanMessageText(explanation: string, steps: UiPlanStep[]): string {
+  const lines: string[] = []
+  if (explanation.trim()) {
+    lines.push(explanation.trim())
+  }
+  for (const step of steps) {
+    const marker = step.status === 'completed' ? 'x' : step.status === 'inProgress' ? '~' : ' '
+    lines.push(`- [${marker}] ${step.step}`)
+  }
+  return lines.join('\n').trim()
+}
+
+function showImplementPlanButton(message: UiMessage): boolean {
+  return isPlanMessage(message)
+    && message.messageType !== 'plan.live'
+    && message.role === 'assistant'
+    && Boolean(message.turnId)
+}
+
+function implementPlan(message: UiMessage): void {
+  const turnId = message.turnId?.trim() ?? ''
+  if (!turnId) return
+  emit('implementPlan', { turnId })
 }
 
 function isFileChangeMessage(message: UiMessage): boolean {
@@ -1276,13 +1345,15 @@ const props = defineProps<{
   isLoading: boolean
   activeThreadId: string
   cwd: string
-  scrollState: ThreadScrollState | null
+  hasMorePersistedAbove?: boolean
+  isLoadingPersistedAbove?: boolean
+  loadEarlierMessages?: (threadId: string) => Promise<void>
 }>()
 
 const emit = defineEmits<{
-  updateScrollState: [payload: { threadId: string; state: ThreadScrollState }]
   forkThread: [payload: { threadId: string; turnIndex: number }]
   rollback: [payload: { turnId: string }]
+  implementPlan: [payload: { turnId: string }]
   respondServerRequest: [payload: { id: number; result?: unknown; error?: { code?: number; message: string } }]
 }>()
 
@@ -1293,8 +1364,7 @@ const copiedResponseAnchorId = ref('')
 const toolQuestionAnswers = ref<Record<string, string>>({})
 const toolQuestionOtherAnswers = ref<Record<string, string>>({})
 const mcpElicitationAnswers = ref<Record<string, string | number | boolean | string[]>>({})
-const localScrollState = ref<ThreadScrollState | null>(null)
-const autoFollowOutput = ref(props.scrollState?.isAtBottom !== false)
+const autoFollowOutput = ref(true)
 const BOTTOM_THRESHOLD_PX = 16
 const CODE_LANGUAGE_ALIASES: Record<string, string> = {
   js: 'javascript',
@@ -1341,16 +1411,51 @@ type MessageBlock =
   | { kind: 'thematicBreak' }
   | { kind: 'image'; url: string; alt: string; markdown: string }
 
-let scrollRestoreFrame = 0
+let conversationScrollFrame = 0
 let bottomLockFrame = 0
 let bottomLockFramesLeft = 0
 let copiedMessageResetTimer: ReturnType<typeof setTimeout> | null = null
 let copiedCodeResetTimer: ReturnType<typeof setTimeout> | null = null
 let copiedCodeButton: HTMLButtonElement | null = null
+let conversationScrollPromise: Promise<void> | null = null
 const trackedPendingImages = new WeakSet<HTMLImageElement>()
-const failedMarkdownImageKeys = ref<Set<string>>(new Set())
 const highlightJsModule = ref<HighlightJsModule | null>(null)
+const highlightCacheVersion = ref(0)
+const markdownImageFailureVersion = ref(0)
 let highlightJsLoader: Promise<void> | null = null
+const MESSAGE_BLOCK_CACHE_LIMIT = 300
+const INLINE_SEGMENT_CACHE_LIMIT = 1200
+const MARKDOWN_HTML_CACHE_LIMIT = 300
+const HIGHLIGHT_HTML_CACHE_LIMIT = 250
+
+type MessageBlockCacheEntry = {
+  text: string
+  cwd: string
+  blocks: MessageBlock[]
+}
+
+type MarkdownHtmlCacheEntry = {
+  text: string
+  cwd: string
+  highlightVersion: number
+  html: string
+}
+
+const messageBlockCache = new Map<string, MessageBlockCacheEntry>()
+const inlineSegmentCache = new Map<string, InlineSegment[]>()
+const markdownHtmlCache = new Map<string, MarkdownHtmlCacheEntry>()
+const highlightHtmlCache = new Map<string, string>()
+
+function setBoundedCacheEntry<K, V>(cache: Map<K, V>, key: K, value: V, limit: number): V {
+  if (cache.has(key)) cache.delete(key)
+  cache.set(key, value)
+  while (cache.size > limit) {
+    const oldestKey = cache.keys().next().value as K | undefined
+    if (oldestKey === undefined) break
+    cache.delete(oldestKey)
+  }
+  return value
+}
 
 const RENDER_WINDOW_SIZE = 50
 const LOAD_MORE_CHUNK = 30
@@ -1360,7 +1465,7 @@ const renderWindowStart = ref(0)
 const isLoadingMore = ref(false)
 
 const visibleMessages = computed(() => props.messages.slice(renderWindowStart.value))
-const hasMoreAbove = computed(() => renderWindowStart.value > 0)
+const hasMoreAbove = computed(() => renderWindowStart.value > 0 || props.hasMorePersistedAbove === true)
 
 const showJumpToLatestButton = computed(
   () => !autoFollowOutput.value && (props.messages.length > 0 || props.pendingRequests.length > 0 || Boolean(props.liveOverlay)),
@@ -1372,6 +1477,9 @@ function ensureHighlightJsLoaded(): Promise<void> {
     highlightJsLoader = import('highlight.js/lib/common')
       .then((module) => {
         highlightJsModule.value = module.default
+        highlightHtmlCache.clear()
+        markdownHtmlCache.clear()
+        highlightCacheVersion.value += 1
       })
       .finally(() => {
         highlightJsLoader = null
@@ -1425,6 +1533,9 @@ function isFilePath(value: string): boolean {
   const looksLikeWindowsAbsolute = /^[A-Za-z]:[\\/]/u.test(value)
   const looksLikeRelative = value.startsWith('./') || value.startsWith('../') || value.startsWith('~/')
   if (looksLikeUnixAbsolute || looksLikeWindowsAbsolute || looksLikeRelative) return true
+
+  const looksLikeBareFilename = /^[A-Za-z0-9._@() -]+\.[A-Za-z0-9]{1,12}$/u.test(value)
+  if (looksLikeBareFilename) return true
 
   // Bare relative paths should look like actual path segments, not arbitrary prose containing "/".
   return /^[A-Za-z0-9._@() -]+(?:[\\/][A-Za-z0-9._@() -]+)+$/u.test(value)
@@ -1567,6 +1678,57 @@ function trimLinkWrappers(value: string): { core: string; leading: string; trail
   return { core, leading, trailing }
 }
 
+function countAsterisksBefore(value: string, endIndex: number, minIndex: number): number {
+  let count = 0
+  let index = endIndex - 1
+  while (index >= minIndex && value[index] === '*') {
+    count += 1
+    index -= 1
+  }
+  return count
+}
+
+function countAsterisksAfter(value: string, startIndex: number): number {
+  let count = 0
+  let index = startIndex
+  while (index < value.length && value[index] === '*') {
+    count += 1
+    index += 1
+  }
+  return count
+}
+
+function readAsteriskLinkWrapper(
+  source: string,
+  matchStart: number,
+  matchEnd: number,
+  cursor: number,
+  matchedToken: string,
+): { segmentStart: number; segmentEnd: number; tokenEndTrim: number } | null {
+  const leadingCount = countAsterisksBefore(source, matchStart, cursor)
+  if (leadingCount < 2) return null
+
+  const trailingOutsideCount = countAsterisksAfter(source, matchEnd)
+  if (trailingOutsideCount >= leadingCount) {
+    return {
+      segmentStart: matchStart - leadingCount,
+      segmentEnd: matchEnd + leadingCount,
+      tokenEndTrim: 0,
+    }
+  }
+
+  const trailingInsideCount = countAsterisksBefore(matchedToken, matchedToken.length, 0)
+  if (trailingInsideCount >= leadingCount) {
+    return {
+      segmentStart: matchStart - leadingCount,
+      segmentEnd: matchEnd,
+      tokenEndTrim: leadingCount,
+    }
+  }
+
+  return null
+}
+
 function parseMarkdownLinkToken(value: string): { label: string; target: string } | null {
   const trimmed = value.trim()
   if (!trimmed.startsWith('[') || !trimmed.endsWith(')')) return null
@@ -1580,6 +1742,14 @@ function parseMarkdownLinkToken(value: string): { label: string; target: string 
   const target = trimLinkWrappers(targetRaw).core.trim()
   if (!target) return null
   return { label, target }
+}
+
+function toLocalThreadUrl(value: string): string | null {
+  const match = value.trim().match(/^codex:\/\/threads\/([A-Za-z0-9-]+)$/u)
+  if (!match) return null
+  if (typeof window === 'undefined') return `/#/thread/${match[1]}`
+  const basePath = window.location.pathname.replace(/\/?$/u, '/')
+  return `${window.location.origin}${basePath}#/thread/${match[1]}`
 }
 
 function headingTag(level: number): string {
@@ -2207,19 +2377,24 @@ function editMessage(messageId: string): void {
 
 function splitPlainTextByLinks(text: string): InlineSegment[] {
   const segments: InlineSegment[] = []
-  const pattern = /https?:\/\/[^\s<>"'`，。；：！？、()[\]{}「」『』《》]+|file:\/\/[^\n<>"'`，。；：！？、[\]{}「」『』《》]+|["'](?:[A-Za-z]:[\\/]|~\/|\.{1,2}\/|\/)[^\n"']+["']|`(?:[A-Za-z]:[\\/]|~\/|\.{1,2}\/|\/)[^`\n]+`/gu
+  const pattern = /codex:\/\/threads\/[A-Za-z0-9-]+|https?:\/\/[^\s<>"'`，。；：！？、()[\]{}「」『』《》]+|file:\/\/[^\n<>"'`，。；：！？、[\]{}「」『』《》]+|["'](?:[A-Za-z]:[\\/]|~\/|\.{1,2}\/|\/)[^\n"']+["']|`(?:[A-Za-z]:[\\/]|~\/|\.{1,2}\/|\/)[^`\n]+`/gu
   let cursor = 0
 
   for (const match of text.matchAll(pattern)) {
     if (typeof match.index !== 'number') continue
     const start = match.index
     const end = start + match[0].length
+    const asteriskWrapper = readAsteriskLinkWrapper(text, start, end, cursor, match[0])
+    const segmentStart = asteriskWrapper?.segmentStart ?? start
+    const segmentEnd = asteriskWrapper?.segmentEnd ?? end
 
-    if (start > cursor) {
-      segments.push({ kind: 'text', value: text.slice(cursor, start) })
+    if (segmentStart > cursor) {
+      segments.push({ kind: 'text', value: text.slice(cursor, segmentStart) })
     }
 
-    let token = match[0]
+    let token = asteriskWrapper?.tokenEndTrim
+      ? match[0].slice(0, -asteriskWrapper.tokenEndTrim)
+      : match[0]
     let trailingPunctuation = ''
     while (/[.,;:!?，。；：！？、]$/u.test(token)) {
       trailingPunctuation = token.slice(-1) + trailingPunctuation
@@ -2234,7 +2409,14 @@ function splitPlainTextByLinks(text: string): InlineSegment[] {
       segments.push({ kind: 'text', value: leading })
     }
 
-    if (token.startsWith('**') && token.endsWith('**') && token.length > 4) {
+    const localThreadUrl = toLocalThreadUrl(token)
+
+    if (localThreadUrl) {
+      segments.push({ kind: 'url', value: localThreadUrl, href: localThreadUrl })
+      if (trailing) {
+        segments.push({ kind: 'text', value: trailing })
+      }
+    } else if (token.startsWith('**') && token.endsWith('**') && token.length > 4) {
       segments.push({ kind: 'bold', value: token.slice(2, -2) })
       if (trailing) {
         segments.push({ kind: 'text', value: trailing })
@@ -2262,7 +2444,7 @@ function splitPlainTextByLinks(text: string): InlineSegment[] {
       }
     }
 
-    cursor = end
+    cursor = segmentEnd
   }
 
   if (cursor < text.length) {
@@ -2421,22 +2603,28 @@ function splitTextByFileUrls(text: string): InlineSegment[] {
     const match = findNextMarkdownLink(text, scanFrom)
     if (!match) break
     const { start, end, token } = match
+    const asteriskWrapper = readAsteriskLinkWrapper(text, start, end, cursor, token)
+    const segmentStart = asteriskWrapper?.segmentStart ?? start
+    const segmentEnd = asteriskWrapper?.segmentEnd ?? end
 
-    if (start > cursor) {
-      segments.push(...splitPlainTextByLinks(text.slice(cursor, start)))
+    if (segmentStart > cursor) {
+      segments.push(...splitPlainTextByLinks(text.slice(cursor, segmentStart)))
     }
 
     const markdownToken = parseMarkdownLinkToken(token)
     if (!markdownToken) {
-      segments.push(...splitPlainTextByLinks(text.slice(start, end)))
-      cursor = end
-      scanFrom = end
+      segments.push(...splitPlainTextByLinks(text.slice(segmentStart, segmentEnd)))
+      cursor = segmentEnd
+      scanFrom = segmentEnd
       continue
     }
     const label = markdownToken.label
     const target = markdownToken.target
+    const localThreadUrl = toLocalThreadUrl(target)
 
-    if (/^https?:\/\//u.test(target)) {
+    if (localThreadUrl) {
+      segments.push({ kind: 'url', value: label || localThreadUrl, href: localThreadUrl })
+    } else if (/^https?:\/\//u.test(target)) {
       segments.push({ kind: 'url', value: label || target, href: target })
     } else {
       const ref = parseFileReference(target)
@@ -2453,8 +2641,8 @@ function splitTextByFileUrls(text: string): InlineSegment[] {
       }
     }
 
-    cursor = end
-    scanFrom = end
+    cursor = segmentEnd
+    scanFrom = segmentEnd
   }
 
   if (cursor < text.length) {
@@ -2464,119 +2652,152 @@ function splitTextByFileUrls(text: string): InlineSegment[] {
   return segments
 }
 
-function parseInlineSegments(text: string): InlineSegment[] {
-  if (text.includes('](')) {
-    const linkFirstSegments = splitTextByFileUrls(text)
-    if (linkFirstSegments.some((segment) => segment.kind === 'file' || segment.kind === 'url')) {
-      return linkFirstSegments
-    }
+function parseInlineSegmentsUncached(text: string): InlineSegment[] {
+  const linkFirstSegments = splitTextByFileUrls(text)
+  if (!text.includes('`')) return linkFirstSegments
+  if (!linkFirstSegments.some((segment) => segment.kind === 'text' && segment.value.includes('`'))) {
+    return linkFirstSegments
   }
 
-  if (!text.includes('`')) return splitTextByFileUrls(text)
+  const parseCodeAwareTextSegments = (value: string): InlineSegment[] => {
+    if (!value.includes('`')) return splitPlainTextByLinks(value)
 
-  const segments: InlineSegment[] = []
-  let cursor = 0
-  let textStart = 0
+    const segments: InlineSegment[] = []
+    let cursor = 0
+    let textStart = 0
 
-  while (cursor < text.length) {
-    if (text[cursor] !== '`') {
-      cursor += 1
-      continue
-    }
-
-    let openLength = 1
-    while (cursor + openLength < text.length && text[cursor + openLength] === '`') {
-      openLength += 1
-    }
-    const delimiter = '`'.repeat(openLength)
-
-    let searchFrom = cursor + openLength
-    let closingStart = -1
-    while (searchFrom < text.length) {
-      const candidate = text.indexOf(delimiter, searchFrom)
-      if (candidate < 0) break
-
-      const hasBacktickBefore = candidate > 0 && text[candidate - 1] === '`'
-      const hasBacktickAfter =
-        candidate + openLength < text.length && text[candidate + openLength] === '`'
-      const hasNewLineInside = text.slice(cursor + openLength, candidate).includes('\n')
-
-      if (!hasBacktickBefore && !hasBacktickAfter && !hasNewLineInside) {
-        closingStart = candidate
-        break
+    while (cursor < value.length) {
+      if (value[cursor] !== '`') {
+        cursor += 1
+        continue
       }
-      searchFrom = candidate + 1
-    }
 
-    if (closingStart < 0) {
-      cursor += openLength
-      continue
-    }
+      let openLength = 1
+      while (cursor + openLength < value.length && value[cursor + openLength] === '`') {
+        openLength += 1
+      }
+      const delimiter = '`'.repeat(openLength)
 
-    if (cursor > textStart) {
-      segments.push(...splitTextByFileUrls(text.slice(textStart, cursor)))
-    }
+      let searchFrom = cursor + openLength
+      let closingStart = -1
+      while (searchFrom < value.length) {
+        const candidate = value.indexOf(delimiter, searchFrom)
+        if (candidate < 0) break
 
-    const token = text.slice(cursor + openLength, closingStart)
-    if (token.length > 0) {
-      const markdownLink = parseMarkdownLinkToken(token)
-      if (markdownLink) {
-        if (/^https?:\/\//u.test(markdownLink.target)) {
-          segments.push({
-            kind: 'url',
-            value: markdownLink.label || markdownLink.target,
-            href: markdownLink.target,
-          })
-        } else {
-          const markdownFileReference = parseFileReference(markdownLink.target)
-          if (markdownFileReference) {
+        const hasBacktickBefore = candidate > 0 && value[candidate - 1] === '`'
+        const hasBacktickAfter =
+          candidate + openLength < value.length && value[candidate + openLength] === '`'
+        const hasNewLineInside = value.slice(cursor + openLength, candidate).includes('\n')
+
+        if (!hasBacktickBefore && !hasBacktickAfter && !hasNewLineInside) {
+          closingStart = candidate
+          break
+        }
+        searchFrom = candidate + 1
+      }
+
+      if (closingStart < 0) {
+        cursor += openLength
+        continue
+      }
+
+      if (cursor > textStart) {
+        segments.push(...splitPlainTextByLinks(value.slice(textStart, cursor)))
+      }
+
+      const token = value.slice(cursor + openLength, closingStart)
+      if (token.length > 0) {
+        const markdownLink = parseMarkdownLinkToken(token)
+        if (markdownLink) {
+          const localThreadUrl = toLocalThreadUrl(markdownLink.target)
+          if (localThreadUrl) {
             segments.push({
-              kind: 'file',
-              value: markdownLink.target,
-              path: markdownFileReference.path,
-              displayPath: markdownLink.label || markdownLink.target,
-              downloadName: getBasename(markdownFileReference.path),
+              kind: 'url',
+              value: markdownLink.label || localThreadUrl,
+              href: localThreadUrl,
+            })
+          } else if (/^https?:\/\//u.test(markdownLink.target)) {
+            segments.push({
+              kind: 'url',
+              value: markdownLink.label || markdownLink.target,
+              href: markdownLink.target,
             })
           } else {
-            segments.push({ kind: 'code', value: token })
+            const markdownFileReference = parseFileReference(markdownLink.target)
+            if (markdownFileReference) {
+              segments.push({
+                kind: 'file',
+                value: markdownLink.target,
+                path: markdownFileReference.path,
+                displayPath: markdownLink.label || markdownLink.target,
+                downloadName: getBasename(markdownFileReference.path),
+              })
+            } else {
+              segments.push({ kind: 'code', value: token })
+            }
+          }
+        } else {
+          const localThreadUrl = toLocalThreadUrl(token)
+          if (localThreadUrl) {
+            segments.push({
+              kind: 'url',
+              value: localThreadUrl,
+              href: localThreadUrl,
+            })
+          } else if (/^https?:\/\/[^\s]+$/u.test(token)) {
+            segments.push({
+              kind: 'url',
+              value: token,
+              href: token,
+            })
+          } else {
+            const fileReference = parseFileReference(token)
+            if (fileReference) {
+              const displayPath = fileReference.line
+                ? `${fileReference.path}:${String(fileReference.line)}`
+                : fileReference.path
+              segments.push({
+                kind: 'file',
+                value: token,
+                path: fileReference.path,
+                displayPath,
+                downloadName: getBasename(fileReference.path),
+              })
+            } else {
+              segments.push({ kind: 'code', value: token })
+            }
           }
         }
-      } else if (/^https?:\/\/[^\s]+$/u.test(token)) {
-        segments.push({
-          kind: 'url',
-          value: token,
-          href: token,
-        })
       } else {
-        const fileReference = parseFileReference(token)
-        if (fileReference) {
-          const displayPath = fileReference.line
-            ? `${fileReference.path}:${String(fileReference.line)}`
-            : fileReference.path
-          segments.push({
-            kind: 'file',
-            value: token,
-            path: fileReference.path,
-            displayPath,
-            downloadName: getBasename(fileReference.path),
-          })
-        } else {
-          segments.push({ kind: 'code', value: token })
-        }
+        segments.push({ kind: 'text', value: `${delimiter}${delimiter}` })
       }
-    } else {
-      segments.push({ kind: 'text', value: `${delimiter}${delimiter}` })
+
+      cursor = closingStart + openLength
+      textStart = cursor
     }
 
-    cursor = closingStart + openLength
-    textStart = cursor
+    if (textStart < value.length) {
+      segments.push(...splitPlainTextByLinks(value.slice(textStart)))
+    }
+
+    return segments
   }
 
-  if (textStart < text.length) {
-    segments.push(...splitTextByFileUrls(text.slice(textStart)))
-  }
+  return linkFirstSegments.flatMap((segment) => (
+    segment.kind === 'text'
+      ? parseCodeAwareTextSegments(segment.value)
+      : [segment]
+  ))
+}
 
-  return segments
+function getInlineSegments(text: string): InlineSegment[] {
+  const cached = inlineSegmentCache.get(text)
+  if (cached) {
+    inlineSegmentCache.delete(text)
+    inlineSegmentCache.set(text, cached)
+    return cached
+  }
+  return setBoundedCacheEntry(inlineSegmentCache, text, parseInlineSegmentsUncached(text), INLINE_SEGMENT_CACHE_LIMIT)
 }
 
 function toRenderableImageUrl(value: string): string {
@@ -3354,6 +3575,22 @@ function parseMessageBlocks(text: string): MessageBlock[] {
   return blocks.length > 0 ? blocks : [{ kind: 'paragraph', value: text }]
 }
 
+function getMessageBlocks(message: UiMessage): MessageBlock[] {
+  const cached = messageBlockCache.get(message.id)
+  if (cached && cached.text === message.text && cached.cwd === props.cwd) {
+    messageBlockCache.delete(message.id)
+    messageBlockCache.set(message.id, cached)
+    return cached.blocks
+  }
+  const blocks = parseMessageBlocks(message.text)
+  return setBoundedCacheEntry(
+    messageBlockCache,
+    message.id,
+    { text: message.text, cwd: props.cwd, blocks },
+    MESSAGE_BLOCK_CACHE_LIMIT,
+  ).blocks
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/gu, '&amp;')
@@ -3373,7 +3610,7 @@ function codeLanguageLabel(language: string): string {
   return normalizeCodeLanguage(language) || 'text'
 }
 
-function renderHighlightedCodeAsHtml(language: string, value: string): string {
+function renderHighlightedCodeAsHtmlUncached(language: string, value: string): string {
   const normalizedLanguage = normalizeCodeLanguage(language)
   if (!normalizedLanguage) return escapeHtml(value)
   const highlighter = highlightJsModule.value
@@ -3393,8 +3630,24 @@ function renderHighlightedCodeAsHtml(language: string, value: string): string {
   return escapeHtml(value)
 }
 
+function renderCachedHighlightedCodeAsHtml(language: string, value: string): string {
+  const cacheKey = `${highlightCacheVersion.value}\u0000${normalizeCodeLanguage(language)}\u0000${language}\u0000${value}`
+  const cached = highlightHtmlCache.get(cacheKey)
+  if (cached !== undefined) {
+    highlightHtmlCache.delete(cacheKey)
+    highlightHtmlCache.set(cacheKey, cached)
+    return cached
+  }
+  return setBoundedCacheEntry(
+    highlightHtmlCache,
+    cacheKey,
+    renderHighlightedCodeAsHtmlUncached(language, value),
+    HIGHLIGHT_HTML_CACHE_LIMIT,
+  )
+}
+
 function renderInlineSegmentsAsHtml(text: string): string {
-  return parseInlineSegments(text)
+  return getInlineSegments(text)
     .map((segment) => {
       if (segment.kind === 'text') {
         return escapeHtml(segment.value)
@@ -3501,7 +3754,7 @@ function renderMessageBlockAsHtml(block: MessageBlock): string {
       `</button>` +
       `</div>`
     )
-    return `<div class="message-code-block">${toolbar}<pre class="message-code-pre"><code class="hljs">${renderHighlightedCodeAsHtml(block.language, block.value)}</code></pre></div>`
+    return `<div class="message-code-block">${toolbar}<pre class="message-code-pre"><code class="hljs">${renderCachedHighlightedCodeAsHtml(block.language, block.value)}</code></pre></div>`
   }
   if (block.kind === 'thematicBreak') {
     return '<hr class="message-divider">'
@@ -3510,9 +3763,27 @@ function renderMessageBlockAsHtml(block: MessageBlock): string {
 }
 
 function renderMarkdownBlocksAsHtml(text: string): string {
-  return parseMessageBlocks(text)
+  const cacheKey = `${props.cwd}\u0000${highlightCacheVersion.value}\u0000${text}`
+  const cached = markdownHtmlCache.get(cacheKey)
+  if (cached && cached.text === text && cached.cwd === props.cwd && cached.highlightVersion === highlightCacheVersion.value) {
+    markdownHtmlCache.delete(cacheKey)
+    markdownHtmlCache.set(cacheKey, cached)
+    return cached.html
+  }
+  const html = parseMessageBlocks(text)
     .map((block) => renderMessageBlockAsHtml(block))
     .join('')
+  return setBoundedCacheEntry(
+    markdownHtmlCache,
+    cacheKey,
+    {
+      text,
+      cwd: props.cwd,
+      highlightVersion: highlightCacheVersion.value,
+      html,
+    },
+    MARKDOWN_HTML_CACHE_LIMIT,
+  ).html
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -3935,21 +4206,7 @@ function isAtBottom(container: HTMLElement): boolean {
   return distance <= BOTTOM_THRESHOLD_PX
 }
 
-function emitScrollState(container: HTMLElement): void {
-  if (!props.activeThreadId) return
-  const maxScrollTop = Math.max(container.scrollHeight - container.clientHeight, 0)
-  const scrollRatio = maxScrollTop > 0 ? Math.min(Math.max(container.scrollTop / maxScrollTop, 0), 1) : 1
-  emit('updateScrollState', {
-    threadId: props.activeThreadId,
-    state: {
-      scrollTop: container.scrollTop,
-      isAtBottom: isAtBottom(container),
-      scrollRatio,
-    },
-  })
-}
-
-function applySavedScrollState(): void {
+function applyConversationScrollState(): void {
   const container = conversationListRef.value
   if (!container) return
 
@@ -3957,24 +4214,12 @@ function applySavedScrollState(): void {
     enforceBottomState()
     return
   }
-
-  const savedState = props.scrollState
-  if (!savedState || savedState.isAtBottom) {
-    emitScrollState(container)
-    return
-  }
-
-  const maxScrollTop = Math.max(container.scrollHeight - container.clientHeight, 0)
-  const targetScrollTop = savedState.scrollTop
-  container.scrollTop = Math.min(Math.max(targetScrollTop, 0), maxScrollTop)
-  emitScrollState(container)
 }
 
 function enforceBottomState(): void {
   const container = conversationListRef.value
   if (!container) return
   scrollToBottom()
-  emitScrollState(container)
 }
 
 function shouldLockToBottom(): boolean {
@@ -4019,7 +4264,7 @@ function jumpToLatest(): void {
 
 async function loadMoreAbove(): Promise<void> {
   const container = conversationListRef.value
-  if (!container || !hasMoreAbove.value || isLoadingMore.value) return
+  if (!container || !hasMoreAbove.value || isLoadingMore.value || props.isLoadingPersistedAbove === true) return
 
   isLoadingMore.value = true
   const threadIdAtStart = props.activeThreadId
@@ -4027,13 +4272,20 @@ async function loadMoreAbove(): Promise<void> {
   const prevScrollHeight = container.scrollHeight
   const prevScrollTop = container.scrollTop
 
-  renderWindowStart.value = Math.max(0, renderWindowStart.value - LOAD_MORE_CHUNK)
+  try {
+    if (renderWindowStart.value > 0) {
+      renderWindowStart.value = Math.max(0, renderWindowStart.value - LOAD_MORE_CHUNK)
+    } else if (props.hasMorePersistedAbove === true) {
+      await props.loadEarlierMessages?.(threadIdAtStart)
+    }
 
-  await nextTick()
+    await nextTick()
 
-  // Discard scroll restoration if the thread changed while we were awaiting.
-  if (props.activeThreadId === threadIdAtStart) {
-    container.scrollTop = prevScrollTop + (container.scrollHeight - prevScrollHeight)
+    // Discard scroll restoration if the thread changed while we were awaiting.
+    if (props.activeThreadId === threadIdAtStart) {
+      container.scrollTop = prevScrollTop + (container.scrollHeight - prevScrollHeight)
+    }
+  } finally {
     isLoadingMore.value = false
   }
 }
@@ -4056,17 +4308,31 @@ function bindPendingImageHandlers(): void {
   }
 }
 
-async function scheduleScrollRestore(): Promise<void> {
-  await nextTick()
-  if (scrollRestoreFrame) {
-    cancelAnimationFrame(scrollRestoreFrame)
-  }
-  scrollRestoreFrame = requestAnimationFrame(() => {
-    scrollRestoreFrame = 0
-    applySavedScrollState()
-    bindPendingImageHandlers()
-    scheduleBottomLock()
-  })
+async function scheduleConversationScroll(): Promise<void> {
+  if (conversationScrollPromise) return conversationScrollPromise
+
+  conversationScrollPromise = nextTick().then(() => new Promise<void>((resolve) => {
+    if (conversationScrollFrame) {
+      cancelAnimationFrame(conversationScrollFrame)
+    }
+    conversationScrollFrame = requestAnimationFrame(() => {
+      conversationScrollFrame = 0
+      conversationScrollPromise = null
+      applyConversationScrollState()
+      bindPendingImageHandlers()
+      scheduleBottomLock()
+      resolve()
+    })
+  }))
+
+  return conversationScrollPromise
+}
+
+function clearRenderCaches(): void {
+  messageBlockCache.clear()
+  inlineSegmentCache.clear()
+  markdownHtmlCache.clear()
+  highlightHtmlCache.clear()
 }
 
 watch(
@@ -4104,7 +4370,7 @@ watch(
       renderWindowStart.value = Math.min(renderWindowStart.value, Math.max(0, next.length - 1))
     }
 
-    await scheduleScrollRestore()
+    await scheduleConversationScroll()
   },
 )
 
@@ -4132,7 +4398,7 @@ watch(
   () => props.pendingRequests,
   async () => {
     if (props.isLoading) return
-    await scheduleScrollRestore()
+    await scheduleConversationScroll()
   },
   { deep: true },
 )
@@ -4154,19 +4420,19 @@ watch(
   async (loading) => {
     if (loading) return
     renderWindowStart.value = Math.max(0, props.messages.length - RENDER_WINDOW_SIZE)
-    await scheduleScrollRestore()
+    await scheduleConversationScroll()
   },
 )
 
 watch(
   () => props.activeThreadId,
-  () => {
-    localScrollState.value = null
+  async () => {
     autoFollowOutput.value = true
     modalImageUrl.value = ''
     isLoadingMore.value = false
     // Apply immediately for cached threads where isLoading never toggles.
     renderWindowStart.value = Math.max(0, props.messages.length - RENDER_WINDOW_SIZE)
+    await scheduleConversationScroll()
   },
   { flush: 'post' },
 )
@@ -4175,7 +4441,6 @@ function onConversationScroll(): void {
   const container = conversationListRef.value
   if (!container || props.isLoading) return
   autoFollowOutput.value = isAtBottom(container)
-  emitScrollState(container)
   if (hasMoreAbove.value && !isLoadingMore.value && container.scrollTop < LOAD_MORE_SCROLL_THRESHOLD_PX) {
     void loadMoreAbove()
   }
@@ -4192,7 +4457,10 @@ function isMarkdownImageFailed(messageId: string, blockIndex: number): boolean {
 }
 
 function onMarkdownImageError(messageId: string, blockIndex: number): void {
-  failedMarkdownImages.value.add(markdownImageKey(messageId, blockIndex))
+  const next = new Set(failedMarkdownImages.value)
+  next.add(markdownImageKey(messageId, blockIndex))
+  failedMarkdownImages.value = next
+  markdownImageFailureVersion.value += 1
 }
 
 function openImageModal(imageUrl: string): void {
@@ -4210,14 +4478,18 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  if (scrollRestoreFrame) {
-    cancelAnimationFrame(scrollRestoreFrame)
+  clearRenderCaches()
+  if (conversationScrollFrame) {
+    cancelAnimationFrame(conversationScrollFrame)
+    conversationScrollFrame = 0
   }
   if (bottomLockFrame) {
     cancelAnimationFrame(bottomLockFrame)
+    bottomLockFrame = 0
   }
   if (copiedMessageResetTimer) {
     clearTimeout(copiedMessageResetTimer)
+    copiedMessageResetTimer = null
   }
   if (copiedCodeResetTimer) {
     clearTimeout(copiedCodeResetTimer)
@@ -4393,7 +4665,11 @@ onBeforeUnmount(() => {
 }
 
 .live-overlay-error {
-  @apply m-0 text-sm leading-5 text-rose-600 whitespace-pre-wrap;
+  @apply m-0 flex items-start justify-between gap-3 text-sm leading-5 text-rose-600 whitespace-pre-wrap;
+}
+
+.live-overlay-feedback {
+  @apply shrink-0 rounded-full border border-rose-200 bg-white px-2.5 py-1 text-xs font-semibold leading-none text-rose-700 transition hover:bg-rose-100 focus:outline-none focus:ring-2 focus:ring-rose-300;
 }
 
 .message-body {
@@ -4475,8 +4751,24 @@ onBeforeUnmount(() => {
   @apply mb-2 flex flex-wrap gap-1.5;
 }
 
+.message-skill-attachments {
+  @apply mb-2 flex flex-wrap justify-end gap-1.5;
+}
+
 .message-file-chip {
   @apply inline-flex items-center gap-1 rounded-md border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-xs text-zinc-700;
+}
+
+.message-skill-chip {
+  @apply inline-flex max-w-full items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-800 no-underline transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-900;
+}
+
+.message-skill-chip-prefix {
+  @apply shrink-0 font-medium text-emerald-700;
+}
+
+.message-skill-chip-name {
+  @apply min-w-0 max-w-48 truncate font-mono;
 }
 
 .message-file-chip-icon {
@@ -4669,6 +4961,14 @@ onBeforeUnmount(() => {
   @apply min-w-0 flex-1;
 }
 
+.plan-card-actions {
+  @apply mt-3 flex justify-end;
+}
+
+.plan-card-implement-button {
+  @apply inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 transition hover:border-slate-400 hover:bg-slate-50;
+}
+
 .message-text {
   @apply m-0 text-sm leading-relaxed whitespace-pre-wrap break-words text-slate-800;
   overflow-wrap: anywhere;
@@ -4859,9 +5159,29 @@ onBeforeUnmount(() => {
   align-self: flex-end;
 }
 
+.automation-message-label {
+  @apply mb-2 flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500;
+}
+
+.automation-message-label code {
+  @apply rounded-full bg-white/70 px-2 py-0.5 text-[10px] normal-case tracking-normal text-slate-600;
+}
+
 .message-card[data-role='assistant'],
 .message-card[data-role='system'] {
   @apply px-0 py-0 bg-transparent border-none rounded-none;
+}
+
+:global(.dark) .message-file-chip {
+  @apply border-zinc-700 bg-zinc-900 text-zinc-200;
+}
+
+:global(.dark) .message-skill-chip {
+  @apply border-emerald-800/70 bg-emerald-950/50 text-emerald-100;
+}
+
+:global(.dark) .message-skill-chip-prefix {
+  @apply text-emerald-300;
 }
 
 .conversation-item[data-message-type='worked'] .message-stack,

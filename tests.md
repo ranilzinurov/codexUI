@@ -19,29 +19,214 @@ This file tracks manual regression and feature verification steps.
 #### Rollback/Cleanup
 - <cleanup action, if any>
 
+### Feature: Project recency sort, pins, and mobile move mode
+
+#### Prerequisites
+- App is running from this repository on `feature/project-recency-sort-upstream`.
+- At least two visible projects exist with threads updated at different times.
+- Light and dark themes are both available from Settings.
+
+#### Steps
+1. Open the sidebar in light theme.
+2. Open Projects -> Organize and confirm `Recent projects` is selected by default.
+3. Confirm projects appear in descending recent thread activity order.
+4. Tap the Projects header reorder icon and confirm move mode starts, all current project thread lists collapse, and drag handles are visible.
+5. Drag a non-top project above the first project while still in recent mode.
+6. Confirm the moved project appears in the pinned prefix, recent mode remains selected, and project threads do not expand from the drag release.
+7. Tap `Done`, open the moved project's menu, choose `Unpin project`, and confirm it returns to its recency-derived position.
+8. Switch to `Manual project order`, drag a project, and confirm the manual order sticks independently of recent-mode pins.
+9. Enter sidebar search text and confirm project move mode/dragging cannot start while the project list is filtered.
+10. Repeat steps 1-9 in dark theme.
+
+#### Expected Results
+- Recent mode ignores saved manual `projectOrder` except for explicit pinned project overrides.
+- Recent-mode drags pin the moved project without switching the persisted sort mode to manual.
+- Recent-mode drag and pin actions update only the pinned project override list and do not rewrite saved manual order.
+- Unpinning removes the override and restores the project to recency order.
+- Manual project order remains a separate full-list ordering mode.
+- Move mode collapses project thread lists, restores prior expansion state on exit, and is blocked while search filters the sidebar.
+- Reorder icon, `Done`, drag handles, pin labels, and menus remain readable in light and dark themes.
+
+#### Rollback/Cleanup
+- Tap `Done` to leave move mode.
+- Reset the sidebar Organize menu to the preferred project sort mode.
+- Remove any temporary chats or workspace roots created for verification.
+
 ### Feature: Thread heartbeat automations
 
 #### Prerequisites
 - App is running from this repository.
 - At least one local thread exists in the sidebar.
 - Local Codex home is writable (`$CODEX_HOME` or `~/.codex`).
+- Light and dark themes are both available from Settings.
 
 #### Steps
-1. Open the sidebar thread menu for a thread without an attached automation.
+1. In light theme, open the sidebar thread menu for a thread without an attached automation.
 2. Confirm the menu shows `Add automation…`.
 3. Click `Add automation…`.
 4. Fill name, prompt, RRULE schedule, and set status to `Paused`.
 5. Save the automation and reopen the same thread menu.
-6. Confirm the menu now shows `Edit automation…` and the thread row shows an automation chip.
-7. Open `Edit automation…`, confirm the saved values are prefilled, then remove the automation.
+6. Confirm the menu now shows `Manage automations…` and the thread row shows an automation chip.
+7. Open `Manage automations…`, confirm the saved values are prefilled, then click `Add another automation`.
+8. Fill a second automation with a different name and RRULE, save it, and confirm both automations appear in the dialog list.
+9. Select each automation from the list and confirm its own prompt, RRULE, and status load independently.
+10. Click `Run now` for one saved automation while the thread is idle and confirm the automation run is queued or starts in the selected thread.
+11. Start a normal thread turn, reopen `Manage automations…`, click `Run now` for another saved automation, and confirm it waits in the queue until the active turn can finish.
+12. Remove one automation and confirm the other remains attached to the same thread.
+13. Switch to dark theme, reopen `Manage automations…`, and confirm the list, inputs, textarea, status select, `Run now`, and queued-run notice remain readable.
+14. Select a thread that already contains automation runs and confirm both the automation prompt card and the assistant reply are visible.
+15. Remove the final automation and confirm the thread menu returns to `Add automation…`.
 
 #### Expected Results
-- Thread-scoped heartbeat automations are created under the Codex automations store and attached by `target_thread_id`.
-- The automation editor is hosted from the thread menu and uses Codex.app wording.
-- Removing the automation removes the thread row automation chip and returns the menu to `Add automation…`.
+- Multiple thread-scoped heartbeat automations can be created under the Codex automations store with the same `target_thread_id`.
+- The automation manager is hosted from the thread menu and supports adding, selecting, editing, and removing individual automations.
+- `Run now` enqueues the selected automation immediately using a Codex.app-style heartbeat payload with `automation_id`, `current_time_iso`, and `instructions`, without requiring a schedule tick.
+- Automation heartbeat prompts render as visible user-side cards labeled `Sent via automation`; raw heartbeat XML is not shown.
+- Manual runs use the existing thread queue, so they do not interrupt an active turn and run in order when the thread is available.
+- Removing one automation does not remove other automations attached to the same thread.
+- Removing the final automation removes the thread row automation chip and returns the menu to `Add automation…`.
+- Light and dark theme automation manager surfaces remain readable.
 
 #### Rollback/Cleanup
-- Remove any test automation from the thread automation dialog or delete its folder under `$CODEX_HOME/automations/<automation-id>/`.
+- Remove any test automations from the thread automation dialog or delete their folders under `$CODEX_HOME/automations/<automation-id>/`.
+
+### Feature: Project automations and `/automations` panel
+
+#### Prerequisites
+- App is running from this repository.
+- At least two sidebar projects have absolute workspace paths.
+- Local Codex home is writable (`$CODEX_HOME` or `~/.codex`).
+- Light and dark themes are both available from Settings.
+
+#### Steps
+1. In light theme, open a project overflow menu for a project without an attached automation.
+2. Confirm the menu shows `Add automation…`, then create a project automation with a name, prompt, RRULE schedule, and status.
+3. Confirm the project row shows an automation chip and the same menu changes to `Manage automations…`.
+4. Open `/automations` from the sidebar and confirm the new project automation appears with the visible project display name.
+5. Edit the automation from `/automations`, change its name and status, save, and confirm the project row chip count and tooltip update without a full page refresh.
+6. Seed or keep a cron automation record whose `cwds` contains two project paths, then edit it from one project and confirm both project rows show the updated name/status.
+7. Seed a cron automation record with a TOML-style single-quoted `cwds` array such as `cwds = ['/tmp/project-one', '/tmp/project,two']`, refresh `/automations`, and confirm it is still listed.
+8. Inspect `/codex-api/project-automations` for the seeded record and confirm the response includes public automation fields but not `extraTomlLines`.
+9. Remove one project that has an attached automation while `/automations` is open and confirm the panel removes the deleted project row after the cleanup completes.
+10. Switch to dark theme and repeat opening the project menu and `/automations`; confirm rows, chips, buttons, inputs, and empty states remain readable.
+
+#### Expected Results
+- Project-scoped cron automations are listed under every associated `cwd`.
+- Editing a multi-`cwd` project automation refreshes all affected sidebar chips/tooltips, not only the currently edited project.
+- Existing TOML cron records with valid non-JSON string arrays remain visible and manageable.
+- Automation API responses do not include internal preserved TOML metadata such as `extraTomlLines`.
+- Removing a project deletes or detaches that project's automation association and refreshes the `/automations` panel.
+- Preserved TOML metadata and table sections remain intact after saving or deleting a project automation.
+- Light and dark theme project automation surfaces remain readable.
+
+#### Rollback/Cleanup
+- Remove any test project automations from the project automation dialog or delete their folders under `$CODEX_HOME/automations/<automation-id>/`.
+- Remove temporary test projects or workspace roots created for verification.
+
+### Feature: Projectless new chat folders
+
+#### Prerequisites
+- App server is running from this repository.
+- Home directory is writable.
+- Light and dark themes are both available from Settings.
+
+#### Steps
+1. Open the app in light theme and click the sidebar `New chat` action while an existing thread is selected.
+2. Confirm the home composer does not inherit the selected thread folder.
+3. Send a first message with a unique prompt such as `Projectless folder smoke test`.
+4. Confirm the new thread starts in `~/Documents/Codex/<YYYY-MM-DD>/projectless-folder-smoke-test`.
+5. Start another new chat with the same prompt and confirm the folder receives a numeric suffix.
+6. Switch to dark theme and repeat steps 1-3 with a different unique prompt.
+
+#### Expected Results
+- `New chat` starts as a projectless chat instead of reusing the current thread cwd.
+- Sending the first message creates a real directory under `~/Documents/Codex/<YYYY-MM-DD>/`.
+- Folder names are derived from the prompt using lowercase alphanumeric tokens, with suffixes for duplicates.
+- Projectless chat rows appear in the `Chats` section and do not create a separate project group from the generated folder name.
+- Short projectless prompts such as `hi` remain visible in `Chats` after the thread list refreshes and workspace-root filtering runs.
+- If the selected model returns `requires a newer version of Codex`, the turn retries with `gpt-5.4-mini` instead of leaving the new chat failed on 5.5.
+- Light and dark theme composer surfaces remain readable and unchanged apart from the folder behavior.
+
+#### Rollback/Cleanup
+- Delete only the test folders created under `~/Documents/Codex/<YYYY-MM-DD>/`.
+
+## New chat project setup modal
+
+### Feature: Unified create project and GitHub clone modal
+
+Prerequisites/setup:
+- Run the app with access to `git` and network access to `github.com`.
+- Have a small public GitHub repository URL available for testing.
+
+Steps:
+1. Open the app in light theme and navigate to the new chat screen.
+2. Confirm the folder actions show `Select folder` and `Create Project`.
+3. Click `Create Project` and confirm a modal opens with `New project` and `Clone from GitHub` modes.
+4. In `New project`, keep or edit the destination folder, enter a single folder name, and submit.
+5. Confirm the created project folder is selected in the new chat folder selector and appears as a project root.
+6. Reopen the modal, switch to `Clone from GitHub`, paste a valid `https://github.com/<owner>/<repo>` URL, and submit.
+7. Confirm the cloned repository folder is selected in the new chat folder selector and appears as a project root.
+8. Switch the app to dark theme and repeat opening the modal.
+9. Confirm the modal, tabs, inputs, error message, and buttons have readable contrast and stable spacing.
+
+Expected results:
+- New project creation and GitHub cloning share one modal and destination folder field.
+- Created and cloned folders are registered as project roots and selected for the new chat.
+- After cloning, the folder selector immediately includes the cloned project without a full page refresh.
+- Invalid project names or non-GitHub URLs show an inline modal error without changing the selected folder.
+- A stalled clone eventually fails with an error instead of keeping the request open indefinitely.
+- Light and dark themes render the unified modal consistently with the existing new-chat controls.
+
+Rollback/cleanup:
+- Remove the created project folder from the filesystem if it was only used for testing.
+- Remove the cloned repository folder from the filesystem if it was only used for testing.
+- Remove the test projects from the app project list if they are no longer needed.
+
+### Feature: Empty project new thread action
+
+#### Prerequisites
+- App server is running from this repository.
+- At least one workspace root is registered that has no threads.
+- Light and dark themes are both available from Settings.
+
+#### Steps
+1. Open the app in light theme.
+2. Find the empty project row in the sidebar that shows `No threads`.
+3. Click that project's new thread icon.
+4. Confirm the home composer opens and the folder dropdown is set to the empty project's workspace root.
+5. Switch to dark theme and repeat steps 2-4.
+
+#### Expected Results
+- The new thread icon works for projects with zero threads.
+- The new thread screen uses the clicked project's registered workspace root instead of leaving the folder blank or reusing another project.
+- Light and dark theme sidebar and composer surfaces remain readable.
+
+#### Rollback/Cleanup
+- No cleanup is required unless a test message is sent; delete that test thread if created.
+
+### Feature: Start new thread header Git branch dropdown
+
+#### Prerequisites
+- App server is running from this repository.
+- At least one Git-backed workspace folder is available in the Start new thread folder dropdown.
+- Light and dark themes are both available from Settings.
+
+#### Steps
+1. Open the app in light theme.
+2. Click the sidebar or header new thread icon to open Start new thread.
+3. Select a Git-backed folder.
+4. Confirm the header actions next to the terminal control show the Git checkout branch dropdown.
+5. Open the branch dropdown and confirm branch search/options are available.
+6. Switch to dark theme and repeat steps 2-5.
+
+#### Expected Results
+- Start new thread shows the same header Git checkout dropdown used by existing thread pages when the selected folder is a Git repository.
+- Switching the selected folder updates the dropdown branch state for that folder.
+- Non-Git folders do not show the Git checkout dropdown.
+- Light and dark theme header controls remain readable and aligned.
+
+#### Rollback/Cleanup
+- If a branch was switched during testing, switch back to the original branch before continuing.
 
 ### Feature: Telegram bot token stored in dedicated global file
 
@@ -129,73 +314,808 @@ This file tracks manual regression and feature verification steps.
 #### Rollback/Cleanup
 - Remove the selected skill chip(s) before leaving the thread, if needed.
 
-### Feature: Composer skill invocation uses `$`
-
-#### Prerequisites
-- App is running from this repository.
-- At least one thread exists and can be selected.
-- At least one installed skill is available.
-
-#### Steps
-1. Open an existing thread so the message composer is enabled.
-2. Confirm the composer placeholder mentions `$ for skills`.
-3. Type `$` at the beginning of the composer draft.
-4. Select any skill from the skill picker.
-5. Type `/` at the beginning of an empty composer draft.
-
-#### Expected Results
-- Typing `$` opens the skill picker.
-- Selecting a skill adds a skill chip and clears the standalone `$` trigger from the draft.
-- Typing `/` does not open the skill picker.
-
-#### Rollback/Cleanup
-- Remove the selected skill chip(s) before leaving the thread, if needed.
-
-### Feature: Skills Hub manual search trigger
+### Feature: Skills Hub local-only installed skills
 
 #### Prerequisites
 - App is running from this repository.
 - Open the `Skills Hub` view.
 
 #### Steps
-1. Type a unique query value in the Skills Hub search input (for example: `docker`), but do not press Enter or click Search yet.
-2. Confirm the browse results do not refresh immediately while typing.
-3. Click the `Search` button.
-4. Change the query text to another value and press Enter in the input.
-5. Clear the query, then click `Search` to reload the default browse list.
+1. Open `Skills Hub`.
+2. Confirm the page shows only locally installed skills.
+3. Confirm there is no remote skill count such as `6818 skills`.
+4. Confirm there are no remote browse cards from the OpenClaw catalog.
 
 #### Expected Results
-- Typing alone does not trigger remote Skills Hub search requests.
-- Results refresh only after explicit submit via the `Search` button or Enter key.
-- Empty-state text (if shown) references the last submitted query.
-- Submitting an empty query returns the default skills listing.
+- Skills Hub does not fetch or display the OpenClaw remote skills catalog.
+- Only locally installed skills are shown.
+- No remote total-count badge is rendered.
 
 #### Rollback/Cleanup
-- Clear the search input and run a blank search to return to default listing.
+- None.
 
-### Feature: Dark theme for trending GitHub projects and local project dropdown
+---
+
+### Codex thread deep links render as local web thread URLs
+
+#### Feature/Change Name
+Codex thread link conversion in chat messages.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev --host 127.0.0.1 --port 4173`).
+2. A `TestChat` project/thread is available.
+3. Light theme and dark theme are both available.
+4. Note the current app origin from the browser address bar, for example `http://127.0.0.1:4173`.
+
+#### Steps
+1. In light theme, open `TestChat`.
+2. Send or inspect a message containing a bare Codex thread link, for example `codex://threads/019e04cb-9670-7d91-be85-3ba35312170c`.
+3. Send or inspect a message containing a Markdown Codex thread link, for example `[Open thread](codex://threads/019e04cb-9670-7d91-be85-3ba35312170c)`.
+4. Confirm each rendered row contains a clickable `a.message-file-link`.
+5. Confirm the bare link href and visible text both equal `<current app origin>/#/thread/019e04cb-9670-7d91-be85-3ba35312170c`, for example `http://127.0.0.1:4173/#/thread/019e04cb-9670-7d91-be85-3ba35312170c`.
+6. Confirm the Markdown link href equals `<current app origin>/#/thread/019e04cb-9670-7d91-be85-3ba35312170c` and visible text equals `Open thread`.
+7. Switch to dark theme and repeat steps 2 through 6.
+
+#### Expected Results
+- Bare `codex://threads/<id>` links render as local web thread URLs.
+- Markdown links targeting `codex://threads/<id>` keep their Markdown label while linking to the local web thread URL.
+- Link color and contrast remain usable in light theme and dark theme.
+
+#### Rollback/Cleanup
+- Revert the thread-link conversion in `src/components/content/ThreadConversation.vue` if `codex://threads/<id>` should render literally again.
+
+---
+
+### Bold-wrapped Markdown links render without literal markers
+
+#### Feature/Change Name
+Bold-wrapped Markdown link marker cleanup in chat messages.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev --host 127.0.0.1 --port 4173`).
+2. A `TestChat` project/thread is available.
+3. Light theme and dark theme are both available.
+
+#### Steps
+1. In light theme, open `TestChat`.
+2. Send or inspect a message containing a bold-wrapped Markdown link, for example `**https://anyclaw.store/claim/a7m2z7**` or `**[claim link](https://anyclaw.store/claim/a7m2z7)**`.
+3. Repeat with triple-asterisk wrapping: `***https://anyclaw.store/claim/a7m2z7***` and `***[claim link](https://anyclaw.store/claim/a7m2z7)***`.
+4. Confirm the rendered row contains one clickable `a.message-file-link` for the URL.
+5. Confirm no literal `**`, `***`, or stray `*` characters appear before or after the link.
+6. Switch to dark theme and repeat steps 2 through 5.
+
+#### Expected Results
+- Bold-wrapped and triple-asterisk-wrapped bare URLs and Markdown links render as clickable links without visible Markdown emphasis markers.
+- Existing URL/file-link href, title, and visible link text behavior is unchanged.
+- Link color and contrast remain usable in light theme and dark theme.
+
+#### Rollback/Cleanup
+- Revert the parser change in `src/components/content/ThreadConversation.vue` if bold-wrapped links need to show raw Markdown markers again.
+
+---
+
+### Qodo feedback diagnostics reliability fixes
+
+#### Feature/Change Name
+Feedback diagnostics startup hardening, project automation delete failure handling, and coalesced composer overflow measurement.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev --host 127.0.0.1 --port 4173`)
+2. At least one sidebar project with a configured project automation
+3. Light theme and dark theme both available from the appearance switcher
+
+#### Steps
+1. In light theme, temporarily make `DELETE /codex-api/project-automation` fail, for example by stopping the local API bridge or forcing a 500 response in a development proxy.
+2. Open the project menu for a project with an automation and click Remove.
+3. Confirm the sidebar does not trigger an unhandled promise rejection and shows a small project automation error message.
+4. Restore the API bridge and refresh project automations.
+5. Confirm the automation chip/server state is reloaded instead of staying optimistically removed.
+6. Open the app in an environment where `window.fetch` is missing or read-only and confirm the app still mounts.
+7. Trigger a chat send failure and click Send feedback next to the chat error.
+8. Confirm Chrome or the OS opens the configured `mailto:` handler with `brutalstrikedevs@gmail.com`, diagnostics, bounded visible page text, and summarized browser/app state prefilled.
+9. Type a long draft in the composer and confirm the expand control still appears when the textarea overflows.
+10. Switch to dark theme and repeat steps 2-9.
+
+#### Expected Results
+- Project automation delete failures are caught, recorded in feedback diagnostics, and surfaced as a visible sidebar error.
+- Automation state is restored or reloaded after a failed delete.
+- Feedback diagnostics never prevent app startup when fetch cannot be patched.
+- Chat and Skills Hub error feedback links use native `mailto:` anchor handling so Chrome can open the configured email handler, while static link `href` values stay minimal until click.
+- Feedback email bodies include bounded visible page text alongside diagnostics.
+- Feedback email bodies include localStorage/sessionStorage state, route/hash, online state, language, and platform, with sensitive-looking storage values omitted and oversized values summarized.
+- Composer overflow checks remain functional without scheduling duplicate same-tick measurements.
+- The sidebar error message remains readable in light theme and dark theme.
+
+#### Rollback/Cleanup
+- Restore any temporary API failure/proxy change.
+
+---
+
+### Composer expands long drafts to full screen
+
+#### Feature/Change Name
+Thread composer full-screen expand control for multi-line drafts.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev --host 127.0.0.1 --port 4173`)
+2. Any existing thread is open and send controls are enabled
+3. Light theme and dark theme both available from the appearance switcher
+
+#### Steps
+1. In light theme, type or paste at least six lines into the composer.
+2. Confirm the expand button appears in the composer input area.
+3. Click the expand button.
+4. Confirm the composer fills the viewport, keeps the draft text, and leaves model/skill/thinking/send controls usable at the bottom.
+5. Click the collapse button.
+6. Confirm the composer returns to its normal inline size with the draft still intact.
+7. Switch to dark theme and repeat steps 1-6.
+
+#### Expected Results
+- Short drafts do not show the expand control.
+- Long or overflowing drafts show an icon-only expand control.
+- Full-screen mode uses the same draft state and submit controls as inline mode.
+- Full-screen and inline states are readable in light theme and dark theme.
+
+#### Rollback/Cleanup
+- Clear the draft from the composer.
+
+---
+
+### Error-triggered feedback button
+
+#### Feature/Change Name
+Feedback action appears in Settings and on visible error banners after captured UI/runtime/API failures, then opens prefilled email diagnostics.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev --host 127.0.0.1 --port 4173` or an alternate free port).
+2. Browser devtools available to inject a test error or failed fetch.
+3. Light theme and dark theme both available from the appearance switcher.
+
+#### Steps
+1. In light theme, load the home screen, open Settings, and confirm no `Send feedback` row is visible during a clean state.
+2. Trigger a failure, for example run `fetch('/codex-api/rpc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })` in the browser console or open a folder path that produces a visible load error.
+3. Reopen Settings and confirm a `Send feedback` row with `Issue detected` appears after the failed request is recorded.
+4. Trigger or view a visible error banner, such as the missing Codex CLI composer banner, a chat send/connection error in the live conversation overlay, a settings provider error, a folder picker error, a Skills Hub error, or a branch dropdown error, and confirm that error state includes a compact `Send feedback` action.
+5. Confirm no feedback action appears in the content header during normal use.
+6. Click `Send feedback` and confirm the mail client opens a draft to `brutalstrikedevs@gmail.com`.
+7. Confirm the draft body includes current URL, user agent, viewport, app/worktree version info, and recent diagnostics including the failed request or visible error.
+8. Switch to dark theme and repeat steps 1-7.
+
+#### Expected Results
+- The settings feedback action is absent during normal operation.
+- Runtime errors, unhandled rejections, failed fetches/API responses, and visible load failures make the Settings feedback action visible.
+- Visible error states, including chat send/connection failures, include a local `Send feedback` action so the user can report the error from the same context.
+- The generated `mailto:` draft is prefilled with useful diagnostics and does not submit anything automatically.
+- No feedback action is shown in the app header during normal use.
+- The Settings feedback row and visible-error feedback actions remain readable in light and dark themes.
+
+#### Rollback/Cleanup
+- Close the generated email draft without sending if this was only a test.
+
+---
+
+### Missing Codex CLI chat error
+
+#### Feature/Change Name
+Fresh installs without a runnable Codex CLI show a visible chat runtime error.
+
+#### Prerequisites/Setup
+1. Start the app in an isolated environment without `codex` in `PATH` and without `CODEXUI_CODEX_COMMAND`.
+2. Use a mobile viewport such as `390x844`.
+3. Light theme and dark theme both available from the appearance switcher when the app can reach settings.
+
+#### Steps
+1. In light theme, open the app home/new chat screen.
+2. Confirm the composer area shows `Codex CLI not found. Install @openai/codex or set CODEXUI_CODEX_COMMAND.`
+3. Confirm the model dropdown no longer fails silently as the only visible symptom.
+4. Switch to dark theme and repeat steps 1-3.
+
+#### Expected Results
+- The missing CLI condition is visible in the chat/composer area.
+- The banner remains readable and does not overlap the mobile composer controls.
+- Dark theme uses a dark error surface, not a light-theme panel.
+
+#### Rollback/Cleanup
+- Stop and remove the isolated container or test server.
+
+---
+
+### Composio logged-out connector preview
+
+#### Feature/Change Name
+Logged-out Composio tab shows a promotional connector preview with example integrations and clear login/dashboard actions.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev --host 127.0.0.1 --port 4173`)
+2. Composio CLI installed
+3. Composio CLI logged out (`~/.composio/composio logout`)
+4. Light theme and dark theme both available from the appearance switcher
+
+#### Steps
+1. In light theme, open the Directory page and switch to the Composio tab.
+2. Confirm the logged-out state shows the connector catalog preview hero instead of a plain empty message.
+3. Confirm example connector cards are visible for Gmail, Google Calendar, Reddit, YouTube, Google Drive, and X.
+4. Type `reddit` in the Composio search box and confirm the preview cards filter to matching example content.
+5. Confirm `Login to Composio` starts the CLI login flow and `Open dashboard` opens the Composio dashboard URL.
+6. Switch to dark theme and repeat steps 1-4.
+
+#### Expected Results
+- Logged-out users see a richer preview of likely Composio connector value without requiring live catalog data.
+- The preview does not claim the example cards are connected; cards are labeled `Preview`.
+- Search filters the preview cards while logged out.
+- Login and dashboard actions remain available.
+- The hero, cards, text, badges, and buttons remain readable in light and dark themes.
+
+#### Rollback/Cleanup
+- Re-login to Composio if needed with `~/.composio/composio login --no-browser -y`.
+
+---
+
+### Pinned threads remain visible during background pagination
+
+#### Feature/Change Name
+Pinned threads are no longer removed from the Pinned section while the sidebar is still loading older thread-list pages.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev`)
+2. More than 50 total unarchived threads exist
+3. At least one older thread outside the initial recent page is pinned
+4. Light theme and dark theme both available from the appearance switcher
+
+#### Steps
+1. In light theme, reload the app.
+2. Immediately open the sidebar Pinned section.
+3. Confirm pinned rows from older history remain in the Pinned section after the initial thread list appears.
+4. Wait for background thread pagination to finish.
+5. Confirm the same pinned rows remain visible and can still be selected.
+6. Switch to dark theme and repeat steps 1-5.
+
+#### Expected Results
+- Saved pinned thread IDs are preserved while only the initial thread-list page is loaded.
+- Missing pinned IDs are pruned only after the full thread list has loaded.
+- Pinned rows remain readable and selectable in both light and dark themes.
+
+#### Rollback/Cleanup
+- Unpin any disposable threads created only for this test.
+
+---
+
+### Startup avoids duplicate setup probes
+
+#### Feature/Change Name
+Startup loads Git repository status only for the active thread/new-thread cwd or an opened project menu, shares workspace-root state reads, and returns free-mode status without waiting on OpenRouter model discovery.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev --host 127.0.0.1 --port 4173`)
+2. Browser runtime profiler available (`pnpm run profile:browser`)
+3. Light theme and dark theme both available from the appearance switcher
+
+#### Steps
+1. In light theme, run `PROFILE_BASE_URL=http://127.0.0.1:4173 PROFILE_WAIT_MS=7000 pnpm run profile:browser`.
+2. Inspect the generated `output/playwright/browser-runtime-profile-*.json`.
+3. Confirm startup does not call `/codex-api/git/repository-status` once per visible project.
+4. Confirm startup performs at most one `/codex-api/workspace-roots-state` GET before user actions.
+5. Confirm `/codex-api/free-mode/status` completes without waiting for a live `https://openrouter.ai/api/v1/models` request.
+6. Open a thread and confirm at most the selected thread cwd is checked with `/codex-api/git/repository-status`.
+7. Open the project action menu for several projects and confirm Git-backed actions still appear only for Git repositories after each menu-specific status check.
+8. Switch to dark theme and repeat steps 1-7.
+
+#### Expected Results
+- Initial sidebar Git status hydration does not scan every visible project.
+- The `/codex-api/git/repository-status/batch` endpoint is not used.
+- Git status checks are lazy and scoped to the active thread/new-thread cwd or the project menu being opened.
+- App startup and initial thread loading share workspace-root state loading instead of issuing duplicate startup reads.
+- Free-mode status returns cached or fallback model options immediately and refreshes model discovery in the background.
+- Git-backed project menu actions remain correct in light theme and dark theme.
+- Free-mode controls remain readable and functional in light theme and dark theme.
+
+#### Rollback/Cleanup
+- Remove generated `output/playwright/browser-runtime-profile-*` artifacts if they are not needed for comparison evidence.
+
+---
+
+### Revert PR 131 project recency and mobile move mode
+
+#### Feature/Change Name
+PR #131 revert: remove project recency ordering and mobile project move mode while preserving later sidebar actions.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev`)
+2. Sidebar has at least two projects and projectless chats
+3. Light theme and dark theme both available from the appearance switcher
+
+#### Steps
+1. In light theme, open the sidebar Projects section.
+2. Open the Projects organize menu.
+3. Confirm the menu still exposes thread organization and chat sort controls, but does not expose project recency/manual sort controls.
+4. Open a project action menu and confirm browse, rename, remove, worktree, and git status actions still behave normally.
+5. On a mobile-sized viewport, confirm there is no project move mode affordance or drag handle from PR #131.
+6. Switch to dark theme and repeat steps 1-5.
+
+#### Expected Results
+- Project recency/manual sort controls from PR #131 are absent.
+- Project pinning/move mode controls from PR #131 are absent.
+- Existing sidebar project actions and git-status menu behavior remain available.
+- Sidebar rows, menus, and actions remain readable in light and dark themes.
+
+#### Rollback/Cleanup
+- None.
+
+---
+
+### Qodo review fixes for PR 130 and PR 131 reverts
+
+#### Feature/Change Name
+Fix review regressions from reverting PR #130 and PR #131.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev`)
+2. Sidebar has multiple projects, including duplicate folder leaf names when available
+3. Sidebar has at least one projectless chat
+4. Light theme and dark theme both available from the appearance switcher
+
+#### Steps
+1. In light theme, search the sidebar so the project list is filtered.
+2. Try to drag a project row while search is active.
+3. Confirm no project drag or reorder starts during the filtered search view.
+4. Clear search and drag a project row, then release it and confirm the follow-up click does not collapse or expand the dragged project unexpectedly.
+5. Open a project menu near the bottom of the scrollable sidebar and confirm the menu opens upward only when needed and stays within the visible sidebar boundary.
+6. Open or create a project whose folder leaf name collides with another root and confirm the intended full-path-disambiguated project moves to the top.
+7. Confirm projectless chats with empty cwd remain visible when workspace roots are configured.
+8. Switch to dark theme and repeat steps 1-7.
+
+#### Expected Results
+- Project dragging is disabled during sidebar search.
+- Drag completion does not trigger an accidental project collapse or expansion.
+- Project menu direction uses the rendered menu height and avoids viewport/sidebar overflow.
+- Duplicate folder leaf names use the disambiguated project order name.
+- Empty-cwd projectless chats remain visible.
+- Sidebar rows, menus, and drag states remain readable in light and dark themes.
+
+#### Rollback/Cleanup
+- None.
+
+---
+
+### Composer mode scoping and Fast mode support
+
+#### Feature/Change Name
+Plan mode is scoped to the current chat instead of becoming the default for every chat, and Fast mode is available for supported GPT 5.4 and GPT 5.5 model IDs.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev`)
+2. At least two existing threads are available
+3. Model list includes `gpt-5.4` or a `gpt-5.4-*` variant and `gpt-5.5` or a `gpt-5.5-*` variant
+4. Light theme and dark theme both available from the appearance switcher
+
+#### Steps
+1. In light theme, open thread A, open the composer add menu, and enable Plan mode.
+2. Open thread B and confirm Plan mode is off by default.
+3. Return to thread A and confirm Plan mode remains on for that thread.
+4. Open Start new thread, enable Plan mode, send a first message, and confirm the created thread starts in Plan mode.
+5. Return to Start new thread again and confirm Plan mode is off for the next new chat.
+6. Select `gpt-5.4` or a `gpt-5.4-*` model and confirm the Fast mode switch is visible.
+7. Select `gpt-5.5` or a `gpt-5.5-*` model and confirm the Fast mode switch is visible.
+8. Select an unsupported model family and confirm the Fast mode switch is hidden.
+9. Switch to dark theme and repeat steps 1-8.
+
+#### Expected Results
+- Enabling Plan mode in one existing thread does not enable it in other existing threads.
+- A new-chat Plan mode selection applies to the created chat but does not persist as the default for later new chats.
+- Fast mode is visible for GPT 5.4 and GPT 5.5 model IDs, including dashed variants.
+- Fast mode remains hidden for unsupported model families.
+- Composer controls and menus remain readable in light and dark themes.
+
+#### Rollback/Cleanup
+- Turn Plan mode off in any test threads if desired.
+
+---
+
+### Lazy project Git status checks
+
+#### Feature/Change Name
+Project Git repository status is loaded lazily from project menus instead of scanning every visible project during startup.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev --host 127.0.0.1 --port 4173`)
+2. Sidebar contains multiple projects, including at least one Git-backed project and one non-Git project
+3. Light theme and dark theme both available from the appearance switcher
+
+#### Steps
+1. In light theme, load the home route and confirm the Projects section renders normally.
+2. Open browser devtools or runtime profile output and confirm startup does not issue one `/codex-api/git/repository-status` request per visible project.
+3. Open the action menu for a Git-backed project.
+4. Confirm the menu remains readable and the `New worktree` item appears after the Git status check completes.
+5. Right-click the header row for the same Git-backed project.
+6. Confirm the context menu remains readable and the `New worktree` item appears after the Git status check completes.
+7. Open the action menu for a non-Git project.
+8. Confirm the menu remains readable and `New worktree` is not shown.
+9. Switch to dark theme and repeat steps 3 through 8.
+
+#### Expected Results
+- Startup avoids eager Git status scans for all project rows.
+- Opening a project menu through click or right-click still loads that project's Git status on demand.
+- Menus re-measure placement after async Git status updates add the `New worktree` row.
+- `New worktree` remains available for Git-backed projects and hidden for non-Git projects.
+- Project menus remain usable and visually consistent in both light and dark themes.
+
+#### Rollback/Cleanup
+- None.
+
+---
+
+### Thread archive recovery and sidebar pruning
+
+#### Feature/Change Name
+Deleting a thread recovers from Codex `no rollout found` archive failures and removes successfully archived threads from the sidebar immediately.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev`)
+2. Codex CLI available on `PATH`
+3. At least one normal thread and one newly-created thread that has not yet produced a rollout
+4. Light theme and dark theme both available from the appearance switcher
+
+#### Steps
+1. In light theme, create a new empty thread from the sidebar.
+2. Open that thread's menu and choose `Delete thread`.
+3. Confirm the thread disappears from the sidebar without a `no rollout found` error.
+4. Rename another visible thread, then delete it.
+5. Confirm the renamed thread disappears immediately and does not reappear after sidebar refresh/background pagination.
+6. Call `thread/list` with `archived:false` through `/codex-api/rpc` and confirm the deleted thread ids are absent.
+7. Call `thread/list` with `archived:true` and confirm the deleted thread ids are present.
+8. Switch to dark theme and repeat steps 1-5.
+
+#### Expected Results
+- Empty or not-yet-materialized threads are archived after CodexUI sets a fallback name and retries.
+- Already archived threads are treated as archived instead of surfacing a stale `no rollout found` error.
+- The sidebar prunes archived ids from its accumulated paginated list before refreshing.
+- Older unarchived threads may appear as the list refills, but archived threads do not remain visible.
+- Behavior is consistent in light and dark themes.
+
+#### Rollback/Cleanup
+- None.
+### Unread thread cutoff state
+
+#### Feature/Change Name
+Unread thread state uses a local cutoff timestamp so existing threads are not all marked unread after first load.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev`).
+2. Browser localStorage is available for the app origin.
+3. At least two existing threads are present.
+4. Light theme and dark theme are available from the appearance switcher.
+
+#### Steps
+1. Clear only `codex-web-local.thread-unread-cutoff.v1` from localStorage for the app origin.
+2. Load the app in light theme.
+3. Confirm existing threads are not all marked unread on first load.
+4. Create or receive an update in a different thread after the app has loaded.
+5. Confirm that updated thread can show unread when it is not selected or in progress.
+6. Create or receive an update in a second unselected thread.
+7. Open the first updated thread and confirm only that thread's unread indicator clears.
+8. Confirm the second updated thread remains unread until it is opened.
+9. Switch to dark theme and repeat steps 4 through 8.
+
+#### Expected Results
+- Missing cutoff state initializes to the current time instead of treating every thread as unread.
+- Threads updated after the cutoff can still become unread.
+- Opening a thread updates only that thread's read state and clears only that thread's unread indicator.
+- Unread indicators remain readable in both light theme and dark theme.
+
+#### Rollback/Cleanup
+- Remove any disposable test threads created for this validation.
+
+---
+
+### CLI password output redaction
+
+#### Feature/Change Name
+CLI startup output no longer prints the configured password or embeds it in the tunnel URL.
+
+#### Prerequisites/Setup
+1. Project dependencies are installed.
+2. CLI build is available from the current branch.
+
+#### Steps
+1. Run `pnpm run build:cli`.
+2. Start the CLI with a disposable password: `node dist-cli/index.js --no-tunnel --no-open --port 5998 --password TEST_SECRET_SHOULD_NOT_PRINT`.
+3. Confirm startup output includes the local and network URLs.
+4. Confirm startup output does not include `Password:` or `TEST_SECRET_SHOULD_NOT_PRINT`.
+5. Start the CLI without an explicit password and confirm startup output prints `Generated password file:` with a path under `$CODEX_HOME`.
+6. Confirm the generated password file exists, is readable by the current user, and has `0600` permissions.
+7. If tunnel testing is available, start with tunnel enabled and confirm the printed tunnel URL and QR code do not include `/password=`.
+
+#### Expected Results
+- Password-protected startup still works.
+- The password is not printed as a standalone line.
+- Auto-generated passwords remain discoverable through the generated password file path.
+- Tunnel output does not include an autologin URL containing the password.
+
+#### Rollback/Cleanup
+- Stop the disposable CLI process.
+
+---
+
+### Composer skill chip opens SKILL.md
+
+#### Feature/Change Name
+Selected skill labels in the thread composer open that skill's `SKILL.md` in the web file browser.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev`)
+2. At least one installed skill is available in the composer skill picker
+3. Browser pop-ups from the local dev origin are allowed
+4. Light theme and dark theme are available from the appearance switcher
+
+#### Steps
+1. In light theme, open any thread with the composer enabled.
+2. Open the `Skills` picker and select an installed skill.
+3. Confirm the selected skill appears as a green chip above the input field.
+4. Click the skill name on the green chip.
+5. Confirm a new tab opens to `/codex-local-browse.../SKILL.md` for that skill.
+6. Return to the composer and click the chip `x`.
+7. Confirm the skill is removed and no file-browser tab is opened by the remove action.
+8. Switch to dark theme and repeat steps 2 through 7.
+
+#### Expected Results
+- The skill chip label is clickable and opens the selected skill's `SKILL.md` in the web file browser.
+- Skill paths that point at a skill directory are normalized to the nested `SKILL.md` file.
+- The remove button still only removes the skill from the composer.
+- The chip and focus/hover states remain readable in light theme and dark theme.
+
+#### Rollback/Cleanup
+- Close any file-browser tabs opened during validation.
+
+---
+
+### npx run dev compatibility shim
+
+#### Feature/Change Name
+The accidental `npx run dev` command starts the repository dev wrapper instead of failing with a missing `dev` module.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Local dependencies are available, or the dev wrapper can install them with `pnpm install`.
+3. Port 5173 is free, or Vite can select the next available port.
+
+#### Steps
+1. Run `npx run dev`.
+2. Confirm the command reaches the existing `scripts/dev.cjs` wrapper and starts Vite.
+3. Stop the dev server with Ctrl-C.
+4. Repeat with `npx run dev --host 127.0.0.1 --port 4173`.
+
+#### Expected Results
+- `npx run dev` no longer fails with `Cannot find module '<repo>/dev'`.
+- The command starts the same dev server path as `npm run dev` / `pnpm run dev`.
+- Host and port arguments are passed through to Vite.
+
+#### Rollback/Cleanup
+- Stop any dev server process started for validation.
+
+---
+
+### Selected skills visible on sent chat messages
+
+#### Feature/Change Name
+Selected composer skills are shown as skill chips on the user message after send/history load.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev`)
+2. At least one installed skill is available in the composer `Skills` dropdown
+3. Light theme and dark theme both available from the appearance switcher
+
+#### Steps
+1. In light theme, open an existing thread or start a new thread.
+2. Open the composer `Skills` dropdown and select one skill.
+3. Type and send a short message.
+4. Confirm the sent user message shows a `Skill` chip with the selected skill name.
+5. Click the skill chip and confirm the current browser tab opens the skill `SKILL.md` file through the local browse view.
+6. Refresh or reopen the thread and confirm the same skill chip remains visible and clickable in history.
+7. Switch to dark theme and repeat steps 2-6 with another message.
+
+#### Expected Results
+- Selected skills are visible on the user message, not only in the composer before send.
+- Skill chips show the skill name and expose the skill path in the tooltip.
+- Skill chips link to the selected skill file using the local browse route in the current tab.
+- Skill chips remain visible after thread history reload.
+- Skill chips are readable in both light and dark themes.
+
+#### Rollback/Cleanup
+- Remove disposable test messages/threads if needed.
+
+---
+
+### Session skill recovery cache and multi-message placement
+
+#### Feature/Change Name
+Recovered selected-skill metadata is cached per session log and attached to the latest user message in the turn.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev`)
+2. At least one installed skill is available in the composer `Skills` dropdown
+3. Light theme and dark theme both available from the appearance switcher
+
+#### Steps
+1. In light theme, open an existing thread or start a new thread.
+2. Select one skill from the composer `Skills` dropdown.
+3. Type and send a short message.
+4. Refresh or reopen the same thread twice.
+5. Confirm the sent user message still shows one skill chip and does not accumulate duplicate chips.
+6. Switch to dark theme and repeat steps 2-5 with another message.
+7. Run `pnpm vitest run src/server/codexAppServerBridge.inlinePayload.test.ts`.
+
+#### Expected Results
+- Skill metadata recovered from session JSONL remains visible after repeated history loads.
+- Repeated loads reuse the unchanged session recovery parse instead of reparsing the same log for every turn-bearing RPC.
+- In turns with multiple user-message items, recovered skill chips are attached to the latest user message in that turn.
+- Skill chips remain readable in both light and dark themes.
+
+#### Rollback/Cleanup
+- Remove disposable test messages/threads if needed.
+
+---
+
+### Skills sync idempotent commits and nested shared skills handling
+
+#### Feature/Change Name
+Skills Sync skips unchanged manifest writes and does not fail parent commits when only nested `shared_skills` content is dirty.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev --host 127.0.0.1 --port 5173`)
+2. GitHub Skills Sync is connected to a private skills sync repo
+3. `/Users/igor/.codex/skills/shared_skills` exists as a nested Git repository
+4. Light theme and dark theme are available from the appearance switcher
+
+#### Steps
+1. In light theme, open `#/skills`.
+2. Click `Startup Sync` when no installed skills manifest content has changed.
+3. Confirm the sync completes without adding a new `Update synced skills manifest` commit to the GitHub repo.
+4. Modify a file inside `/Users/igor/.codex/skills/shared_skills` without committing it inside that nested repository.
+5. Click `Push` or `Startup Sync` again.
+6. Confirm the sync does not show `Command failed (git commit -m Sync installed skills folder and manifest)` for the parent `/Users/igor/.codex/skills` repository.
+7. Confirm the startup auto-push path skips when the only local status is dirty nested `shared_skills` content and local `HEAD` equals `origin/main`.
+8. Switch to dark theme and repeat steps 1, 2, and 5.
+
+#### Expected Results
+- Unchanged `installed-skills.json` content is not written back to GitHub, so repeated empty-looking manifest commits are not created.
+- A dirty nested `shared_skills` repository does not make the parent skills sync fail with `no changes added to commit`.
+- Dirty nested `shared_skills` content alone does not keep triggering no-op startup push work.
+- Skills Sync status, errors, and action buttons remain readable in light theme and dark theme.
+
+#### Rollback/Cleanup
+- Revert or commit the intentional test edit inside `/Users/igor/.codex/skills/shared_skills`.
+
+---
+
+### Header Git branch dropdown with commit reset
+
+#### Feature/Change Name
+Thread header Git dropdown replaces the simple review action with branch search, Review access, safe branch switching, branch reset-to-commit, and reset-history commit preservation.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev`)
+2. Open a thread whose `cwd` is inside a Git repository with at least two branches and several commits
+3. Use a disposable local branch with at least two commits ahead of its reset target.
+4. Ensure the repository has no tracked uncommitted changes for successful branch switch/reset paths: `git -C <thread-cwd> status --porcelain`
+5. Light theme and dark theme are available from the appearance switcher
+
+#### Steps
+1. In light theme, open the Git dropdown in the thread header.
+2. Confirm the trigger shows the current branch, or the detached commit subject if the repository is already detached.
+3. Click `Review` and confirm the review pane opens; click it again and confirm the pane toggles.
+4. Type part of a branch name in search and confirm the branch list filters.
+5. Select a different branch with a clean worktree and confirm the header updates to that branch.
+6. Expand a branch row and confirm recent commits load with short SHA, subject, and date.
+7. Expand a remote branch row and confirm its commit rows are disabled with a tooltip explaining remote branches cannot be reset.
+8. Select an older commit on the disposable local branch and confirm the header stays on that branch instead of entering detached HEAD.
+9. Confirm `git -C <thread-cwd> rev-parse --abbrev-ref HEAD` still prints the branch name and `git -C <thread-cwd> rev-parse --short HEAD` matches the selected commit.
+10. Reopen/expand the same branch and confirm commits that were ahead of the reset target still appear, with the selected branch HEAD marked `current`.
+11. Repeat reset on the same branch several times and confirm the dropdown still opens quickly and shows recent reset-history commits.
+12. Create a tracked uncommitted change, try to switch branch or reset to a commit, and confirm the dropdown shows a dirty-worktree error instead of switching or resetting.
+13. Create only an untracked file, try to reset to a commit, and confirm the reset proceeds unless Git reports the untracked file would be overwritten.
+14. Switch to dark theme and repeat steps 1, 2, 4, 6, 7, 10, 12, and 13.
+
+#### Expected Results
+- The header dropdown exposes Review, current checkout state, searchable branches, and inline commits.
+- Branch switching and branch reset-to-commit are blocked by tracked uncommitted changes, but untracked-only changes are allowed unless Git would overwrite them.
+- Commit selection resets the local branch to that commit instead of detaching HEAD.
+- Remote branch commit rows are inspectable but cannot trigger local branch reset.
+- The branch commit list still shows commits that were ahead of the reset target by reading saved internal reset-history refs.
+- Reset-history refs are bounded so repeated resets do not grow commit-list inputs without limit.
+- The selected branch HEAD commit is marked `current` in expanded commit lists.
+- Loading and error messages remain visible in the dropdown without using browser alerts.
+- Dropdown surfaces, text, badges, and errors are readable in both light theme and dark theme.
+
+#### Rollback/Cleanup
+- Restore any dirty-worktree file changed for validation.
+- Restore or delete the disposable branch used for reset validation.
+
+---
+
+### Termux install without native PTY build
+
+#### Feature/Change Name
+Android Termux installs can complete when `node-pty` has no compatible native build.
+
+#### Prerequisites/Setup
+1. Android device or emulator with Termux installed.
+2. Node.js and npm available in Termux.
+3. Network access to npm and GitHub.
+4. A macOS or Linux desktop remains available for supported-host integrated terminal checks.
+5. Light theme and dark theme are available from the appearance switcher on the desktop check.
+
+#### Steps
+1. In Termux, run `npm i -g codexapp@latest` after the fixed version is published.
+2. Confirm installation does not fail if npm cannot build `node-pty` for `android-arm64`.
+3. Run `codexapp --no-login` in Termux.
+4. Open the printed URL and confirm the app loads.
+5. Open a thread and confirm the integrated terminal reports unavailable instead of crashing the server if native PTY support is missing.
+6. On macOS or Linux, run `npm i -g codexapp@latest`, then start `codexapp --no-login`.
+7. Open a thread in light theme and confirm the integrated terminal still opens on the supported host.
+8. Switch to dark theme and confirm the integrated terminal remains readable.
+
+#### Expected Results
+- Termux install completes even when `node-pty` cannot build on Android.
+- The Termux app server starts and the browser UI loads.
+- Missing native PTY support disables only the integrated terminal, not the whole app.
+- Supported hosts still install `node-pty` and keep integrated terminal behavior in light theme and dark theme.
+
+#### Rollback/Cleanup
+- Remove test global installs with `npm rm -g codexapp`.
+
+---
+
+### Composer controls stay editable during responses
+
+#### Feature/Change Name
+Model, skill, thinking, and plan controls remain usable while a thread turn is in progress.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev`)
+2. A thread that can produce a long enough response to interact with the composer while the assistant is responding
+3. At least one installed skill or saved prompt
+4. Light theme and dark theme are available from the appearance switcher
+
+#### Steps
+1. In light theme, send a message that starts an assistant response.
+2. While the response is still streaming, type a follow-up draft in the composer.
+3. Open the model dropdown and select a different model.
+4. Open the skills dropdown and select a skill or saved prompt.
+5. Open the thinking dropdown and select a different value.
+6. Open the attachment menu and toggle plan mode.
+7. Verify the stop button and send/queue behavior still match the in-progress turn state.
+8. Switch to dark theme and repeat steps 1 through 7.
+
+#### Expected Results
+- The message textarea remains editable while the assistant is responding.
+- Model, skills, thinking, and plan controls are not disabled during the in-progress response.
+- Selected controls update the composer state for the next submitted or queued message.
+- Stop remains available while no draft content is present, and the submit button switches to the configured steer/queue behavior when draft content exists.
+- Light-theme and dark-theme controls remain readable and do not overlap.
+
+#### Rollback/Cleanup
+- Remove any disposable queued messages or test skill selections from the thread.
+
+### Feature: Remove GitHub trending projects from the new-thread screen
 
 #### Prerequisites
 - App is running from this repository.
 - Home/new-thread screen is open.
-- Appearance is set to `Dark` in Settings.
-- `GitHub trending projects` setting is enabled.
+- Any previously saved local storage value for `codex-web-local.github-trending-projects.v1` may still exist from older builds.
 
 #### Steps
-1. On the home/new-thread screen, inspect the `Choose folder` dropdown trigger.
-2. Open the `Choose folder` dropdown and confirm menu/option contrast remains readable in dark mode.
-3. Inspect the `Trending GitHub projects` section title, scope dropdown, and project cards.
-4. Hover a trending project card and the scope dropdown trigger.
-5. Toggle appearance back to `Light`, then return to `Dark`.
+1. Open Settings and inspect the available rows.
+2. Confirm there is no `GitHub trending projects` toggle.
+3. Return to the home/new-thread screen and confirm no trending cards or scope dropdown are shown.
+4. Refresh the page and confirm the UI stays unchanged even if the old local storage key exists.
 
 #### Expected Results
-- Local project dropdown trigger/value uses dark theme colors with readable contrast.
-- Trending section title, empty/loading text, scope dropdown, and cards use dark backgrounds/borders/text.
-- Hover states in dark mode stay visible and do not switch to light backgrounds.
-- Theme switch back/forth preserves correct styling for both controls.
+- Settings no longer offers any GitHub trending projects preference.
+- The home/new-thread screen no longer renders a trending projects section.
+- Refreshing does not restore the removed feature from stale local storage.
 
 #### Rollback/Cleanup
-- Reset appearance to the previous user preference.
+- None.
 
 ### Feature: Dark theme for worktree runtime selector and Skills Hub
 
@@ -221,26 +1141,54 @@ This file tracks manual regression and feature verification steps.
 #### Rollback/Cleanup
 - Reset appearance to the previous user preference.
 
-### Feature: Markdown file links with backticks and parentheses render correctly
+### Feature: Markdown file links with backticked filename labels render correctly
 
 #### Prerequisites
 - App is running from this repository.
 - An active thread is open.
-- Local file exists at `/root/New Project (1)/qwe.txt`.
+- Light and dark themes are both available.
+- Local file exists at `/home/ubuntu/andClaw-srcmatch/app/src/main/java/com/coderred/andclaw/ui/util/TrustedBrowserLauncher.kt`.
 
 #### Steps
-1. Send a message containing: `Done. Created [`/root/New Project (1)/qwe.txt`](/root/New Project (1)/qwe.txt) with content:`.
-2. In the rendered assistant message, click the `/root/New Project (1)/qwe.txt` link.
-3. Right-click the same link and choose `Copy link` from the context menu.
-4. Paste the copied link into a text field and inspect it.
+1. In light theme, send a message containing: `Added [`TrustedBrowserLauncher.kt`](/home/ubuntu/andClaw-srcmatch/app/src/main/java/com/coderred/andclaw/ui/util/TrustedBrowserLauncher.kt)`.
+2. Confirm the rendered message shows one clickable file link with visible text `TrustedBrowserLauncher.kt`.
+3. Click the link and confirm it opens local browse for `/home/ubuntu/andClaw-srcmatch/app/src/main/java/com/coderred/andclaw/ui/util/TrustedBrowserLauncher.kt`.
+4. Right-click the same link and choose `Copy link`, then paste it into a text field and inspect it.
+5. Switch to dark theme and repeat steps 1-4.
 
 #### Expected Results
-- The markdown link renders as one clickable file link (not split into partial tokens).
+- The markdown link renders as one clickable file link instead of splitting around backticks.
+- The visible link text is the markdown label `TrustedBrowserLauncher.kt`, without backtick glyphs.
 - Clicking opens the local browse route for the full file path.
 - Copied link includes the full encoded path and still resolves to the same file.
+- Light and dark theme message surfaces keep the link readable and styled consistently.
 
 #### Rollback/Cleanup
-- Delete `/root/New Project (1)/qwe.txt` if it was created only for this test.
+- No cleanup required.
+
+### Feature: Deferred ancillary startup refreshes
+
+#### Prerequisites
+- App is running from this repository.
+- At least one large existing thread is available in the sidebar.
+- Browser runtime profiler can run with Playwright from this repository.
+
+#### Steps
+1. Open a large thread route directly, for example `#/thread/<thread-id>`.
+2. Confirm the thread message history appears before non-critical metadata finishes refreshing.
+3. Run `PROFILE_BASE_URL=http://127.0.0.1:4173 PROFILE_ROUTE="#/thread/<thread-id>" PROFILE_WAIT_MS=7000 node scripts/profile-browser-runtime.cjs`.
+4. Open the generated JSON report under `output/playwright/`.
+5. Inspect `slowestApiRows` and `duplicateCounts`.
+
+#### Expected Results
+- The selected thread uses exactly one `thread/resume` and zero `thread/read` calls during initial load.
+- Direct thread route hydration has one owner and does not trigger duplicate selected-thread message loads from route watchers.
+- Thread history loading is not blocked by waiting for `skills/list`, `account/rateLimits/read`, or `collaborationMode/list`.
+- Skills, model metadata, rate limits, and collaboration modes still populate shortly after the thread is visible.
+- The profiler report has no duplicate-load warnings.
+
+#### Rollback/Cleanup
+- Remove generated `output/playwright/browser-runtime-profile-*` artifacts if they are not needed for comparison evidence.
 
 ### Feature: Runtime selector uses a toggle-style control
 
@@ -446,7 +1394,7 @@ This file tracks manual regression and feature verification steps.
 - Clear browser cookies for the app origin(s).
 - Stop the CLI process.
 
-### Feature: Cloudflare tunnel QR includes password auto-login path
+### Feature: Cloudflare tunnel QR omits password auto-login path
 
 #### Prerequisites
 - App is running from this repository with password enabled.
@@ -454,16 +1402,16 @@ This file tracks manual regression and feature verification steps.
 
 #### Steps
 1. Start CLI and wait for tunnel output.
-2. Verify the printed `Tunnel:` URL includes `/password=` suffix.
+2. Verify the printed `Tunnel:` URL does not include a `/password=` suffix.
 3. Scan the terminal QR code from a phone/browser.
-4. Confirm first page load enters the app without showing password form.
-5. Open the tunnel base URL without `/password=` in a private window and verify login prompt still appears.
+4. Confirm first page load shows the password form when no trusted bypass applies.
+5. Use the generated password file path from startup output to retrieve the password and sign in.
 
 #### Expected Results
-- Tunnel URL shown in startup output uses `/password=<encoded-password>`.
-- QR code encodes the same auto-login URL.
-- Visiting the auto-login URL sets session cookie and redirects to `/`.
-- Base tunnel URL still requires login when no trusted bypass applies.
+- Tunnel URL shown in startup output does not expose the password.
+- QR code encodes the base tunnel URL without a password-bearing path.
+- The generated password remains available from the local password file.
+- Base tunnel URL requires login when no trusted bypass applies.
 
 #### Rollback/Cleanup
 - Stop the CLI process.
@@ -553,6 +1501,33 @@ This file tracks manual regression and feature verification steps.
 - None.
 
 ### Feature: Stop button interrupts active turn without missing turnId
+
+### Feature: Windows npx install no longer depends on legacy PTY package
+
+#### Prerequisites
+- A Windows machine with Node.js and npm installed.
+- No globally installed `codexapp` package.
+- Clear any previous temporary npm cache for `codexapp` if needed.
+
+#### Steps
+1. Run `npx codexapp --no-login` on Windows.
+2. Confirm npm does not print deprecation warnings for `prebuild-install`, `npmlog`, `are-we-there-yet`, or `gauge` during package install.
+3. Exit the app, then run `npx codexapp --no-login` again.
+4. Run `npm i -g codexapp` on Windows.
+5. Start the globally installed CLI with `codexapp --no-login`.
+6. On macOS or Linux, start the app normally and confirm the integrated terminal still opens in a thread.
+7. Repeat the integrated terminal check in both light theme and dark theme.
+
+#### Expected Results
+- Windows `npx` install no longer pulls `node-pty-prebuilt-multiarch` as a required install dependency.
+- The deprecated `prebuild-install` dependency chain warnings no longer appear for `codexapp` installation.
+- Re-running `npx codexapp --no-login` works without getting stuck in the same failed temporary install loop.
+- Global installation succeeds on Windows.
+- Integrated terminal continues to work through `node-pty` on supported hosts.
+- Light theme and dark theme terminal surfaces remain readable and unchanged.
+
+#### Rollback/Cleanup
+- Remove the global package with `npm rm -g codexapp` if it was installed only for verification.
 
 #### Prerequisites
 - App is running from this repository.
@@ -996,6 +1971,39 @@ This file tracks manual regression and feature verification steps.
 
 #### Rollback/Cleanup
 - If needed, run another sync pull/push to restore previous skill state in the sync repo.
+
+### Feature: Public shared skills pull overwrites only shared skills
+
+#### Prerequisites
+- App running from this repository with Skills Hub available.
+- GitHub skills sync is not configured/logged in.
+- Local shared skills directory exists at `~/.codex/skills/shared_skills`.
+
+#### Steps
+1. Create a temporary local-only skill folder under `~/.codex/skills/shared_skills`, or edit a tracked shared skill file in that directory.
+2. Note the parent `~/.codex/skills` status, including any unrelated local edits outside `shared_skills`.
+3. Open `Skills Hub`.
+4. Trigger `Pull` from the `Skills Sync (GitHub)` panel.
+5. Wait for the pull success toast.
+6. Inspect `~/.codex/skills/shared_skills` and compare it with the public `OpenClawAndroid/skills` `android` branch.
+7. Inspect `~/.codex/skills` and verify unrelated parent-level files were not reset or cleaned by the unauthenticated pull.
+8. If `~/.codex/skills/shared_skills/.git` is a git file or worktree/submodule-style pointer, repeat the pull and verify the nested repo is not reinitialized.
+9. Inspect the `/codex-api/skills-sync/pull` response and verify `data.synced` matches the number of direct shared skill folders with `SKILL.md`.
+10. In light theme, verify the Skills Hub list reloads and does not show stale local-only skills.
+11. Switch to dark theme and verify the same Skills Hub state remains readable and current.
+
+#### Expected Results
+- Public unauthenticated pull resets only the nested `shared_skills` repo to the public upstream `android` branch.
+- Local uncommitted edits and local-only untracked skill folders inside `shared_skills` are removed by the pull.
+- Parent-level `~/.codex/skills` files outside `shared_skills` are not reset or cleaned.
+- Existing git-file/worktree/submodule-style shared skills repos are reused, not reinitialized.
+- The pull response reports the shared skills count from `~/.codex/skills/shared_skills`, not the parent skills directory.
+- The installed skills list reloads immediately after the pull in both light and dark theme.
+- Private GitHub sync repos still preserve local edits through the bidirectional sync path.
+
+#### Rollback/Cleanup
+- Recreate any intentionally removed local-only shared skill if it should be kept.
+- Use private sync `Push` only after confirming the public pull result should be mirrored elsewhere.
 
 ### Feature: Force Refresh Skills button in Skills Sync panel
 
@@ -1554,6 +2562,26 @@ This file tracks manual regression and feature verification steps.
 #### Rollback/Cleanup
 - Stop running dev servers and unset temporary env overrides.
 
+### Feature: npm run dev uses CLI server on Android
+
+#### Prerequisites
+- Android SSH helper exists and is executable: `/Users/igor/Git-projects/codex-web-local-android/andClaw/ssh.sh`.
+- Dependencies are installed on the Android clone.
+
+#### Steps
+1. On Android, run `npm run dev -- --port 4173`.
+2. Confirm startup logs show `Codex Web Local is running!`.
+3. In a second Android shell, run `curl -fsS http://127.0.0.1:4173/ | head -5`.
+4. Stop the dev server.
+
+#### Expected Results
+- Android starts `node dist-cli/index.js`, not raw Vite.
+- The server binds successfully and returns the app HTML.
+- The Vite `uv_interface_addresses` Android error does not occur.
+
+#### Rollback/Cleanup
+- Stop the Android dev server.
+
 ### Feature: Approval request uses legacy in-conversation request card only
 
 #### Prerequisites
@@ -1854,7 +2882,7 @@ This file tracks manual regression and feature verification steps.
 
 #### Steps
 1. Clone or pull branch `codex/thread-stream-parity` on A1 into `~/codexui`.
-2. Run `pnpm install` and start dev server: `pnpm run dev -- --host 0.0.0.0 --port 4173`.
+2. Run `pnpm install` and start dev server: `pnpm run dev --host 0.0.0.0 --port 4173`.
 3. From A1 locally, call `curl http://localhost:<port>/codex-api/rpc -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"thread/list","params":{},"id":1}'` and verify thread list returns.
 4. Pick a thread with known commands and file edits (e.g., MCP server deploy thread).
 5. Call `curl http://localhost:<port>/codex-api/thread-live-state?threadId=<id>` and inspect response.
@@ -1955,6 +2983,30 @@ This file tracks manual regression and feature verification steps.
 #### Rollback/Cleanup
 - Remove test file if it was created only for this verification.
 
+### Feature: Backticked bare filenames render as file links
+
+#### Prerequisites
+- App is running from this repository.
+- An active thread is open with a project `cwd`.
+- Optional: file exists at `<project cwd>/redroid_mainactivity.png`.
+- Verify once in light theme and once in dark theme.
+
+#### Steps
+1. Send this exact message:
+   `redroid_mainactivity.png`
+2. In the rendered message, confirm it appears as one clickable file link.
+3. Click the link and confirm it opens local browse for `<project cwd>/redroid_mainactivity.png`.
+4. Switch between light and dark theme and confirm the file-link chip remains readable.
+
+#### Expected Results
+- The backticked bare filename renders as `a.message-file-link`, not inline code.
+- The link href resolves through `/codex-local-browse` using the current project `cwd`.
+- The title contains the resolved file path, and the visible text is `redroid_mainactivity.png`.
+- Light and dark themes both show the link with readable contrast.
+
+#### Rollback/Cleanup
+- Remove `<project cwd>/redroid_mainactivity.png` if it was created only for this verification.
+
 ---
 
 ### Fix: Codex.app "New Worktree" Button Missing After Account Switch (CDP Injection)
@@ -1993,27 +3045,6 @@ stays at `source: "NoValues"` permanently. Feature gate `505458` (worktree) retu
 #### Rollback/Cleanup
 - Quit and relaunch Codex.app normally (without `--remote-debugging-port`) to remove CDP access.
 - The injected gate value persists only in memory for the current app session; restarting Codex.app resets it.
-
-### Feature: GitHub trending projects disabled by default on new chat
-
-#### Prerequisites
-- App is running from this repository.
-- Browser local storage key `codex-web-local.github-trending-projects.v1` is unset (fresh profile or manually removed).
-
-#### Steps
-1. Open the app to the new chat/home screen.
-2. Verify the `Trending GitHub projects` section is not shown.
-3. Open Settings and enable `GitHub trending projects`.
-4. Return to new chat/home and verify the trending section appears.
-5. Refresh the page and verify enabled state persists.
-
-#### Expected Results
-- With no saved preference, trending section is hidden by default.
-- Enabling the setting immediately shows trending projects.
-- Saved preference persists across refresh.
-
-#### Rollback/Cleanup
-- Reset `GitHub trending projects` setting to your preferred state.
 
 ### Feature: Lazy message rendering (windowed conversation)
 
@@ -2194,46 +3225,37 @@ Toggle "Free mode" in settings to use free OpenRouter models without an OpenAI A
 - Run `bash scripts/fix-codex-thread-filter.sh --restore` to undo.
 - Backup is stored at `/Applications/Codex.app/Contents/Resources/app.asar.bak`.
 
-### Feature: Delete thread without confirmation
-
-#### Prerequisites
-- App is running from this repository.
-- At least one disposable thread exists.
-
-#### Steps
-
-1. Right-click (or long-press) a thread in the sidebar to open the context menu.
-2. Click **Delete thread**.
-3. Confirm no secondary confirmation dialog appears.
-4. Confirm the selected thread is immediately archived/removed from the visible thread list without reloading the page.
-5. Repeat with a pinned thread and confirm the pinned row is removed.
-6. Repeat with a thread that has heartbeat automation and confirm the thread is archived and the automation chip no longer appears.
-
-#### Expected Results
-- The menu action archives the thread immediately after clicking **Delete thread**, and the sidebar updates without a page reload.
-- Pinned state is cleaned up for the removed thread.
-- Attached heartbeat automation is deleted before archiving when present; archive still proceeds if automation cleanup fails.
-
-#### Rollback/Cleanup
-- Restore any archived test thread from archived threads if needed.
-- Recreate any removed test automation if needed.
-
-### Fix: Rename thread dialog height cap
+### Fix: Delete/rename thread dialog height cap
 
 #### Prerequisites
 - App is running from this repository.
 - At least one thread exists with a long title (can be achieved by renaming a thread to a very long string).
 
+#### Steps — Delete button visibility
+
+1. Right-click (or long-press) a thread in the sidebar to open the context menu.
+2. Click **Delete**.
+3. Verify the confirmation dialog appears and the **Delete** / **Cancel** buttons are fully visible without scrolling the page.
+4. Repeat with a thread whose title is very long (50+ characters); confirm buttons remain visible.
+5. On a small viewport (e.g. browser DevTools device emulation at 375 × 667), repeat steps 1–4 and confirm the dialog never exceeds the screen height.
+
+#### Steps — Long title wrapping
+
+6. Rename a thread to a string with no spaces (e.g. `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`).
+7. Open the Delete dialog for that thread.
+8. Verify the long title in the subtitle area wraps onto multiple lines rather than overflowing or being clipped horizontally.
+9. If the title is long enough to fill the subtitle area, verify a vertical scrollbar appears within the subtitle, and the title, input, and buttons remain visible outside the scroll area.
+
 #### Steps — Rename dialog
 
-1. Open the Rename dialog for a thread with a long title.
-2. Confirm the rename input field, title text, and **Save** / **Cancel** buttons are all fully visible.
-3. Type a very long string into the rename input and confirm it does not push the buttons off screen.
-4. On a small viewport (e.g. browser DevTools device emulation at 375 × 667), repeat steps 1–3 and confirm the dialog never exceeds the screen height.
+10. Open the Rename dialog for a thread with a long title.
+11. Confirm the rename input field, title text, and **Save** / **Cancel** buttons are all fully visible.
+12. Type a very long string into the rename input and confirm it does not push the buttons off screen.
 
 #### Expected Results
 - Dialog is capped at 90 vh; action buttons are always pinned at the bottom.
-- Long unbroken thread titles remain visible in the input area without horizontal clipping.
+- Long unbroken thread titles wrap within the subtitle area; no horizontal clipping.
+- Vertical scrollbar appears in the subtitle region if the title exceeds available height.
 
 #### Rollback/Cleanup
 - Rename any test threads back to original names if desired.
@@ -2879,6 +3901,36 @@ The old rollback button is replaced with an `Edit message` action under each eli
 
 ---
 
+### Integrated terminal mobile keyboard avoidance
+
+#### Feature/Change Name
+The integrated terminal stays inside the visible viewport when the mobile virtual keyboard opens.
+
+#### Prerequisites/Setup
+1. Dev server running on a phone-accessible URL
+2. Open a thread or new-chat screen with a selected project folder
+3. Integrated terminal available from the header terminal button
+
+#### Steps
+1. Open the terminal drawer
+2. Tap inside the xterm terminal so the mobile keyboard opens
+3. Type `echo terminal-keyboard-ok`
+4. Rotate or resize the browser while the keyboard is still open
+5. Repeat on a wide/tablet layout where the sidebar remains visible
+6. Hide the keyboard, then tap the terminal again
+
+#### Expected Results
+- The terminal panel resizes into the visual viewport instead of being covered by the keyboard
+- The xterm prompt and typed command remain visible above the keyboard
+- The composer/terminal stack stays compact without overlapping the header or conversation
+- On wide/tablet layouts, terminal focus still activates the protected keyboard layout even when the mobile breakpoint is not active
+- The terminal remains usable after resize/orientation changes
+
+#### Rollback/Cleanup
+- Close the terminal tab if the test created a shell session that should not remain running
+
+---
+
 ### Assistant generated image rendering
 
 #### Feature/Change Name
@@ -2924,912 +3976,1428 @@ Each local/worktree thread has an integrated xterm terminal that can be toggled 
 6. Confirm the printed path matches the thread/project working directory
 7. Run `echo terminal-ok`
 8. Confirm `terminal-ok` appears in the xterm output
-9. Fetch `/codex-api/thread-terminal-snapshot?threadId=<thread-id>`
-10. Confirm the JSON `session.buffer` contains `terminal-ok`
-11. Refresh the page and reopen the same thread
-12. Toggle the terminal open again
-13. Resize the browser window
-14. Click `Close`
+9. Choose `npm run dev` from the `Run...` quick-command menu
+10. Confirm the command is submitted to the active terminal
+11. Fetch `/codex-api/thread-terminal-snapshot?threadId=<thread-id>`
+12. Confirm the JSON `session.buffer` contains `terminal-ok`
+13. Refresh the page and reopen the same thread
+14. Toggle the terminal open again
+15. Click `New`
+16. Confirm a second terminal tab appears and becomes active
+17. Click the first terminal tab
+18. Confirm its previous output is restored
+19. Resize the browser window
+20. Click `Close`
+21. Open the new-chat screen
+22. Confirm a working folder is selected
+23. Click the terminal button in the top-right header
+24. Confirm the terminal opens below the new-chat composer before a thread exists
+25. Run `pwd` and confirm it matches the selected folder
 
 #### Expected Results
 - The terminal button shows a pressed state when the drawer is open
 - The terminal is scoped to the selected thread working directory
+- The terminal button is also available on new-chat when a working folder is selected
+- New-chat terminal sessions use the selected folder before a thread exists
 - Recent output is restored after hiding/reopening or refreshing the thread
 - The terminal resizes without clipping the prompt
 - The snapshot endpoint returns `{ session: { cwd, shell, buffer, truncated } }` while a session exists
-- `Close` terminates the PTY and hides the drawer
+- The quick-command menu sends common project commands such as `npm run dev` into the current PTY
+- The terminal open/hide action is the first item in the `Run...` menu
+- The `Run...` menu shows discovered project commands in usage order and scrolls when the list is longer than the visible menu
+- `New` adds another tab without killing the previous PTY
+- `Close` terminates the active PTY and hides the drawer only after the last tab is closed
 
 #### Rollback/Cleanup
 - Close the terminal session with the `Close` button
 - Stop any processes started inside the terminal before leaving the thread
 
-### Feature: Hosted mobile startup behind nginx without VPN
+---
 
-#### Prerequisites
-- Hosted deployment is fronted by nginx over HTTPS.
-- `dist/` is synced into the nginx static root (for example `/var/www/codexui-dist`).
-- nginx serves `/assets/`, `/icons/`, `manifest.webmanifest`, `sw.js`, and Apple touch icons directly from the static root, and proxies only `/`, `/codex-api/`, and `/codex-api/ws` to Node.
-- The TLS vhost uses the transport profile from `docs/deploy/fix-hosted-mobile-access-without-vpn.md` (`http2`, `keepalive_timeout 65`, `gzip on`, `sendfile on`).
-- An iPhone Safari client can reach the hosted URL over mobile data with VPN disabled.
-
-#### Steps
-1. Build the app, sync `dist/`, install/reload the nginx config, and restart `codexui`.
-2. Request a current hashed JS asset under `/assets/` and confirm it returns `200` with a JavaScript content type.
-3. Request a missing asset such as `/assets/does-not-exist.js` and confirm nginx returns `404` rather than the SPA HTML shell.
-4. Open the hosted codexUI URL in Safari on the iPhone while using mobile data without VPN.
-5. Submit the password form and wait for the main app shell to load.
-6. Inspect nginx access logs while the page loads.
-7. Confirm the main hashed `/assets/index-*.js` and `/assets/index-*.css` requests are delivered fully, then `/codex-api/*` and `/codex-api/ws` traffic starts normally.
-8. If the mobile home route opens first and threads exist, confirm the thread list drawer is expanded instead of auto-jumping into a thread.
-
-#### Expected Results
-- Valid hashed assets are served directly by nginx with the correct content type.
-- Missing hashed assets fail as `404` and never fall back to HTML.
-- Safari on mobile data loads the hosted UI without the previous white screen/endless loader.
-- The mobile home route keeps the thread list visible, and transient startup RPC failures no longer strand the client.
-
-#### Rollback/Cleanup
-- If the app regresses after a rebuild, re-sync `dist/` before changing nginx again.
-- Restore the previous nginx vhost only after reproducing the regression on the same iPhone/mobile-data path.
-
-### Feature: Explicit CLI host binding for proxy-only or LAN deployments
-
-#### Prerequisites
-- `dist-cli/index.js` is built from this repository.
-- No other process is using the chosen test port.
-
-#### Steps
-1. Run `node dist-cli/index.js --port 6216 --host 127.0.0.1 --no-password --no-tunnel --no-open --no-login`.
-2. Confirm startup output shows `Bind:     http://127.0.0.1:6216` and does not enumerate LAN URLs.
-3. In another shell, confirm `curl http://127.0.0.1:6216/` works.
-4. Stop the server, then run `node dist-cli/index.js --port 6216 --host 0.0.0.0 --no-password --no-tunnel --no-open --no-login`.
-5. Confirm startup output shows `Bind:     http://0.0.0.0:6216` and lists localhost plus any discovered LAN URLs.
-
-#### Expected Results
-- `--host 127.0.0.1` keeps the listener local-only for reverse-proxy deployments.
-- `--host 0.0.0.0` keeps LAN/mobile discovery behavior.
-- The reported `Bind:` value matches the actual listener host.
-
-#### Rollback/Cleanup
-- Stop the temporary test server processes.
-
-### Feature: PWA push notifications for completed Codex tasks
+### Integrated terminal manager edge cases
 
 #### Feature/Change Name
-Installed PWA clients can subscribe to web push notifications and receive an iPhone notification when a Codex task finishes.
+Automated unit coverage for terminal manager edge cases that do not require a browser or real shell.
 
 #### Prerequisites/Setup
-1. The app is deployed over HTTPS and reachable from the iPhone.
-2. The iPhone is running iOS with Safari web push support.
-3. Codex Web is added to the Home Screen and opened in standalone PWA mode.
-4. A Codex thread is available so a new task can be started.
+1. Dependencies installed with `pnpm install`
 
 #### Steps
-1. Open the installed PWA on the iPhone.
-2. Open the settings panel in the sidebar.
-3. In `Task notifications`, tap `Enable` and allow notifications when iOS prompts.
-4. Tap `Send test`.
-5. Confirm the test notification appears on the iPhone.
-6. Start a real Codex task that will take at least a few seconds.
-7. Send the app to the background or lock the phone before the task completes.
-8. Wait for the task to finish.
-9. Tap the delivered completion notification.
+1. Run `pnpm run test:unit`
+2. Optionally run the focused test file with `pnpm run test:unit -- src/server/terminalManager.test.ts`
 
 #### Expected Results
-- The settings panel shows `Task notifications` status as `On` after permission is granted.
-- `Send test` produces an iPhone notification from the installed PWA.
-- When Codex emits `turn/completed`, the server sends a web push notification to the subscribed device.
-- Successful turns show `Codex task completed`; failed turns show `Codex task failed` with the error summary when available.
-- Completed subagent turns do not send PWA task notifications; only the parent/orchestrator thread completion sends a task notification.
-- Tapping the notification opens the PWA and navigates to the related thread.
+- Missing thread ids are rejected before spawning a PTY
+- Invalid cwd falls back to home and then process cwd
+- Initial and resize dimensions are clamped
+- PTY env normalizes `TERM`, locale, and strips `TERMINFO` variables
+- Output snapshots truncate to the last 16 KiB and set `truncated`
+- Existing session reattach emits init/attached events and safely syncs changed cwd
+- `New` adds a new tab without killing the previous session, and close/exit removes snapshots for the active session
 
 #### Rollback/Cleanup
-- In the PWA settings panel, tap `Disable` to unsubscribe the device.
-- Remove the Home Screen app if you no longer want Safari push notifications for this origin.
+- None
 
-### Feature: Suppress iPhone task push while the desktop thread tab is active
+---
+
+### Startup welcome log uses repository GitHub URL
 
 #### Feature/Change Name
-Focused desktop web tabs report active thread presence so completed-task web push is skipped for that thread.
+Remove the legacy npm package reference from the startup welcome log and point users to the upstream GitHub repository.
 
 #### Prerequisites/Setup
-1. The app is deployed over HTTPS and reachable from both desktop browser and iPhone PWA.
-2. The iPhone PWA has `Task notifications` enabled.
-3. A desktop browser is opened to the same Codex Web instance.
-4. A Codex thread is available for a task that takes at least a few seconds.
+1. Run the app from this repository.
 
 #### Steps
-1. On desktop, open the target thread and keep the browser tab visible and focused.
-2. Start a Codex task in that thread.
-3. Wait for the task to complete without switching away from the desktop tab.
-4. Confirm no iPhone completion push arrives for that task.
-5. Start another Codex task in the same thread.
-6. Switch the desktop tab to the background or focus another application before completion.
-7. Wait for the task to complete.
+1. Start the app (for example via `pnpm run dev`).
+2. Open the browser devtools console.
+3. Locate the startup welcome message.
 
 #### Expected Results
-- While the desktop tab is visible, focused, and selected on the completing thread, `turn/completed` does not send an iPhone web push.
-- After the tab is hidden, blurred, closed, or its heartbeat expires, completed tasks send the normal iPhone web push.
-- `Send test` still sends a test notification regardless of desktop tab activity.
+- The welcome log points to `https://github.com/friuns2/codexUI`.
+- The welcome log does not contain the legacy npm package URL.
 
 #### Rollback/Cleanup
-- In the iPhone PWA settings panel, tap `Disable` to unsubscribe the test device if needed.
+- None
 
-### Feature: Automatic thread names from early context
+---
+
+### Home route no longer crashes on dev startup
 
 #### Feature/Change Name
-Codex UI listens for completed turns of an unnamed thread, asks a low-effort title model to summarize the early conversation context, and writes the generated name through `thread/name/set`. If model title generation is unavailable, it falls back to the local title generator. File attachment metadata such as `Files mentioned by the user` is excluded from title sources.
+Keep the home route mount path working in dev mode.
 
 #### Prerequisites/Setup
-1. App server is running from this repository.
-2. The thread list is visible in Codex UI.
-3. A new chat can be started from the home view.
-4. For model-generated titles, `OPENAI_API_KEY` or `CODEXUI_THREAD_TITLE_API_KEY` is configured. Optional overrides: `CODEXUI_THREAD_TITLE_MODEL`, `CODEXUI_THREAD_TITLE_REASONING_EFFORT`, `CODEXUI_THREAD_TITLE_BASE_URL`, `CODEXUI_THREAD_TITLE_LLM=off`.
+1. Run the app from this repository with `npm run dev`.
 
 #### Steps
-1. Start a new thread with a concrete feature request that takes long enough to produce an assistant response.
-2. Wait for the first assistant response to complete.
-3. Watch the sidebar row for that thread.
-4. Refresh the page and find the same thread in the sidebar.
-5. Manually rename another new thread before its first response completes, then wait for completion.
-6. Start one thread with a Russian first message and one with an English first message, then wait for both first responses to complete.
-7. Start a Russian thread whose first message begins with a Russian question, then includes a pasted English terminal/banner log before the assistant replies.
-8. Start a Russian thread with a tracker-task request such as: `поставь мне (Ранил З.) задачу в рабочих задачах в трекере "Дождаться от Бубуки 3002 руб" на завтра`.
-9. Start a new thread by attaching a file with little or no typed text, then continue with a concrete follow-up request and wait for the assistant response to complete.
+1. Open `http://localhost:5173/#/`.
+2. Wait for the app shell to finish loading.
+3. Open the browser devtools console.
 
 #### Expected Results
-- The first unnamed thread is renamed to a concise generated title after `turn/completed`.
-- The title remains after refresh because it is written to Codex app-server via `thread/name/set`.
-- The manually renamed thread keeps the manual title and is not overwritten by automatic naming.
-- Generated titles prefer the same language/script as the first user message.
-- Pasted English logs or terminal output inside a Russian first message do not cause an English generated title; the title stays Russian and is derived from the leading user request.
-- Tracker-task requests are summarized by intent instead of truncated from the first message; the example request should become a short semantic title such as `Задача в трекер для Бубуки`.
-- The generated title summarizes the early task/topic context instead of leaking attachment metadata such as `Files mentioned by the user` or a file path.
-- An attachment-only first turn does not immediately create a file-metadata title; the thread can be named later from a meaningful follow-up exchange.
+- The home screen renders instead of a black screen.
+- The console does not show an app setup `ReferenceError` during initial mount.
 
 #### Rollback/Cleanup
-- Manually rename any test threads back to their preferred names, or archive the test threads.
+- None
 
-### Feature: Detached restart script for managed codexui service
+---
+
+### Thread list startup pagination and direct older-thread links
 
 #### Feature/Change Name
-`scripts/restart-codexui-service.sh` schedules a detached transient `systemd-run` job that rebuilds the repo, restarts `codexui.service`, and waits for the HTTP healthcheck without depending on the current browser request surviving the restart.
+Thread loading uses a smaller initial list page, hydrates later pages in the background, and direct thread URLs are not rejected just because the thread is outside the first page.
 
 #### Prerequisites/Setup
-1. `codexui.service` exists under systemd on the host.
-2. The current user can run `sudo systemd-run` and `sudo systemctl restart codexui`.
-3. The repository on disk is the same one used by the service `WorkingDirectory`.
+1. Dev server running (`pnpm run dev`)
+2. Browser dev tools Network panel open
+3. More than 50 existing threads, including a valid older thread outside the first updated page
 
 #### Steps
-1. Run `scripts/restart-codexui-service.sh` from the repository root.
-2. Confirm the script returns immediately with a transient unit name and a log path under `/tmp/codexui-restart.log`.
-3. Run `tail -f /tmp/codexui-restart.log`.
-4. Wait for `pnpm run build` to complete.
-5. Wait for the transient unit to restart `codexui.service`.
-6. Confirm the log ends with `service is healthy` and `worker exit status=0`.
-7. Run `systemctl status codexui --no-pager --full`.
-8. Open the hosted Codex UI URL and confirm the app reconnects normally.
+1. Open the app home route
+2. Inspect the first `thread/list` RPC request
+3. Keep the app open and watch subsequent `thread/list` RPC requests
+4. Open `/thread/<older-thread-id>` directly for a valid thread outside the first page
 
 #### Expected Results
-- The wrapper exits before the actual restart begins, so it can be launched from a live Codex UI session.
-- The transient worker survives the caller process, rebuilds the repo, restarts `codexui.service`, and waits for the HTTP healthcheck on `127.0.0.1:$CODEXUI_PORT`.
-- After completion, the service is back in `active (running)` state and the hosted UI is reachable again.
+- The first `thread/list` request uses a smaller initial limit instead of 100
+- Later thread pages load in the background using `nextCursor`
+- The sidebar gains older threads as background pages complete
+- The direct older thread URL stays on the thread route and loads messages instead of redirecting home
 
 #### Rollback/Cleanup
-- If the healthcheck fails, inspect `/tmp/codexui-restart.log` and `systemctl status codexui`.
-- Re-run the script after fixing the underlying build or service issue.
+- None
 
-### Feature: Per-recording iPhone dictation microphone access
+---
+
+### Thread detail load avoids duplicate live-state history fetch
 
 #### Feature/Change Name
-Voice dictation releases the microphone stream after each stopped recording so the iOS system microphone privacy indicator clears when dictation is idle.
+Normal thread detail loading calls `thread/read` directly instead of first calling `/codex-api/thread-live-state`, whose server path also reads full thread history.
 
 #### Prerequisites/Setup
-1. The app is deployed over HTTPS and opened as an installed PWA on iPhone.
-2. iOS microphone access for the site is not permanently blocked.
-3. A Codex thread is open and the composer microphone button is visible.
+1. Dev server running (`pnpm run dev`)
+2. Browser dev tools Network panel open
+3. An existing thread with a large history
 
 #### Steps
-1. Tap or hold the composer microphone button to start dictation.
-2. Allow microphone access when iOS prompts.
-3. Stop dictation and wait for transcription to finish or for the composer to return to idle.
-4. Confirm the iOS microphone privacy indicator clears shortly after Stop.
-5. Start dictation again in the same loaded PWA session.
-6. Stop dictation again and confirm the indicator clears again.
-7. Fully close the PWA, reopen it, and start dictation again.
+1. Open the existing thread
+2. Inspect network/RPC calls during the message load
 
 #### Expected Results
-- Each dictation start requests a fresh browser microphone stream.
-- Stopping dictation stops the active stream tracks and clears the active microphone indicator shortly afterward.
-- Dictation still records and transcribes audio normally after repeated start/stop cycles.
-- iOS may show the normal microphone permission prompt again depending on WebKit/iOS site permission behavior.
+- The message load performs `thread/read` or `thread/resume` for the thread
+- It does not first call `/codex-api/thread-live-state` for the same normal message load
+- Messages and active/in-progress state still render correctly
 
 #### Rollback/Cleanup
-- Stop any active dictation.
-- If iOS permission state needs to be reset, change microphone access for the site in Safari/iOS settings.
+- None
 
-### Feature: iPhone dictation microphone permission retry
+---
+
+### Thread message cache skips unchanged refetches
 
 #### Feature/Change Name
-Voice dictation keeps the browser microphone permission request close to the user's tap when iOS/WebKit reports microphone access denied.
+Loaded thread messages are reused when the thread list version has not changed and the thread is not in progress.
 
 #### Prerequisites/Setup
-1. The app is deployed over HTTPS and opened in Safari or as an installed PWA on iPhone.
-2. A Codex thread is open and the composer microphone button is visible.
-3. iOS microphone access for the site is either unset, allowed, or temporarily denied for the current session.
+1. Dev server running (`pnpm run dev`)
+2. Browser dev tools Network panel open
+3. An existing completed thread
 
 #### Steps
-1. Tap or hold the composer microphone button to start dictation.
-2. If iOS prompts for microphone access, allow it and confirm recording starts.
-3. Stop dictation, attach an image or file, then start dictation again in the same loaded session.
-4. If the browser reports denied access, tap the microphone button again without reloading the app.
-5. If access stays denied, open Safari/iOS site settings and re-enable microphone access, then return to the app and tap the microphone button again.
+1. Open the completed thread and wait for messages to render
+2. Switch to another thread or home
+3. Return to the same completed thread without new turn or thread update events
+4. Inspect network/RPC calls during the return
 
 #### Expected Results
-- Normal dictation starts still trigger the browser microphone request directly from the user's mic-button gesture.
-- Adding attachments does not require reloading the app before the next dictation attempt.
-- When iOS/WebKit returns `NotAllowedError`, the composer shows the short `Microphone access was denied.` error.
-- A permanent site-level or app-level microphone block is not bypassed by the web app; it requires changing the browser/iOS permission setting.
+- The first open loads messages normally
+- Returning to the unchanged completed thread reuses cached messages
+- No additional `thread/read` or `thread/resume` call is made for that unchanged return
+- If the thread version changes or the thread is in progress, messages still refresh from the server
 
 #### Rollback/Cleanup
-- Stop any active dictation.
-- Reset microphone permission for the site/app in iOS settings if testing leaves the site blocked.
+- None
 
-### Feature: Selectable OpenAI/Groq voice transcription provider
+---
+
+### Thread selection keeps sidebar list stable during refresh
 
 #### Feature/Change Name
-Voice transcription can be forced to OpenAI with `CODEXUI_TRANSCRIBE_PROVIDER=openai` while existing Groq environment variables remain configured.
+Selecting a thread does not briefly hide older/sidebar threads while thread list refresh and background pagination run.
 
 #### Prerequisites/Setup
-1. Build the project with `pnpm run build`.
-2. Have an OpenAI API key available in the server environment as `OPENAI_API_KEY`.
-3. Optional: keep `GROQ_API_KEY`, `GROQ_STT_MODEL`, and `GROQ_STT_LANGUAGE` set to confirm they do not take over when OpenAI is selected.
+1. Dev server running (`pnpm run dev`)
+2. More than one page of threads available in the sidebar
+3. Background pagination has loaded older threads
 
 #### Steps
-1. Start the app with `CODEXUI_TRANSCRIBE_PROVIDER=openai` and `OPENAI_API_KEY` set.
-2. Leave any existing Groq STT environment variables set.
-3. Open a Codex thread and use the composer microphone dictation button.
-4. Stop recording and wait for transcription to finish.
-5. Restart the app with `CODEXUI_TRANSCRIBE_PROVIDER=groq` and a valid Groq key if Groq behavior should be checked.
-6. Repeat the same microphone dictation flow.
+1. Open the app and wait until older thread pages appear in the sidebar
+2. Select a different thread
+3. Watch the sidebar while the selected thread loads and any thread list refresh occurs
+4. Repeat selection between recent and older threads
 
 #### Expected Results
-- With `CODEXUI_TRANSCRIBE_PROVIDER=openai`, `/codex-api/transcribe` sends the audio to the OpenAI transcription endpoint and uses the default `whisper-1` model unless `CODEXUI_TRANSCRIBE_MODEL` overrides it.
-- Existing Groq variables do not force Groq routing, model, or default language while OpenAI is selected.
-- With `CODEXUI_TRANSCRIBE_PROVIDER=groq`, the previous Groq STT route remains available and defaults to `whisper-large-v3-turbo` unless overridden.
+- The sidebar does not collapse to only the first page of recent threads
+- Previously loaded older threads remain visible during refresh
+- The selected thread stays highlighted and messages load normally
+- Background pagination can still add newly loaded older threads without hiding existing ones
 
 #### Rollback/Cleanup
-- Unset `CODEXUI_TRANSCRIBE_PROVIDER` to return to automatic provider selection.
-- Unset `CODEXUI_TRANSCRIBE_MODEL` if a temporary model override was used.
+- None
 
-### Feature: Voice transcription API error display
+---
+
+### Browser runtime profiling with Playwright
 
 #### Feature/Change Name
-Voice dictation surfaces upstream transcription API errors even when the provider returns an object-shaped `error` payload.
+Playwright browser runtime profiler captures route timing, Codex API network counts, screenshots, and trace files.
 
 #### Prerequisites/Setup
-1. Start Codex UI with `CODEXUI_TRANSCRIBE_PROVIDER=openai`.
-2. Use an invalid or expired transcription API key in a local test environment, or point `OPENAI_BASE_URL` at a mock server that returns `{ "error": { "message": "invalid key" } }` with a 401 status.
-3. Open a Codex thread with the composer microphone button visible.
+1. Dev server running at `http://localhost:5173`
+2. Dependencies installed (`pnpm install`)
+3. Target route available, such as `#/thread/019da7c0-4e12-7a91-837c-f7c11cc8ab6c`
 
 #### Steps
-1. Start dictation from the composer microphone button.
-2. Speak briefly and stop recording.
-3. Wait for transcription to fail.
+1. Run `pnpm run profile:browser`
+2. Run `PROFILE_ROUTE='#/thread/019da7c0-4e12-7a91-837c-f7c11cc8ab6c' pnpm run profile:browser`
+3. Inspect console output for duplicate counts and slowest API rows
+4. Open the generated `output/playwright/browser-runtime-profile-*.json`
+5. Open the generated `output/playwright/browser-runtime-profile-*-trace.zip` with `npx playwright show-trace`
 
 #### Expected Results
-- The composer shows the provider error message from `error.message`.
-- The UI does not show `_e.trim is not a function` or another secondary JavaScript error.
-- A successful transcription response with string `text` still appends the transcript normally.
+- The profiler prints final URL, title, total observed time, duplicate request counts, and slowest Codex API calls
+- JSON report includes raw API rows, grouped summaries, Performance API data, and artifact paths
+- JSON report includes `pageState.stillLoadingThreads`; the profiler exits non-zero if the page still contains `Loading threads...` after the thread-loading timeout
+- Screenshot is saved under `output/playwright/browser-runtime-profile-*.png`
+- Trace is saved under `output/playwright/browser-runtime-profile-*-trace.zip`
 
 #### Rollback/Cleanup
-- Restore a valid transcription API key or return `CODEXUI_TRANSCRIBE_PROVIDER` to the previous provider.
+- Delete generated files under `output/playwright/` if local artifacts are no longer needed
 
-### Feature: Dictation recorder quality and microphone diagnostics
+---
+
+### Codex.app-style Plugins Directory
 
 #### Feature/Change Name
-Voice dictation prefers a browser-supported compressed speech recording format and records the last microphone label reported by the browser.
+The `#/skills` route shows a full Skills & Apps directory with Plugins, Apps, Composio, and a Skills tab where an `MCPs(count)` section appears just before `Installed skills (count)`.
 
 #### Prerequisites/Setup
-1. Open Codex UI in a browser or installed PWA with microphone permission available.
-2. Optional: connect Bluetooth headphones such as AirPods before starting dictation.
-3. Open the sidebar settings panel.
+1. Dev server running at `http://127.0.0.1:4173`
+2. Codex CLI available in `PATH`
+3. Optional: a Codex CLI version with `plugin/list`, `app/list`, and `mcpServerStatus/list` app-server APIs
 
 #### Steps
-1. Start voice dictation from the composer microphone button.
-2. Stop dictation after a short phrase.
-3. Open sidebar settings and inspect the `Last mic` row.
-4. Repeat with Bluetooth headphones connected and disconnected.
+1. Open `http://127.0.0.1:4173/#/skills`
+2. Verify the page title is `Skills & Apps` and the tab row contains `Plugins`, `Apps`, `Composio`, and `Skills`
+3. On `Plugins`, verify plugin cards load, the default sort is `Popular`, and `A-Z`, `Date`, and search controls work
+4. Open a plugin card when one is available and verify description, capabilities, included apps/skills/MCPs, and install/uninstall or enable/disable actions are visible
+5. For an installed plugin with bundled MCP servers, such as Cloudflare, verify each MCP row shows auth status (`Logged in`, `Bearer token`, `Login required`, `Auth unsupported`, or `Status unknown`)
+6. If a bundled MCP server shows `Login required`, click `Authenticate` and verify the browser opens the returned MCP OAuth authorization URL
+7. Switch to `Apps` and verify app cards load, or the unavailable/empty state appears without breaking the page
+8. On `Apps`, verify the default sort control is `Popular`, app icons render, connected apps show `Manage`, and disconnected apps show `Login`
+9. Click a disconnected app `Login` button and verify it opens the app login/manage URL
+10. Click `Try it!` for a connected and enabled app and verify a new thread opens with an auto-submitted prompt asking what the app can do
+11. While the app `Try it!` request is starting, click the button repeatedly and verify only one new thread is created
+12. Open an installed/enabled plugin detail, click `Try it!`, and verify a new thread opens with an auto-submitted plugin test prompt
+13. Open an installed/enabled skill detail, click `Try it!`, and verify a new thread opens with an auto-submitted skill test prompt and the skill attached
+14. Install a plugin whose install response includes `appsNeedingAuth`, and verify the first required app login/manage URL opens automatically
+15. Open a plugin whose detail lists a required app that is absent from the Apps catalog for the current account, such as Gmail on an account without Gmail app access, and verify the footer shows a disabled `ChatGPT Plus` action instead of `Install`
+16. Switch Apps sorting to `A-Z` and verify apps reorder alphabetically; switch to `Date` and verify app-server catalog order is restored; switch back to `Popular` and verify casual-user relevant apps are prioritized and capped to 100 when no search is active
+17. Search Apps and verify matching results are not capped to the Popular top 100 list
+18. Switch to `Composio` and verify the workspace summary card shows the current installed Composio CLI login state, or a clear not-installed / not-authenticated message appears
+19. If Composio CLI is not installed, click `Install Composio` and verify the app installs the CLI to `~/.composio/composio` using the official Composio installer
+20. If Composio is available but not authenticated, click `Login` and verify the app opens a new tab, starts the installed `composio login --no-browser -y`, captures the returned auth URL, and navigates the new tab to that URL
+21. Verify Composio connector cards show real connector details such as tool counts, trigger counts, auth mode, and connection state instead of only aggregate totals
+22. In Composio search, type `instagram` and verify the Instagram connector appears first when it is returned by the connector source, ahead of description-only matches such as Meta Ads
+23. Open a disconnected Composio connector and click `Connect` or `Reconnect`; verify the returned `connect.composio.dev` authorization URL opens
+24. Open a connected Composio connector and verify connection rows show account identifiers and statuses such as `Active` or `Expired`
+25. Click `Try it!` on a connected or no-auth Composio connector and verify a new thread opens with a Composio-specific prompt and the `composio-cli` skill attached
+26. On Composio, verify that if more than one page exists, `Load more` appears and appends additional connectors while keeping prior results visible
+27. In Composio search, verify the page state resets (the list returns to the first result page and stale pagination is cleared)
+28. Switch to `Skills` and verify the view shows an `MCPs(count)` collapsible section immediately before the `Installed skills (count)` section
+29. Expand `MCPs(count)` and verify server cards show auth status and tool/resource counts, or the unavailable/empty state appears without breaking the page
+30. Click header `Refresh` while on `Skills` and verify MCP state reloads (it should perform MCP reload behavior on this tab instead of using a separate `Reload MCPs` button)
+31. Verify no separate `Reload MCPs` button is shown in the header or inside the MCP section body
+32. Verify the `MCPs(count)` section does not show its own search or sort controls
+33. Verify MCP cards use the same visual card/grid layout pattern as Installed skills cards (avatar circle, title row, badge, secondary text)
+34. Verify the `Installed skills (count)` section below MCPs still supports the existing Skills Hub behavior
+35. Verify both light and dark themes render Composio cards and status/detail actions with readable contrast
+36. In dark mode, verify MCP cards use the same dark card surface styling as Installed skills cards (not a light/white card)
 
 #### Expected Results
-- Dictation still records and transcribes normally.
-- The recorder uses the first supported format from the preferred list with a speech-oriented audio bitrate.
-- The settings panel shows the last browser-reported microphone label and basic track settings when available.
-- If iOS/WebKit hides the physical route, the row still shows `Unnamed microphone` or the best label provided by the browser instead of interrupting dictation.
+- The directory tabs render without a full-page error
+- Plugin/app/Composio API failures are isolated to their tab
+- Existing Skills Hub behavior remains available under the `Skills` tab, with MCPs presented just before Installed skills
+- App and plugin enable/disable actions update their local card state after a successful config write
+- Plugin detail shows bundled MCP login state and can launch MCP OAuth for `notLoggedIn` servers
+- Disconnected apps are labeled `Login`; connected apps are labeled `Manage`
+- The Composio tab uses the installed Composio CLI, preferring `CODEXUI_COMPOSIO_COMMAND` when set and otherwise `~/.composio/composio` or `composio` on `PATH`
+- The Composio install action uses the official installer and produces a working `~/.composio/composio` binary
+- The Composio login action opens a new tab from the click, starts the installed `composio login --no-browser -y`, then navigates that tab to the returned auth URL
+- Composio connector cards and detail views show concrete connector details, connection rows, and useful tool samples
+- Composio search prioritizes exact slug/name matches above connectors that only mention the query in their description
+- Unit coverage verifies that Composio exact query matches outrank description-only matches and that gateway connector search sends `query`, `cursor`, and `limit` params expected by the server
+- Connected or no-auth Composio connectors expose `Try it!`, creating a new chat with the `composio-cli` skill attached
+- Composio pagination supports page-by-page loading with a clear `Load more` path and cursor-based page continuation
+- Plugin install opens the first required app login/manage page before falling back to bundled MCP OAuth login
+- Plugin install is blocked with `ChatGPT Plus` when the plugin requires an app that is absent from the Apps catalog for the current account
+- Connected and enabled apps, plus installed/enabled plugins/skills, expose `Try it!`, creating a new chat with an auto-submitted test prompt
+- Repeated `Try it!` clicks during startup are ignored until the first request resolves, so duplicate threads are not created
+- Plugins, Apps, and the Skills-tab MCP section default to local popularity-style ordering because app-server does not expose numeric popularity fields
+- The Skills tab presents MCPs in the same section style as Installed skills, just above Installed skills, instead of using a separate top-level MCP tab
+- `Date` uses the app-server/catalog order as the available freshness proxy because app/plugin/MCP APIs do not expose created or published timestamps
+- Popular views show only the top 100 when no search is active; search results can show all matches
 
 #### Rollback/Cleanup
-- Disconnect test Bluetooth devices if they were connected.
-- Clear browser local storage key `codex-web-local.dictation-last-input.v1` if the diagnostic value should be reset.
+- Re-enable any app or plugin disabled during testing
+- Uninstall any plugin installed only for this test
 
-### Feature: Reliable saved voice transcription retry
+---
+
+### Skills tab npx skills search
 
 #### Feature/Change Name
-Voice dictation saves the completed recording before upload, retries transient transcription failures or missing responses, and keeps a saved recording available for manual retry until text or a confirmed empty transcription is received.
+The Skills tab includes a registry search panel backed by `npx skills find`, shows matching skill cards, and installs selected registry results with `npx skills add`.
 
 #### Prerequisites/Setup
-1. Open Codex UI in a browser or installed PWA with microphone permission available.
-2. Open a Codex thread with the composer microphone button visible.
-3. For failure testing, be ready to temporarily make `/codex-api/transcribe` fail by disabling the network connection or pointing the transcription provider at an unavailable/mock endpoint.
+1. Dev server running at `http://127.0.0.1:4173`
+2. Network access available for `npx skills find`
+3. `npx` can run the published `skills` package
+4. Light theme and dark theme both available from the appearance switcher
 
 #### Steps
-1. Start voice dictation from the composer microphone button.
-2. Speak a short phrase and stop recording.
-3. During transcription, temporarily interrupt the network, make the transcription endpoint return a retryable error such as HTTP 500 or 429, or hold the request open without returning a response.
-4. Wait for the composer to finish its automatic retry attempts.
-5. Restore the network or transcription endpoint.
-6. Click the microphone button again in the same thread.
-7. Repeat the flow in a second thread to confirm saved recordings do not cross thread boundaries.
+1. Open `http://127.0.0.1:4173/#/skills`
+2. Verify the `Skills` tab is selected by default; open `http://127.0.0.1:4173/#/skills?tab=plugins`, then click `Skills` and verify the URL updates to `?tab=skills`
+3. Verify the `Find skills` header shows a `Skills directory` link on the right that opens `https://skills.anyclaw.store/` in a new tab
+4. In `Find skills`, type a query such as `browser`
+5. Click `Search`
+6. Verify the app calls `/codex-api/skills-hub/search?q=browser`, which runs `npx --yes skills find browser`
+7. Verify `Search results (count)` appears above `Installed skills (count)`
+8. Verify each registry result card shows its install count metadata, such as `1.2K installs`, even when a GitHub `SKILL.md` description is shown
+9. Open one GitHub-backed result and verify the detail modal shows the skill name, owner/repository, parsed `SKILL.md` description, GitHub-backed icon/avatar, and external link
+10. Click `Install` for a result and verify the backend runs `npx --yes skills add <owner/repo@skill> --yes --global`
+11. After install, verify the result becomes installed and the installed skills list refreshes from local installed skill data rather than appending the remote registry card
+12. Switch to dark theme and repeat the search visibility check
+13. Search for an already-installed skill and verify its search result shows `Installed`
+14. Verify installed matches in search results keep their remote registry owner/details while showing the `Installed` badge
+15. Open the installed search result and verify the modal reads the local installed `SKILL.md`, exposes `Uninstall`, and does not show the registry install flow
+16. Open a local-only installed skill and verify the modal does not show a dead `View on GitHub` link when no external URL is available
+17. Verify cards in the `Installed skills (count)` section do not show `Installed`, `Disabled`, or repeated `local` owner labels, while search result cards can still show installed state and registry owner details
+18. Verify installed cards show local `SKILL.md` descriptions when the installed skill has frontmatter or readable markdown content
+19. Verify Find skills result cards do not show the local folder browse icon; Browse files remains available inside the installed local modal
 
 #### Expected Results
-- The completed audio is saved before upload starts.
-- Transient transcription failures and missing responses retry automatically before surfacing an error.
-- A hung transcription request is aborted after the per-attempt timeout and retried with the saved audio.
-- If transcription still fails, the composer shows that the recording was saved and that clicking the mic retries transcription.
-- After the retry succeeds, the transcript is appended to the draft and the saved recording is cleared.
-- Switching threads does not retry or append a saved recording from another thread.
+- Search results are parsed from the real `npx skills find` output, not a static catalog
+- Skills search/install commands use the repo command invocation wrapper so `npx` starts reliably on Windows
+- Skills search/install commands include outer `npx --yes` so first-run package prompts cannot hang with ignored stdin
+- The Skills directory link is visible beside Find skills in light and dark theme and opens the public directory in a new tab
+- Registry installs run noninteractively with `--yes --global`, so the process cannot stop at the agent-selection prompt and falsely report success
+- Registry install responses only return `ok: true` when the local installed `SKILL.md` path is found and validates successfully
+- The UI treats a missing returned path or missing post-refresh local skill as an install failure instead of showing the remote registry card as installed
+- GitHub-backed results fetch the repository `SKILL.md` and show its `description` frontmatter when available, falling back to the install count when unavailable
+- GitHub metadata enrichment is bounded to the first 20 results with limited concurrency, so broad searches still return without unbounded raw GitHub fetch fanout
+- Search result cards keep the registry install count visible as card metadata even when GitHub enrichment replaces the fallback description
+- GitHub-backed results show an explicit frontmatter `icon` when provided, otherwise they show the GitHub repository owner avatar instead of a generic letter fallback
+- The search UI does not replace or hide local installed skills
+- Installed matching results show the existing `Installed` badge and can be opened like local skills
+- Installed detection uses the same installed skills source as the Skills Hub list, including RPC/plugin/shared skills and not only the base skills directory
+- Installed search result cards keep remote registry ownership/content but include local installed state and path for actions
+- Newly installed registry results are reloaded from the local installed skills source before appearing in the Installed skills section
+- Opening an installed search result uses the local installed skill record/path, so local content, uninstall, enable/disable, browse, and try actions behave the same as the Installed skills section
+- Local-only installed skills hide the external GitHub link when no URL is available
+- Installed skills section cards hide redundant installed/disabled status labels
+- Installed skills section cards hide the repeated local owner label; registry search cards keep owner/repository labels to distinguish remote results
+- Installed skill descriptions come from the local installed `SKILL.md`, so installed cards are useful without opening each modal
+- Installed entries are assembled concurrently so reading local `SKILL.md` descriptions does not add one file-read round trip per installed skill
+- Opening or switching to the Skills tab lists MCP servers without forcing an MCP reload; the top-level Refresh button remains the explicit reload action
+- The top-level Refresh button only shows `Refreshing...` for explicit user-triggered refreshes, not for ordinary initial tab loading
+- Find skills cards hide local folder browse actions to avoid mixing remote registry cards with local-only card controls
+- Light theme and dark theme keep the search panel, cards, and modal readable
 
 #### Rollback/Cleanup
-- Restore the normal network connection and transcription provider configuration.
-- If a test recording remains saved, click the microphone button in that same thread after restoring the provider so it can transcribe and clear.
-- Browser storage can be cleared for the site to remove any intentionally stranded local test recording.
+- Uninstall any skill installed only for this test
 
-### Feature: Dictation stop tail capture
+---
+
+### Sidebar thread row edge click selects thread
 
 #### Feature/Change Name
-Voice dictation keeps recording for a short grace period after Stop before flushing the final browser recorder data, reducing lost final words or sentences on mobile/PWA browsers.
+Thread rows now select when clicking anywhere on the highlighted row area (including left/right edge/time area), while pin/menu buttons keep their own actions.
 
 #### Prerequisites/Setup
-1. Open Codex UI in a browser or installed PWA with microphone permission available.
-2. Open a Codex thread with the composer microphone button visible.
-3. Use a working transcription provider.
+1. Dev server running (`pnpm run dev`)
+2. Sidebar contains multiple threads
+3. At least one thread has visible time text on the right
 
 #### Steps
-1. Start voice dictation from the composer microphone button.
-2. Say a phrase where the final words come immediately before pressing Stop, for example: "Please write this down, final sentence alpha beta gamma."
-3. Press Stop immediately after the last word.
-4. Wait for transcription to finish.
-5. Repeat the test several times on the target mobile device or PWA.
+1. Hover a thread row and confirm the row highlight appears
+2. Click near the left edge (outside the title text and not on pin icon)
+3. Click near the right edge/time area (outside the menu button)
+4. Click the thread title/body area
+5. Click the pin button and menu button to verify their behavior
 
 #### Expected Results
-- The composer enters transcribing state immediately after Stop, but the recorder waits briefly before finalizing the audio.
-- The resulting transcription includes the final words more consistently than an immediate stop.
-- The saved-transcription retry behavior still works if the upload fails after the delayed finalization.
+- Steps 2, 3, and 4 all select/open the clicked thread
+- Hover highlight and click target area now match user expectations
+- Pin button toggles pin state without selecting due to event bubbling
+- Menu button opens thread menu without selecting due to event bubbling
 
 #### Rollback/Cleanup
-- Stop any active dictation.
-- Clear any intentionally stranded local test recording from browser storage if a failure test left one behind.
+- None
 
-### Feature: Composer textarea grows for long prompts
+---
+
+### Content header actions remain right aligned
 
 #### Feature/Change Name
-The thread and home composer textarea auto-expands upward for long prompts and caps the composer near two thirds of the viewport height before enabling textarea scrolling.
+Thread and new-chat header action buttons stay pinned to the right edge while long titles remain constrained and truncated.
 
 #### Prerequisites/Setup
-1. Start Codex UI with `CODEXUI_SANDBOX_MODE=danger-full-access CODEXUI_APPROVAL_POLICY=never pnpm exec vite --host 0.0.0.0 --port 4173`.
-2. Open `http://127.0.0.1:4173/` in a desktop browser.
-3. Have a long multi-line prompt ready, at least 25 lines.
+1. Dev server running at `http://127.0.0.1:4173`
+2. Sidebar collapsed or viewport wide enough to show content header actions
+3. Terminal toggle available in the header
 
 #### Steps
-1. Focus the composer textarea on the home screen.
-2. Paste or type the long multi-line prompt.
-3. Observe the composer height while adding lines.
-4. Continue adding lines until the textarea reaches its maximum height.
-5. Repeat at a narrow mobile viewport such as `375x812`.
+1. Open `http://127.0.0.1:4173/#/`
+2. Inspect the header row containing `Start new thread`
+3. Verify the terminal toggle is aligned to the far right of the content header, not immediately after the title
+4. Open a thread with a long title and repeat the alignment check
+5. Confirm the title truncates with a tooltip and does not overlap the terminal or branch controls
 
 #### Expected Results
-- The textarea expands vertically instead of staying at the old short height.
-- The composer grows upward and remains anchored near the bottom of the screen.
-- The full composer shell stops growing around two thirds of the viewport height.
-- After the cap is reached, scrolling happens inside the textarea.
-- No controls overlap the textarea on desktop or mobile.
+- Header actions use the available right edge of the content header
+- Long title truncation does not pull action buttons toward the center
+- Terminal and branch controls remain visible and clickable
 
 #### Rollback/Cleanup
-- Clear the composer draft before closing the test thread or browser tab.
+- Remove generated screenshots under `output/playwright/` if they are not needed
 
-### Feature: Codex CLI slash command autocomplete in composer
+---
+
+### Stop button activates promptly for new threads
 
 #### Feature/Change Name
-Composer `/` autocomplete lists Codex CLI slash commands while `$` remains reserved for skills.
+The composer stop control switches from the temporary saving spinner to a real stop button as soon as the active turn id is available for a newly created thread.
 
 #### Prerequisites/Setup
-1. Start Codex UI with `CODEXUI_SANDBOX_MODE=danger-full-access CODEXUI_APPROVAL_POLICY=never pnpm exec vite --host 0.0.0.0 --port 4173`.
-2. Open `http://127.0.0.1:4173/` in a desktop browser.
-3. Open an existing thread for command execution checks.
+1. Dev server running at `http://127.0.0.1:4173`
+2. Home route available with a writable project/folder selected
+3. Codex can start a normal assistant turn
 
 #### Steps
-1. Focus the composer and type `/`.
-2. Confirm the command picker appears with Codex CLI commands such as `/model`, `/fast`, `/review`, `/compact`, and `/goal`.
-3. Type `/go`, use ArrowDown/ArrowUp if needed, press Tab or Enter on `/goal`, and confirm it inserts `/goal `.
-4. Type a goal objective after `/goal ` and submit.
-5. Type `/goal` with no arguments and submit.
-6. Type `$` in an empty composer.
+1. Open `http://127.0.0.1:4173/#/`
+2. Send a short prompt from the new-thread composer
+3. Immediately watch the right-side composer control after routing into the new thread
+4. Before the full response finishes, verify the temporary saving spinner transitions into the stop icon/button
+5. Click `Stop` while the turn is still running
 
 #### Expected Results
-- `/` opens the Codex command picker, not the skills picker.
-- Filtering follows the typed command prefix and keyboard selection works.
-- Selecting a command with inline arguments leaves the caret after a trailing space.
-- `/goal <objective>` is intercepted by the UI and sets the app-server thread goal instead of sending raw text to the model.
-- Bare `/goal` reports the current goal state.
-- `$` still opens the skills picker, preserving the existing skills workflow.
+- A new thread may briefly show the saving spinner while the turn starts
+- The control becomes an actual stop button as soon as the active turn id is known, without waiting for thread-list persistence
+- Clicking stop interrupts the running turn
 
 #### Rollback/Cleanup
-- Run `/goal clear` in the tested thread if a temporary goal was set.
-- Clear any draft text left in the composer.
+- Archive or delete the test thread if it was created only for this check
 
-### Feature: Restart Codex UI from settings
+---
+
+### New-thread plan mode persists and toggles correctly
 
 #### Feature/Change Name
-Sidebar settings include a guarded `Restart Codex UI` action that schedules the fixed service restart script, shows a blocking progress overlay, tolerates temporary disconnects, and reloads after the service is healthy.
+New threads started from the home composer honor the selected plan mode for the first turn, and turning plan mode off on the created thread switches later turns back to default mode.
 
 #### Prerequisites/Setup
-1. Ensure `scripts/restart-codexui-service.sh` exists and is executable.
-2. Start Codex UI with `pnpm run dev -- --host 0.0.0.0 --port 4173` or run the installed service.
-3. Open `http://127.0.0.1:4173/` in a browser.
+1. Dev server running at `http://127.0.0.1:4173`
+2. Home route available with a writable project/folder selected
+3. At least one model is available for plan mode
 
 #### Steps
-1. Request `GET /codex-api/restart/status`.
-2. Open the sidebar settings panel.
-3. Confirm the `Restart Codex UI` row appears only when the restart script is executable.
-4. Click `Restart Codex UI`.
-5. Cancel the browser confirmation.
-6. Click `Restart Codex UI` again and confirm.
-7. Watch the blocking overlay while the service rebuilds and restarts.
-8. Leave the page open until the service responds healthy again.
+1. Open `http://127.0.0.1:4173/#/`
+2. Enable `Plan mode` in the new-thread composer
+3. Send a prompt that produces a visible plan response
+4. After routing into the new thread, confirm the composer still shows `Plan mode` enabled
+5. Toggle `Plan mode` off in that thread
+6. Send another prompt in the same thread
+7. Confirm the next turn runs in default mode rather than generating another plan-first response
 
 #### Expected Results
-- The status endpoint returns `available: true` when the script is executable, including `stage`, `message`, `scriptPath`, `logPath`, and recent log lines.
-- Cancelling the browser confirmation does not call the restart endpoint and does not restart the service.
-- Confirming schedules `scripts/restart-codexui-service.sh --no-follow`; the HTTP request returns after scheduling instead of waiting for the full restart.
-- Temporary network failures during restart keep the overlay in a waiting state instead of failing immediately.
-- If the log reports healthcheck failure or worker failure, the overlay shows a failed state with the restart log path.
-- After the status endpoint reports completion, the page reloads automatically.
+- The very first turn of a newly created thread uses the plan-mode setting chosen on the home composer
+- The newly created thread retains that plan-mode selection after route transition
+- Turning plan mode off updates the thread-scoped mode, and later turns in that thread no longer use plan mode
 
 #### Rollback/Cleanup
-- If the service is left in a failed state, inspect `/tmp/codexui-restart.log` and restart `codexui.service` manually.
-- No browser storage cleanup is required.
+- Archive or delete any test thread created only for this check
 
-### Feature: Restart script uses command-specific non-interactive sudo checks
+---
+
+### Completed plan cards expose implement action
 
 #### Feature/Change Name
-`scripts/restart-codexui-service.sh` no longer treats `sudo -n true` as proof that `systemd-run` or `systemctl restart codexui` can run without a password. It attempts the exact privileged commands with `sudo -n`, falls back to the same-user `Restart=always` path when possible, and fails with a log message instead of opening an interactive password prompt.
+Completed plan cards show an `Implement plan` button that turns plan mode off and sends an implementation prompt built from the plan content.
 
 #### Prerequisites/Setup
-1. `codexui.service` exists under systemd.
-2. The service is either restartable through passwordless sudo for the exact `systemd-run`/`systemctl restart codexui` commands, or it runs as the current user with `Restart=always`.
-3. `scripts/restart-codexui-service.sh` is executable.
+1. Dev server running at `http://127.0.0.1:4173`
+2. An existing thread contains a completed persisted plan card
+3. The thread composer is available for follow-up messages
 
 #### Steps
-1. Run `sudo -ln` and confirm whether `systemd-run` and `systemctl restart codexui` are explicitly listed as `NOPASSWD`.
-2. Run `bash -n scripts/restart-codexui-service.sh`.
-3. From a shell without an interactive sudo prompt, run `scripts/restart-codexui-service.sh --no-follow`.
-4. Inspect the command output and `/tmp/codexui-restart.log`.
-5. If passwordless sudo is not configured, confirm the script schedules the fallback worker instead of failing with `sudo: a terminal is required to read the password`.
+1. Open a thread containing a completed plan card
+2. Verify the plan card shows `Implement plan` at the bottom
+3. Click `Implement plan`
+4. Confirm the composer thread switches back to default mode
+5. Inspect the next `turn/start` request or the resulting assistant behavior
 
 #### Expected Results
-- The schedule command exits successfully when the fallback path is applicable.
-- The schedule response does not fail because sudo attempted to read a password from a non-interactive request.
-- If neither passwordless sudo nor the `Restart=always` fallback can restart the service, the log contains an explicit non-interactive failure message.
+- Completed plan cards render the `Implement plan` action even when the plan body is structured as headings/lists instead of checkbox steps
+- Clicking the button sends a simple implementation follow-up message instead of copying the whole plan body into chat
+- The next turn runs in default mode rather than plan mode
 
 #### Rollback/Cleanup
-- Remove `/tmp/codexui-restart.log` if the test log is no longer needed.
-- Restore the previous sudoers configuration if temporary passwordless restart rules were added for testing.
+- Archive or delete any test thread created only for this check
 
-### Feature: Light pending request panel and full-height settings overlay
+---
+
+### Dark theme plan card contrast
 
 #### Feature/Change Name
-Plan-mode `request_user_input` prompts use the active light appearance, and the sidebar settings panel opens as a near full-height overlay above the thread sidebar.
+Plan cards in dark mode keep readable contrast and a lighter surface than the surrounding page background, including the `Implement plan` action.
 
 #### Prerequisites/Setup
-1. Start Codex UI with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
-2. Open `http://127.0.0.1:4173/` in a browser.
-3. Set Settings → Appearance to `Light`.
-4. Use a thread that can trigger a plan-mode question with selectable choices.
+1. Dev server running at `http://127.0.0.1:4173`
+2. A thread contains a visible plan card
+3. Appearance is set to `Dark`
 
 #### Steps
-1. Enable Plan mode and send a prompt that causes Codex to ask for a choice.
-2. Inspect the pending response panel, including question cards, selects, other-answer inputs, and the Send button.
-3. Open the left sidebar and click `Settings`.
-4. On a mobile-sized viewport such as `375x812`, inspect how far the settings panel extends vertically.
-5. Scroll the settings panel to the bottom and then close it with the Settings button or Escape.
-6. Switch Appearance to `Dark` and repeat the pending response panel check.
+1. Open a thread containing a plan card in dark mode
+2. Inspect the card background, title, explanation text, headings, lists, inline code, and blockquote styling
+3. Verify the `Implement plan` button is readable and visually distinct
+4. Hover the `Implement plan` button and confirm the hover state remains visible
 
 #### Expected Results
-- In Light appearance, the pending response panel uses white/zinc light surfaces instead of the dark panel treatment.
-- Selects, inputs, option cards, and buttons remain readable and focus states are visible in Light appearance.
-- In Dark appearance, the pending response panel keeps the previous dark treatment.
-- The settings panel opens from near the top of the sidebar and extends down to the settings footer instead of being capped at about two thirds of the viewport.
-- The settings panel scrolls internally when its content exceeds the available height.
+- The plan card surface is distinguishable from the page background without looking crushed into near-black
+- Plan text and headings stay readable in dark mode
+- Inline code, file links, and blockquotes keep enough contrast to scan comfortably
+- The `Implement plan` button remains readable and clickable in dark mode
 
 #### Rollback/Cleanup
-- Restore Appearance to the preferred setting.
-- Close the settings panel before leaving the test browser.
+- Reset appearance to the previous user preference
 
-### Feature: Shared unread thread state across devices
+---
+
+### Terminal focus does not fullscreen panel
 
 #### Feature/Change Name
-Unread thread indicators use shared server-side read state instead of per-browser localStorage only.
+Terminal focus on mobile keeps the terminal as a bottom panel instead of expanding it to full screen.
 
 #### Prerequisites/Setup
-1. Start Codex UI with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
-2. Open the same Codex UI account from two browser contexts or devices.
-3. Ensure at least one thread has a blue unread indicator in the sidebar.
+1. Dev server running at `http://127.0.0.1:4173`
+2. A thread or new-chat project with the terminal toggle available
+3. Mobile viewport or Android device browser
 
 #### Steps
-1. In the first browser/device, click the unread thread and wait for the conversation to load.
-2. Request `GET /codex-api/thread-read-state` and confirm the thread id appears under `readAtByThreadId`.
-3. In the second browser/device, refresh Codex UI or trigger a thread list refresh.
-4. Inspect the same thread row in the sidebar.
-5. Send or receive a new assistant response in that thread while it is not selected on the second device.
+1. Open a thread or new chat with a valid project path
+2. Tap the terminal toggle
+3. Tap inside the terminal area
+4. If the virtual keyboard appears, keep focus in the terminal
+5. Hide and reopen the terminal
 
 #### Expected Results
-- Opening the thread on the first device removes its unread indicator immediately.
-- The shared read state endpoint records the thread's latest `updatedAtIso` timestamp.
-- After the second device refreshes, the same thread no longer shows the blue unread indicator.
-- A later thread update with a newer `updatedAtIso` makes the indicator appear again on devices where the thread is not selected.
+- Terminal remains a bottom panel and does not take over the full viewport
+- Conversation/new-chat content is not forcibly hidden by terminal focus
+- Composer keeps its normal compact placement instead of stretching above the terminal
+- Terminal can still fit within the available viewport when the keyboard changes size
 
 #### Rollback/Cleanup
-- Remove temporary test threads if they were created.
-- To reset shared read markers manually, edit `~/.codex/.codex-global-state.json` and remove the `thread-read-state` entry.
+- Close the terminal panel
 
-### Feature: PWA task notification thread titles
+---
+
+### Feature: Nested skill bundles are grouped in discovery
 
 #### Feature/Change Name
-Task-completed Web Push notifications resolve the thread display title instead of falling back to `Thread <id>`.
+Composer skill discovery collapses nested `skills/<subskill>/SKILL.md` entries under their top-level bundle skill when the bundle root skill is also present, including curated plugin skill packs such as `cloudflare:*`.
 
 #### Prerequisites/Setup
-1. Start Codex UI from this repository on an HTTPS-capable or installed-PWA host.
-2. Install/open Codex Web as a PWA on a phone that supports Web Push.
-3. Enable `Task notifications` in Settings.
-4. Ensure at least one named thread exists.
-5. For automated regression coverage, run `node scripts/test-web-push-notifications.mjs` from the repository root.
+1. Dev server running (`pnpm run dev`)
+2. Open a thread whose cwd can access installed skills
+3. At least one installed skill bundle or curated plugin pack contains a top-level/root `SKILL.md` plus additional subskills
 
 #### Steps
-1. Open the named thread in Codex Web and confirm its sidebar/header title is human-readable.
-2. Restart the Codex UI server so the in-memory push notification thread-title cache is cleared.
-3. Reopen Codex Web, but switch the phone away from the PWA or lock the device so the thread is not focused.
-4. From another browser/device, send a prompt in the same thread and wait for the turn to complete.
-5. Inspect the phone's delivered PWA notification.
-6. Repeat with a newly created thread after its first task completes.
+1. Open the thread composer skill picker
+2. Search for a grouped bundle or plugin root such as `cloudflare`
+3. Confirm the grouped root appears once in the picker
+4. Search for one nested subskill or prefixed plugin skill name such as `agents-sdk` or `cloudflare:workers-best-practices`
+5. Refresh the page or switch threads and reopen the skill picker
 
 #### Expected Results
-- The notification body uses the thread's display title (`name`, `title`, or `preview`) followed by `is ready.`
-- The notification body does not use `Thread <short-id> is ready.` when the thread can be read from the app server.
-- Subagent thread completions are suppressed even when the subagent has its own generated preview/title.
-- Tapping the notification still opens `/#/thread/<threadId>`.
-- The automated regression script reports `Web push notification title tests OK`.
+- The picker shows a single top-level entry for the bundled skill or plugin root
+- Nested subskill folder names and plugin-prefixed variants do not appear as separate skill discovery entries when the parent/root entry exists
+- Grouped plugin roots render a clean label such as `cloudflare` instead of `cloudflare:cloudflare`
+- The grouped result remains stable after refresh or thread switching
 
 #### Rollback/Cleanup
-- Disable `Task notifications` on the test phone if they are no longer needed.
-- Remove temporary test threads if they were created.
+- None
 
-### Feature: Inline collab agent status above composer
+---
+
+### Default mode can follow plan mode in the same thread
 
 #### Feature/Change Name
-Active collab/subagent status is rendered inline above the message composer instead of showing only `Writing response`.
+Composer collaboration mode changes send `default` explicitly so a thread can leave plan mode without opening a new chat.
 
 #### Prerequisites/Setup
-1. Start Codex UI with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
-2. Open a thread that can spawn collab agents, or use a Codex CLI/app-server build that emits `collabAgentToolCall` items.
-3. Use a mobile-sized viewport such as `390x844` and a desktop viewport for comparison.
+1. Dev server running at `http://127.0.0.1:4173`
+2. A Codex account/session with both Default and Plan collaboration modes available
+3. A project folder selected for a new or existing thread
 
 #### Steps
-1. Send a prompt that causes Codex to spawn two or more agents.
-2. While the turn is running, inspect the area immediately above the composer.
-3. Confirm each active agent appears as one row with a colored status dot, agent label, and a parenthesized task summary.
-4. Trigger or simulate dictation transcription while agents are active.
-5. Wait for one agent to complete while another remains running.
-6. During the same turn, watch activity changes such as `Thinking`, `Writing response`, and command activity.
-7. Let the turn finish.
+1. Select Plan mode in the composer
+2. Send a prompt asking Codex to create a plan
+3. After the turn completes, switch the composer back to Default mode
+4. Send a follow-up prompt asking Codex to implement the plan in the same thread
+5. Repeat the Default follow-up once more in the same thread
 
 #### Expected Results
-- The old standalone `Writing response` row is not shown when collab agent rows are available.
-- Current activity text appears above the agent rows in the composer status stack.
-- Agent rows appear inline above the composer, in the same status stack area as dictation/transcription messages.
-- Agent rows remain visible while the turn is in progress, even when activity changes from thinking to writing and back.
-- Dictation and agent statuses stack without overlapping the conversation or composer.
-- Status dots reflect state: running amber, completed green, failed red, pending/shutdown gray, not-found split red/gray.
-- Long task summaries truncate cleanly in parentheses without resizing the composer controls.
-- When the turn completes, the collab agent status rows disappear.
+- The implementation prompts run in Default mode instead of staying in Plan mode
+- The thread remains usable without opening a new chat
+- The composer selection and the backend turn mode stay aligned across consecutive turns
 
 #### Rollback/Cleanup
-- Stop the test turn if it is still running.
-- Restore dictation settings to the preferred state if changed.
+- Archive the test thread if it was created only for verification
 
-### Feature: Capacitor iOS shell with remote backend
+---
+
+### First-launch home card for Plugins and Apps
 
 #### Feature/Change Name
-Codex UI can be built as a sideloaded iOS Capacitor shell that connects to a remote Codex UI backend.
+The home route shows a dismissible first-launch card that introduces Plugins and Apps and opens the existing Skills & Apps directory on the Plugins tab.
 
 #### Prerequisites/Setup
-1. On the development machine, run `pnpm install`.
-2. Start or identify a reachable Codex UI backend server.
-3. On macOS, install Xcode and CocoaPods.
-4. Connect a physical iPhone by cable and sign into Xcode with an Apple ID.
+1. Dev server running at `http://127.0.0.1:4173`
+2. Codex global-state preference `first-launch-plugins-card-dismissed` removed or set to `false` before the first check
+3. App loaded on the home/new-thread route
 
 #### Steps
-1. Run `pnpm run build:frontend`.
-2. Run `npx cap sync ios`.
-3. On macOS, run `npx cap open ios`.
-4. In Xcode, open the `App` target and select a Personal Team under `Signing & Capabilities`.
-5. Select the connected iPhone and press Run.
-6. Open the installed app and open sidebar Settings.
-7. Set `Remote backend` to the reachable backend URL and press `Set`.
-8. Reload the app.
-9. Open or create a thread and send a message.
-10. Open a file/image/local browse link if the thread contains one.
-11. Start dictation and accept the iOS microphone permission prompt.
-12. Record a short phrase and stop dictation.
-13. Start music playback in another iOS app, return to Codex UI, and repeat dictation.
+1. Open the app on the home route with the local storage key removed
+2. Verify the home screen shows a card with the heading `Plugins are here`
+3. Verify the body copy mentions app examples such as Gmail and Calendar
+4. Click `Explore Plugins & Apps`
+5. Verify the app navigates to the `#/skills` route and the `Plugins` tab is active
+6. Return to the home route and verify the card does not reappear
+7. Remove the local storage key again, reload the home route, and click `Dismiss`
+8. Reload the home route once more
 
 #### Expected Results
-- `pnpm run build:frontend` completes without TypeScript or Vite errors.
-- `npx cap sync ios` copies web assets into the iOS project.
-- Xcode installs and launches the app with Personal Team signing.
-- The app renders the bundled Codex UI shell rather than a blank WebView.
-- `Remote backend` accepts only `http://` or `https://` URLs, persists the normalized value, and routes backend calls to that server.
-- Chat API calls and `/codex-api/ws` notifications work through the configured backend.
-- Local browse/image/file links route through the configured backend.
-- iOS shows the microphone permission prompt using the app's usage description.
-- Dictation records, transcribes through the remote backend, and returns text to the composer.
-- Music either continues during dictation or resumes after dictation; if it still pauses and does not resume, document the iOS version, audio route, and music app for the native-recorder follow-up.
+- The card appears only when the server-backed dismissal preference is unset or `false`
+- The primary CTA hides the card and opens the Skills & Apps directory
+- The directory opens with `Plugins` selected by default
+- Dismissing the card hides it immediately and keeps it hidden after reload
 
 #### Rollback/Cleanup
-- Delete the app from the iPhone when testing is complete.
-- Clear the `Remote backend` setting to return browser/PWA use to same-origin mode.
-- Remove temporary test threads/files from the backend server.
+- Remove or set `first-launch-plugins-card-dismissed` to `false` in Codex global state if you want to see the card again
 
-### Feature: Mark thread as unread from sidebar menu
+---
+
+### Composer prompts inside Skills dropdown
 
 #### Feature/Change Name
-Thread rows can be marked unread or read from the right-click/three-dot context menu.
+The composer control row uses one `Skills` dropdown for both skills and saved prompts. The `+` action creates a prompt, prompt rows can be inserted or removed from the same menu, and there is no separate `Prompt` control.
 
 #### Prerequisites/Setup
-1. Start Codex UI with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
-2. Open a workspace with at least two existing threads in the sidebar.
+1. Dev server running at `http://127.0.0.1:4173`
+2. Open any existing thread so the composer controls are enabled
+3. Light theme and dark theme both available from the appearance switcher
 
 #### Steps
-1. Right-click a non-selected thread row, or click its three-dot menu.
-2. Click `Mark as unread`.
-3. Confirm the context menu closes.
-4. Inspect the same thread row in the sidebar.
-5. Open the thread menu again for that row.
-6. Click `Mark as read`.
-7. Mark the thread unread again, then refresh the browser.
-8. Select the unread thread.
+1. In light theme, open the composer controls and confirm `Skills` appears and no separate `Prompt` control is present
+2. Open `Skills` and verify the popup matches the wider card-like layout with large stacked label/description rows
+3. Confirm skill rows have compact source markers, such as `R` for repo, `U` for user, `S` for system, or `P` for plugin
+4. Click the `+` action in the `Skills` dropdown, enter a unique prompt name such as `ui-test-prompt`, and enter sample content such as `Prompt dropdown smoke test`
+5. Reopen `Skills` and confirm the new prompt appears with a `Prompt` marker and an inline `×` remove action
+6. Click the prompt row and confirm the prompt text is inserted into the composer draft without toggling a skill
+7. Reopen `Skills`, click the `×` button for `ui-test-prompt`, and confirm the removal dialog
+8. Confirm the prompt disappears from the dropdown while skill rows remain available
+9. Type `/` into the composer and verify no slash skill picker appears
+10. Switch to dark theme and repeat the visibility check for the combined `Skills` dropdown contents
 
 #### Expected Results
-- The thread menu contains `Mark as unread` for read threads.
-- After clicking it, the thread row shows the existing blue unread indicator.
-- For unread threads, the same menu action changes to `Mark as read`.
-- `Mark as read` removes the unread indicator.
-- Manual unread state survives a browser refresh.
-- Selecting the unread thread clears the manual unread indicator.
+- The composer shows one `Skills` dropdown for skills and prompts; no standalone `Prompt` dropdown is rendered
+- The combined `Skills` popup uses the wider rounded layout with vertically stacked label/description rows
+- Skill rows show readable source markers that distinguish repo, user, system, and plugin-provided skills
+- Prompt rows show a readable `Prompt` marker and are the only rows with an inline remove action
+- Typing `/` in the composer does not open a skill picker
+- The `+` action creates a markdown file in the Codex prompt store and adds it to the `Skills` dropdown immediately
+- Selecting a saved prompt appends its content into the draft without sending the message
+- Clicking `×` removes only the targeted prompt and updates the dropdown immediately
+- Light theme and dark theme both keep the new control, menu, and remove action readable and usable
 
 #### Rollback/Cleanup
-- Select or mark read any test thread that was intentionally left unread.
+- Delete any temporary verification prompt created during the test
 
-### Feature: Chat code block copy button and light code theme
+---
+
+### Editable current folder path in the folder picker
 
 #### Feature/Change Name
-Markdown fenced code blocks in chat render with a per-snippet copy button and a light pastel code container.
+The `Select folder` dialog now lets the user edit the current folder path directly, reload that folder on `Enter` or blur, and open the typed path without first clicking a child row.
 
 #### Prerequisites/Setup
-1. Start Codex UI with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
-2. Open or create a thread where an assistant response can contain fenced markdown code blocks.
+1. Dev server running (`pnpm run dev`)
+2. Open the home/new-thread route
+3. Have at least two accessible local directories available for navigation
+4. Light theme and dark theme both available from the appearance switcher
 
 #### Steps
-1. Send a prompt that asks for a fenced code block, for example: `Show this in a fenced code block: console.log("copy me")`.
-2. Wait for the assistant response to render.
-3. Inspect the rendered code block in the chat.
-4. Click the copy icon in the code block toolbar.
-5. Paste into a temporary text field or editor.
-6. Repeat with a fenced block that has no language tag.
+1. In light theme, open the `Select folder` dialog from the new-thread folder chooser
+2. Confirm the `Current folder` field is an editable text input instead of static text
+3. Type a different absolute path and press `Enter`
+4. Confirm the folder list reloads for the typed path
+5. Edit the path again, click outside the input, and confirm blur also reloads the listing
+6. Type a valid absolute path and click `Open`
+7. Reopen the dialog, switch to dark theme, and confirm the editable current-folder input remains readable and focusable
 
 #### Expected Results
-- Code blocks use a light pastel amber/orange background instead of a black/dark container.
-- Every fenced code block shows a compact toolbar with a language label and a smaller icon-only copy button; unlabeled fences show `text`.
-- Clicking the copy icon copies only that snippet's code content, not surrounding message text.
-- The button briefly changes to its copied state through color and tooltip/accessible label, then returns to its normal copy state.
-- Syntax highlighting remains readable on the light background.
+- The current-folder path can be typed into directly
+- Pressing `Enter` on a changed path reloads the folder listing for that path
+- Blurring a changed path also reloads the folder listing for that path
+- Clicking `Open` uses the typed path when it is valid
+- The input remains readable and has visible focus treatment in both light theme and dark theme
 
 #### Rollback/Cleanup
-- Delete any temporary test thread or pasted scratch text if desired.
+- Return the chooser to the original folder if the test changed the selected project path
 
-### Feature: PWA task notification foreground suppression
+---
+
+### Expandable Projects, Pinned, and Chats sidebar sections
 
 #### Feature/Change Name
-PWA task completion push notifications are suppressed while the relevant thread is visible in an active app window, including mobile browsers where focus state can be unreliable.
+The sidebar labels the grouped thread area as `Projects`, makes `Projects`, `Pinned`, and `Chats` independently expandable, and places `Chats` after `Projects` in the same scrollable sidebar area.
 
 #### Prerequisites/Setup
-1. Install dependencies with `pnpm install`.
-2. Enable task notifications on a secure origin or installed PWA device for manual validation.
-3. Keep at least one thread available for sending a task.
+1. Dev server running at `http://127.0.0.1:5174` or the active Vite dev URL
+2. At least one existing thread is available in the sidebar
+3. At least one pinned thread exists to verify the `Pinned` section
+4. Light theme and dark theme are available from the appearance switcher
 
 #### Steps
-1. Run `node scripts/test-web-push-notifications.mjs`.
-2. Open the PWA or browser tab and select the test thread.
-3. Keep the app visible on screen and start a task that completes.
-4. Repeat with the same thread after switching away from the app, locking the phone, or otherwise making the page hidden.
-5. Optionally open the app in two tabs/windows, keep one visible on the target thread, and background the other.
+1. In light theme, open the app with the sidebar expanded
+2. Verify the grouped thread header reads `Projects` instead of `Threads`
+3. Verify `Pinned`, `Projects`, and `Chats` each show a chevron when present
+4. Collapse and expand `Pinned`, confirming pinned rows hide and return
+5. Collapse and expand `Projects`, confirming project groups hide and return
+6. Confirm `Chats` appears after `Projects` and scrolls with the same sidebar content, not as a fixed bottom shelf
+7. Collapse and expand `Chats`, confirming recent chat rows hide and return
+8. Click the `Chats` filter icon and verify the existing sidebar search field opens and the filter button shows active state
+9. Click the `Chats` compose icon and verify the app navigates to the new-chat/home composer
+10. Open the Projects organize menu, enable `Chats first`, and verify `Chats` moves above `Projects`
+11. In the same menu, switch `Sort by` between `Created` and `Updated`, then verify the active checkmark moves and the chat rows reorder by the selected timestamp
+12. Refresh the page and verify `Chats first` and the selected sort mode persist
+13. Switch to dark theme and repeat the visibility checks for section headers, chevrons, active filter state, sort menu state, and row text
 
 #### Expected Results
-- The scripted test passes and confirms that a visible but unfocused client suppresses delivery.
-- No push alert is shown while the selected thread is visible in the app.
-- A push alert is shown after the app/page is hidden before the task completes.
-- A hidden second tab/window does not overwrite the visible window's active state.
+- The sidebar uses `Projects` for the grouped project/thread area
+- `Pinned`, `Projects`, and `Chats` expansion state changes immediately and persists across reload
+- `Chats` is appended after `Projects` in the same scroll space
+- `Chats first` moves the `Chats` section before `Projects` and persists across reload
+- `Created` and `Updated` sort options update only the `Chats` ordering and persist across reload
+- The filter icon toggles the sidebar search without losing the `Chats` section
+- The compose icon starts a new chat using the existing new-thread flow
+- Light theme and dark theme both keep section headers, controls, and rows readable
 
 #### Rollback/Cleanup
-- Disable task notifications on the test device if they are no longer needed.
-- Close extra test tabs/windows.
+- Clear the sidebar search query if the filter step left it open
 
-### Feature: Dictation recording controls
+---
+
+### Thread menu copy path action
 
 #### Feature/Change Name
-Voice dictation can be paused, resumed, or transcribed into the draft without changing the global auto-send setting.
+The thread overflow menu includes a `Copy path` item that copies the selected thread's working directory path.
 
 #### Prerequisites/Setup
-1. Start Codex UI with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
-2. Open a thread or new-thread composer where the microphone button is enabled.
-3. Allow microphone access in the browser.
-4. For easiest manual validation, enable the dictation click-to-toggle setting.
+1. Dev server running at `http://127.0.0.1:5174` or the active Vite dev URL
+2. Open any existing thread with a known project path
+3. Browser clipboard access is available
+4. Light theme and dark theme are available from the appearance switcher
 
 #### Steps
-1. Click the microphone button to start dictation.
-2. Confirm the composer footer switches into the recording layout with waveform, timer, round pause button, round pencil button, and red stop button.
-3. Speak briefly, then click the pause button.
-4. Wait at least two seconds while paused.
-5. Click the pause button again to resume recording.
-6. Confirm no send/arrow button is visible while recording.
-7. With auto-send dictation enabled, speak briefly and click the pencil button.
-8. Start dictation again, speak briefly, then click the red stop button.
+1. In light theme, hover a thread row in the sidebar and open its overflow menu
+2. Verify `Copy path` appears after `Browse files`
+3. Click `Copy path`
+4. Paste the clipboard contents into a text field or clipboard inspector
+5. Reopen the same menu in dark theme and verify the item remains readable and in the same position
 
 #### Expected Results
-- The pause button is grey/inactive while recording and highlighted while paused.
-- While paused, the timer remains frozen and the waveform stops adding new movement.
-- Clicking the highlighted pause button resumes recording; the timer advances again.
-- The send/arrow button is hidden for the entire active recording state.
-- Clicking the pencil button stops recording, transcribes the audio into the draft, focuses the composer, and does not auto-send that one transcript.
-- Clicking stop after either recording or paused state saves the whole captured audio and follows the global auto-send dictation setting.
-- After transcription into the draft, the normal send button appears again when draft content is present.
+- The menu order is `Add automation...` or `Manage automations...`, `Browse files`, `Copy path`, `Export chat`, `Create chat fork`, `Rename thread`, `Delete thread`
+- Clicking `Copy path` closes the menu
+- Clipboard contents equal the thread's `cwd` path
+- Light theme and dark theme both keep the menu item readable
 
 #### Rollback/Cleanup
-- Delete any test text inserted into the composer after transcription.
+- Restore any previous clipboard contents manually if needed
 
-### Feature: Mobile composer Enter inserts newline
+---
+
+### Terminal quick commands from project files
 
 #### Feature/Change Name
-On mobile-width composer input, the plain Enter/return key inserts a newline instead of sending the message.
+Terminal quick commands are discovered from the current project instead of using a static built-in npm list.
 
 #### Prerequisites/Setup
-1. Start Codex UI with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
-2. Open the app on an iPhone/mobile browser, or use a browser viewport narrower than 768px.
-3. Open an existing thread or the new-thread composer.
+1. Dev server running at `http://127.0.0.1:5174` or the active Vite dev URL
+2. Open a thread or new chat whose working directory has a `package.json` with scripts
+3. Optionally create executable candidates under the project root and `scripts/`, such as `check.sh`, `scripts/check.sh`, or `scripts/build.cmd`
+4. Optionally add `pnpm-lock.yaml`, `yarn.lock`, `bun.lock`, or `bun.lockb` to verify package-manager detection
+5. Optionally add a `Makefile` with simple targets such as `test:` or `build:`
 
 #### Steps
-1. Type `line one` into the composer.
-2. Press the mobile keyboard Enter/return key.
-3. Type `line two`.
-4. Confirm the message has not been sent.
-5. Tap the visible send button.
-6. Repeat on a desktop-width viewport and press Enter with a non-empty draft.
-7. Optionally connect an external keyboard on mobile and press Cmd+Enter or Ctrl+Enter.
+1. Open the terminal panel for that project
+2. Open the `Run...` dropdown
+3. Verify each `package.json` script appears with the detected package manager, such as `pnpm run <script>`, `yarn <script>`, `bun run <script>`, or `npm run <script>`
+4. Verify simple `Makefile` targets appear as `make <target>`
+5. Verify root-level `*.sh` / `*.cmd` files appear as `./<file>`
+6. Verify `scripts/*.sh` and `scripts/*.cmd` files appear as `./scripts/<file>`
+7. Select one discovered command and confirm it is sent to the terminal
+8. Reopen the dropdown after running commands multiple times
+9. If the project has more commands than fit in the menu, scroll the dropdown and verify lower-priority entries such as `./scripts/<file>.sh` remain reachable
+10. From a closed terminal state on a remote server, select a command immediately after opening the `Run...` menu and confirm it runs after the terminal attaches
 
 #### Expected Results
-- On mobile-width viewports, plain Enter creates a line break inside the composer.
-- The draft remains editable after the line break and is sent only when the send button is tapped.
-- On desktop-width viewports, the existing send-with-Enter behavior is unchanged.
-- Cmd+Enter or Ctrl+Enter still submits from the composer.
+- The dropdown is based on the current project `cwd`
+- Static defaults like `npm run dev` do not appear unless they exist in that project's `package.json`
+- Package script commands use the lockfile-preferred package manager
+- Make targets are listed after package scripts
+- Root and `scripts/` script-file commands are listed after Make targets
+- Commands are sorted by most-used and then most-recent usage, and the dropdown scrolls instead of hiding entries beyond the first five
+- Selecting a command while the terminal is still mounting waits for the attach flow instead of dropping the command
 
 #### Rollback/Cleanup
-- Delete any temporary test thread/message if desired.
+- Remove any temporary files created under the project root or `scripts/`
 
-### Feature: Dictation defaults to click-to-toggle
+---
+
+### Queue mode is default for in-progress messages
 
 #### Feature/Change Name
-Composer dictation starts and stays recording from a normal microphone button click by default, with hold-to-talk available only when explicitly disabled in settings.
+When a turn is already running, the in-progress message path defaults to `Queue` for new sessions and existing users without a saved preference.
 
 #### Prerequisites/Setup
-1. Start Codex UI with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
-2. Open Codex UI in a desktop browser with microphone permission available.
-3. Open an existing thread or the new-thread composer.
+1. Dev server running (`pnpm run dev`)
+2. Open any existing thread with message composer enabled
+3. Start from a clean setting state by clearing localStorage key `codex-web-local.in-progress-send-mode` if present
+4. Light theme and dark theme both available from the appearance switcher
 
 #### Steps
-1. Open sidebar settings and confirm `Click to toggle dictation` is enabled by default.
-2. Click the composer microphone button once and release it immediately.
-3. Wait at least two seconds.
-4. Click the pause button, then click it again to resume.
-5. Click the red stop button.
-6. Disable `Click to toggle dictation` in settings.
-7. Press and hold the microphone button, then release it.
+1. Open a thread and ensure no previous turn is running
+2. Confirm settings shows `When busy` line labeled as `Queue`
+3. Send a message that triggers an in-progress response
+4. While the response is running, submit a second message and observe submit mode label / destination behavior
+5. Open the queue list and confirm the second message is queued
+6. Switch to dark theme and repeat step 4 using another thread
 
 #### Expected Results
-- A normal click starts recording and recording continues after the mouse/trackpad is released.
-- The recording can be paused, resumed, and stopped with the visible controls.
-- Releasing the microphone button does not stop or transcribe while `Click to toggle dictation` is enabled.
-- When `Click to toggle dictation` is disabled, hold-to-talk behavior is still available: recording starts on press and stops on release.
+- The in-progress setting defaults to `Queue` when no saved preference exists
+- A second message sent during an active turn is queued, not used as steer
+- Queue order and queued item actions remain functional in both light theme and dark theme
 
 #### Rollback/Cleanup
-- Re-enable `Click to toggle dictation` if it was disabled during testing.
-- Delete any temporary transcribed text or test messages.
+- Clear the queue by sending/steering queued items or deleting queued rows
 
-### Feature: Turn summary runtime with separate file-change totals
+---
+
+### Backend-persisted queued messages and drag reorder
 
 #### Feature/Change Name
-Completed assistant turns show a compact runtime row before the final response without duplicating changed-file totals.
+Queued messages are saved through the backend, survive page refresh, and can be reordered by dragging a queued row before another queued row.
 
 #### Prerequisites/Setup
-1. Start Codex UI with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
-2. Open a thread in a writable git-backed project.
-3. Prepare a prompt that causes Codex to edit at least one file.
+1. Dev server running (`pnpm run dev`)
+2. Open a thread where a turn is actively running
+3. Queue at least three messages while the turn is running
+4. Light theme and dark theme both available from the appearance switcher
 
 #### Steps
-1. Send the edit prompt and wait for the turn to complete.
-2. Inspect the area between your request and the final assistant response.
-3. Expand the runtime summary row.
-4. Compare the footer line totals with the changed-file summary totals.
-5. Repeat with a plan-mode task that runs long enough to show a non-trivial duration.
-6. Close the PWA/browser while a turn is running, wait for completion notification, then reopen the same thread.
-7. Refresh the thread page after completion.
+1. In light theme, confirm each queued row has a drag handle at the start of the row
+2. Refresh the page and reopen the same thread
+3. Confirm all queued rows are still visible in the same order
+4. Drag the third queued message onto the first queued message
+5. Confirm the third message moves to the first position and the remaining queued messages keep their relative order
+6. Refresh again and confirm the reordered queue order is preserved
+7. Let the active turn finish and confirm the next sent queued message is the first reordered item
+8. Queue at least two more messages, switch to dark theme, and repeat the drag reorder check
 
 #### Expected Results
-- A single compact line appears after the user request and before the final assistant response.
-- The line includes elapsed work time, for example `Worked for 2m 14s`.
-- The runtime line does not include changed-file counts or `+`/`-` diff totals.
-- Expanding the line reveals intermediate assistant updates and command/work details for that turn without duplicating those rows in the main timeline.
-- The expanded worked section ends with a full-width divider before the final assistant response begins.
-- The row uses the same compact text scale and left-side rotating chevron behavior as the changed-files summary row.
-- Changed-file counts and `+`/`-` totals remain in the dedicated changed-files summary, where the plus total is green and the minus total is red.
-- The changed-files summary totals match the aggregated changed-file metadata for that turn.
-- The same footer remains visible after reopening or refreshing a completed thread.
-- If no files changed, the runtime row still shows only elapsed work time.
+- Queued rows survive a page refresh because they are restored from backend state
+- Dragging a queued row onto another queued row immediately reorders the queue
+- The reordered queue order survives page refresh
+- The reordered queue order controls which message sends next after the active turn finishes
+- Edit, Steer, and Delete actions still operate on the correct queued row after reordering
+- Drag handle, hover/drop target, and row text remain readable in both light theme and dark theme
 
 #### Rollback/Cleanup
-- Revert or delete any files changed by the manual test prompt.
+- Delete any queued test messages that should not be sent
 
-### Feature: Codex CLI update status and update restart action
+---
+
+### Backend-drained queue UI refresh
 
 #### Feature/Change Name
-Sidebar settings show the installed Codex CLI version, warn when npm has a newer `@openai/codex`, and provide an `Update and Restart` action that updates the CLI before running the existing Codex UI restart flow.
+The queue panel refreshes when the backend starts and drains persisted queued messages.
 
 #### Prerequisites/Setup
-1. Codex CLI is installed and `codex --version` works.
-2. `npm view @openai/codex version` can reach the npm registry.
-3. Start Codex UI with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
-4. Ensure `scripts/restart-codexui-service.sh` is executable if testing the restart buttons.
+1. Dev server running (`pnpm run dev`)
+2. Open a `TestChat` thread
+3. Queue at least three short messages while a turn is running
+4. Light theme and dark theme both available from the appearance switcher
 
 #### Steps
-1. Open Codex UI and inspect the Settings button in the sidebar footer.
-2. Confirm the footer shows the Codex UI version and a second `Codex CLI` version line.
-3. Open Settings and inspect the restart area near the bottom.
-4. Request `GET /codex-api/codex-cli/status` and compare `currentVersion` with `codex --version`; compare `latestVersion` with `npm view @openai/codex version`.
-5. If `updateAvailable` is true, confirm the sidebar footer shows a warning icon and the Settings panel shows the Codex CLI update alert with installed and latest versions.
-6. Click `Update and Restart`, confirm the browser prompt, and watch the blocking overlay.
-7. If `~/.config/codexui/env` contains `CODEXUI_CODEX_COMMAND` pointing at an older binary, keep it in place before clicking update to verify the update flow repairs the override.
-8. After the page reloads, request `GET /codex-api/codex-cli/status` again.
-9. Inspect `~/.config/codexui/env` and confirm `CODEXUI_CODEX_COMMAND` points at the updated runnable Codex CLI binary.
+1. In light theme, confirm queued rows are visible above the composer
+2. Let the backend drain each queued message
+3. Confirm the queue panel removes each row as its queued turn starts
+4. Confirm the queue panel disappears when the final queued message is submitted
+5. Refresh the thread after all queued turns complete
+6. Switch to dark theme and repeat the visibility check after queue drain
 
 #### Expected Results
-- The Settings footer keeps the existing Codex UI version and adds a compact Codex CLI version line.
-- The Codex UI and Codex CLI footer version lines use the same compact font size, weight, and color.
-- The Settings footer height remains compact while keeping the Settings button easy to click.
-- The status endpoint returns the installed CLI version, npm latest version, and `updateAvailable`.
-- When an update is available, the sidebar and Settings panel show a visible warning.
-- When no update is available, the Settings panel does not show the `Update and Restart` row.
-- `Update and Restart` runs `npm install -g @openai/codex@latest`, then schedules the existing Codex UI restart flow.
-- If the previous configured binary was stale, the update flow rewrites `CODEXUI_CODEX_COMMAND` to the newest runnable installed binary before scheduling restart.
-- The restart overlay first reports CLI update progress, then moves into the normal rebuild/restart/healthcheck stages.
-- After reload, the CLI status refreshes and no longer reports an update if npm installed the latest version successfully.
+- Queued messages execute in order after the active turn completes
+- The queue panel reflects backend queue state after `turn/started` and `turn/completed`
+- No already-executed queued rows remain visible after the queue is empty
+- Queue row text, actions, and composer spacing remain readable in both light theme and dark theme
 
 #### Rollback/Cleanup
-- If the update/restart fails, inspect `/tmp/codexui-restart.log` and the endpoint `lastUpdateError`.
-- Reinstall a specific CLI version manually with `npm install -g @openai/codex@<version>` if needed.
+- Delete any remaining queued test messages or let the queue drain
+
+---
+
+### Persisted idle queue recovery
+
+#### Feature/Change Name
+Backend queued messages are retried and drained for idle threads even if the original `turn/completed` notification was missed or the server starts with persisted queue state already present.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev`)
+2. A thread exists with queued messages persisted in `/codex-api/thread-queue-state`
+3. The thread's latest turn is completed/idle
+4. Light theme and dark theme are both available
+
+#### Steps
+1. In light theme, open the thread with persisted queued rows
+2. Confirm the queued rows are visible above the composer
+3. Wait for backend queue recovery to start the first queued message
+4. Confirm the first queued row is removed and a new turn starts
+5. Wait for the queued turn to complete
+6. Confirm the next queued row starts automatically
+7. Repeat until `/codex-api/thread-queue-state` no longer includes the thread
+8. Refresh the thread and confirm all queued messages completed in order
+9. Switch to dark theme and confirm the completed conversation and empty queue state remain readable
+
+#### Expected Results
+- Idle persisted queues recover without requiring a new manual message
+- Queued messages do not start while the thread has an in-progress turn
+- Multiple queued messages drain one at a time and complete in order
+- The queue panel disappears after the final queued message is started
+- The recovered turns and empty queue state are visible in both light theme and dark theme
+
+#### Rollback/Cleanup
+- Delete any remaining queued test rows or let recovery drain them
+- Remove temporary test projects/threads if they are no longer needed
+
+---
+
+### ChatGPT auth tokens refresh for external auth
+
+#### Feature/Change Name
+Codex app-server `account/chatgptAuthTokens/refresh` requests are handled automatically from `auth.json` so expired ChatGPT access tokens can be refreshed without a manual relogin.
+
+#### Prerequisites/Setup
+1. App server is running from this repository
+2. `$CODEX_HOME/auth.json` contains ChatGPT auth with a valid `refresh_token`
+3. The current ChatGPT `access_token` is expired or close enough to expiry that Codex app-server asks for token refresh
+
+#### Steps
+1. Open the app with the ChatGPT-authenticated account selected
+2. Trigger an account operation such as loading account rate limits or starting a normal Codex turn
+3. Watch the server logs for an `account/chatgptAuthTokens/refresh` server request
+4. Reopen `$CODEX_HOME/auth.json`
+5. Repeat the same account operation after the refresh completes
+
+#### Expected Results
+- The refresh request is answered automatically and does not appear as a manual pending request in the UI
+- `auth.json` is updated with the fresh `access_token` and any rotated `refresh_token` or `id_token`
+- The account operation succeeds without showing `token_expired`
+- If no refresh token is available, the operation fails with a sign-in-again message instead of silently looping
+
+#### Rollback/Cleanup
+- None, unless a test-only `$CODEX_HOME` was used
+
+---
+
+### Project menu permanent worktree action
+
+#### Feature/Change Name
+Project rows open the same action menu from right-click and the dots button, and can create a permanent sibling Git worktree as a new project.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev`)
+2. Sidebar has at least one Git-backed project
+3. Light theme and dark theme both available from the appearance switcher
+
+#### Steps
+1. In light theme, click the project row dots button.
+2. Verify the menu shows `Browse files`, `New worktree`, `Rename project`, and `Remove`.
+3. Close the menu, then right-click the same project row.
+4. Verify the same menu opens.
+5. Click `Browse files` and confirm the local file browser opens for the project cwd.
+6. Reopen the project menu, click `Rename project`, and confirm the inline project name input still works.
+7. Reopen the project menu, click `New worktree`, and confirm the prompt is prefilled with `<project name>-`.
+8. Enter a unique folder name such as `<project name>-manual-test`.
+9. Confirm a Git worktree is created at `../<worktree name>` relative to the source repo root.
+10. Run `git -C ../<worktree name> branch --show-current` and confirm it prints a branch based on the worktree folder name.
+11. Confirm the new worktree is added as a project and the app opens the new-chat composer with that cwd selected.
+12. Rename the project to include a slash, reopen `New worktree`, and confirm the suggested folder name replaces the slash with `-`.
+13. Switch to dark theme and repeat steps 1-4, verifying menu contrast and danger styling remain readable.
+
+#### Expected Results
+- Right-click and dots button expose the same project action menu.
+- `Browse files`, `Rename project`, and `Remove` remain available from that menu.
+- `New worktree` creates a permanent sibling worktree folder on its own branch, registers it as a project, and opens a new chat for it.
+- Invalid path separator characters are not used in the default worktree folder suggestion.
+- Menu text, hover states, and the remove action remain readable in light and dark themes.
+
+#### Rollback/Cleanup
+- Remove the test worktree with `git -C <source-repo-root> worktree remove ../<worktree name>`.
+- Delete the test branch with `git -C <source-repo-root> branch -D <branch name>`.
+- Remove the temporary project from the sidebar if it remains listed.
+
+---
+
+### Sidebar thread inline delete confirmation and menu pin action
+
+#### Feature/Change Name
+Thread rows show an inline delete button that morphs to `Confirm`, while pin/unpin moves to the thread context menu.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev`)
+2. Sidebar contains at least two disposable test threads
+3. Light theme and dark theme are available from the appearance switcher
+
+#### Steps
+1. In light theme, hover a disposable thread row and verify the left-side action shows a delete icon instead of a pin icon
+2. Click the delete icon once and verify it changes to a `Confirm` button without selecting the row
+3. Click a different thread row and verify the pending `Confirm` state clears
+4. Hover the disposable thread row again, click delete, then click `Confirm`
+5. Verify the thread is removed from the sidebar immediately and, if it was pinned, removed from the `Pinned` section too
+6. Open another thread row context menu and verify it contains `Pin thread` for an unpinned thread
+7. Click `Pin thread`, reopen the same thread menu, and verify it now shows `Unpin thread`
+8. Switch to dark theme and repeat steps 1 through 7 with another disposable thread
+
+#### Expected Results
+- The inline row action is delete, not pin
+- Delete requires two clicks: delete icon, then `Confirm`
+- Confirming archives/removes the correct thread immediately from the sidebar and clears any pinned state for that thread
+- Pin/unpin is available from the thread context menu and updates the `Pinned` section immediately
+- Delete icon, `Confirm` button, and context menu items are readable in both light theme and dark theme
+
+#### Rollback/Cleanup
+- Delete or unpin any disposable threads created only for this test
+
+---
+
+### Accounts panel Codex login callback modal
+
+#### Feature/Change Name
+Accounts settings includes an always-available `Login` button that starts `codex login`, opens the returned authorization URL, shows an in-app callback modal, requests the pasted localhost callback URL from the server, and imports the completed Codex account.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev`)
+2. `codex` CLI available in the server process `PATH`
+3. Browser can open the authorization URL returned by the server
+4. Light theme and dark theme are available from the appearance switcher
+
+#### Steps
+1. Open settings and expand `Accounts`.
+2. In light theme, verify `Login` appears even when an active account is already listed.
+3. Click `Login`.
+4. Verify a new tab opens to the OpenAI authorization URL and an in-app `Complete Codex login` modal asks for the localhost callback URL.
+5. Complete authorization in the browser until it redirects to a `http://localhost:<port>/auth/callback?...` URL.
+6. Paste that full localhost callback URL into the modal input and click `Complete`.
+7. Verify the account list refreshes, the new or refreshed account is active, and normal thread/account data reloads.
+8. Click `Login` again, close the modal, and verify the Accounts panel keeps the `Open login URL` fallback link available.
+9. Switch to dark theme and repeat steps 1-4, verifying the Login button, link, modal, input, and buttons have readable contrast.
+
+#### Expected Results
+- `Login` is available regardless of current login state.
+- Starting login runs `codex login` on the server and exposes the generated OpenAI authorization URL.
+- Completing login uses the modal input value, only accepts local callback URLs, and uses the server to request the pasted callback.
+- After completion, `$CODEX_HOME/auth.json` is imported into the Accounts list and selected as the active account.
+- Completion does not remain stuck waiting for the `codex login` process after the callback has updated `auth.json`.
+- Light-theme and dark-theme controls are readable and do not overlap.
+
+#### Rollback/Cleanup
+- Remove any test-only account from the Accounts panel if needed.
+- If a login is abandoned, restart the dev server to clear any in-memory pending login process.
+
+---
+
+### Active thread switches after delete
+
+#### Feature/Change Name
+Deleting the currently open thread immediately selects the next available thread.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev`)
+2. Sidebar contains at least three disposable test threads
+3. Light theme and dark theme are available from the appearance switcher
+
+#### Steps
+1. In light theme, open the middle disposable thread
+2. Click that thread's delete icon, then click `Confirm`
+3. Verify the content area immediately switches to the next thread in the sidebar list
+4. Open the last disposable thread
+5. Delete and confirm it
+6. Verify the content area immediately switches to the previous thread
+7. Repeat steps 1 through 6 in dark theme
+
+#### Expected Results
+- Deleting the active thread does not leave the deleted thread selected
+- The next thread is selected immediately; when there is no next thread, the previous thread is selected
+- The browser route updates to the newly selected thread without waiting for a manual click
+- A stale deleted-thread URL does not switch the UI back to the archived thread
+- Light-theme and dark-theme sidebar selection states remain readable after the automatic switch
+
+#### Rollback/Cleanup
+- Delete any disposable threads created only for this test
+
+---
+
+### Thread open always autoscrolls to latest
+
+#### Feature/Change Name
+Opening a thread always scrolls the conversation to the latest messages, with no per-thread scroll restore.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev`)
+2. At least one thread with enough messages to require scrolling
+3. Light theme and dark theme are available from the appearance switcher
+
+#### Steps
+1. In light theme, open a thread and scroll to the middle of its history
+2. Switch to another thread
+3. Open the first thread again
+4. Verify the viewport opens at the bottom (latest messages), not the previous middle position
+5. Refresh the browser tab, open the same thread again, and verify it still opens at the bottom
+6. Repeat steps 1 through 5 in dark theme
+
+#### Expected Results
+- Opening a thread always lands on the latest messages
+- Previously viewed scroll positions are not restored when revisiting a thread
+- Browser refresh does not restore a previously viewed conversation scroll position
+- Behavior is the same in light theme and dark theme
+
+#### Rollback/Cleanup
+- None
+
+---
+
+### Hide worktree controls for non-Git folders
+
+#### Feature/Change Name
+Composer runtime options and project menu worktree actions are hidden when the selected folder is not a Git repository.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev`)
+2. One Git-backed project and one plain local folder without a `.git` directory are available in the folder picker/sidebar
+3. Light theme and dark theme are available from the appearance switcher
+
+#### Steps
+1. In light theme, select the plain local folder in the new-thread composer.
+2. Confirm the `Local project` / `New worktree` runtime toggle is not shown.
+3. Confirm the first message can still be sent as a normal local-folder chat.
+4. Select a Git-backed folder and confirm the runtime toggle appears again.
+5. Open the project action menu for a non-Git project and confirm `New worktree` is not shown.
+6. Open the project action menu for a Git-backed project and confirm `New worktree` is shown.
+7. Switch to dark theme and repeat steps 1, 2, 4, 5, and 6.
+
+#### Expected Results
+- Non-Git folders do not show `Local project` or `New worktree` runtime options.
+- Non-Git project menus do not show `New worktree`.
+- Git-backed folders continue to expose the runtime toggle and worktree action.
+- The hidden/visible states are consistent and readable in both light and dark themes.
+
+#### Rollback/Cleanup
+- Remove any disposable plain folder or test chats created for this validation.
+
+---
+
+### Project worktree threads under canonical project
+
+#### Feature/Change Name
+Managed worktree threads remain visible under their matching canonical workspace-root project, and path-like project tooltips expose the full path.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev`)
+2. Codex global workspace roots include `/Users/igor/Git-projects/codex-web-local`
+3. Thread history contains at least one thread whose cwd is under `/Users/igor/.codex/worktrees/*/codex-web-local`
+4. Light theme and dark theme both available from the appearance switcher
+
+#### Steps
+1. In light theme, open the sidebar Projects section.
+2. Scroll to the `codex-web-local` project.
+3. Confirm the project includes the main-root thread and managed worktree threads.
+4. Confirm worktree rows still show the worktree icon.
+5. Confirm unrelated `.git/worktrees` rows with the same leaf folder name are not grouped into this project.
+6. Hover any shortened path-like duplicate project title and confirm the tooltip shows the full project path, not only the friendly label.
+7. Switch to dark theme and repeat steps 1-6.
+
+#### Expected Results
+- Managed worktree threads with the same leaf folder name are not split into hidden path-like project groups.
+- Generic `.git/worktrees` rows are not treated as managed Codex worktrees for project-root grouping.
+- The canonical `codex-web-local` project shows both main-root and worktree threads.
+- Path-like project tooltips expose the full project path.
+- Project rows and worktree icons remain readable in light and dark themes.
+
+#### Rollback/Cleanup
+- None.
+
+---
+
+### Worktree creation persists across refresh
+
+#### Feature/Change Name
+Newly created temporary and permanent worktrees are persisted in workspace roots so their threads remain visible after a full browser refresh.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev`)
+2. A Git-backed workspace root is registered and selected in the Start new thread screen
+3. Light theme and dark theme both available from the appearance switcher
+
+#### Steps
+1. In light theme, open Start new thread for the Git-backed workspace root.
+2. Select `New worktree`, send a unique first prompt, and wait for the thread page to open.
+3. Note the created worktree path from the selected folder or thread metadata.
+4. Refresh the browser tab.
+5. Confirm the new worktree-backed project/thread remains visible in the sidebar and can be opened.
+6. Open the project action menu for the original Git-backed project and create a permanent named worktree.
+7. Confirm the permanent worktree appears in the folder/project list, then refresh the browser tab.
+8. Confirm the permanent worktree remains visible after refresh.
+9. Switch to dark theme and repeat steps 1 through 5 with a second unique temporary worktree prompt.
+
+#### Expected Results
+- Temporary worktree creation writes the new worktree cwd to persisted workspace roots.
+- Permanent worktree creation writes the new worktree cwd to persisted workspace roots.
+- Full page refresh does not hide the newly created worktree project or its thread.
+- The same behavior works in light theme and dark theme.
+- If workspace-root persistence fails after `git worktree add`, the request fails cleanly and best-effort rollback removes the created worktree instead of leaving retry-prone orphaned worktrees.
+
+#### Rollback/Cleanup
+- Remove temporary test worktrees with `git worktree remove --force <worktree-path>`.
+- Delete any empty temporary parent directory left under `$CODEX_HOME/worktrees/<id>`.
+- Remove permanent test worktrees with `git worktree remove --force <worktree-path>` and delete their test branch if needed.
+
+---
+
+### Sidebar chats show more projectless chats
+
+#### Feature/Change Name
+The sidebar Chats section lists the first 10 projectless chats, offers Show more for the rest, and no longer shows the per-section filter button.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev`)
+2. Thread history contains more than 10 projectless chats
+3. Light theme and dark theme both available from the appearance switcher
+
+#### Steps
+1. In light theme, open the sidebar Chats section.
+2. Count the visible projectless chat rows and confirm only 10 rows are shown initially.
+3. Click Show more and confirm older projectless chat rows beyond the first 10 appear.
+4. Click Show less and confirm the Chats section returns to 10 visible rows.
+5. Confirm the Chats section header only shows the New chat action and does not show a filter button.
+6. Use the main sidebar search button and confirm global thread search still opens and filters chats/projects without the 10-row browsing limit.
+7. Switch to dark theme and repeat steps 1-6.
+
+#### Expected Results
+- The Chats section shows 10 projectless chats by default according to the selected chat sort mode.
+- Show more expands the section to all projectless chats, and Show less restores the 10-row default.
+- The Chats header does not include a filter action.
+- The New chat action remains available.
+- The main sidebar search remains functional.
+- Rows and header actions remain readable in light and dark themes.
+
+#### Rollback/Cleanup
+- None.
+
+---
+
+### Fresh Docker mobile install does not show rate-limit request failures
+
+#### Feature/Change Name
+Fresh unauthenticated install mobile home screen rate-limit handling.
+
+#### Prerequisites/Setup
+1. Docker is available.
+2. A clean container has this project installed under `/workspace`.
+3. `@openai/codex` is installed in the container.
+4. Container dev server is running with a fresh Codex home:
+   `CODEX_HOME=/tmp/codex-home CODEXUI_CODEX_COMMAND=$(command -v codex) pnpm run dev --host 0.0.0.0 --port 4173`
+5. The container port is mapped to the host, for example `127.0.0.1:4174 -> 4173`.
+
+#### Steps
+1. Open `http://127.0.0.1:4174/` in a mobile viewport such as iPhone 13 `390x664`.
+2. In light theme, wait for the Start new thread home screen to render.
+3. Capture network responses and confirm no `/codex-api/rpc` response fails with `502` for `account/rateLimits/read`.
+4. Confirm the composer renders and the quota UI is simply absent when the fresh `CODEX_HOME` has no authenticated Codex account.
+5. Switch to dark theme and reload the same mobile viewport.
+6. Repeat steps 2 through 4 in dark theme.
+7. Add an `auth.json` containing only `tokens.access_token` and confirm `account/rateLimits/read` is not short-circuited as unauthenticated.
+8. Replace `auth.json` with malformed JSON and confirm the server logs a `[codex-auth] Unable to read Codex auth state` warning while the home screen still renders.
+
+#### Expected Results
+- The fresh mobile home screen renders without a blank page.
+- `account/rateLimits/read` returns an empty result instead of a `502` when no Codex account is authenticated.
+- An access-token-only auth file is treated as authenticated enough to ask Codex for rate limits.
+- Malformed auth files are visible in server logs instead of being silently treated as a normal fresh install.
+- The UI remains usable in light theme and dark theme.
+- No login or account import is required just to load the home screen.
+
+#### Rollback/Cleanup
+- Stop and remove the temporary Docker container, for example `docker rm -f <container-name>`.
+
+---
+
+### Android published CLI loads Codex app-server models through local proxy
+
+#### Feature/Change Name
+Android `codexui-android` startup passes the bound server port to app-server free-mode config.
+
+#### Prerequisites/Setup
+1. Android proot access works through `/Users/igor/Git-projects/codex-web-local-android/andClaw-codex/ssh.sh`.
+2. The published `codexui-android` package version under test is available from npm.
+3. ADB forward maps device port `17923` to local port `17923`.
+
+#### Steps
+1. Start the package in Android proot:
+   `pnpm dlx codexui-android@<version> --port 17923 --no-open --no-tunnel --no-login`
+2. Open `http://127.0.0.1:17923/#/` in the browser.
+3. Call `POST /codex-api/rpc` with `{"method":"config/read","params":{}}`.
+4. Call `POST /codex-api/rpc` with `{"method":"model/list","params":{}}`.
+5. Confirm `/codex-api/provider-models` still returns OpenCode Zen model ids.
+6. Verify the model selector is enabled in light theme and dark theme.
+7. Send `hi` from the home composer and wait for the first assistant reply.
+8. Confirm browser/network logs do not show a `502` for `generate-thread-title` or an empty-rollout `thread/read` during startup.
+
+#### Expected Results
+- `config/read` returns `200` and includes `model_providers.opencode-zen.base_url` pointing at `http://127.0.0.1:17923/codex-api/zen-proxy/v1`.
+- `config/read` includes `model_providers.opencode-zen.wire_api` as `responses`, not `chat`.
+- `model/list` returns `200` with model data instead of `502 codex app-server exited unexpectedly`.
+- The model selector is usable in both light theme and dark theme.
+- A first home-composer message creates a thread and receives a response without visible startup RPC errors.
+
+#### Rollback/Cleanup
+- Stop the temporary Android proot process with `pkill -f codexui-android` if needed.
+
+---
+
+### OpenCode Zen status returns current provider models
+
+#### Feature/Change Name
+OpenCode Zen free-mode status and model discovery consistency.
+
+#### Prerequisites/Setup
+1. Dev server or published CLI server running with no Codex auth so free mode defaults to OpenCode Zen.
+2. Browser can open the home route in light theme and dark theme.
+
+#### Steps
+1. In light theme, open the home route.
+2. Call `GET /codex-api/free-mode/status`.
+3. Call `GET /codex-api/provider-models`.
+4. Confirm both responses report OpenCode Zen data, including `big-pickle` and current Zen model ids such as `deepseek-v4-flash-free` when upstream returns it.
+5. Confirm `/codex-api/free-mode/status` reports `wireApi` as `responses`.
+6. Open the model selector immediately after initial page load and confirm the Zen models are available without first switching providers or refreshing settings.
+7. In Chrome with a previously loaded app version, reload the page and confirm the service worker fetches the new script/style bundle instead of keeping stale cached selector behavior.
+8. With a script/style bundle already cached by the service worker, temporarily make the same script/style request return HTTP 404 or 500 and reload.
+9. Switch to dark theme and repeat steps 1 through 8.
+
+#### Expected Results
+- Free-mode status does not expose stale OpenRouter cached model ids when `provider` is `opencode-zen`.
+- OpenCode Zen uses `responses`, not `chat`, in saved/default UI state.
+- Provider model discovery and status agree on the model list source.
+- Initial startup model loading uses the active provider context and does not leave GPT-only `model/list` entries as the visible selector list for OpenCode Zen.
+- Selected model ids persist to localStorage by thread/provider context; legacy/global selected-model keys cannot choose a model for OpenCode Zen, while a valid provider-scoped OpenCode Zen saved choice is restored.
+- Service-worker script/style cache invalidation does not keep Chrome on an older model-selector bundle after a new local build is served.
+- Service-worker script/style fetches still use a cached bundle if the network request resolves with a non-OK HTTP status.
+- Model selector content remains usable in light theme and dark theme.
+
+#### Rollback/Cleanup
+- None.
+
+---
+
+### Thread conversation loads earlier turns on demand
+
+#### Feature/Change Name
+Thread conversation incremental older-turn loading.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev --host 127.0.0.1 --port 4173`)
+2. A thread with more than 10 turns is available
+3. Light theme and dark theme both available from the appearance switcher
+
+#### Steps
+1. In light theme, open a thread that has more than 10 turns.
+2. Confirm the newest messages render first and the conversation shows the Load earlier messages control at the top.
+3. Click Load earlier messages once.
+4. Confirm an older batch is prepended above the previously first visible turn and the scroll position stays near the same content.
+5. Continue clicking Load earlier messages until the control disappears.
+6. Confirm the oldest messages in the thread are visible and no duplicate message rows are introduced.
+7. Switch to dark theme and repeat steps 1-6 on the same thread or another long thread.
+
+#### Expected Results
+- Initial thread open remains bounded to the latest turn page.
+- Load earlier messages fetches older persisted turns from the local bridge instead of only revealing already-loaded messages.
+- The control remains available while older persisted turns exist and disappears after the first turn is loaded.
+- Message ordering, turn actions, and scroll restoration remain stable in light and dark themes.
+
+#### Rollback/Cleanup
+- None.

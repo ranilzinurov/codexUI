@@ -82,11 +82,19 @@
 
       <div v-if="selectedSkills.length > 0" class="thread-composer-skill-chips">
         <span v-for="skill in selectedSkills" :key="skill.path" class="thread-composer-skill-chip">
-          <span class="thread-composer-skill-chip-name">{{ skill.name }}</span>
+          <button
+            class="thread-composer-skill-chip-name"
+            type="button"
+            :title="skillMarkdownPath(skill.path)"
+            :aria-label="`Open ${skill.displayName || skill.name} SKILL.md`"
+            @click="openSkillMarkdown(skill)"
+          >
+            {{ skill.displayName || skill.name }}
+          </button>
           <button
             class="thread-composer-skill-chip-remove"
             type="button"
-            :aria-label="`Remove skill ${skill.name}`"
+            :aria-label="`Remove skill ${skill.displayName || skill.name}`"
             @click="removeSkill(skill.path)"
           >×</button>
         </span>
@@ -94,7 +102,10 @@
 
       <div
         class="thread-composer-input-wrap"
-        :class="{ 'thread-composer-input-wrap--drag-active': isDragActive }"
+        :class="{
+          'thread-composer-input-wrap--drag-active': isDragActive,
+          'thread-composer-input-wrap--expanded': isComposerExpanded,
+        }"
         @dragenter="onInputDragEnter"
         @dragover="onInputDragOver"
         @dragleave="onInputDragLeave"
@@ -128,7 +139,7 @@
               </span>
             </button>
           </template>
-          <div v-else class="thread-composer-file-mention-empty">No matching files</div>
+          <div v-else class="thread-composer-file-mention-empty">{{ t('No matching files') }}</div>
         </div>
         <textarea
           ref="inputRef"
@@ -159,6 +170,18 @@
           @select="onSlashCommandPickerSelect"
           @highlight="slashCommandHighlightedIndex = $event"
         />
+        <button
+          v-if="hasExpandedComposerToggle"
+          class="thread-composer-expand"
+          type="button"
+          :aria-label="isComposerExpanded ? t('Exit full screen composer') : t('Expand composer')"
+          :title="isComposerExpanded ? t('Exit full screen composer') : t('Expand composer')"
+          :disabled="isInteractionDisabled"
+          @click="toggleComposerExpanded"
+        >
+          <IconTablerMinimize v-if="isComposerExpanded" class="thread-composer-expand-icon" />
+          <IconTablerMaximize v-else class="thread-composer-expand-icon" />
+        </button>
       </div>
 
       <div
@@ -169,7 +192,7 @@
           <button
             class="thread-composer-attach-trigger"
             type="button"
-            aria-label="Add photos & files"
+            :aria-label="t('Add photos & files')"
             :disabled="isInteractionDisabled"
             @click="toggleAttachMenu"
           >
@@ -183,7 +206,7 @@
               :disabled="isInteractionDisabled"
               @click="triggerPhotoLibrary"
             >
-              Add photos & files
+              {{ t('Add photos & files') }}
             </button>
             <button
               class="thread-composer-attach-item"
@@ -191,7 +214,7 @@
               :disabled="isInteractionDisabled"
               @click="triggerFolderPicker"
             >
-              Add folder
+              {{ t('Add folder') }}
             </button>
             <button
               class="thread-composer-attach-item"
@@ -199,11 +222,11 @@
               :disabled="isInteractionDisabled"
               @click="triggerCameraCapture"
             >
-              Take photo
+              {{ t('Take photo') }}
             </button>
             <div class="thread-composer-attach-separator" />
             <div class="thread-composer-attach-mode">
-              <span class="thread-composer-attach-mode-label">In-progress send</span>
+              <span class="thread-composer-attach-mode-label">{{ t('In-progress send') }}</span>
               <div class="thread-composer-attach-mode-buttons">
                 <button
                   class="thread-composer-attach-mode-button"
@@ -212,7 +235,7 @@
                   :disabled="isInteractionDisabled"
                   @click="setActiveInProgressMode('steer')"
                 >
-                  Steer
+                  {{ t('Steer') }}
                 </button>
                 <button
                   class="thread-composer-attach-mode-button"
@@ -221,7 +244,7 @@
                   :disabled="isInteractionDisabled"
                   @click="setActiveInProgressMode('queue')"
                 >
-                  Queue
+                  {{ t('Queue') }}
                 </button>
               </div>
             </div>
@@ -232,12 +255,12 @@
               type="button"
               role="switch"
               :aria-checked="selectedSpeedMode === 'fast'"
-              :aria-label="`Fast mode ${selectedSpeedMode === 'fast' ? 'enabled' : 'disabled'}`"
+              :aria-label="`${t('Fast mode')} ${selectedSpeedMode === 'fast' ? t('enabled') : t('disabled')}`"
               :disabled="isSpeedToggleDisabled"
               @click="onToggleSpeedMode"
             >
               <span class="thread-composer-attach-setting-copy">
-                <span class="thread-composer-attach-setting-label">Fast mode</span>
+                <span class="thread-composer-attach-setting-label">{{ t('Fast mode') }}</span>
                 <span class="thread-composer-attach-setting-description">{{ speedModeDescription }}</span>
               </span>
               <span
@@ -254,13 +277,13 @@
               type="button"
               role="switch"
               :aria-checked="isPlanModeSelected"
-              :aria-label="isPlanModeSelected ? 'Disable plan mode' : 'Enable plan mode'"
-              :disabled="disabled || !activeThreadId || isTurnInProgress"
+              :aria-label="isPlanModeSelected ? t('Disable plan mode') : t('Enable plan mode')"
+              :disabled="isComposerConfigDisabled"
               @click="toggleCollaborationMode"
             >
               <span class="thread-composer-attach-setting-copy">
-                <span class="thread-composer-attach-setting-label">Plan mode</span>
-                <span class="thread-composer-attach-setting-description">Agent proposes a plan before acting</span>
+                <span class="thread-composer-attach-setting-label">{{ t('Plan mode') }}</span>
+                <span class="thread-composer-attach-setting-description">{{ t('Agent proposes a plan before acting') }}</span>
               </span>
               <span
                 class="thread-composer-attach-switch"
@@ -276,11 +299,11 @@
             :model-value="selectedModel"
             :options="modelOptions"
             :selected-prefix-icon="showFastModeModelIcon ? IconTablerBolt : null"
-            placeholder="Model"
+            :placeholder="t('Model')"
             open-direction="up"
-            :disabled="disabled || !activeThreadId || models.length === 0 || isTurnInProgress"
+            :disabled="isComposerConfigDisabled || models.length === 0"
             enable-search
-            search-placeholder="Search models..."
+            :search-placeholder="t('Search models...')"
             @update:model-value="onModelSelect"
           />
 
@@ -288,20 +311,25 @@
             class="thread-composer-control"
             :options="skillDropdownOptions"
             :selected-values="selectedSkillPaths"
-            placeholder="Skills"
-            search-placeholder="Search skills..."
+            :placeholder="t('Skills')"
+            :search-placeholder="t('Search skills and prompts...')"
+            :create-label="t('Add new prompt')"
+            :allow-remove="true"
+            :remove-label="t('Remove prompt')"
             open-direction="up"
-            :disabled="disabled || !activeThreadId || isTurnInProgress"
+            :disabled="isComposerConfigDisabled"
             @toggle="onSkillDropdownToggle"
+            @create="onCreatePrompt"
+            @remove="onRemovePrompt"
           />
 
           <ComposerDropdown
             class="thread-composer-control"
             :model-value="selectedReasoningEffort"
             :options="reasoningOptions"
-            placeholder="Thinking"
+            :placeholder="t('Thinking')"
             open-direction="up"
-            :disabled="disabled || !activeThreadId || isTurnInProgress"
+            :disabled="isComposerConfigDisabled"
             @update:model-value="onReasoningEffortSelect"
           />
         </template>
@@ -380,8 +408,8 @@
             v-if="!isDictationActive && isTurnInProgress && !hasSubmitContent"
             class="thread-composer-stop"
             type="button"
-            :aria-label="isStopPending ? 'Saving thread before stop is available' : 'Stop'"
-            :title="isStopPending ? 'Saving thread before stop is available' : 'Stop'"
+            :aria-label="isStopPending ? t('Saving thread before stop is available') : t('Stop')"
+            :title="isStopPending ? t('Saving thread before stop is available') : t('Stop')"
             :disabled="disabled || !activeThreadId || isInterruptingTurn || isStopPending"
             @click="onInterrupt"
           >
@@ -393,8 +421,8 @@
             class="thread-composer-submit"
             :class="{ 'thread-composer-submit--queue': isTurnInProgress && activeInProgressMode === 'queue' }"
             type="button"
-            :aria-label="isTurnInProgress && activeInProgressMode === 'queue' ? 'Queue message' : 'Send message'"
-            :title="isTurnInProgress ? `Send as ${activeInProgressMode}` : 'Send'"
+            :aria-label="isTurnInProgress && activeInProgressMode === 'queue' ? t('Queue message') : t('Send message')"
+            :title="isTurnInProgress ? `${t('Send')} ${activeInProgressMode === 'queue' ? t('Queue') : t('Steer')}` : t('Send')"
             :disabled="!canSubmit"
             @click="onSubmit(isTurnInProgress ? activeInProgressMode : 'steer')"
           >
@@ -451,12 +479,23 @@ import type {
 } from '../../types/codex'
 import { useDictation, type DictationAudioInputInfo } from '../../composables/useDictation'
 import { useMobile } from '../../composables/useMobile'
-import { searchComposerFiles, uploadFile, type ComposerFileSuggestion } from '../../api/codexGateway'
+import { useUiLanguage } from '../../composables/useUiLanguage'
+import {
+  createComposerPrompt,
+  getComposerPrompts,
+  removeComposerPrompt,
+  searchComposerFiles,
+  uploadFile,
+  type ComposerFileSuggestion,
+  type ComposerPromptInfo,
+} from '../../api/codexGateway'
 import IconTablerArrowUp from '../icons/IconTablerArrowUp.vue'
 import IconTablerBolt from '../icons/IconTablerBolt.vue'
 import IconTablerFilePencil from '../icons/IconTablerFilePencil.vue'
 import IconTablerFolder from '../icons/IconTablerFolder.vue'
+import IconTablerMaximize from '../icons/IconTablerMaximize.vue'
 import IconTablerMicrophone from '../icons/IconTablerMicrophone.vue'
+import IconTablerMinimize from '../icons/IconTablerMinimize.vue'
 import IconTablerPlayerPauseFilled from '../icons/IconTablerPlayerPauseFilled.vue'
 import IconTablerPlayerStopFilled from '../icons/IconTablerPlayerStopFilled.vue'
 import ComposerDropdown from './ComposerDropdown.vue'
@@ -471,7 +510,13 @@ import {
   type ParsedCodexSlashCommand,
 } from '../../codexSlashCommands'
 
-type SkillItem = { name: string; description: string; path: string }
+type SkillSourceBadge = {
+  badge: string
+  badgeLabel: string
+  badgeTone: 'repo' | 'system' | 'plugin' | 'user' | 'prompt'
+}
+
+type SkillItem = { name: string; displayName?: string; description: string; path: string; scope?: string; enabled?: boolean }
 
 const props = defineProps<{
   activeThreadId: string
@@ -532,6 +577,7 @@ const emit = defineEmits<{
   'update:selected-speed-mode': [mode: SpeedMode]
   'dictation-input-updated': [info: DictationAudioInputInfo]
 }>()
+const { t } = useUiLanguage()
 
 const liveCollabAgents = computed<UiCollabAgentStatus[]>(() => props.liveOverlay?.collabAgents ?? [])
 const liveActivityLabel = computed(() => {
@@ -575,10 +621,12 @@ const SKILL_TRIGGER_PREFIX = '$'
 const SLASH_COMMAND_TRIGGER_PREFIX = '/'
 const COMPOSER_MAX_VIEWPORT_RATIO = 2 / 3
 const COMPOSER_INPUT_MIN_MAX_HEIGHT = 112
+const PROMPT_OPTION_PREFIX = 'prompt:'
 
 const draft = ref('')
 const selectedImages = ref<SelectedImage[]>([])
 const selectedSkills = ref<SkillItem[]>([])
+const savedPrompts = ref<ComposerPromptInfo[]>([])
 const fileAttachments = ref<FileAttachment[]>([])
 const folderUploadGroups = ref<FolderUploadGroup[]>([])
 
@@ -652,6 +700,9 @@ const mentionQuery = ref('')
 const fileMentionSuggestions = ref<ComposerFileSuggestion[]>([])
 const isFileMentionOpen = ref(false)
 const fileMentionHighlightedIndex = ref(0)
+const isComposerExpanded = ref(false)
+const isDraftOverflowing = ref(false)
+let composerOverflowMeasurementQueued = false
 const draftGeneration = ref(0)
 let fileMentionSearchToken = 0
 let fileMentionDebounceTimer: ReturnType<typeof setTimeout> | null = null
@@ -696,11 +747,29 @@ const filteredSlashCommandOptions = computed(() => {
 })
 const selectedSkillPaths = computed(() => selectedSkills.value.map((s) => s.path))
 const skillDropdownOptions = computed(() =>
-  (props.skills ?? []).map((s) => ({
-    value: s.path,
-    label: s.name,
-    description: s.description,
-  })),
+  [
+    ...(props.skills ?? []).map((s) => {
+      const source = skillSourceBadge(s)
+      return {
+        value: s.path,
+        label: s.name,
+        description: s.description,
+        badge: source.badge,
+        badgeLabel: source.badgeLabel,
+        badgeTone: source.badgeTone,
+        removable: false,
+      }
+    }),
+    ...savedPrompts.value.map((prompt) => ({
+      value: promptOptionValue(prompt.path),
+      label: prompt.name,
+      description: prompt.description,
+      badge: 'T',
+      badgeLabel: 'Prompt',
+      badgeTone: 'prompt' as const,
+      removable: true,
+    })),
+  ],
 )
 
 const canSubmit = computed(() => {
@@ -726,7 +795,8 @@ const standaloneFileAttachments = computed(() => {
   return fileAttachments.value.filter((att) => !grouped.has(att.fsPath))
 })
 const isInteractionDisabled = computed(() => props.disabled || !props.activeThreadId)
-const isFastModeSupported = computed(() => props.selectedModel.trim() === 'gpt-5.4')
+const isComposerConfigDisabled = computed(() => props.disabled || !props.activeThreadId)
+const isFastModeSupported = computed(() => /^gpt-5\.(?:4|5)(?:$|-)/.test(props.selectedModel.trim()))
 const showFastModeModelIcon = computed(() =>
   props.selectedSpeedMode === 'fast' && isFastModeSupported.value,
 )
@@ -735,11 +805,11 @@ const isSpeedToggleDisabled = computed(() =>
 )
 const speedModeDescription = computed(() => {
   if (props.isUpdatingSpeedMode) {
-    return 'Saving speed setting...'
+    return t('Saving speed setting...')
   }
   return props.selectedSpeedMode === 'fast'
-    ? 'About 1.5x faster, with credits used at 2x'
-    : 'Default speed with normal credit usage'
+    ? t('About 1.5x faster, with credits used at 2x')
+    : t('Default speed with normal credit usage')
 })
 const inProgressMode = computed<'steer' | 'queue'>(() =>
   props.inProgressSubmitMode === 'steer' ? 'steer' : 'queue',
@@ -748,10 +818,10 @@ const activeInProgressMode = ref<'steer' | 'queue'>(inProgressMode.value)
 const isDictationActive = computed(() => dictationState.value === 'recording' || dictationState.value === 'paused')
 const isDictationPaused = computed(() => dictationState.value === 'paused')
 const dictationButtonLabel = computed(() => {
-  if (isDictationActive.value) return 'Stop dictation'
-  if (dictationState.value === 'transcribing') return 'Transcribing dictation'
-  if (hasPendingTranscription.value) return 'Retry saved dictation transcription'
-  return props.dictationClickToToggle ? 'Click to dictate' : 'Hold to dictate'
+  if (isDictationActive.value) return t('Stop dictation')
+  if (dictationState.value === 'transcribing') return t('Transcribing dictation')
+  if (hasPendingTranscription.value) return t('Retry saved dictation transcription')
+  return props.dictationClickToToggle ? t('Click to dictate') : t('Hold to dictate')
 })
 const dictationPauseButtonLabel = computed(() => (isDictationPaused.value ? 'Resume dictation' : 'Pause dictation'))
 const dictationStatusText = computed(() => {
@@ -769,21 +839,21 @@ const attachmentFeedbackText = computed(() => {
     const remaining = Math.max(0, stats.total - completed)
     if (remaining > 0) {
       if (stats.failed > 0) {
-        return `${stats.failed} failed, attaching ${formatAttachmentFileCount(remaining)}...`
+        return `${stats.failed} ${t('failed')}, ${t('attaching')} ${formatAttachmentFileCount(remaining)}...`
       }
-      return remaining === 1 ? 'Attaching file...' : `Attaching ${remaining} files...`
+      return remaining === 1 ? t('Attaching file...') : `${t('Attaching')} ${remaining} ${t('files...')}`
     }
     if (stats.failed > 0) {
       if (stats.succeeded > 0) {
-        return `${stats.succeeded} attached, ${stats.failed} failed.`
+        return `${stats.succeeded} ${t('attached')}, ${stats.failed} ${t('failed')}.`
       }
-      return stats.failed === 1 ? 'Could not attach file.' : `Could not attach ${stats.failed} files.`
+      return stats.failed === 1 ? t('Could not attach file.') : `${t('Could not attach')} ${stats.failed} ${t('files.')}`
     }
   }
   if (pendingAttachmentCount.value <= 0) return ''
   return pendingAttachmentCount.value === 1
-    ? 'Attaching file...'
-    : `Attaching ${pendingAttachmentCount.value} files...`
+    ? t('Attaching file...')
+    : `${t('Attaching')} ${pendingAttachmentCount.value} ${t('files...')}`
 })
 const dictationDurationLabel = computed(() => {
   const totalSeconds = Math.max(0, Math.floor(recordingDurationMs.value / 1000))
@@ -794,13 +864,17 @@ const dictationDurationLabel = computed(() => {
 
 const placeholderText = computed(() =>
   !props.activeThreadId
-    ? 'Select a thread to send a message'
+    ? t('Select a thread to send a message')
     : isPlanModeWaitingForModel.value
-      ? 'Loading models for plan mode...'
-      : `Type a message... (@ for files, / for commands, ${SKILL_TRIGGER_PREFIX} for skills)`,
+      ? t('Loading models for plan mode...')
+      : t('Type a message... (@ for files, / for commands, $ for skills)'),
 )
 const hasSubmitContent = computed(() =>
   draft.value.trim().length > 0 || selectedImages.value.length > 0 || fileAttachments.value.length > 0,
+)
+const draftLineCount = computed(() => draft.value.split('\n').length)
+const hasExpandedComposerToggle = computed(() =>
+  isComposerExpanded.value || draftLineCount.value >= 6 || isDraftOverflowing.value,
 )
 const quotaSummaryText = computed(() => buildQuotaSummaryText(props.codexQuota ?? null))
 const quotaWeeklyRefreshText = computed(() => '')
@@ -1050,6 +1124,7 @@ function onSubmit(mode: 'steer' | 'queue' = 'steer'): void {
   })
   clearPersistedDraftForThread(props.activeThreadId)
   clearDraftState()
+  isComposerExpanded.value = false
   folderUploadGroups.value = []
   isAttachMenuOpen.value = false
   isSkillPickerOpen.value = false
@@ -1110,7 +1185,7 @@ function replaceDraftState(payload: ComposerDraftPayload): void {
   }))
   selectedSkills.value = payload.skills.map((skill) => (
     (props.skills ?? []).find((item) => item.path === skill.path)
-    ?? { name: skill.name, description: '', path: skill.path }
+    ?? { name: skill.name, displayName: undefined, description: '', path: skill.path }
   ))
   fileAttachments.value = payload.fileAttachments.map((attachment) => ({ ...attachment }))
   folderUploadGroups.value = []
@@ -1130,6 +1205,7 @@ function clearDraftState(): void {
     fileAttachments: [],
     skills: [],
   })
+  isComposerExpanded.value = false
 }
 
 function getDraftStorageKey(threadId: string): string {
@@ -1217,6 +1293,31 @@ function getCurrentDraftPayload(): ComposerDraftPayload {
 
 function onInterrupt(): void {
   emit('interrupt')
+}
+
+function updateComposerOverflowState(): void {
+  const input = inputRef.value
+  if (!input) {
+    isDraftOverflowing.value = false
+    return
+  }
+  isDraftOverflowing.value = input.scrollHeight > input.clientHeight + 2
+}
+
+function queueComposerOverflowMeasurement(): void {
+  if (composerOverflowMeasurementQueued) return
+  composerOverflowMeasurementQueued = true
+  void nextTick(() => {
+    composerOverflowMeasurementQueued = false
+    updateComposerOverflowState()
+  })
+}
+
+function toggleComposerExpanded(): void {
+  if (isInteractionDisabled.value) return
+  isComposerExpanded.value = !isComposerExpanded.value
+  queueComposerOverflowMeasurement()
+  void nextTick(() => inputRef.value?.focus())
 }
 
 function onModelSelect(value: string): void {
@@ -1310,6 +1411,18 @@ function removeImage(id: string): void {
 
 function removeSkill(path: string): void {
   selectedSkills.value = selectedSkills.value.filter((s) => s.path !== path)
+}
+
+function skillMarkdownPath(path: string): string {
+  const trimmed = path.trim()
+  if (!trimmed) return ''
+  return trimmed.endsWith('/SKILL.md') ? trimmed : `${trimmed.replace(/\/+$/, '')}/SKILL.md`
+}
+
+function openSkillMarkdown(skill: SkillItem): void {
+  const markdownPath = skillMarkdownPath(skill.path)
+  if (!markdownPath || typeof window === 'undefined') return
+  window.open(`/codex-local-browse${encodeURI(markdownPath)}`, '_blank', 'noopener,noreferrer')
 }
 
 function removeFileAttachment(fsPath: string): void {
@@ -1649,6 +1762,7 @@ function onInputChange(): void {
     isSkillPickerOpen.value = shouldShowSkillPicker
   }
   updateSlashCommandPickerState()
+  queueComposerOverflowMeasurement()
   updateFileMentionState()
 }
 
@@ -1878,7 +1992,10 @@ function applyFileMention(suggestion: ComposerFileSuggestion): void {
 function hydrateDraft(payload: ComposerDraftPayload): void {
   cancelDictation()
   replaceDraftState(payload)
-  nextTick(() => inputRef.value?.focus())
+  void nextTick(() => {
+    inputRef.value?.focus()
+    updateComposerOverflowState()
+  })
 }
 
 function appendTextToDraft(text: string): void {
@@ -1891,6 +2008,45 @@ function appendTextToDraft(text: string): void {
     draft.value = nextText
   }
   nextTick(() => inputRef.value?.focus())
+}
+
+async function reloadPrompts(): Promise<void> {
+  savedPrompts.value = await getComposerPrompts()
+}
+
+function promptOptionValue(path: string): string {
+  return `${PROMPT_OPTION_PREFIX}${path}`
+}
+
+function promptPathFromOptionValue(value: string): string | null {
+  return value.startsWith(PROMPT_OPTION_PREFIX) ? value.slice(PROMPT_OPTION_PREFIX.length) : null
+}
+
+async function onCreatePrompt(): Promise<void> {
+  const name = window.prompt(t('Prompt name'))?.trim() ?? ''
+  if (!name) return
+  const content = window.prompt(t('Prompt content')) ?? ''
+  if (!content.trim()) return
+  const created = await createComposerPrompt(name, content)
+  if (!created) return
+  await reloadPrompts()
+  appendTextToDraft(created.content)
+}
+
+async function onRemovePrompt(path: string): Promise<void> {
+  const promptPath = promptPathFromOptionValue(path) ?? path
+  const target = savedPrompts.value.find((prompt) => prompt.path === promptPath)
+  const confirmed = window.confirm(target ? `${t('Remove prompt')} "${target.name}"?` : t('Remove prompt'))
+  if (!confirmed) return
+  const removed = await removeComposerPrompt(promptPath)
+  if (!removed) return
+  await reloadPrompts()
+}
+
+function onPromptDropdownToggle(path: string): void {
+  const prompt = savedPrompts.value.find((entry) => entry.path === path)
+  if (!prompt) return
+  appendTextToDraft(prompt.content)
 }
 
 function getMentionFileName(path: string): string {
@@ -1944,11 +2100,31 @@ function onSkillPickerSelect(skill: SkillItem): void {
   inputRef.value?.focus()
 }
 
+function skillSourceBadge(skill: SkillItem): SkillSourceBadge {
+  const path = skill.path.toLowerCase()
+  if (path.includes('/plugins/cache/')) {
+    return { badge: 'P', badgeLabel: 'Plugin', badgeTone: 'plugin' }
+  }
+  if (skill.scope === 'repo') {
+    return { badge: 'R', badgeLabel: 'Repo', badgeTone: 'repo' }
+  }
+  if (skill.scope === 'system') {
+    return { badge: 'S', badgeLabel: 'System', badgeTone: 'system' }
+  }
+  return { badge: 'U', badgeLabel: 'User', badgeTone: 'user' }
+}
+
 function onSlashCommandPickerSelect(command: CodexSlashCommand): void {
   applySlashCommand(command)
 }
 
 function onSkillDropdownToggle(path: string, checked: boolean): void {
+  const promptPath = promptPathFromOptionValue(path)
+  if (promptPath) {
+    onPromptDropdownToggle(promptPath)
+    return
+  }
+
   if (checked) {
     const skill = (props.skills ?? []).find((s) => s.path === path)
     if (skill && !selectedSkills.value.some((s) => s.path === path)) {
@@ -1975,6 +2151,8 @@ onMounted(() => {
   window.addEventListener('blur', onWindowDragCleanup)
   window.addEventListener('resize', scheduleComposerInputResize)
   scheduleComposerInputResize()
+  void reloadPrompts()
+  queueComposerOverflowMeasurement()
 })
 
 defineExpose<ThreadComposerExposed>({
@@ -2029,6 +2207,10 @@ watch([draft, selectedImages, fileAttachments, selectedSkills, folderUploadGroup
   scheduleComposerInputResize()
 }, { deep: true, flush: 'post' })
 
+watch(draft, () => {
+  queueComposerOverflowMeasurement()
+})
+
 watch(
   () => props.cwd,
   () => {
@@ -2055,8 +2237,16 @@ watch(
   @apply w-full max-w-[min(var(--chat-column-max,72rem),100%)] mx-auto;
 }
 
+.thread-composer:has(.thread-composer-input-wrap--expanded) {
+  @apply fixed inset-0 z-50 max-w-none bg-white/95 p-3 sm:p-6;
+}
+
 .thread-composer-shell {
   @apply relative rounded-2xl border border-zinc-300 bg-white p-2 sm:p-3 shadow-sm;
+}
+
+.thread-composer:has(.thread-composer-input-wrap--expanded) .thread-composer-shell {
+  @apply mx-auto flex h-full w-full max-w-[min(var(--chat-column-max,72rem),100%)] flex-col shadow-2xl;
 }
 
 .thread-composer-shell--drag-active {
@@ -2136,7 +2326,7 @@ watch(
 }
 
 .thread-composer-skill-chip-name {
-  @apply font-medium;
+  @apply min-w-0 max-w-[12rem] truncate border-0 bg-transparent p-0 text-left font-medium text-inherit underline-offset-2 transition hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-500;
 }
 
 .thread-composer-skill-chip-remove {
@@ -2184,6 +2374,10 @@ watch(
 
 .thread-composer-input-wrap {
   @apply relative;
+}
+
+.thread-composer-input-wrap--expanded {
+  @apply min-h-0 flex-1;
 }
 
 .thread-composer-input-wrap--drag-active {
@@ -2251,8 +2445,12 @@ watch(
 }
 
 .thread-composer-input {
-  @apply w-full min-w-0 min-h-10 sm:min-h-11 rounded-xl border-0 bg-transparent px-1 py-2 text-sm text-zinc-900 outline-none transition resize-none overflow-y-hidden;
+  @apply w-full min-w-0 min-h-10 sm:min-h-11 rounded-xl border-0 bg-transparent px-1 py-2 pr-10 text-sm text-zinc-900 outline-none transition resize-none overflow-y-hidden;
   max-height: max(7rem, calc(66dvh - 5.5rem));
+}
+
+.thread-composer-input-wrap--expanded .thread-composer-input {
+  @apply h-full max-h-none pr-12 text-base leading-6;
 }
 
 .thread-composer-input:focus {
@@ -2261,6 +2459,14 @@ watch(
 
 .thread-composer-input:disabled {
   @apply bg-zinc-100 text-zinc-500 cursor-not-allowed;
+}
+
+.thread-composer-expand {
+  @apply absolute right-0.5 top-0.5 inline-flex h-8 w-8 items-center justify-center rounded-full border-0 bg-zinc-100 text-zinc-500 shadow-sm transition hover:bg-zinc-200 hover:text-zinc-900 disabled:cursor-not-allowed disabled:text-zinc-400;
+}
+
+.thread-composer-expand-icon {
+  @apply h-[18px] w-[18px];
 }
 
 .thread-composer-controls {

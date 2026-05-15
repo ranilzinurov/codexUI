@@ -14,6 +14,15 @@ Ensure behavior is implemented with Codex.app as the source of truth, then verif
 
 ## Project Instructions
 
+## Repo Knowledge Maintenance
+
+For user-visible Directory, Skills, Apps, Plugins, MCP, or Composio changes in this repo:
+
+- Update `tests.md` with manual verification steps, including light and dark theme checks.
+- If the change creates or changes durable behavior/architecture, add or update an `llm-wiki/raw/...` source and corresponding `llm-wiki/wiki/...` concept page.
+- Keep `whatToTest.md` as a short pending-only checklist; remove items that were actually executed successfully.
+- Prefer assertions plus screenshots for browser validation; screenshots alone are not enough.
+
 ## Codex.app-First Development Policy
 
 For every **new feature** and every **behavior/UI change**, treat the installed desktop app as the source of truth:
@@ -124,7 +133,48 @@ Use task-specific screenshot names under `output/playwright/`, for example:
 
 ### Reliable CDP Launch Pattern
 
-Prefer running a separate Codex.app debug instance so the user's normal Codex session is not interrupted and the CDP target can stay alive after tests.
+Before launching anything new, first check whether a Codex.app CDP endpoint is already available and reusable. Avoid creating additional Codex instances when an existing CDP-enabled instance already exposes a usable `app://-/index.html` page target.
+
+Preferred reuse check:
+
+```bash
+for port in 3434 3435 9222 9223; do
+  if curl -fsS "http://127.0.0.1:$port/json/list" >/tmp/codex-cdp-list.json 2>/dev/null; then
+    python3 - <<'PY'
+import json
+from pathlib import Path
+rows = json.loads(Path('/tmp/codex-cdp-list.json').read_text())
+page = next((row for row in rows if row.get('type') == 'page' and str(row.get('url', '')).startswith('app://-/index.html')), None)
+if page:
+    print(page['webSocketDebuggerUrl'])
+PY
+    if [ -s /tmp/codex-cdp-list.json ]; then
+      echo "Reusing CDP on port $port"
+      break
+    fi
+  fi
+done
+```
+
+If a usable target is found, reuse it and do not launch another Codex instance.
+
+Only if no reusable CDP target exists, prefer running a separate Codex.app debug instance so the user's normal Codex session is not interrupted and the CDP target can stay alive after tests.
+
+In this repo, prefer the maintained helper script first:
+
+```bash
+bash /Users/igor/Git-projects/codex-web-local/scripts/run-codex-unpacked-debug.sh
+```
+
+The script:
+
+- launches Codex.app from the installed `app.asar` under external Electron
+- pins the external runtime to `electron@41.2.0`
+- auto-picks free CDP and Node inspector ports
+- verifies the endpoints after launch
+- prepares the required native Sparkle shim for external-Electron runs
+
+Use `--verify-only` when you only need to confirm whether the current endpoints are still alive.
 
 Use a fresh app instance with its own profile directory:
 
@@ -146,6 +196,7 @@ until curl -fsS "http://127.0.0.1:$CDP_PORT/json/list" >/tmp/codex-cdp-list.json
 done
 ```
 
+If Codex.app is already running without CDP, `open -a "Codex" --args --remote-debugging-port=3434` usually does **not** enable CDP because Electron reuses the existing app instance. Restart Codex.app with the port enabled.
 Fallback only when a separate instance cannot be used: restart all Codex.app processes and launch the binary with `nohup`.
 
 ```bash
@@ -165,6 +216,7 @@ Pick the page target from `/json/list` where `type == "page"` and `url` starts w
 
 Important caveats:
 
+- Reuse any already-running Codex.app CDP endpoint when possible; do not spawn a second or third debug instance just because the default example uses `3434`.
 - `open -na "Codex"` is required for a true separate instance; `open -a "Codex"` reuses an existing app process and often does not enable CDP flags.
 - Always pass an isolated `--user-data-dir` for the debug instance to avoid profile lock contention and cross-session side effects.
 - If launched via raw binary, use `nohup` or a long-lived shell; short one-shot launches can drop the CDP listener when the shell exits.
@@ -172,6 +224,27 @@ Important caveats:
 - In Playwright builds where `browser.disconnect()` is unavailable for CDP sessions, connect, inspect/capture, and exit the test process without `close()`; this preserves the running Codex.app instance.
 - Existing helper processes can keep stale non-CDP state alive; killing all `/Applications/Codex.app` processes is more reliable than only `pkill -x Codex`.
 - CDP inspection can expose local thread titles and workspace names. Avoid pasting sensitive screenshot contents into public artifacts.
+
+## Findings: CDP Instance Reuse (2026-04-26)
+
+- In this workspace, parity work often happens repeatedly in the same session, so a previously launched Codex.app debug instance may already be listening on a local CDP port.
+- Before using `open -na "Codex"` or starting a fresh debug profile, probe common local ports and reuse an existing endpoint when it already serves a valid `app://-/index.html` page target.
+- Creating unnecessary extra Codex.app instances makes parity work noisier and can leave behind multiple stale debug profiles under `/tmp/codex-cdp-*`.
+
+## Findings: External Electron Debug Launcher (2026-05-06)
+
+- In this workspace, the most reliable parity-debug launch path is now:
+  - `bash /Users/igor/Git-projects/codex-web-local/scripts/run-codex-unpacked-debug.sh`
+- The helper intentionally uses external Electron instead of `/Applications/Codex.app/Contents/MacOS/Codex`, because that preserves the generic Electron-style process/icon behavior some parity workflows expect while still launching the installed Codex `app.asar`.
+- Using an unpinned external Electron such as `pnpm dlx electron` can break startup because Codex.app expects Electron-41-era native resources; the current helper pins the runtime to `electron@41.2.0`.
+- External-Electron startup also needs Codex’s bundled Sparkle native addon available at the external Electron resource path. The helper now prepares a shim by linking:
+  - `/Applications/Codex.app/Contents/Resources/native/sparkle.node`
+  - into the matching `pnpm dlx` Electron bundle before launch.
+- Verified-good external debug state from this environment:
+  - browser/CDP endpoint exposed from `--remote-debugging-port`
+  - Node inspector endpoint exposed from `--inspect`
+  - WebSocket connection to the Node inspector target succeeds, not just `json/list`
+- When validating a parity session, do not stop at `curl /json/list`; also confirm a real WebSocket connect to the returned `webSocketDebuggerUrl`.
 
 ### Architecture Notes
 
@@ -650,3 +723,73 @@ After each feature implementation session that uses this skill:
   - exposes a conversation snapshot shape `{ cwd, shell, buffer, truncated }`
   - emits renderer messages including `terminal-data`, `terminal-init-log`, `terminal-attached`, `terminal-exit`, and `terminal-error`
 - Web parity implementation should use `/codex-api/ws` and HTTP endpoints instead of Electron IPC, but preserve the same event names and snapshot shape where practical.
+- Web implementation lessons from screenshot review and edge-case tests:
+  - Keep the terminal panel outside the pending-request/composer `v-if` / `v-else` pair; otherwise the composer can disappear when the terminal is open.
+  - Collapse the mobile sidebar immediately on first render for direct thread routes; otherwise the drawer can cover terminal screenshots.
+  - Normalize PTY locale (`en_US.UTF-8` on macOS) and remove `TERMINFO` / `TERMINFO_DIRS` to avoid visible shell startup warnings.
+  - Restore executable permissions on `node-pty` `spawn-helper` at runtime when pnpm ignores native package build scripts.
+  - Unit-test terminal manager behavior through dependency injection instead of spawning real shells for every edge case.
+  - Edge cases worth preserving in tests: missing thread id rejection, cwd fallback, dimension clamping, 16 KiB buffer truncation, reattach init-log emission, shell-quoted cwd sync, new-session tab creation without killing previous PTYs, and close/exit snapshot cleanup.
+## Findings: Plugins Directory API Surface (2026-04-22)
+
+- Codex.app plugin directory UI lives in extracted renderer chunks named like:
+  - `plugins-page-*.js`
+  - `plugins-cards-grid-*.js`
+  - `plugins-settings-*.js`
+- Desktop copy and tab structure use a full “Skills & Apps” surface with Plugins, Apps, MCPs, and Skills tabs; plugin copy includes “Plugins make Codex work your way.”
+- Live `codex app-server generate-json-schema` exposes slash-style methods for this surface:
+  - `plugin/list`, `plugin/read`, `plugin/install`, `plugin/uninstall`
+  - `app/list`
+  - `mcpServerStatus/list`
+  - `config/mcpServer/reload`
+- Plugin list responses are grouped by marketplace; each plugin summary carries `id`, `name`, `installed`, `enabled`, `installPolicy`, `authPolicy`, `source`, and an optional `interface`.
+- Plugin detail responses include `summary`, `apps`, `skills`, and `mcpServers`. Install responses include `authPolicy` and `appsNeedingAuth`.
+- For web parity, feature-detect these methods through `/codex-api/meta/methods` and degrade gracefully when older Codex CLI versions do not expose them.
+
+## Findings: Plugin MCP Authentication (2026-04-23)
+
+- Codex.app MCP settings renders an `Authenticate` action when an MCP server `authStatus` is `notLoggedIn`.
+- The renderer starts login through app-server method `mcpServer/oauth/login` with `{ name }`; the response is `{ authorizationUrl }`.
+- Codex.app opens the returned URL in the browser via its `open-in-browser` bridge.
+- `mcpServer/oauth/login/completed` notifications carry `{ name, success, error? }`; after success, invalidate/refetch MCP status.
+- For plugin detail parity, bundled `mcpServers` from `plugin/read` should be cross-referenced with `mcpServerStatus/list` and display auth state:
+  - `oAuth` -> logged in
+  - `bearerToken` -> bearer token
+  - `notLoggedIn` -> login required + authenticate action
+  - `unsupported` -> auth unsupported
+
+## Findings: Chat Stream Rendering Performance (2026-04-22)
+
+- Codex.app `26.417.41555` renderer derives chat content into renderable turn entries such as `visibleTurnEntries` before rendering, rather than parsing every message directly in JSX on each stream tick.
+- Stream deltas update only the active item text (`item/agentMessage/delta`, `item/plan/delta`, reasoning deltas), while unchanged turn/item render output is protected by React memo-cache patterns.
+- Code highlighting is lazy-loaded through a Shiki highlight provider, with the provider imported separately from the main renderer bundle.
+- Parity implication for this Vue repo: keep chat rows derived and cacheable, memoize unchanged markdown/text-flow rows during streaming, and invalidate code-highlight HTML only when the highlighter becomes available or the code/language changes.
+
+## Findings: Inline Media Sanitization For Thread Loads (2026-04-23)
+
+- Large local Codex JSONL sessions can be dominated by inline image/base64 strings rather than text chat content.
+- Observed heavy fields include `payload.output[].image_url`, `payload.result`, `payload.content[].image_url`, `payload.images[]`, and `payload.replacement_history[].content[].image_url`.
+- Browser thread loads should never pass those raw strings through directly; bridge responses for `thread/read`, `thread/resume`, `thread/fork`, and `thread/rollback` should sanitize turns before returning JSON to the client.
+- Safe sanitizer behavior:
+  - persist inline image data to local temp files
+  - rewrite UI-facing image fields to `/codex-local-image?path=...`
+  - infer bare base64 image MIME only from byte signatures such as PNG/JPEG/WebP/GIF
+  - leave non-image base64 and non-image data URLs untouched
+- This is a read-path/UI-payload mitigation. Historical `.jsonl` files written by Codex app-server remain unchanged unless a separate compaction tool is introduced.
+
+## Findings: Projectless New Chat Folders (2026-04-28)
+
+- Codex.app creates projectless new-chat folders through the `projectless-thread-cwd` main-process handler before starting the conversation.
+- The created root is `~/Documents/Codex`, with one date subdirectory per local date formatted as `YYYY-MM-DD`.
+- The leaf directory slug comes from the first six lowercase alphanumeric prompt tokens, joined with `-`, capped at 80 characters, and falls back to `new-chat`.
+- Duplicate slugs retry as `slug-2`, `slug-3`, and so on for up to 100 attempts.
+- Both the workspace root and date directory are created recursively and verified as real directories, not symlinks.
+- The app-server start payload for projectless chats uses the created directory as `cwd` and `outputDirectory`, with `workspaceRoot` set to `~/Documents/Codex`.
+
+## Findings: Projectless Chats Sidebar Visibility (2026-04-28)
+
+- Codex.app keeps projectless chats separate from Projects; when there are no projectless chats, the sidebar Chats section renders `No chats` even if many project threads exist.
+- Web parity needs two filters working together:
+  - workspace-root/project filtering must preserve projectless thread groups from `thread/list`, otherwise they disappear after the optimistic row is replaced by server state
+  - the rendered Projects section must still hide those projectless groups, while the Chats section lists them
+- A projectless thread cwd under `~/Documents/Codex/YYYY-MM-DD/<slug>` should remain in the sidebar Chats section after title generation and thread-list refreshes.

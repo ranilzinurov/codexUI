@@ -86,6 +86,7 @@ export type UiThreadAutomation = {
   rrule: string
   status: UiThreadAutomationStatus
   targetThreadId: string | null
+  cwds: string[]
   createdAtMs: number | null
   updatedAtMs: number | null
   nextRunAtMs: number | null
@@ -213,6 +214,7 @@ export type UiMessage = {
   role: 'user' | 'assistant' | 'system'
   text: string
   images?: string[]
+  skills?: Array<{ name: string; path: string }>
   fileAttachments?: UiFileAttachment[]
   fileChanges?: UiFileChange[]
   fileChangeStatus?: UiFileChangeStatus
@@ -325,12 +327,6 @@ export type UiAccountEntry = {
   quotaError: string | null
   unavailableReason: UiAccountUnavailableReason | null
   isActive: boolean
-}
-
-export type ThreadScrollState = {
-  scrollTop: number
-  isAtBottom: boolean
-  scrollRatio?: number
 }
 
 export type ChatMessage = {

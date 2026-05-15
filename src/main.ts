@@ -3,6 +3,7 @@ import App from './App.vue'
 import router from './router'
 import { installBackendRequestRouting } from './backendUrl'
 import './style.css'
+import { installFeedbackDiagnostics } from './composables/useFeedbackDiagnostics'
 
 function reportDiag(tag: string, extra?: unknown) {
   if (typeof window === 'undefined') return
@@ -23,6 +24,7 @@ if (typeof window !== 'undefined') {
 console.log('Welcome to codexui. npm: https://www.npmjs.com/package/@nervmor/codexui [diag-cache-bust-20260422-1945]')
 
 installBackendRequestRouting()
+installFeedbackDiagnostics()
 
 reportDiag('main-entry')
 

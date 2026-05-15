@@ -55,10 +55,41 @@
 
 - Before merging to local `main`, diff-compare all changes on the current branch against `main`.
 
+## PR Review Bot Workflow (MANDATORY)
+
+- Treat Qodo and other review-bot comments as advisory findings, not authoritative fix instructions.
+- When the user asks to update a PR and request review, first push the current branch, update the PR summary/verification notes when they changed, then post a plain PR comment containing exactly `/review`.
+- Do not use a draft review, pending review, or batch review technique to trigger Qodo; Qodo review requests should be ordinary PR comments.
+- After posting `/review`, wait for or re-check bot comments/status when the user asks to wait, continue, or check comments.
+- Before applying a suggested review-bot fix, inspect the relevant code path and decide whether the reported behavior is technically correct.
+- Reproduce the issue with a focused test when feasible; if direct reproduction is impractical, document the exact reasoning and code evidence used to accept or reject the finding.
+- Prefer adding or updating a regression test for every accepted review-bot bug before or alongside the fix.
+- Do not patch purely to satisfy a bot comment if the behavior is correct, stale, already fixed, or the proposed change would make the implementation worse.
+- After fixing an accepted review-bot finding, run the narrow regression test plus the relevant build/typecheck command, push the commit, and re-check the PR comments/status.
+- In the completion report, distinguish confirmed fixes from stale or rejected bot comments.
+
+## Performance Audit Rule (MANDATORY)
+
+- When implementing any feature or behavior change, always audit performance before marking the task complete.
+- Ground the audit in measurements, profiler output, traces, request counts, bundle/build output, or concrete code-path analysis when live measurement is not feasible.
+- For startup, thread loading, realtime rendering, routing, API, filesystem, git, or module-loading changes, explicitly check for duplicate requests, unnecessary blocking work, unbounded fanout, large payloads, and cache invalidation risks.
+- For browser, startup, and thread-loading performance audits, prefer the built-in profiler helpers: `pnpm run profile:browser` and `pnpm run profile:thread`, which use `scripts/profile-browser-runtime.cjs` and write reports under `output/playwright/`.
+- Exact post-task profiling workflow:
+  1. Start or confirm the app server on `http://127.0.0.1:4173` with `pnpm run dev --host 127.0.0.1 --port 4173`; do not stop the persistent `5173` tmux server.
+  2. For general browser/startup changes, run `PROFILE_BASE_URL=http://127.0.0.1:4173 PROFILE_WAIT_MS=7000 pnpm run profile:browser`.
+  3. For thread-loading or conversation-route changes, also run `PROFILE_BASE_URL=http://127.0.0.1:4173 PROFILE_ROUTE='#/thread/<thread-id>' PROFILE_WAIT_MS=7000 pnpm run profile:browser` or `pnpm run profile:thread` when the default thread id is appropriate.
+  4. Open the generated `output/playwright/browser-runtime-profile-*.json` and inspect `duplicateCounts`, `warnings`, `totalApiKB`, `topApiSummary`, and `slowestApiRows`.
+  5. For traces, open the matching `output/playwright/browser-runtime-profile-*-trace.zip` with `npx playwright show-trace` when request timing or rendering behavior needs deeper inspection.
+  6. Compare against the pre-change profile when available; otherwise record the current numbers as the baseline and state that no prior measurement was available.
+  7. If profiling exposes duplicate requests, large payloads, slow API rows, or warnings related to the changed path, fix them or explicitly document why they are acceptable before completion.
+- If live measurement is not feasible, state what was not measured and what should be measured next.
+- Include the performance audit result in the completion report.
+
 ## Tests Documentation Rule (MANDATORY)
 
 - After every feature implementation, update `tests.md` in the repository root.
 - Add a new section describing how to test the feature manually.
+- For any new or changed UI, include both light-theme and dark-theme verification steps/results in that test section.
 - Each test section must include:
   - feature/change name
   - prerequisites/setup
@@ -71,7 +102,11 @@
 ## Completion Verification Requirement (MANDATORY)
 
 - Test changes before reporting completion when feasible.
-- Run Playwright verification only when the user explicitly asks for Playwright/browser automation testing.
+- For any new or changed UI, always verify both light theme and dark theme before reporting completion.
+- Do not treat dark theme as optional polish; dark-theme support is part of the feature being complete.
+- When a user asks to "test it" for UI work and a local dev server is available, prefer actually loading the changed route and checking the rendered result instead of stopping at static analysis.
+- If a dark-theme screenshot shows light-theme surfaces on a dark page, fix the actual CSS/theme wiring first; do not treat "text is visible" as sufficient.
+- Run Browser Use or Playwright verification only when the user explicitly asks for browser automation testing.
 - If a change affects package/runtime/module loading behavior, also run a CJS smoke test before completion.
 - CJS smoke test requirement:
   1. Build the project/artifact first (if needed).
@@ -85,29 +120,46 @@
   - inspect row HTML and count expected rendered nodes (for example `strong.message-bold-text`)
   - save screenshot to `output/playwright/<task-name>.png`
 - Playwright test sequence (when Playwright is requested):
-  1. Start or confirm a single dev server instance (`pnpm run dev -- --host 0.0.0.0 --port 4173`).
+  1. Start or confirm a single dev server instance (`pnpm run dev --host 0.0.0.0 --port 4173`).
   2. If there are stale servers on the same port, stop them first to avoid false test results.
   3. Run Playwright CLI against `http://127.0.0.1:4173` (or required test URL) and exercise the changed flow.
-  4. For responsive/mobile changes, run checks at 375x812 and 768x1024.
-  5. Wait 2-3 seconds before capturing final screenshot(s).
-  6. Save screenshots under `output/playwright/` with task-specific names.
+  4. For visual/UI changes, capture both light-theme and dark-theme results.
+  5. For responsive/mobile changes, run checks at 375x812 and 768x1024.
+  6. Wait 2-3 seconds before capturing final screenshot(s).
+  7. Save screenshots under `output/playwright/` with task-specific names.
 - Capture screenshots only when Playwright verification is requested.
 - If the dev server fails to start due to pre-existing errors, fix them first or work around them before testing.
 - If requested Playwright assertions fail, do not report completion; fix and re-run until passing.
 
-## Browser Automation: Prefer Playwright CLI Over Cursor Browser Tool
+## Browser Automation: Prefer Browser Use, Fallback To Playwright CLI
 
-- For all browser interactions (navigation, clicking, typing, screenshots, snapshots), prefer the Playwright CLI skill in headless mode over the Cursor IDE browser MCP tool.
-- Do not run Playwright for routine task completion unless the user explicitly asks for it.
-- Playwright CLI is faster, more reliable, and works in headless environments without a desktop.
-- Use headless mode by default; only add `--headed` when a live visual check is explicitly needed.
-- Skill location: `~/.codex/skills/playwright/SKILL.md` (wrapper script: `~/.codex/skills/playwright/scripts/playwright_cli.sh`).
+- For browser interactions (navigation, clicking, typing, screenshots, snapshots), prefer the Browser Use plugin first when it is available.
+- Use Browser Use through its in-app browser backend for local UI testing, screenshots, and visible-route checks so evidence matches what the user can see in Codex.
+- Fall back to the previous Playwright CLI approach when Browser Use is unavailable, blocked, cannot reach the target, or when the user explicitly asks for Playwright CLI/headless evidence.
+- Do not run Browser Use or Playwright for routine task completion unless the user explicitly asks for browser automation testing.
+- In the Playwright CLI fallback path, use headless mode by default; only add `--headed` when a live visual check is explicitly needed.
+- Playwright fallback skill location: `~/.codex/skills/playwright/SKILL.md` (wrapper script: `~/.codex/skills/playwright/scripts/playwright_cli.sh`).
 - Minimum reporting format in completion messages:
   - tested URL
   - viewport(s)
   - assertion/result summary
   - screenshot absolute path(s)
+  - inline screenshot image(s) rendered in chat with Markdown image syntax using absolute local paths
   - CJS command/result (when module-loading behavior was changed)
+
+## Worktree Dev Server Rule
+
+- When working in a git worktree, prefer reusing an existing compatible `node_modules` tree when it is already available instead of triggering a fresh install by default.
+- If `node_modules` is symlinked to a shared dependency directory, avoid workflows that prompt to remove and recreate that shared directory just to run `npm run dev` or `pnpm run dev`.
+- For this repo's `pnpm run dev` wrapper, pass Vite flags directly, for example `pnpm run dev --host 127.0.0.1 --port 5173`; do not insert an extra `--` before `--host`.
+- For dev-server fixes, verify the exact user-requested command afterwards (for example `npm run dev`), not only a fallback Vite invocation.
+- Never kill or stop the tmux-managed dev server bound to port `5173`.
+- Treat the `5173` tmux dev process as persistent infrastructure; restart it only when the user explicitly requests a restart.
+
+## Dark Theme CSS Rule
+
+- For shared route surfaces and large feature UIs, prefer putting the decisive dark-theme overrides in the global theme stylesheet (`src/style.css`) instead of relying only on component-scoped `:global(:root.dark)` blocks.
+- Scoped dark overrides are fine for truly local elements, but if a full route still looks like light theme in dark mode, add or strengthen the global selectors for that surface.
 
 ## NPX Testing Rule
 
@@ -121,7 +173,7 @@
 - Use this flow when validating UI behavior on Oracle A1 from the local Mac machine.
 - On A1, start the app server with Codex CLI available in `PATH`:
   - `export PATH="$HOME/.npm-global/bin:$PATH"`
-  - `pnpm run dev -- --host 0.0.0.0 --port 4173`
+  - `pnpm run dev --host 0.0.0.0 --port 4173`
 - From Mac, run Playwright against Tailscale URL (`http://100.127.77.25:4173`), not localhost.
 - Verify success with both checks:
   - UI assertion in Playwright (new project/folder appears in sidebar or selector).
@@ -132,6 +184,8 @@
 
 - When the user asks to test with Playwright, run the verification on the explicitly requested project/thread context (for example `TestChat`).
 - Screenshot artifacts must show complete passing evidence for the tested feature, not only the base page load.
+- Always show captured screenshots inline in the chat, not only as links or filesystem paths. Use Markdown image tags with absolute local paths, for example `![light verification](/absolute/path/output/playwright/example.png)`.
+- For UI work, include dark-theme evidence in addition to the default/light-theme evidence unless the task is explicitly light-only.
 - For refresh-persistence fixes, include a post-refresh screenshot that still shows the expected UI state.
 
 ## Mandatory CJS + TestChat Validation For Markdown/File-Link Features
@@ -159,6 +213,7 @@
   - exact CJS command/script path
   - assertion summary (`hrefOk`, `titleOk`, `textOk`)
   - screenshot absolute path
+  - inline screenshot image rendered in chat with Markdown image syntax using the absolute screenshot path
 
 ## LLM Wiki Schema
 
