@@ -49,6 +49,10 @@ async function runTranscribe(baseUrl, language) {
     method: 'POST',
     body: form,
   })
+  return parseTranscribeResponse(response)
+}
+
+async function parseTranscribeResponse(response) {
   const text = await response.text()
   let parsed = null
   try {
@@ -60,6 +64,21 @@ async function runTranscribe(baseUrl, language) {
     throw new Error(`Transcribe request failed: HTTP ${String(response.status)} ${response.statusText}\n${text}`)
   }
   return parsed
+}
+
+async function expectTranscribeFailure(baseUrl, expectedStatus) {
+  const audioBuffer = await readFile(wavPath)
+  const form = new FormData()
+  form.append('file', new Blob([audioBuffer], { type: 'audio/wav' }), 'hello.wav')
+
+  const response = await fetch(`${baseUrl}/codex-api/transcribe`, {
+    method: 'POST',
+    body: form,
+  })
+  if (response.status !== expectedStatus) {
+    const text = await response.text()
+    throw new Error(`Expected transcribe HTTP ${String(expectedStatus)}, got ${String(response.status)}\n${text}`)
+  }
 }
 
 async function withCodexUiServer(port, env, callback) {
@@ -127,6 +146,22 @@ async function run() {
   await listen(upstream, upstreamPort)
 
   try {
+    requests.length = 0
+    await withCodexUiServer(6217, {
+      OPENAI_API_KEY: 'default-key',
+      OPENAI_BASE_URL: `http://127.0.0.1:${String(upstreamPort)}/openai`,
+      CODEXUI_TRANSCRIBE_PROVIDER: 'standard',
+      CODEXUI_TRANSCRIBE_API_KEY: 'override-key',
+      CODEXUI_TRANSCRIBE_BASE_URL: `http://127.0.0.1:${String(upstreamPort)}/override`,
+      GROQ_API_KEY: 'groq-key',
+    }, async (baseUrl) => {
+      await expectTranscribeFailure(baseUrl, 401)
+    })
+
+    if (requests.length !== 0) {
+      throw new Error(`Expected standard provider to bypass API key transcription, got ${String(requests.length)} upstream request(s)`)
+    }
+
     requests.length = 0
     await withCodexUiServer(6213, {
       OPENAI_API_KEY: 'default-key',

@@ -5233,11 +5233,12 @@ function isGroqTranscriptionBaseUrl(baseUrl: string): boolean {
   return normalizeBaseUrl(baseUrl).toLowerCase() === GROQ_TRANSCRIPTION_BASE_URL
 }
 
-type TranscriptionProvider = 'auto' | 'openai' | 'groq'
+type TranscriptionProvider = 'auto' | 'openai' | 'groq' | 'standard'
 
 function resolveTranscriptionProvider(): TranscriptionProvider {
   const provider = process.env.CODEXUI_TRANSCRIBE_PROVIDER?.trim().toLowerCase()
   if (provider === 'openai' || provider === 'groq') return provider
+  if (provider === 'standard' || provider === 'chatgpt') return 'standard'
   return 'auto'
 }
 
@@ -5266,6 +5267,8 @@ async function proxyTranscribeViaApiKey(
   const groqApiKey = process.env.GROQ_API_KEY?.trim()
   const openAiApiKey = process.env.OPENAI_API_KEY?.trim()
   const provider = resolveTranscriptionProvider()
+  if (provider === 'standard') return null
+
   const useGroqProvider = provider === 'groq' || (provider === 'auto' && Boolean(groqApiKey) && !transcriptionApiKey)
   const apiKey = transcriptionApiKey || (useGroqProvider ? groqApiKey : openAiApiKey)
   if (!apiKey) return null
@@ -7305,7 +7308,11 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
       if (req.method === 'POST' && url.pathname === '/codex-api/transcribe') {
         const rawBody = await readRawBody(req)
         const incomingCt = req.headers['content-type'] ?? 'application/octet-stream'
-        if (process.env.CODEXUI_TRANSCRIBE_API_KEY?.trim() || process.env.GROQ_API_KEY?.trim()) {
+        const transcriptionProvider = resolveTranscriptionProvider()
+        if (
+          transcriptionProvider !== 'standard' &&
+          (process.env.CODEXUI_TRANSCRIBE_API_KEY?.trim() || process.env.GROQ_API_KEY?.trim())
+        ) {
           const dedicated = await proxyTranscribeViaApiKey(rawBody, incomingCt)
           if (dedicated) {
             res.statusCode = dedicated.status
