@@ -336,6 +336,36 @@ Rollback/cleanup:
 
 ---
 
+### Compact sidebar Skills and Automations links
+
+#### Feature/Change Name
+Compact sidebar entries for Skills and Automations.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev --host 127.0.0.1 --port 4173`).
+2. Sidebar is expanded.
+3. Light theme and dark theme are available from the appearance switcher.
+
+#### Steps
+1. In light theme, open the main app route with the sidebar visible.
+2. Confirm the Skills row shows a small bolt icon and the `Skills` label only.
+3. Confirm the Automations row shows a small bolt icon and the `Automations` label only.
+4. Confirm neither row shows secondary description text such as `Plugins, apps, MCPs` or `Scheduled work`.
+5. Confirm the rows align visually with nearby compact sidebar rows such as Projects and thread entries.
+6. Click Skills, then Automations, and confirm the active state remains compact.
+7. Switch to dark theme and repeat steps 2-6.
+
+#### Expected Results
+- Skills and Automations render as compact one-line sidebar rows.
+- Icons are the same small visual scale as the surrounding sidebar icons.
+- Removed subtitle text does not leave extra vertical spacing.
+- Hover and active states remain readable in light theme and dark theme.
+
+#### Rollback/Cleanup
+- None.
+
+---
+
 ### Codex thread deep links render as local web thread URLs
 
 #### Feature/Change Name

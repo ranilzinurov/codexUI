@@ -56,7 +56,6 @@
             </span>
             <span class="sidebar-skills-link-copy">
               <span class="sidebar-skills-link-title">{{ t('Skills') }}</span>
-              <span class="sidebar-skills-link-subtitle">{{ t('Plugins, apps, MCPs') }}</span>
             </span>
           </button>
 
@@ -72,7 +71,6 @@
             </span>
             <span class="sidebar-skills-link-copy">
               <span class="sidebar-skills-link-title">{{ t('Automations') }}</span>
-              <span class="sidebar-skills-link-subtitle">{{ t('Scheduled work') }}</span>
             </span>
           </button>
 
@@ -5001,7 +4999,7 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 }
 
 .sidebar-skills-link {
-  @apply mx-2 flex items-center gap-3 rounded-2xl border border-transparent bg-transparent px-3 py-2.5 text-left text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-950 cursor-pointer;
+  @apply mx-2 flex min-h-7 items-center gap-2 rounded-md border border-transparent bg-transparent px-2 py-1 text-left text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-950 cursor-pointer;
 }
 
 .sidebar-skills-link.is-active {
@@ -5009,27 +5007,23 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 }
 
 .sidebar-skills-link-icon {
-  @apply flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-emerald-600 text-white;
+  @apply flex h-4 w-4 shrink-0 items-center justify-center text-zinc-500;
 }
 
 .sidebar-automations-link-icon {
-  @apply bg-amber-500;
+  @apply text-zinc-500;
 }
 
 .sidebar-skills-link-icon :deep(svg) {
-  @apply h-5 w-5;
+  @apply h-4 w-4;
 }
 
 .sidebar-skills-link-copy {
-  @apply flex min-w-0 flex-col;
+  @apply flex min-w-0 items-center;
 }
 
 .sidebar-skills-link-title {
-  @apply truncate text-sm font-semibold leading-5 tracking-[-0.01em];
-}
-
-.sidebar-skills-link-subtitle {
-  @apply truncate text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500;
+  @apply truncate text-sm font-normal leading-5;
 }
 
 .sidebar-thread-controls-header-host {
@@ -5050,10 +5044,6 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 
 :global(:root.dark) .sidebar-skills-link-title {
   @apply text-zinc-50;
-}
-
-:global(:root.dark) .sidebar-skills-link-subtitle {
-  @apply text-zinc-400;
 }
 
 .content-body {

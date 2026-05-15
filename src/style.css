@@ -185,11 +185,15 @@ html::after {
 }
 
 :root.dark .sidebar-skills-link {
-  @apply border-emerald-900/70 bg-[linear-gradient(135deg,_rgba(6,78,59,0.42),_rgba(24,24,27,0.96))] text-zinc-100 hover:border-emerald-700 hover:bg-emerald-950;
+  @apply text-zinc-300 hover:border-zinc-700 hover:bg-zinc-800 hover:text-zinc-50;
 }
 
 :root.dark .sidebar-skills-link.is-active {
-  @apply border-emerald-700 bg-emerald-950/80 text-zinc-50;
+  @apply border-transparent bg-zinc-800 text-zinc-50;
+}
+
+:root.dark .sidebar-skills-link-icon {
+  @apply text-zinc-400;
 }
 
 :root.dark .sidebar-search-toggle {
