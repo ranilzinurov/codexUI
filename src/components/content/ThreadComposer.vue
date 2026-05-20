@@ -2634,7 +2634,7 @@ watch(
   grid-template-columns: 0.5rem minmax(3.5rem, 0.55fr) minmax(0, 1.45fr);
   column-gap: 0.4375rem;
   row-gap: 0.1875rem;
-  align-items: baseline;
+  align-items: start;
 }
 
 .thread-composer-agent-dot {
@@ -2668,10 +2668,17 @@ watch(
 
 .thread-composer-agent-name {
   @apply min-w-0 truncate font-semibold text-zinc-700;
+  line-height: 1.25;
 }
 
 .thread-composer-agent-task {
-  @apply min-w-0 truncate text-zinc-500;
+  @apply min-w-0 text-zinc-500;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.25;
+  white-space: normal;
 }
 
 .thread-composer-agent-task::before {

@@ -23,6 +23,7 @@ const gatewayMocks = vi.hoisted(() => ({
   getThreadDetail: vi.fn(),
   getThreadGroupsPage: vi.fn(),
   getThreadQueueState: vi.fn(),
+  getThreadSummary: vi.fn(),
   getThreadTitleCache: vi.fn(),
   getWorkspaceRootsState: vi.fn(),
   generateThreadTitle: vi.fn(),
@@ -82,6 +83,7 @@ function installTestWindow(initialStorage: Record<string, string> = {}) {
 beforeEach(() => {
   vi.clearAllMocks()
   gatewayMocks.getThreadQueueState.mockResolvedValue({})
+  gatewayMocks.getThreadSummary.mockRejectedValue(new Error('thread summary unavailable'))
   gatewayMocks.getThreadTitleCache.mockResolvedValue({ titles: {} })
   gatewayMocks.getWorkspaceRootsState.mockRejectedValue(new Error('no workspace roots state'))
 })
@@ -418,6 +420,95 @@ describe('collaboration mode selection', () => {
     state.primeSelectedThread('thread-a')
 
     expect(state.selectedCollaborationMode.value).toBe('plan')
+  })
+})
+
+describe('sub-agent live status', () => {
+  it('uses sub-agent nicknames and streams reasoning summaries into the parent status row', async () => {
+    installTestWindow({ 'codex-web-local.selected-thread-id.v1': 'parent-thread' })
+    let notify: (notification: { method: string; params: unknown; atIso: string }) => void = () => {
+      throw new Error('notification listener was not registered')
+    }
+    gatewayMocks.subscribeCodexNotifications.mockImplementation((
+      listener: (notification: { method: string; params: unknown; atIso: string }) => void,
+    ) => {
+      notify = listener
+      return () => {}
+    })
+    gatewayMocks.getThreadSummary.mockResolvedValue(thread('agent-thread', '/tmp/project', {
+      hasWorktree: false,
+    }))
+
+    const state = useDesktopState()
+    state.startPolling()
+
+    notify({
+      method: 'thread/started',
+      params: {
+        thread: {
+          id: 'agent-thread',
+          agentNickname: 'Hilbert',
+          source: {
+            subAgent: {
+              thread_spawn: {
+                parent_thread_id: 'parent-thread',
+                depth: 1,
+                agent_nickname: 'Hilbert',
+              },
+            },
+          },
+        },
+      },
+      atIso: '2026-05-20T00:00:00.000Z',
+    })
+    notify({
+      method: 'turn/started',
+      params: { threadId: 'parent-thread', turnId: 'parent-turn' },
+      atIso: '2026-05-20T00:00:01.000Z',
+    })
+    notify({
+      method: 'item/completed',
+      params: {
+        threadId: 'parent-thread',
+        turnId: 'parent-turn',
+        item: {
+          type: 'collabAgentToolCall',
+          id: 'collab-1',
+          tool: 'wait',
+          status: 'inProgress',
+          senderThreadId: 'parent-thread',
+          receiverThreadIds: ['agent-thread'],
+          prompt: null,
+          agentsStates: {
+            'agent-thread': { status: 'running', message: null },
+          },
+        },
+      },
+      atIso: '2026-05-20T00:00:02.000Z',
+    })
+
+    expect(state.selectedLiveOverlay.value?.collabAgents[0]).toMatchObject({
+      name: 'Hilbert',
+      task: 'waiting for delegated result',
+    })
+
+    notify({
+      method: 'item/reasoning/summaryTextDelta',
+      params: {
+        threadId: 'agent-thread',
+        turnId: 'agent-turn',
+        itemId: 'reasoning-1',
+        summaryIndex: 0,
+        delta: 'Reviewing the agent status UI and checking how summaries should fit.',
+      },
+      atIso: '2026-05-20T00:00:03.000Z',
+    })
+
+    expect(state.selectedLiveOverlay.value?.collabAgents[0]).toMatchObject({
+      name: 'Hilbert',
+      task: 'Reviewing the agent status UI and checking how summaries should fit.',
+      status: 'running',
+    })
   })
 })
 

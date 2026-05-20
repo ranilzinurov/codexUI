@@ -12,6 +12,7 @@ import {
   getPendingServerRequests,
   getSkillsList,
   getThreadDetail,
+  getThreadSummary,
   getOlderThreadMessages,
   getBackgroundThreadListLimit,
   interruptThreadTurn,
@@ -39,7 +40,13 @@ import {
   type ThreadQueueState,
   type WorkspaceRootsState,
 } from '../api/codexGateway'
-import { normalizeCollabAgentsFromItems, normalizeFileChangeStatus, toUiFileChanges } from '../api/normalizers/v2'
+import {
+  normalizeCollabAgentsFromItems,
+  normalizeFileChangeStatus,
+  readThreadAgentDisplayName,
+  readThreadSubagentParentId,
+  toUiFileChanges,
+} from '../api/normalizers/v2'
 import { safeLocalStorageGetItem, safeLocalStorageRemoveItem, safeLocalStorageSetItem } from '../browserCompat'
 import type {
   CollaborationModeKind,
@@ -1098,6 +1105,7 @@ function areThreadFieldsEqual(first: UiThread, second: UiThread): boolean {
     first.title === second.title &&
     first.projectName === second.projectName &&
     first.cwd === second.cwd &&
+    first.agentDisplayName === second.agentDisplayName &&
     first.createdAtIso === second.createdAtIso &&
     first.updatedAtIso === second.updatedAtIso &&
     first.preview === second.preview &&
@@ -1578,6 +1586,9 @@ export function useDesktopState() {
   const liveCommandsByThreadId = ref<Record<string, UiMessage[]>>({})
   const liveFileChangeMessagesByThreadId = ref<Record<string, UiMessage[]>>({})
   const liveCollabAgentsByThreadId = ref<Record<string, UiCollabAgentStatus[]>>({})
+  const collabAgentDisplayNameByThreadId = ref<Record<string, string>>({})
+  const collabAgentParentThreadIdByThreadId = ref<Record<string, string>>({})
+  const collabAgentReasoningSummaryByThreadId = ref<Record<string, string>>({})
   const inProgressById = ref<Record<string, boolean>>({})
   type FileAttachment = { label: string; path: string; fsPath: string }
   type QueuedMessage = {
@@ -2745,6 +2756,121 @@ export function useDesktopState() {
     liveCollabAgentsByThreadId.value = omitKey(liveCollabAgentsByThreadId.value, threadId)
   }
 
+  const pendingCollabAgentNameLookupIds = new Set<string>()
+
+  function setCollabAgentDisplayName(agentThreadId: string, displayName: string): void {
+    const normalizedAgentThreadId = agentThreadId.trim()
+    const normalizedDisplayName = sanitizeDisplayText(displayName)
+    if (!normalizedAgentThreadId || !normalizedDisplayName) return
+    if (collabAgentDisplayNameByThreadId.value[normalizedAgentThreadId] === normalizedDisplayName) return
+
+    collabAgentDisplayNameByThreadId.value = {
+      ...collabAgentDisplayNameByThreadId.value,
+      [normalizedAgentThreadId]: normalizedDisplayName,
+    }
+
+    let changed = false
+    const nextByThread: Record<string, UiCollabAgentStatus[]> = {}
+    for (const [threadId, agents] of Object.entries(liveCollabAgentsByThreadId.value)) {
+      nextByThread[threadId] = agents.map((agent) => {
+        if (agent.id !== normalizedAgentThreadId || agent.name === normalizedDisplayName) return agent
+        changed = true
+        return { ...agent, name: normalizedDisplayName }
+      })
+    }
+    if (changed) {
+      liveCollabAgentsByThreadId.value = nextByThread
+    }
+  }
+
+  function rememberCollabAgentMetadata(thread: unknown): void {
+    const record = asRecord(thread)
+    const threadId = readString(record?.id)
+    if (!threadId) return
+
+    const displayName = readThreadAgentDisplayName(thread)
+    if (displayName) {
+      setCollabAgentDisplayName(threadId, displayName)
+    }
+
+    const parentThreadId = readThreadSubagentParentId(thread)
+    if (parentThreadId && collabAgentParentThreadIdByThreadId.value[threadId] !== parentThreadId) {
+      collabAgentParentThreadIdByThreadId.value = {
+        ...collabAgentParentThreadIdByThreadId.value,
+        [threadId]: parentThreadId,
+      }
+    }
+  }
+
+  function rememberCollabAgentMetadataFromGroups(groups: UiProjectGroup[]): void {
+    for (const thread of flattenThreads(groups)) {
+      if (thread.agentDisplayName) {
+        setCollabAgentDisplayName(thread.id, thread.agentDisplayName)
+      }
+    }
+  }
+
+  function rememberCollabAgentParents(parentThreadId: string, item: Record<string, unknown>): void {
+    const senderThreadId = readString(item.senderThreadId) || parentThreadId
+    const receiverThreadIds = Array.isArray(item.receiverThreadIds)
+      ? item.receiverThreadIds.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      : []
+    if (!senderThreadId || receiverThreadIds.length === 0) return
+
+    let changed = false
+    const next = { ...collabAgentParentThreadIdByThreadId.value }
+    for (const receiverThreadId of receiverThreadIds) {
+      if (next[receiverThreadId] === senderThreadId) continue
+      next[receiverThreadId] = senderThreadId
+      changed = true
+    }
+    if (changed) {
+      collabAgentParentThreadIdByThreadId.value = next
+    }
+  }
+
+  function updateLiveCollabAgent(
+    agentThreadId: string,
+    update: { task?: string; status?: UiCollabAgentStatus['status'] },
+  ): void {
+    const parentThreadId = collabAgentParentThreadIdByThreadId.value[agentThreadId]
+    if (!parentThreadId) return
+    const currentAgents = liveCollabAgentsByThreadId.value[parentThreadId] ?? []
+    if (currentAgents.length === 0) return
+
+    const displayName = collabAgentDisplayNameByThreadId.value[agentThreadId] ?? ''
+    const nextTask = update.task !== undefined ? sanitizeDisplayText(update.task) : undefined
+    const nextAgents = currentAgents.map((agent) => {
+      if (agent.id !== agentThreadId) return agent
+      return {
+        ...agent,
+        ...(displayName ? { name: displayName } : {}),
+        ...(nextTask ? { task: nextTask } : {}),
+        ...(update.status ? { status: update.status } : {}),
+      }
+    })
+    setLiveCollabAgentsForThread(parentThreadId, nextAgents)
+  }
+
+  function scheduleCollabAgentNameLookup(agentThreadId: string): void {
+    const normalizedAgentThreadId = agentThreadId.trim()
+    if (!normalizedAgentThreadId || collabAgentDisplayNameByThreadId.value[normalizedAgentThreadId]) return
+    if (pendingCollabAgentNameLookupIds.has(normalizedAgentThreadId)) return
+    pendingCollabAgentNameLookupIds.add(normalizedAgentThreadId)
+    void getThreadSummary(normalizedAgentThreadId)
+      .then((thread) => {
+        if (thread.agentDisplayName) {
+          setCollabAgentDisplayName(normalizedAgentThreadId, thread.agentDisplayName)
+        }
+      })
+      .catch(() => {
+        // Some sub-agent threads may already be closed or omitted from the list.
+      })
+      .finally(() => {
+        pendingCollabAgentNameLookupIds.delete(normalizedAgentThreadId)
+      })
+  }
+
   function setLiveReasoningText(threadId: string, text: string): void {
     if (!threadId) return
     const normalized = text.trim()
@@ -3840,9 +3966,87 @@ export function useDesktopState() {
     const params = asRecord(notification.params)
     const item = asRecord(params?.item)
     if (!item || item.type !== 'collabAgentToolCall') return null
+    rememberCollabAgentParents(threadId, item)
     return {
       threadId,
-      agents: normalizeCollabAgentsFromItems([item]),
+      agents: normalizeCollabAgentsFromItems([item], {
+        agentDisplayNames: collabAgentDisplayNameByThreadId.value,
+      }),
+    }
+  }
+
+  function appendCollabAgentReasoningSummary(agentThreadId: string, delta: string): string {
+    const previous = collabAgentReasoningSummaryByThreadId.value[agentThreadId] ?? ''
+    const nextSummary = sanitizeDisplayText(`${previous}${delta}`).slice(0, 320)
+    if (nextSummary === previous) return previous
+    collabAgentReasoningSummaryByThreadId.value = {
+      ...collabAgentReasoningSummaryByThreadId.value,
+      [agentThreadId]: nextSummary,
+    }
+    return nextSummary
+  }
+
+  function applyCollabAgentRealtimeUpdate(notification: RpcNotification): void {
+    const params = asRecord(notification.params)
+    if (!params) return
+
+    const thread = asRecord(params.thread)
+    if (thread) {
+      rememberCollabAgentMetadata(thread)
+    }
+
+    const agentThreadId = extractThreadIdFromNotification(notification)
+    if (!agentThreadId || !collabAgentParentThreadIdByThreadId.value[agentThreadId]) return
+
+    if (notification.method === 'turn/started') {
+      updateLiveCollabAgent(agentThreadId, { task: 'Thinking', status: 'running' })
+      return
+    }
+
+    if (notification.method === 'item/started') {
+      const item = asRecord(params.item)
+      const itemType = readString(item?.type).toLowerCase()
+      if (itemType === 'reasoning') {
+        updateLiveCollabAgent(agentThreadId, { task: 'Thinking', status: 'running' })
+        return
+      }
+      if (itemType === 'agentmessage') {
+        updateLiveCollabAgent(agentThreadId, { task: 'Writing response', status: 'running' })
+        return
+      }
+      if (itemType === 'commandexecution') {
+        updateLiveCollabAgent(agentThreadId, { task: 'Running command', status: 'running' })
+        return
+      }
+      if (itemType === 'filechange') {
+        updateLiveCollabAgent(agentThreadId, { task: 'Applying changes', status: 'running' })
+      }
+      return
+    }
+
+    if (notification.method === 'item/reasoning/summaryTextDelta') {
+      const delta = readString(params.delta)
+      if (!delta) return
+      updateLiveCollabAgent(agentThreadId, {
+        task: appendCollabAgentReasoningSummary(agentThreadId, delta),
+        status: 'running',
+      })
+      return
+    }
+
+    if (notification.method === 'item/agentMessage/delta') {
+      if (!collabAgentReasoningSummaryByThreadId.value[agentThreadId]) {
+        updateLiveCollabAgent(agentThreadId, { task: 'Writing response', status: 'running' })
+      }
+      return
+    }
+
+    if (notification.method === 'turn/completed') {
+      const errorMessage = readTurnErrorMessage(notification)
+      updateLiveCollabAgent(agentThreadId, {
+        task: errorMessage ? errorMessage : (collabAgentReasoningSummaryByThreadId.value[agentThreadId] || 'Completed'),
+        status: errorMessage ? 'failed' : 'completed',
+      })
     }
   }
 
@@ -4080,10 +4284,14 @@ export function useDesktopState() {
       const previousAgents = liveCollabAgentsByThreadId.value[collabAgentsUpdate.threadId] ?? []
       const mergedAgentsById = new Map(previousAgents.map((agent) => [agent.id, agent]))
       for (const agent of collabAgentsUpdate.agents) {
-        mergedAgentsById.set(agent.id, agent)
+        const summaryTask = collabAgentReasoningSummaryByThreadId.value[agent.id]
+        mergedAgentsById.set(agent.id, summaryTask ? { ...agent, task: summaryTask } : agent)
+        scheduleCollabAgentNameLookup(agent.id)
       }
       setLiveCollabAgentsForThread(collabAgentsUpdate.threadId, Array.from(mergedAgentsById.values()))
     }
+
+    applyCollabAgentRealtimeUpdate(notification)
 
     if (!notificationThreadId || notificationThreadId !== selectedThreadId.value) return
 
@@ -4352,6 +4560,7 @@ export function useDesktopState() {
       filterGroupsByWorkspaceRoots(groups, rootsState),
       locallyArchivedThreadIds,
     )
+    rememberCollabAgentMetadataFromGroups(visibleGroups)
     const hasWorkspaceRootsState = Boolean(
       rootsState && (rootsState.order.length > 0 || rootsState.projectOrder.length > 0 || (rootsState.remoteProjects ?? []).length > 0),
     )
@@ -4629,7 +4838,26 @@ export function useDesktopState() {
         const nextLiveAgent = removeRedundantLiveAgentMessages(previousLiveAgent, nextMessages)
         setLiveAgentMessagesForThread(threadId, nextLiveAgent)
         if (collabAgents.length > 0) {
-          setLiveCollabAgentsForThread(threadId, collabAgents)
+          let parentMapChanged = false
+          const nextParentMap = { ...collabAgentParentThreadIdByThreadId.value }
+          const nextCollabAgents = collabAgents.map((agent) => {
+            scheduleCollabAgentNameLookup(agent.id)
+            if (nextParentMap[agent.id] !== threadId) {
+              nextParentMap[agent.id] = threadId
+              parentMapChanged = true
+            }
+            const displayName = collabAgentDisplayNameByThreadId.value[agent.id]
+            const summaryTask = collabAgentReasoningSummaryByThreadId.value[agent.id]
+            return {
+              ...agent,
+              ...(displayName ? { name: displayName } : {}),
+              ...(summaryTask ? { task: summaryTask } : {}),
+            }
+          })
+          if (parentMapChanged) {
+            collabAgentParentThreadIdByThreadId.value = nextParentMap
+          }
+          setLiveCollabAgentsForThread(threadId, nextCollabAgents)
         }
       } else {
         clearLiveAgentMessagesForThread(threadId)
@@ -5764,6 +5992,10 @@ export function useDesktopState() {
     liveCommandsByThreadId.value = {}
     liveFileChangeMessagesByThreadId.value = {}
     liveCollabAgentsByThreadId.value = {}
+    collabAgentDisplayNameByThreadId.value = {}
+    collabAgentParentThreadIdByThreadId.value = {}
+    collabAgentReasoningSummaryByThreadId.value = {}
+    pendingCollabAgentNameLookupIds.clear()
     turnIndexByTurnIdByThreadId.value = {}
     turnActivityByThreadId.value = {}
     turnSummaryByThreadId.value = {}

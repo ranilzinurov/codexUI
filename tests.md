@@ -5404,6 +5404,35 @@ OpenCode Zen free-mode status and model discovery consistency.
 
 ---
 
+### Sub-agent live names and reasoning summaries
+
+#### Feature/Change Name
+Sub-agent status rows use unique names, spawned-agent nicknames, and reasoning summaries.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev --host 127.0.0.1 --port 4173`).
+2. A Codex turn can spawn at least two delegated agents.
+3. Light theme and dark theme are both available from the appearance switcher.
+
+#### Steps
+1. In light theme, start a turn that delegates work to two sub-agents.
+2. Confirm the composer status rows show unique agent labels while the agents are active.
+3. If the spawned threads include nicknames such as `Hilbert` or `Goodall`, confirm those names replace technical `agent <id>` labels.
+4. Wait for delegated agents to emit reasoning summaries and confirm the status text updates from `waiting for delegated result` to the latest summary.
+5. Confirm long summary text stays in the existing small status style and is visually clamped to at most two lines.
+6. Switch to dark theme and repeat steps 1-5.
+
+#### Expected Results
+- Multiple agents with shared thread-id prefixes do not render with duplicate fallback names.
+- Agent nicknames from app-server thread metadata appear when available.
+- Reasoning summary text updates dynamically without exposing raw chain-of-thought text.
+- The composer remains aligned and readable in both light theme and dark theme.
+
+#### Rollback/Cleanup
+- Close or archive any disposable delegated-agent test threads if they were created only for verification.
+
+---
+
 ### Thread conversation loads earlier turns on demand
 
 #### Feature/Change Name

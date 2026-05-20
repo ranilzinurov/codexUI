@@ -66,6 +66,7 @@ export type UiThread = {
   projectName: string
   cwd: string
   hasWorktree: boolean
+  agentDisplayName?: string | null
   createdAtIso: string
   updatedAtIso: string
   preview: string

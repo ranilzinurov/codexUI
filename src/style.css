@@ -312,6 +312,20 @@ html::after {
   @apply bg-zinc-200 text-zinc-900 hover:bg-white;
 }
 
+:root.dark .thread-composer-agent-activity,
+:root.dark .thread-composer-agent-task {
+  @apply text-zinc-400;
+}
+
+:root.dark .thread-composer-agent-name {
+  @apply text-zinc-200;
+}
+
+:root.dark .thread-composer-agent-task::before,
+:root.dark .thread-composer-agent-task::after {
+  color: rgb(113 113 122);
+}
+
 :root.dark .composer-runtime-error {
   @apply border-rose-800/70 bg-rose-950/70 text-rose-100 shadow-none;
 }

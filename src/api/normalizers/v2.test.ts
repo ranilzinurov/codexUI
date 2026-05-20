@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeThreadMessagesV2 } from './v2'
+import {
+  normalizeCollabAgentsFromItems,
+  normalizeThreadMessagesV2,
+  normalizeThreadSummaryV2,
+} from './v2'
 import type { ThreadReadResponse } from '../appServerDtos'
 
 function threadReadResponseWithContent(content: ThreadReadResponse['thread']['turns'][number]['items'][number][]): ThreadReadResponse {
@@ -104,5 +108,81 @@ Reply with &lt;/instructions&gt; and A &amp; B
       turnId: 'turn-1',
       turnIndex: 12,
     })
+  })
+})
+
+describe('normalizeCollabAgentsFromItems', () => {
+  it('keeps fallback agent names unique when thread ids share a prefix', () => {
+    const agents = normalizeCollabAgentsFromItems([{
+      type: 'collabAgentToolCall',
+      id: 'collab-1',
+      tool: 'wait',
+      status: 'inProgress',
+      senderThreadId: 'parent-thread',
+      receiverThreadIds: [
+        '019e44ef-1111-7000-8000-000000000001',
+        '019e44f4-2222-7000-8000-000000000002',
+      ],
+      prompt: null,
+      agentsStates: {},
+    }])
+
+    expect(agents.map((agent) => agent.name)).toEqual(['agent 019e44e', 'agent 019e44f'])
+    expect(new Set(agents.map((agent) => agent.name)).size).toBe(2)
+  })
+
+  it('uses known sub-agent display names before id fallbacks', () => {
+    const agents = normalizeCollabAgentsFromItems([{
+      type: 'collabAgentToolCall',
+      id: 'collab-2',
+      tool: 'wait',
+      status: 'inProgress',
+      senderThreadId: 'parent-thread',
+      receiverThreadIds: ['agent-thread-1'],
+      prompt: null,
+      agentsStates: {},
+    }], {
+      agentDisplayNames: {
+        'agent-thread-1': 'Hilbert',
+      },
+    })
+
+    expect(agents[0]).toMatchObject({
+      id: 'agent-thread-1',
+      name: 'Hilbert',
+      task: 'waiting for delegated result',
+    })
+  })
+})
+
+describe('normalizeThreadSummaryV2', () => {
+  it('reads AgentControl sub-agent nicknames from thread metadata', () => {
+    const summary = normalizeThreadSummaryV2({
+      thread: {
+        id: 'agent-thread-1',
+        preview: 'Sub-agent task',
+        modelProvider: 'openai',
+        createdAt: 1,
+        updatedAt: 2,
+        path: null,
+        cwd: '/tmp/project',
+        cliVersion: 'test',
+        source: {
+          subAgent: {
+            thread_spawn: {
+              parent_thread_id: 'parent-thread',
+              depth: 1,
+              agent_nickname: 'Goodall',
+              agent_role: 'default',
+            },
+          },
+        },
+        agentNickname: 'Hilbert',
+        gitInfo: null,
+        turns: [],
+      } as ThreadReadResponse['thread'],
+    })
+
+    expect(summary.agentDisplayName).toBe('Hilbert')
   })
 })

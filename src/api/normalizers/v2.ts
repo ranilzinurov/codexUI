@@ -39,7 +39,7 @@ function readTrimmedString(value: unknown): string {
 }
 
 function toShortAgentId(value: string): string {
-  const normalized = value.trim()
+  const normalized = value.replace(/-/gu, '').trim()
   if (!normalized) return 'agent'
   return normalized.length > 6 ? normalized.slice(0, 6) : normalized
 }
@@ -57,8 +57,21 @@ function normalizeCollabAgentTask(value: string): string {
   return value.replace(/\s+/gu, ' ').trim()
 }
 
-function collabAgentName(agentId: string, index: number): string {
-  const shortId = toShortAgentId(agentId)
+function uniqueShortAgentId(agentId: string, agentIds: string[]): string {
+  const normalized = agentId.replace(/-/gu, '').trim()
+  if (!normalized) return 'agent'
+  const peers = agentIds
+    .map((id) => id.replace(/-/gu, '').trim())
+    .filter((id) => id.length > 0 && id !== normalized)
+  for (let length = 6; length <= Math.min(16, normalized.length); length += 1) {
+    const candidate = normalized.slice(0, length)
+    if (!peers.some((peer) => peer.startsWith(candidate))) return candidate
+  }
+  return normalized.length > 16 ? normalized.slice(0, 16) : normalized
+}
+
+function collabAgentName(agentId: string, index: number, agentIds: string[]): string {
+  const shortId = agentIds.length > 1 ? uniqueShortAgentId(agentId, agentIds) : toShortAgentId(agentId)
   if (shortId === 'agent') return `agent ${index + 1}`
   return `agent ${shortId}`
 }
@@ -72,8 +85,70 @@ function collabToolFallbackTask(tool: string): string {
   return 'working'
 }
 
-export function normalizeCollabAgentsFromItems(items: unknown[]): UiCollabAgentStatus[] {
+function readDisplayName(agentDisplayNames: Record<string, string> | Map<string, string> | undefined, id: string): string {
+  if (!agentDisplayNames) return ''
+  if (agentDisplayNames instanceof Map) return normalizeCollabAgentTask(agentDisplayNames.get(id) ?? '')
+  return normalizeCollabAgentTask(agentDisplayNames[id] ?? '')
+}
+
+function readThreadSpawnRecord(source: unknown): Record<string, unknown> | null {
+  const sourceRecord = source && typeof source === 'object' && !Array.isArray(source)
+    ? source as Record<string, unknown>
+    : null
+  const subAgent = sourceRecord?.subAgent ?? sourceRecord?.subagent
+  const subAgentRecord = subAgent && typeof subAgent === 'object' && !Array.isArray(subAgent)
+    ? subAgent as Record<string, unknown>
+    : null
+  const threadSpawn = subAgentRecord?.thread_spawn
+  return threadSpawn && typeof threadSpawn === 'object' && !Array.isArray(threadSpawn)
+    ? threadSpawn as Record<string, unknown>
+    : null
+}
+
+export function readThreadAgentDisplayName(thread: unknown): string {
+  const record = thread && typeof thread === 'object' && !Array.isArray(thread)
+    ? thread as Record<string, unknown>
+    : null
+  const candidates = [
+    record?.agentNickname,
+    record?.agent_nickname,
+    readThreadSpawnRecord(record?.source)?.agent_nickname,
+  ]
+  for (const candidate of candidates) {
+    const name = normalizeCollabAgentTask(readTrimmedString(candidate))
+    if (name) return name
+  }
+  return ''
+}
+
+export function readThreadSubagentParentId(thread: unknown): string {
+  const record = thread && typeof thread === 'object' && !Array.isArray(thread)
+    ? thread as Record<string, unknown>
+    : null
+  return readTrimmedString(readThreadSpawnRecord(record?.source)?.parent_thread_id)
+}
+
+export function normalizeCollabAgentsFromItems(
+  items: unknown[],
+  options: { agentDisplayNames?: Record<string, string> | Map<string, string> } = {},
+): UiCollabAgentStatus[] {
   const byId = new Map<string, UiCollabAgentStatus>()
+  const allReceiverThreadIds: string[] = []
+
+  for (const rawItem of items) {
+    const item = rawItem && typeof rawItem === 'object' && !Array.isArray(rawItem)
+      ? rawItem as Record<string, unknown>
+      : null
+    if (!item || item.type !== 'collabAgentToolCall') continue
+    const receiverThreadIds = Array.isArray(item.receiverThreadIds)
+      ? item.receiverThreadIds.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      : []
+    for (const receiverThreadId of receiverThreadIds) {
+      if (!allReceiverThreadIds.includes(receiverThreadId)) {
+        allReceiverThreadIds.push(receiverThreadId)
+      }
+    }
+  }
 
   for (const rawItem of items) {
     const item = rawItem && typeof rawItem === 'object' && !Array.isArray(rawItem)
@@ -98,7 +173,7 @@ export function normalizeCollabAgentsFromItems(items: unknown[]): UiCollabAgentS
       const stateTask = normalizeCollabAgentTask(readTrimmedString(state?.message))
       byId.set(receiverThreadId, {
         id: receiverThreadId,
-        name: collabAgentName(receiverThreadId, index),
+        name: readDisplayName(options.agentDisplayNames, receiverThreadId) || collabAgentName(receiverThreadId, index, allReceiverThreadIds),
         task: stateTask || fallbackTask,
         status: normalizeCollabAgentStatus(state?.status),
       })
@@ -108,13 +183,16 @@ export function normalizeCollabAgentsFromItems(items: unknown[]): UiCollabAgentS
   return Array.from(byId.values()).filter((agent) => agent.task.length > 0 || agent.name.length > 0)
 }
 
-export function normalizeActiveCollabAgentsFromResponse(payload: ThreadReadResponse): UiCollabAgentStatus[] {
+export function normalizeActiveCollabAgentsFromResponse(
+  payload: ThreadReadResponse,
+  options: { agentDisplayNames?: Record<string, string> | Map<string, string> } = {},
+): UiCollabAgentStatus[] {
   const turns = Array.isArray(payload.thread.turns) ? payload.thread.turns : []
   for (let index = turns.length - 1; index >= 0; index -= 1) {
     const turn = turns[index]
     if (!isTurnInProgress(turn)) continue
     const items = Array.isArray(turn.items) ? turn.items : []
-    return normalizeCollabAgentsFromItems(items)
+    return normalizeCollabAgentsFromItems(items, options)
   }
   return []
 }
@@ -667,6 +745,7 @@ function toUiThread(summary: Thread): UiThread {
     projectName: toProjectName(cwd),
     cwd,
     hasWorktree,
+    agentDisplayName: readThreadAgentDisplayName(summary) || null,
     createdAtIso: toIso(summary.createdAt),
     updatedAtIso: toIso(summary.updatedAt),
     preview: summary.preview,
