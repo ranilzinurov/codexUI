@@ -5431,3 +5431,33 @@ Thread conversation incremental older-turn loading.
 
 #### Rollback/Cleanup
 - None.
+
+---
+
+### Collapsed project folder shows hidden thread attention badge
+
+#### Feature/Change Name
+Sidebar project folder attention badge for collapsed projects.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev --host 127.0.0.1 --port 4173`).
+2. A project folder contains at least one thread with a visible thread attention dot, for example an unread completed task.
+3. Light theme and dark theme are available from the appearance setting.
+
+#### Steps
+1. In light theme, expand the project folder and confirm the attention dot is visible beside the affected thread.
+2. Collapse the same project folder.
+3. Confirm a small status badge appears on the folder icon while the child thread row is hidden.
+4. Expand the folder again and confirm the folder badge disappears while the child thread dot remains visible.
+5. Activate sidebar search so the matching child thread is shown, even if the project is saved as collapsed.
+6. Confirm the folder badge is not shown while search is revealing the child thread.
+7. Switch to dark theme and repeat steps 1 through 6.
+
+#### Expected Results
+- Collapsed project folders surface hidden child-thread attention with the same status color priority as thread rows.
+- Expanded project folders do not duplicate the child thread dot on the folder row.
+- Search results do not add an extra folder badge when the child thread is already visible.
+- The badge has enough contrast against the sidebar in both light theme and dark theme.
+
+#### Rollback/Cleanup
+- Mark the test thread as read, or expand the project folder again if desired.

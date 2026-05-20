@@ -291,6 +291,12 @@
                   <IconTablerChevronRight v-if="isCollapsed(group.projectName)" class="thread-icon" />
                   <IconTablerChevronDown v-else class="thread-icon" />
                 </span>
+                <span
+                  v-if="shouldShowProjectIndicator(group)"
+                  class="project-status-indicator thread-status-indicator"
+                  :data-state="getProjectState(group)"
+                  aria-hidden="true"
+                />
               </span>
             </template>
             <span
@@ -901,6 +907,13 @@ import { useFeedbackDiagnostics } from '../../composables/useFeedbackDiagnostics
 import { getPathLeafName, getPathParent, isAbsoluteLikePath, isProjectlessChatPath } from '../../pathUtils.js'
 import SidebarMenuRow from './SidebarMenuRow.vue'
 import { reconcilePinnedThreadIds } from './pinnedThreadUtils'
+import {
+  getThreadAttentionState,
+  getThreadsAttentionState,
+  hasThreadAttention,
+  hasThreadsAttention,
+  type ThreadAttentionState,
+} from './threadTreeIndicators'
 
 const props = defineProps<{
   groups: UiProjectGroup[]
@@ -2886,19 +2899,24 @@ function hasThreads(group: UiProjectGroup): boolean {
 }
 
 function shouldShowThreadIndicator(thread: UiThread): boolean {
-  return Boolean(thread.pendingRequestState) || thread.inProgress || thread.unread
+  return hasThreadAttention(thread)
+}
+
+function shouldShowProjectIndicator(group: UiProjectGroup): boolean {
+  if (isSearchActive.value || !isCollapsed(group.projectName)) return false
+  return hasThreadsAttention(projectThreads(group))
 }
 
 function threadRequestLabel(thread: UiThread): string {
   return thread.pendingRequestState === 'approval' ? 'Awaiting approval' : 'Awaiting response'
 }
 
-function getThreadState(thread: UiThread): 'awaiting-approval' | 'awaiting-response' | 'working' | 'unread' | 'idle' {
-  if (thread.pendingRequestState === 'approval') return 'awaiting-approval'
-  if (thread.pendingRequestState === 'response') return 'awaiting-response'
-  if (thread.inProgress) return 'working'
-  if (thread.unread) return 'unread'
-  return 'idle'
+function getThreadState(thread: UiThread): ThreadAttentionState {
+  return getThreadAttentionState(thread)
+}
+
+function getProjectState(group: UiProjectGroup): ThreadAttentionState {
+  return getThreadsAttentionState(projectThreads(group))
 }
 
 watch(
@@ -3094,6 +3112,11 @@ onBeforeUnmount(() => {
 
 .project-icon-stack {
   @apply relative w-4 h-4 flex items-center justify-center text-zinc-500;
+}
+
+.project-status-indicator {
+  @apply absolute -right-0.5 -top-0.5 z-10;
+  box-shadow: 0 0 0 2px rgb(244 244 245);
 }
 
 .project-icon-folder {
@@ -3345,6 +3368,10 @@ onBeforeUnmount(() => {
 .thread-row:focus-within .thread-status-indicator[data-state='awaiting-approval'],
 .thread-row:focus-within .thread-status-indicator[data-state='awaiting-response'] {
   @apply opacity-0;
+}
+
+:global(:root.dark) .project-status-indicator {
+  box-shadow: 0 0 0 2px rgb(24 24 27);
 }
 
 .rename-thread-overlay {
