@@ -1245,7 +1245,12 @@ import {
   type CreateDictationBackgroundJobInput,
   type DictationBackgroundJob,
 } from './composables/dictationBackgroundJobs'
-import { appendTextToPersistedDraftForThread } from './composables/composerDraftStorage'
+import {
+  appendTextToPersistedDraftForThread,
+  clearPersistedDraftForThread,
+  createEmptyComposerDraftPayload,
+  loadPersistedDraftForThread,
+} from './composables/composerDraftStorage'
 import {
   checkoutGitBranch,
   cloneGithubRepository,
@@ -3362,26 +3367,99 @@ function appendDictationTranscriptToThreadDraft(threadId: string, transcript: st
   appendTextToPersistedDraftForThread(normalizedThreadId, text)
 }
 
+function buildCompletedDictationMessageText(job: DictationBackgroundJob): string {
+  return [
+    job.draftSnapshot.text,
+    job.transcript,
+  ]
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0)
+    .join('\n\n')
+}
+
+function areStringListsEqual(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index])
+}
+
+function areComposerDraftPayloadsEqual(left: ComposerDraftPayload, right: ComposerDraftPayload): boolean {
+  return (
+    left.text === right.text
+    && areStringListsEqual(left.imageUrls, right.imageUrls)
+    && left.fileAttachments.length === right.fileAttachments.length
+    && left.fileAttachments.every((attachment, index) => {
+      const other = right.fileAttachments[index]
+      return other !== undefined
+        && attachment.label === other.label
+        && attachment.path === other.path
+        && attachment.fsPath === other.fsPath
+    })
+    && left.skills.length === right.skills.length
+    && left.skills.every((skill, index) => {
+      const other = right.skills[index]
+      return other !== undefined && skill.name === other.name && skill.path === other.path
+    })
+  )
+}
+
+function cloneDictationDraftSnapshot(snapshot: ComposerDraftPayload): ComposerDraftPayload {
+  return {
+    text: snapshot.text,
+    imageUrls: [...snapshot.imageUrls],
+    fileAttachments: snapshot.fileAttachments.map((attachment) => ({ ...attachment })),
+    skills: snapshot.skills.map((skill) => ({ ...skill })),
+  }
+}
+
+function reconcileCompletedDictationDraft(threadId: string, snapshot: ComposerDraftPayload): void {
+  const normalizedThreadId = threadId.trim()
+  if (!normalizedThreadId) return
+
+  const composer = selectedThreadId.value === normalizedThreadId ? threadComposerRef.value : null
+  const persistedDraft = loadPersistedDraftForThread(normalizedThreadId)
+  if (!persistedDraft) {
+    if (composer && !composer.hasUnsavedDraft()) {
+      composer.hydrateDraft(createEmptyComposerDraftPayload())
+    }
+    return
+  }
+
+  if (areComposerDraftPayloadsEqual(persistedDraft, snapshot)) {
+    clearPersistedDraftForThread(normalizedThreadId)
+    composer?.hydrateDraft(createEmptyComposerDraftPayload())
+    return
+  }
+
+  // Rehydrate the current draft to clear completed dictation feedback without
+  // deleting edits made after recording stopped.
+  composer?.hydrateDraft(persistedDraft)
+}
+
 async function onDictationBackgroundCompleted(job: DictationBackgroundJob): Promise<void> {
-  const text = job.transcript.trim()
-  if (!text) return
+  const transcript = job.transcript.trim()
   const threadId = job.threadId?.trim() ?? ''
   if (!threadId) {
     throw new Error('Could not send transcribed dictation because the original thread is unknown.')
   }
 
   if (!job.autoSend || job.draftOnly) {
-    appendDictationTranscriptToThreadDraft(threadId, text)
+    appendDictationTranscriptToThreadDraft(threadId, transcript)
     return
   }
+
+  const text = buildCompletedDictationMessageText(job)
+  if (!text && job.draftSnapshot.imageUrls.length === 0 && job.draftSnapshot.fileAttachments.length === 0) return
 
   const result = await sendMessageToThread(threadId, text, {
     mode: job.mode,
     collaborationModeOverride: job.collaborationMode,
+    imageUrls: [...job.draftSnapshot.imageUrls],
+    fileAttachments: job.draftSnapshot.fileAttachments.map((attachment) => ({ ...attachment })),
+    skills: job.draftSnapshot.skills.map((skill) => ({ ...skill })),
   })
   if (result === 'ignored') {
     throw new Error('Could not send transcribed dictation to the original thread.')
   }
+  reconcileCompletedDictationDraft(threadId, cloneDictationDraftSnapshot(job.draftSnapshot))
 }
 
 function onDictationRecordingReady(payload: CreateDictationBackgroundJobInput): void {

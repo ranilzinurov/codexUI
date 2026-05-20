@@ -436,6 +436,9 @@ describe('target thread message sender', () => {
     const result = await state.sendMessageToThread('target-thread', 'background transcript', {
       mode: 'queue',
       collaborationModeOverride: 'plan',
+      imageUrls: ['blob:image-1'],
+      fileAttachments: [{ label: 'notes.md', path: '/tmp/project/notes.md', fsPath: '/tmp/project/notes.md' }],
+      skills: [{ name: 'review', path: '/tmp/project/.codex/skills/review/SKILL.md' }],
     })
 
     expect(result).toBe('queued')
@@ -445,6 +448,9 @@ describe('target thread message sender', () => {
       'target-thread': [
         expect.objectContaining({
           text: 'background transcript',
+          imageUrls: ['blob:image-1'],
+          fileAttachments: [{ label: 'notes.md', path: '/tmp/project/notes.md', fsPath: '/tmp/project/notes.md' }],
+          skills: [{ name: 'review', path: '/tmp/project/.codex/skills/review/SKILL.md' }],
           collaborationMode: 'plan',
         }),
       ],
@@ -464,6 +470,9 @@ describe('target thread message sender', () => {
 
     const result = await state.sendMessageToThread('target-thread', 'background transcript', {
       collaborationModeOverride: 'plan',
+      imageUrls: ['blob:image-1'],
+      fileAttachments: [{ label: 'notes.md', path: '/tmp/project/notes.md', fsPath: '/tmp/project/notes.md' }],
+      skills: [{ name: 'review', path: '/tmp/project/.codex/skills/review/SKILL.md' }],
     })
 
     expect(result).toBe('started')
@@ -472,6 +481,9 @@ describe('target thread message sender', () => {
     const call = gatewayMocks.startThreadTurn.mock.calls[0]
     expect(call[0]).toBe('target-thread')
     expect(call[1]).toBe('background transcript')
+    expect(call[2]).toEqual(['blob:image-1'])
+    expect(call[5]).toEqual([{ name: 'review', path: '/tmp/project/.codex/skills/review/SKILL.md' }])
+    expect(call[6]).toEqual([{ label: 'notes.md', path: '/tmp/project/notes.md', fsPath: '/tmp/project/notes.md' }])
     expect(call[7]).toBe('plan')
     expect(gatewayMocks.setThreadQueueState).not.toHaveBeenCalled()
   })
@@ -489,6 +501,9 @@ describe('target thread message sender', () => {
     const result = await state.sendMessageToThread('target-thread', 'background transcript', {
       mode: 'steer',
       collaborationModeOverride: 'plan',
+      imageUrls: ['blob:image-1'],
+      fileAttachments: [{ label: 'notes.md', path: '/tmp/project/notes.md', fsPath: '/tmp/project/notes.md' }],
+      skills: [{ name: 'review', path: '/tmp/project/.codex/skills/review/SKILL.md' }],
     })
 
     expect(result).toBe('started')
@@ -496,6 +511,9 @@ describe('target thread message sender', () => {
     const call = gatewayMocks.startThreadTurn.mock.calls[0]
     expect(call[0]).toBe('target-thread')
     expect(call[1]).toBe('background transcript')
+    expect(call[2]).toEqual(['blob:image-1'])
+    expect(call[5]).toEqual([{ name: 'review', path: '/tmp/project/.codex/skills/review/SKILL.md' }])
+    expect(call[6]).toEqual([{ label: 'notes.md', path: '/tmp/project/notes.md', fsPath: '/tmp/project/notes.md' }])
     expect(call[7]).toBe('plan')
     expect(gatewayMocks.setThreadQueueState).not.toHaveBeenCalled()
   })
