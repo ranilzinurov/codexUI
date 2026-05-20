@@ -567,6 +567,7 @@ export type SubmitPayload = {
 export type ThreadComposerExposed = {
   hydrateDraft: (payload: ComposerDraftPayload) => void
   appendTextToDraft: (text: string) => void
+  clearDraftIfMatchesSnapshot: (snapshot: ComposerDraftPayload) => boolean
   hasUnsavedDraft: () => boolean
 }
 
@@ -581,6 +582,7 @@ const emit = defineEmits<{
     draftOnly: boolean
     mode: 'steer' | 'queue'
     collaborationMode: CollaborationModeKind
+    draftSnapshot: ComposerDraftPayload
   }]
   'update:selected-collaboration-mode': [mode: CollaborationModeKind]
   'update:selected-model': [modelId: string]
@@ -686,10 +688,9 @@ const {
     const mode = activeDictationBusyMode
     const draftOnly = shouldInsertNextDictationDraftOnly.value
     const shouldAutoSendTranscript = props.dictationAutoSend !== false && !draftOnly
+    const draftSnapshot = getCurrentDraftPayload()
     shouldInsertNextDictationDraftOnly.value = false
-    dictationFeedback.value = shouldAutoSendTranscript
-      ? 'Transcribing dictation in background...'
-      : 'Transcribing dictation for draft...'
+    dictationFeedback.value = ''
     if (!threadId) {
       clearActiveDictationTarget()
       return
@@ -702,6 +703,7 @@ const {
         draftOnly,
         mode,
         collaborationMode,
+        draftSnapshot,
       })
     } finally {
       clearActiveDictationTarget()
@@ -878,8 +880,8 @@ const dictationStatusText = computed(() => {
     return dictationFeedback.value.trim() || 'Transcribing dictation...'
   }
   if (dictationState.value !== 'idle') return ''
-  if (dictationFeedback.value.trim()) return dictationFeedback.value.trim()
   if (props.dictationStatusMessage?.trim()) return props.dictationStatusMessage.trim()
+  if (dictationFeedback.value.trim()) return dictationFeedback.value.trim()
   return hasPendingTranscription.value ? 'Saved dictation is waiting. Click the mic to retry transcription.' : ''
 })
 const attachmentFeedbackText = computed(() => {
@@ -1260,6 +1262,33 @@ function getCurrentDraftPayload(): ComposerDraftPayload {
     fileAttachments: fileAttachments.value.map((attachment) => ({ ...attachment })),
     skills: selectedSkills.value.map((skill) => ({ name: skill.name, path: skill.path })),
   }
+}
+
+function areDraftPayloadsEqual(left: ComposerDraftPayload, right: ComposerDraftPayload): boolean {
+  return left.text === right.text
+    && left.imageUrls.length === right.imageUrls.length
+    && left.imageUrls.every((url, index) => url === right.imageUrls[index])
+    && left.fileAttachments.length === right.fileAttachments.length
+    && left.fileAttachments.every((attachment, index) => {
+      const other = right.fileAttachments[index]
+      if (!other) return false
+      return attachment.label === other?.label
+        && attachment.path === other.path
+        && attachment.fsPath === other.fsPath
+    })
+    && left.skills.length === right.skills.length
+    && left.skills.every((skill, index) => {
+      const other = right.skills[index]
+      if (!other) return false
+      return skill.name === other?.name && skill.path === other.path
+    })
+}
+
+function clearDraftIfMatchesSnapshot(snapshot: ComposerDraftPayload): boolean {
+  if (!areDraftPayloadsEqual(getCurrentDraftPayload(), snapshot)) return false
+  clearPersistedDraftForThread(props.activeThreadId)
+  clearDraftState()
+  return true
 }
 
 function onInterrupt(): void {
@@ -2149,6 +2178,7 @@ onMounted(() => {
 defineExpose<ThreadComposerExposed>({
   hydrateDraft,
   appendTextToDraft,
+  clearDraftIfMatchesSnapshot,
   hasUnsavedDraft: () => hasUnsavedDraft.value,
 })
 
