@@ -1605,7 +1605,7 @@ export function useDesktopState() {
     skills?: Array<{ name: string; path: string }>
     fileAttachments?: FileAttachment[]
     queueInsertIndex?: number
-    collaborationMode?: CollaborationModeKind
+    mode?: 'steer' | 'queue'
     collaborationModeOverride?: CollaborationModeKind
   }
   type PendingTurnRequest = {
@@ -5463,13 +5463,13 @@ export function useDesktopState() {
     options: SendMessageToThreadOptions = {},
   ): Promise<SendMessageResult> {
     const normalizedThreadId = threadId.trim()
-    const collaborationModeOverride = options.collaborationModeOverride ?? options.collaborationMode
+    const collaborationModeOverride = options.collaborationModeOverride
     return sendMessageToThreadInternal(
       normalizedThreadId,
       text,
       options.imageUrls ?? [],
       options.skills ?? [],
-      'queue',
+      options.mode ?? 'queue',
       options.fileAttachments ?? [],
       options.queueInsertIndex,
       collaborationModeOverride,

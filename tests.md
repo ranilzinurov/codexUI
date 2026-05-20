@@ -336,6 +336,44 @@ Rollback/cleanup:
 
 ---
 
+### Background dictation transcription continues after thread navigation
+
+#### Feature/Change Name
+Background dictation transcription and target-thread auto-send.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev --host 127.0.0.1 --port 4173`).
+2. Microphone permission granted for the browser.
+3. Voice transcription configured and working for `/codex-api/transcribe`.
+4. At least two existing threads are available in the sidebar.
+5. Light theme and dark theme are available from the appearance setting.
+
+#### Steps
+1. In light theme, open an existing thread and start dictation from the composer.
+2. Speak a short unique phrase, then stop dictation.
+3. Immediately switch to another existing thread or project folder while the composer shows background transcription status.
+4. Wait for transcription to complete.
+5. Return to the original thread.
+6. Confirm the transcribed phrase was sent to the original thread, not the currently selected thread.
+7. Repeat with the original thread busy and the composer send mode set to Queue; confirm the transcript appears as a queued turn or starts when the thread becomes idle.
+8. Repeat with the original thread busy and the composer send mode set to Steer; confirm the transcript is sent as an immediate steer turn for the original thread.
+9. Use the "Transcribe dictation into draft" action and navigate away; return to the original thread and confirm the transcript is appended to that thread draft.
+10. Switch to dark theme and repeat steps 1-9.
+11. From the new-thread/home composer, record dictation and confirm the original inline flow still creates or fills the new-thread draft instead of trying to target `__new-thread__`.
+
+#### Expected Results
+- Stopping dictation hands the saved recording to a background job before thread navigation changes the target.
+- The background job transcribes independently of the active selected thread.
+- Auto-send dispatches to the original existing thread, starting an idle thread or queueing a busy thread without changing the selected thread.
+- Draft-only dictation appends to the original thread draft when the user returns.
+- Light theme and dark theme status text remains readable and does not overlap composer controls.
+- New-thread dictation keeps the pre-existing inline transcription behavior.
+
+#### Rollback/Cleanup
+- Delete any test messages or queued turns created during verification if they are not needed.
+
+---
+
 ### Compact sidebar Skills and Automations links
 
 #### Feature/Change Name

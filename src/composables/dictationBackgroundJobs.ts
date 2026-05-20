@@ -568,15 +568,37 @@ export function useDictationBackgroundJobs(options: {
   })
   onBeforeUnmount(unsubscribe)
 
+  async function startJobEventually(jobId: string): Promise<void> {
+    const startOptions = { ...options, jobIds: [jobId], includeFailed: true }
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (activeJobIds.has(jobId)) return
+      const results = await startOrResumePendingDictationBackgroundJobs(startOptions)
+      if (results.some((job) => job.id === jobId)) return
+      const latestJob = await readPersistedJob(jobId)
+      if (!latestJob || latestJob.status === 'completed' || !matchesRunnerFilter(latestJob, startOptions)) return
+    }
+    console.error('Dictation background job did not start after repeated attempts', jobId)
+  }
+
+  function startJobInBackground(jobId: string): void {
+    void startJobEventually(jobId).catch((error) => {
+      console.error('Dictation background job start failed', error)
+    })
+  }
+
   return {
     jobs,
-    createJob: async (input) => createDictationBackgroundJob(input.recording, {
-      threadId: input.threadId,
-      autoSend: input.autoSend,
-      draftOnly: input.draftOnly,
-      mode: input.mode,
-      collaborationMode: input.collaborationMode,
-    }),
+    createJob: async (input) => {
+      const job = await createDictationBackgroundJob(input.recording, {
+        threadId: input.threadId,
+        autoSend: input.autoSend,
+        draftOnly: input.draftOnly,
+        mode: input.mode,
+        collaborationMode: input.collaborationMode,
+      })
+      startJobInBackground(job.id)
+      return job
+    },
     resumePendingJobs: () => startOrResumePendingDictationBackgroundJobs(options),
     retryJob: async (jobId) => {
       const job = await retryDictationBackgroundJob(jobId)

@@ -1020,7 +1020,10 @@
                   :is-interrupting-turn="false" :send-with-enter="sendWithEnter" :in-progress-submit-mode="inProgressSendMode"
                   :dictation-click-to-toggle="dictationClickToToggle" :dictation-auto-send="dictationAutoSend"
                   :dictation-language="dictationLanguage"
+                  :dictation-background-transcription="false"
+                  :dictation-status-message="activeDictationStatusMessage"
                   @submit="onSubmitThreadMessage"
+                  @dictation-recording-ready="onDictationRecordingReady"
                   @slash-command="onSlashCommand"
                   @update:selected-collaboration-mode="onSelectCollaborationMode"
                   @update:selected-model="onSelectModel"
@@ -1106,8 +1109,10 @@
                     :send-with-enter="sendWithEnter" :in-progress-submit-mode="inProgressSendMode"
                     :dictation-click-to-toggle="dictationClickToToggle" :dictation-auto-send="dictationAutoSend"
                     :dictation-language="dictationLanguage"
+                    :dictation-background-transcription="true"
+                    :dictation-status-message="activeDictationStatusMessage"
                     @update:selected-collaboration-mode="onSelectCollaborationMode"
-                    @submit="onSubmitThreadMessage" @slash-command="onSlashCommand" @update:selected-model="onSelectModel"
+                    @submit="onSubmitThreadMessage" @dictation-recording-ready="onDictationRecordingReady" @slash-command="onSlashCommand" @update:selected-model="onSelectModel"
                     @update:selected-reasoning-effort="onSelectReasoningEffort"
                     @update:selected-speed-mode="onSelectSpeedMode"
                     @dictation-input-updated="onDictationInputUpdated"
@@ -1236,6 +1241,12 @@ import { useTaskNotificationClientPresence } from './composables/useTaskNotifica
 import { useUiLanguage } from './composables/useUiLanguage'
 import { useFeedbackDiagnostics } from './composables/useFeedbackDiagnostics'
 import {
+  useDictationBackgroundJobs,
+  type CreateDictationBackgroundJobInput,
+  type DictationBackgroundJob,
+} from './composables/dictationBackgroundJobs'
+import { appendTextToPersistedDraftForThread } from './composables/composerDraftStorage'
+import {
   checkoutGitBranch,
   cloneGithubRepository,
   configureTelegramBot,
@@ -1274,7 +1285,8 @@ import {
   switchAccount,
 } from './api/codexGateway'
 import type { ReasoningEffort, SpeedMode, UiAccountEntry, UiRateLimitWindow, UiServerRequest, UiServerRequestReply, UiThreadAutomation, UiThreadTokenUsage } from './types/codex'
-import type { ComposerDraftPayload, ThreadComposerExposed } from './components/content/ThreadComposer.vue'
+import type { ThreadComposerExposed } from './components/content/ThreadComposer.vue'
+import type { ComposerDraftPayload } from './composables/composerDraftStorage'
 import type { DictationAudioInputInfo } from './composables/useDictation'
 import type { GithubTipsScope, GithubTrendingProject, LocalDirectoryEntry, TelegramStatus, WorktreeBranchOption } from './api/codexGateway'
 import type { ParsedCodexSlashCommand } from './codexSlashCommands'
@@ -1505,6 +1517,7 @@ const {
   renameThreadById,
   forkThreadFromTurn,
   sendMessageToSelectedThread,
+  sendMessageToThread,
   sendMessageToNewThread,
   interruptSelectedThreadTurn,
   selectedThreadQueuedMessages,
@@ -1532,6 +1545,9 @@ const route = useRoute()
 const router = useRouter()
 const { isMobile } = useMobile()
 useTaskNotificationClientPresence(selectedThreadId)
+const dictationBackgroundJobs = useDictationBackgroundJobs({
+  onCompleted: onDictationBackgroundCompleted,
+})
 type SidebarThreadTreeExposed = {
   openAutomationEditorFromPanel: (payload: AutomationEditRequest) => void
   openAutomationCreatorFromPanel: () => void
@@ -1815,6 +1831,20 @@ const latestUserTurnId = computed(() => {
 })
 const liveOverlay = computed(() => selectedLiveOverlay.value)
 const composerThreadContextId = computed(() => (isHomeRoute.value ? '__new-thread__' : selectedThreadId.value))
+const activeDictationStatusMessage = computed(() => {
+  const threadId = composerThreadContextId.value.trim()
+  if (!threadId || threadId === '__new-thread__') return ''
+  const job = dictationBackgroundJobs.getJobsForThread(threadId)
+    .find((candidate) => candidate.status === 'queued' || candidate.status === 'transcribing' || candidate.status === 'failed')
+  if (!job) return ''
+  if (job.status === 'queued') return t('Dictation queued for transcription...')
+  if (job.status === 'transcribing') {
+    return job.retryAttempt > 0 && job.retryMaxAttempts > 0
+      ? `Retrying transcription (${job.retryAttempt}/${job.retryMaxAttempts})...`
+      : t('Transcribing dictation in background...')
+  }
+  return job.error || t('Dictation failed.')
+})
 const composerSelectedModelId = computed(() => readModelIdForThread(composerThreadContextId.value))
 const selectedThreadPendingRequest = computed<UiServerRequest | null>(() => {
   const rows = selectedThreadServerRequests.value
@@ -2211,6 +2241,7 @@ onMounted(() => {
   void loadFreeModeStatus()
   void refreshThreadTerminalStatus()
   void refreshTerminalQuickCommands()
+  void dictationBackgroundJobs.resumePendingJobs()
 })
 
 watch(visibleFeedbackErrors, (values, oldValues) => {
@@ -3316,6 +3347,45 @@ function onSubmitThreadMessage(payload: { text: string; imageUrls: string[]; fil
     return
   }
   void sendMessageToSelectedThread(text, payload.imageUrls, payload.skills, payload.mode, payload.fileAttachments, queueInsertIndex)
+}
+
+function appendDictationTranscriptToThreadDraft(threadId: string, transcript: string): void {
+  const normalizedThreadId = threadId.trim()
+  const text = transcript.trim()
+  if (!normalizedThreadId || !text) return
+
+  if (selectedThreadId.value === normalizedThreadId && threadComposerRef.value) {
+    threadComposerRef.value.appendTextToDraft(text)
+    return
+  }
+
+  appendTextToPersistedDraftForThread(normalizedThreadId, text)
+}
+
+async function onDictationBackgroundCompleted(job: DictationBackgroundJob): Promise<void> {
+  const text = job.transcript.trim()
+  if (!text) return
+  const threadId = job.threadId?.trim() ?? ''
+  if (!threadId) {
+    throw new Error('Could not send transcribed dictation because the original thread is unknown.')
+  }
+
+  if (!job.autoSend || job.draftOnly) {
+    appendDictationTranscriptToThreadDraft(threadId, text)
+    return
+  }
+
+  const result = await sendMessageToThread(threadId, text, {
+    mode: job.mode,
+    collaborationModeOverride: job.collaborationMode,
+  })
+  if (result === 'ignored') {
+    throw new Error('Could not send transcribed dictation to the original thread.')
+  }
+}
+
+function onDictationRecordingReady(payload: CreateDictationBackgroundJobInput): void {
+  void dictationBackgroundJobs.createJob(payload)
 }
 
 async function onSlashCommand(payload: ParsedCodexSlashCommand): Promise<void> {

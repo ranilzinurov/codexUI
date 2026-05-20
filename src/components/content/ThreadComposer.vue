@@ -464,7 +464,6 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { safeLocalStorageGetItem, safeLocalStorageRemoveItem, safeLocalStorageSetItem } from '../../browserCompat'
 import type {
   CollaborationModeKind,
   CollaborationModeOption,
@@ -478,6 +477,15 @@ import type {
   UiTokenUsageBreakdown,
 } from '../../types/codex'
 import { useDictation, type DictationAudioInputInfo } from '../../composables/useDictation'
+import type { StoredDictationRecording } from '../../composables/dictationTranscription'
+import { createDictationRecordingStorageKey } from '../../composables/dictationBackgroundJobs'
+import {
+  clearPersistedDraftForThread,
+  createEmptyComposerDraftPayload,
+  loadPersistedDraftForThread,
+  persistDraftForThread,
+  type ComposerDraftPayload,
+} from '../../composables/composerDraftStorage'
 import { useMobile } from '../../composables/useMobile'
 import { useUiLanguage } from '../../composables/useUiLanguage'
 import {
@@ -542,16 +550,11 @@ const props = defineProps<{
   dictationClickToToggle?: boolean
   dictationAutoSend?: boolean
   dictationLanguage?: string
+  dictationBackgroundTranscription?: boolean
+  dictationStatusMessage?: string
 }>()
 
 export type FileAttachment = { label: string; path: string; fsPath: string }
-
-export type ComposerDraftPayload = {
-  text: string
-  imageUrls: string[]
-  fileAttachments: FileAttachment[]
-  skills: Array<{ name: string; path: string }>
-}
 
 export type SubmitPayload = {
   text: string
@@ -571,6 +574,14 @@ const emit = defineEmits<{
   submit: [payload: SubmitPayload]
   'slash-command': [payload: ParsedCodexSlashCommand]
   interrupt: []
+  'dictation-recording-ready': [payload: {
+    recording: StoredDictationRecording
+    threadId: string
+    autoSend: boolean
+    draftOnly: boolean
+    mode: 'steer' | 'queue'
+    collaborationMode: CollaborationModeKind
+  }]
   'update:selected-collaboration-mode': [mode: CollaborationModeKind]
   'update:selected-model': [modelId: string]
   'update:selected-reasoning-effort': [effort: ReasoningEffort | '']
@@ -635,6 +646,18 @@ const shouldInsertNextDictationDraftOnly = ref(false)
 const pendingAttachmentCount = ref(0)
 const attachmentBatchStats = ref<AttachmentBatchStats | null>(null)
 const isDragActive = ref(false)
+let activeDictationThreadId = ''
+let activeDictationStorageKey = ''
+let activeDictationCollaborationMode: CollaborationModeKind = 'default'
+let activeDictationBusyMode: 'steer' | 'queue' = 'steer'
+
+function getDictationStorageKey(): string {
+  if (props.dictationBackgroundTranscription === false) {
+    return `thread:${props.activeThreadId || 'unassigned'}`
+  }
+  return activeDictationStorageKey || `thread:${props.activeThreadId || 'unassigned'}`
+}
+
 const {
   state: dictationState,
   isSupported: isDictationSupported,
@@ -649,13 +672,40 @@ const {
   cancel: cancelDictation,
   refreshPendingTranscription,
 } = useDictation({
-  getStorageKey: () => `thread:${props.activeThreadId || 'unassigned'}`,
+  getStorageKey: getDictationStorageKey,
   getLanguage: () => props.dictationLanguage ?? 'auto',
   onAudioInput: (info) => {
     emit('dictation-input-updated', info)
   },
   onRetry: (attempt, maxAttempts) => {
     dictationFeedback.value = `Retrying transcription (${attempt}/${maxAttempts})...`
+  },
+  onRecordingReady: props.dictationBackgroundTranscription === false ? undefined : (recording) => {
+    const threadId = activeDictationThreadId || props.activeThreadId.trim()
+    const collaborationMode = activeDictationCollaborationMode
+    const mode = activeDictationBusyMode
+    const draftOnly = shouldInsertNextDictationDraftOnly.value
+    const shouldAutoSendTranscript = props.dictationAutoSend !== false && !draftOnly
+    shouldInsertNextDictationDraftOnly.value = false
+    dictationFeedback.value = shouldAutoSendTranscript
+      ? 'Transcribing dictation in background...'
+      : 'Transcribing dictation for draft...'
+    if (!threadId) {
+      clearActiveDictationTarget()
+      return
+    }
+    try {
+      emit('dictation-recording-ready', {
+        recording,
+        threadId,
+        autoSend: shouldAutoSendTranscript,
+        draftOnly,
+        mode,
+        collaborationMode,
+      })
+    } finally {
+      clearActiveDictationTarget()
+    }
   },
   onTranscript: (text) => {
     const shouldAutoSendTranscript = props.dictationAutoSend !== false && !shouldInsertNextDictationDraftOnly.value
@@ -711,7 +761,6 @@ let dragDepth = 0
 let attachmentSessionToken = 0
 let composerResizeRaf: number | null = null
 const isAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)
-const DRAFT_STORAGE_PREFIX = 'codex-web-local.thread-draft.v1.'
 let lastActiveThreadId = ''
 
 const reasoningOptions: Array<{ value: ReasoningEffort; label: string }> = [
@@ -830,6 +879,7 @@ const dictationStatusText = computed(() => {
   }
   if (dictationState.value !== 'idle') return ''
   if (dictationFeedback.value.trim()) return dictationFeedback.value.trim()
+  if (props.dictationStatusMessage?.trim()) return props.dictationStatusMessage.trim()
   return hasPendingTranscription.value ? 'Saved dictation is waiting. Click the mic to retry transcription.' : ''
 })
 const attachmentFeedbackText = computed(() => {
@@ -1199,87 +1249,8 @@ function replaceDraftState(payload: ComposerDraftPayload): void {
 }
 
 function clearDraftState(): void {
-  replaceDraftState({
-    text: '',
-    imageUrls: [],
-    fileAttachments: [],
-    skills: [],
-  })
+  replaceDraftState(createEmptyComposerDraftPayload())
   isComposerExpanded.value = false
-}
-
-function getDraftStorageKey(threadId: string): string {
-  return `${DRAFT_STORAGE_PREFIX}${threadId}`
-}
-
-function loadPersistedDraftForThread(threadId: string): ComposerDraftPayload | null {
-  if (typeof window === 'undefined') return null
-  const normalizedThreadId = threadId.trim()
-  if (!normalizedThreadId) return null
-  try {
-    const raw = safeLocalStorageGetItem(getDraftStorageKey(normalizedThreadId))
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as Partial<ComposerDraftPayload> | string
-    if (typeof parsed === 'string') {
-      return {
-        text: parsed,
-        imageUrls: [],
-        fileAttachments: [],
-        skills: [],
-      }
-    }
-    return {
-      text: typeof parsed.text === 'string' ? parsed.text : '',
-      imageUrls: Array.isArray(parsed.imageUrls)
-        ? parsed.imageUrls.filter((url): url is string => typeof url === 'string')
-        : [],
-      fileAttachments: Array.isArray(parsed.fileAttachments)
-        ? parsed.fileAttachments.filter((attachment): attachment is FileAttachment => (
-          Boolean(attachment)
-          && typeof attachment.label === 'string'
-          && typeof attachment.path === 'string'
-          && typeof attachment.fsPath === 'string'
-        ))
-        : [],
-      skills: Array.isArray(parsed.skills)
-        ? parsed.skills.filter((skill): skill is { name: string; path: string } => (
-          Boolean(skill)
-          && typeof skill.name === 'string'
-          && typeof skill.path === 'string'
-        ))
-        : [],
-    }
-  } catch {
-    return null
-  }
-}
-
-function persistDraftForThread(threadId: string, payload: ComposerDraftPayload): void {
-  if (typeof window === 'undefined') return
-  const normalizedThreadId = threadId.trim()
-  if (!normalizedThreadId) return
-  try {
-    const hasContent = payload.text.trim().length > 0
-      || payload.imageUrls.length > 0
-      || payload.fileAttachments.length > 0
-      || payload.skills.length > 0
-    if (hasContent) {
-      safeLocalStorageSetItem(getDraftStorageKey(normalizedThreadId), JSON.stringify(payload))
-      return
-    }
-    safeLocalStorageRemoveItem(getDraftStorageKey(normalizedThreadId))
-  } catch {
-    // Ignore localStorage failures (quota/private mode).
-  }
-}
-
-function clearPersistedDraftForThread(threadId: string): void {
-  persistDraftForThread(threadId, {
-    text: '',
-    imageUrls: [],
-    fileAttachments: [],
-    skills: [],
-  })
 }
 
 function getCurrentDraftPayload(): ComposerDraftPayload {
@@ -1337,10 +1308,27 @@ function onToggleSpeedMode(): void {
   emit('update:selected-speed-mode', props.selectedSpeedMode === 'fast' ? 'standard' : 'fast')
 }
 
+function captureActiveDictationTarget(): void {
+  activeDictationThreadId = props.activeThreadId.trim()
+  activeDictationStorageKey = createDictationRecordingStorageKey(activeDictationThreadId || props.activeThreadId || 'unassigned')
+  activeDictationCollaborationMode = props.selectedCollaborationMode
+  activeDictationBusyMode = props.isTurnInProgress ? activeInProgressMode.value : 'steer'
+}
+
+function clearActiveDictationTarget(): void {
+  activeDictationThreadId = ''
+  activeDictationStorageKey = ''
+  activeDictationCollaborationMode = 'default'
+  activeDictationBusyMode = 'steer'
+}
+
 function onDictationToggle(): void {
   if (!props.dictationClickToToggle) return
   if (dictationFeedback.value) {
     dictationFeedback.value = ''
+  }
+  if (!isDictationActive.value && !hasPendingTranscription.value) {
+    captureActiveDictationTarget()
   }
   toggleRecording()
 }
@@ -1371,6 +1359,9 @@ function onDictationPressStart(event: PointerEvent): void {
   }
   if (dictationFeedback.value) {
     dictationFeedback.value = ''
+  }
+  if (!hasPendingTranscription.value) {
+    captureActiveDictationTarget()
   }
   window.addEventListener('pointerup', onDictationPressEnd)
   window.addEventListener('pointercancel', onDictationPressEnd)
@@ -2182,7 +2173,10 @@ onBeforeUnmount(() => {
 watch(
   () => props.activeThreadId,
   (nextThreadId) => {
-    cancelDictation()
+    if (dictationState.value !== 'transcribing') {
+      cancelDictation()
+      clearActiveDictationTarget()
+    }
     void refreshPendingTranscription()
     if (lastActiveThreadId) {
       persistDraftForThread(lastActiveThreadId, getCurrentDraftPayload())

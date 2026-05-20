@@ -95,6 +95,7 @@ export function useDictation(options: {
   getLanguage?: () => string
   onAudioInput?: (info: DictationAudioInputInfo) => void
   onRetry?: (attempt: number, maxAttempts: number) => void
+  onRecordingReady?: (recording: StoredDictationRecording) => void | Promise<void>
   onEmpty?: () => void
   onError?: (error: unknown) => void
 }) {
@@ -300,7 +301,11 @@ export function useDictation(options: {
       if (hasPendingTranscription.value) {
         const pending = await getPendingTranscriptionForCurrentStorageKey()
         if (pending) {
-          await transcribeStoredRecording(pending)
+          if (options.onRecordingReady) {
+            await handOffStoredRecording(pending)
+          } else {
+            await transcribeStoredRecording(pending)
+          }
           return
         }
       }
@@ -474,6 +479,25 @@ export function useDictation(options: {
     }
   }
 
+  async function handOffStoredRecording(recording: StoredDictationRecording): Promise<void> {
+    state.value = 'transcribing'
+    pendingTranscription = recording
+    hasPendingTranscription.value = true
+    try {
+      await options.onRecordingReady?.(recording)
+      if (pendingTranscription?.id === recording.id) {
+        pendingTranscription = null
+      }
+      hasPendingTranscription.value = false
+    } catch (error) {
+      options.onError?.(error)
+    } finally {
+      if (state.value === 'transcribing') {
+        state.value = 'idle'
+      }
+    }
+  }
+
   async function transcribeRecordedChunks(recordedChunks: Blob[], mimeType: string) {
     if (recordedChunks.length === 0) {
       options.onEmpty?.()
@@ -491,6 +515,10 @@ export function useDictation(options: {
     pendingTranscription = recording
     hasPendingTranscription.value = true
     await writeStoredDictationRecording(recording)
+    if (options.onRecordingReady) {
+      await handOffStoredRecording(recording)
+      return
+    }
     await transcribeStoredRecording(recording)
   }
 

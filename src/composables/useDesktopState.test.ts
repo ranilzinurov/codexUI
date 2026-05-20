@@ -423,6 +423,84 @@ describe('collaboration mode selection', () => {
   })
 })
 
+describe('target thread message sender', () => {
+  it('queues a message for a busy target thread without selecting it', async () => {
+    installTestWindow()
+    gatewayMocks.getThreadSummary.mockResolvedValue({
+      ...thread('target-thread', '/tmp/project'),
+      inProgress: true,
+    })
+
+    const state = useDesktopState()
+
+    const result = await state.sendMessageToThread('target-thread', 'background transcript', {
+      mode: 'queue',
+      collaborationModeOverride: 'plan',
+    })
+
+    expect(result).toBe('queued')
+    expect(state.selectedThreadId.value).toBe('')
+    expect(gatewayMocks.startThreadTurn).not.toHaveBeenCalled()
+    expect(gatewayMocks.setThreadQueueState).toHaveBeenCalledWith({
+      'target-thread': [
+        expect.objectContaining({
+          text: 'background transcript',
+          collaborationMode: 'plan',
+        }),
+      ],
+    })
+  })
+
+  it('starts a turn for an idle target thread without selecting it', async () => {
+    installTestWindow()
+    gatewayMocks.getThreadSummary.mockResolvedValue({
+      ...thread('target-thread', '/tmp/project'),
+      inProgress: false,
+    })
+    gatewayMocks.resumeThread.mockResolvedValue({ model: 'gpt-5.4' })
+    gatewayMocks.startThreadTurn.mockResolvedValue('turn-1')
+
+    const state = useDesktopState()
+
+    const result = await state.sendMessageToThread('target-thread', 'background transcript', {
+      collaborationModeOverride: 'plan',
+    })
+
+    expect(result).toBe('started')
+    expect(state.selectedThreadId.value).toBe('')
+    expect(gatewayMocks.resumeThread).toHaveBeenCalledWith('target-thread')
+    const call = gatewayMocks.startThreadTurn.mock.calls[0]
+    expect(call[0]).toBe('target-thread')
+    expect(call[1]).toBe('background transcript')
+    expect(call[7]).toBe('plan')
+    expect(gatewayMocks.setThreadQueueState).not.toHaveBeenCalled()
+  })
+
+  it('steers a message into a busy target thread when requested without selecting it', async () => {
+    installTestWindow()
+    gatewayMocks.getThreadSummary.mockResolvedValue({
+      ...thread('target-thread', '/tmp/project'),
+      inProgress: true,
+    })
+    gatewayMocks.startThreadTurn.mockResolvedValue('turn-1')
+
+    const state = useDesktopState()
+
+    const result = await state.sendMessageToThread('target-thread', 'background transcript', {
+      mode: 'steer',
+      collaborationModeOverride: 'plan',
+    })
+
+    expect(result).toBe('started')
+    expect(state.selectedThreadId.value).toBe('')
+    const call = gatewayMocks.startThreadTurn.mock.calls[0]
+    expect(call[0]).toBe('target-thread')
+    expect(call[1]).toBe('background transcript')
+    expect(call[7]).toBe('plan')
+    expect(gatewayMocks.setThreadQueueState).not.toHaveBeenCalled()
+  })
+})
+
 describe('sub-agent live status', () => {
   it('uses sub-agent nicknames and streams reasoning summaries into the parent status row', async () => {
     installTestWindow({ 'codex-web-local.selected-thread-id.v1': 'parent-thread' })

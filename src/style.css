@@ -321,6 +321,10 @@ html::after {
   @apply text-zinc-200;
 }
 
+:root.dark .thread-composer-dictation-error {
+  @apply text-amber-300;
+}
+
 :root.dark .thread-composer-agent-task::before,
 :root.dark .thread-composer-agent-task::after {
   color: rgb(113 113 122);

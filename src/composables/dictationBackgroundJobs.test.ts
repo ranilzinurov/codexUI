@@ -9,6 +9,7 @@ import {
   listDictationBackgroundJobs,
   resetDictationBackgroundJobsForTest,
   startOrResumePendingDictationBackgroundJobs,
+  useDictationBackgroundJobs,
   type DictationBackgroundJob,
 } from './dictationBackgroundJobs'
 import type { StoredDictationRecording } from './dictationTranscription'
@@ -314,5 +315,33 @@ describe('dictation background jobs', () => {
       id: job.id,
       status: 'failed',
     }))
+  })
+
+  it('starts manager-created jobs immediately', async () => {
+    const recording = makeRecording()
+    transcriptionMock.recordings.set(recording.key, recording)
+    const onCompleted = vi.fn()
+    const manager = useDictationBackgroundJobs({ onCompleted })
+
+    const job = await manager.createJob({
+      recording,
+      threadId: 'alpha',
+      autoSend: true,
+      draftOnly: false,
+      mode: 'queue',
+      collaborationMode: 'plan',
+    })
+
+    await vi.waitFor(() => {
+      expect(onCompleted).toHaveBeenCalledWith(expect.objectContaining({
+        id: job.id,
+        status: 'completed',
+        transcript: 'transcript:recording-alpha',
+        mode: 'queue',
+        collaborationMode: 'plan',
+      }))
+    })
+    expect(transcriptionMock.deleteStoredDictationRecording).toHaveBeenCalledWith(recording.key, recording.id)
+    expect((await getDictationBackgroundJob(job.id))?.status).toBe('completed')
   })
 })
