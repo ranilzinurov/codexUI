@@ -1599,6 +1599,15 @@ export function useDesktopState() {
     fileAttachments: FileAttachment[]
     collaborationMode: CollaborationModeKind
   }
+  type SendMessageResult = 'ignored' | 'answered-request' | 'queued' | 'started'
+  type SendMessageToThreadOptions = {
+    imageUrls?: string[]
+    skills?: Array<{ name: string; path: string }>
+    fileAttachments?: FileAttachment[]
+    queueInsertIndex?: number
+    collaborationMode?: CollaborationModeKind
+    collaborationModeOverride?: CollaborationModeKind
+  }
   type PendingTurnRequest = {
     text: string
     imageUrls: string[]
@@ -4620,6 +4629,10 @@ export function useDesktopState() {
     })
   }
 
+  async function persistQueueStateNow(): Promise<void> {
+    await setThreadQueueState(normalizeQueueStateForPersistence(queuedMessagesByThreadId.value))
+  }
+
   async function loadPersistedQueueStateIfNeeded(): Promise<void> {
     if (hasLoadedPersistedQueueState) return
     hasLoadedPersistedQueueState = true
@@ -5247,6 +5260,176 @@ export function useDesktopState() {
     })
   }
 
+  function resolveSendCollaborationMode(collaborationModeOverride?: CollaborationModeKind): CollaborationModeKind {
+    return collaborationModeOverride === 'plan'
+      ? 'plan'
+      : collaborationModeOverride === 'default'
+        ? 'default'
+        : selectedCollaborationMode.value
+  }
+
+  async function refreshTargetThreadInProgress(threadId: string): Promise<boolean> {
+    if (inProgressById.value[threadId] === true) return true
+
+    try {
+      const summary = await getThreadSummary(threadId)
+      setThreadInProgress(threadId, summary.inProgress === true)
+      return summary.inProgress === true
+    } catch {
+      const latestInProgressById: Record<string, boolean | undefined> = inProgressById.value
+      return latestInProgressById[threadId] === true
+    }
+  }
+
+  async function queueMessageForThread(
+    threadId: string,
+    text: string,
+    imageUrls: string[],
+    skills: Array<{ name: string; path: string }>,
+    fileAttachments: FileAttachment[],
+    queueInsertIndex: number | undefined,
+    collaborationModeOverride?: CollaborationModeKind,
+    requirePersistence = false,
+  ): Promise<void> {
+    await loadPersistedQueueStateIfNeeded()
+    const queue = queuedMessagesByThreadId.value[threadId] ?? []
+    const id = `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const nextQueue = [...queue]
+    const insertIndex = typeof queueInsertIndex === 'number'
+      ? Math.max(0, Math.min(queueInsertIndex, nextQueue.length))
+      : nextQueue.length
+    nextQueue.splice(insertIndex, 0, {
+      id,
+      text,
+      imageUrls: [...imageUrls],
+      skills: skills.map((skill) => ({ name: skill.name, path: skill.path })),
+      fileAttachments: fileAttachments.map((file) => ({ ...file })),
+      collaborationMode: resolveSendCollaborationMode(collaborationModeOverride),
+    })
+    queuedMessagesByThreadId.value = {
+      ...queuedMessagesByThreadId.value,
+      [threadId]: nextQueue,
+    }
+    if (requirePersistence) {
+      await persistQueueStateNow()
+    } else {
+      persistQueueState()
+    }
+  }
+
+  async function sendMessageToThreadInternal(
+    threadId: string,
+    text: string,
+    imageUrls: string[],
+    skills: Array<{ name: string; path: string }>,
+    busyMode: 'steer' | 'queue',
+    fileAttachments: FileAttachment[],
+    queueInsertIndex: number | undefined,
+    collaborationModeOverride: CollaborationModeKind | undefined,
+    options: {
+      refreshThreadStatus: boolean
+      surfaceGlobalError: boolean
+      enableAutoScroll: boolean
+      requireQueuePersistence: boolean
+    },
+  ): Promise<SendMessageResult> {
+    if (isUpdatingSpeedMode.value) return 'ignored'
+
+    const normalizedThreadId = threadId.trim()
+    const nextText = text.trim()
+    if (!normalizedThreadId || (!nextText && imageUrls.length === 0 && fileAttachments.length === 0)) {
+      return 'ignored'
+    }
+
+    if (await maybeReplyToPendingUserInputRequest(normalizedThreadId, nextText, imageUrls, skills, fileAttachments)) {
+      return 'answered-request'
+    }
+
+    const isInProgress = options.refreshThreadStatus
+      ? await refreshTargetThreadInProgress(normalizedThreadId)
+      : inProgressById.value[normalizedThreadId] === true
+
+    if (isInProgress && busyMode === 'queue') {
+      await queueMessageForThread(
+        normalizedThreadId,
+        nextText,
+        imageUrls,
+        skills,
+        fileAttachments,
+        queueInsertIndex,
+        collaborationModeOverride,
+        options.requireQueuePersistence,
+      )
+      return 'queued'
+    }
+
+    if (isInProgress) {
+      if (options.enableAutoScroll) {
+        shouldAutoScrollOnNextAgentEvent = true
+      }
+      void startTurnForThread(
+        normalizedThreadId,
+        nextText,
+        imageUrls,
+        skills,
+        fileAttachments,
+        collaborationModeOverride,
+      ).catch((unknownError) => {
+        const errorMessage = unknownError instanceof Error ? unknownError.message : 'Unknown application error'
+        setTurnErrorForThread(normalizedThreadId, errorMessage)
+        if (options.surfaceGlobalError) {
+          error.value = errorMessage
+        }
+      })
+      return 'started'
+    }
+
+    if (options.surfaceGlobalError) {
+      error.value = ''
+    }
+    if (options.enableAutoScroll) {
+      shouldAutoScrollOnNextAgentEvent = true
+    }
+    setTurnSummaryForThread(normalizedThreadId, null)
+    setTurnActivityForThread(
+      normalizedThreadId,
+      {
+        label: 'Thinking',
+        details: buildPendingTurnDetails(
+          readModelIdForThread(normalizedThreadId),
+          selectedReasoningEffort.value,
+          resolveSendCollaborationMode(collaborationModeOverride),
+        ),
+      },
+    )
+    setTurnErrorForThread(normalizedThreadId, null)
+    setThreadInProgress(normalizedThreadId, true)
+
+    try {
+      await startTurnForThread(
+        normalizedThreadId,
+        nextText,
+        imageUrls,
+        skills,
+        fileAttachments,
+        collaborationModeOverride,
+      )
+      return 'started'
+    } catch (unknownError) {
+      if (options.enableAutoScroll) {
+        shouldAutoScrollOnNextAgentEvent = false
+      }
+      setThreadInProgress(normalizedThreadId, false)
+      setTurnActivityForThread(normalizedThreadId, null)
+      const errorMessage = unknownError instanceof Error ? unknownError.message : 'Unknown application error'
+      setTurnErrorForThread(normalizedThreadId, errorMessage)
+      if (options.surfaceGlobalError) {
+        error.value = errorMessage
+      }
+      throw unknownError
+    }
+  }
+
   async function sendMessageToSelectedThread(
     text: string,
     imageUrls: string[] = [],
@@ -5256,101 +5439,47 @@ export function useDesktopState() {
     queueInsertIndex?: number,
     collaborationModeOverride?: CollaborationModeKind,
   ): Promise<void> {
-    if (isUpdatingSpeedMode.value) return
-
-    const threadId = selectedThreadId.value
-    const nextText = text.trim()
-    if (!threadId || (!nextText && imageUrls.length === 0 && fileAttachments.length === 0)) return
-
-    if (await maybeReplyToPendingUserInputRequest(threadId, nextText, imageUrls, skills, fileAttachments)) {
-      return
-    }
-
-    const isInProgress = inProgressById.value[threadId] === true
-
-    if (isInProgress && mode === 'queue') {
-      const queue = queuedMessagesByThreadId.value[threadId] ?? []
-      const id = `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-      const nextQueue = [...queue]
-      const insertIndex = typeof queueInsertIndex === 'number'
-        ? Math.max(0, Math.min(queueInsertIndex, nextQueue.length))
-        : nextQueue.length
-      nextQueue.splice(insertIndex, 0, {
-        id,
-        text: nextText,
-        imageUrls,
-        skills,
-        fileAttachments,
-        collaborationMode: collaborationModeOverride === 'plan'
-          ? 'plan'
-          : collaborationModeOverride === 'default'
-            ? 'default'
-            : selectedCollaborationMode.value,
-      })
-      queuedMessagesByThreadId.value = {
-        ...queuedMessagesByThreadId.value,
-        [threadId]: nextQueue,
-      }
-      persistQueueState()
-      return
-    }
-
-    if (isInProgress) {
-      shouldAutoScrollOnNextAgentEvent = true
-      void startTurnForThread(
-        threadId,
-        nextText,
-        imageUrls,
-        skills,
-        fileAttachments,
-        collaborationModeOverride,
-      ).catch((unknownError) => {
-        const errorMessage = unknownError instanceof Error ? unknownError.message : 'Unknown application error'
-        setTurnErrorForThread(threadId, errorMessage)
-        error.value = errorMessage
-      })
-      return
-    }
-
-    error.value = ''
-    shouldAutoScrollOnNextAgentEvent = true
-    setTurnSummaryForThread(threadId, null)
-    setTurnActivityForThread(
-      threadId,
+    await sendMessageToThreadInternal(
+      selectedThreadId.value,
+      text,
+      imageUrls,
+      skills,
+      mode,
+      fileAttachments,
+      queueInsertIndex,
+      collaborationModeOverride,
       {
-        label: 'Thinking',
-        details: buildPendingTurnDetails(
-          readModelIdForThread(threadId),
-          selectedReasoningEffort.value,
-          collaborationModeOverride === 'plan'
-            ? 'plan'
-            : collaborationModeOverride === 'default'
-              ? 'default'
-              : selectedCollaborationMode.value,
-        ),
+        refreshThreadStatus: false,
+        surfaceGlobalError: true,
+        enableAutoScroll: true,
+        requireQueuePersistence: false,
       },
     )
-    setTurnErrorForThread(threadId, null)
-    setThreadInProgress(threadId, true)
+  }
 
-    try {
-      await startTurnForThread(
-        threadId,
-        nextText,
-        imageUrls,
-        skills,
-        fileAttachments,
-        collaborationModeOverride,
-      )
-    } catch (unknownError) {
-      shouldAutoScrollOnNextAgentEvent = false
-      setThreadInProgress(threadId, false)
-      setTurnActivityForThread(threadId, null)
-      const errorMessage = unknownError instanceof Error ? unknownError.message : 'Unknown application error'
-      setTurnErrorForThread(threadId, errorMessage)
-      error.value = errorMessage
-      throw unknownError
-    }
+  async function sendMessageToThread(
+    threadId: string,
+    text: string,
+    options: SendMessageToThreadOptions = {},
+  ): Promise<SendMessageResult> {
+    const normalizedThreadId = threadId.trim()
+    const collaborationModeOverride = options.collaborationModeOverride ?? options.collaborationMode
+    return sendMessageToThreadInternal(
+      normalizedThreadId,
+      text,
+      options.imageUrls ?? [],
+      options.skills ?? [],
+      'queue',
+      options.fileAttachments ?? [],
+      options.queueInsertIndex,
+      collaborationModeOverride,
+      {
+        refreshThreadStatus: true,
+        surfaceGlobalError: normalizedThreadId === selectedThreadId.value,
+        enableAutoScroll: normalizedThreadId === selectedThreadId.value,
+        requireQueuePersistence: true,
+      },
+    )
   }
 
   async function sendMessageToNewThread(
@@ -6114,6 +6243,7 @@ export function useDesktopState() {
     rollbackSelectedThread,
 
     sendMessageToSelectedThread,
+    sendMessageToThread,
     sendMessageToNewThread,
     interruptSelectedThreadTurn,
     selectedThreadQueuedMessages,
