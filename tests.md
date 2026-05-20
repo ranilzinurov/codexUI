@@ -5490,3 +5490,36 @@ Sidebar project folder attention badge for collapsed projects.
 
 #### Rollback/Cleanup
 - Mark the test thread as read, or expand the project folder again if desired.
+
+---
+
+### Sidebar project folders show recent threads before Show more
+
+#### Feature/Change Name
+Expanded project folders initially show only threads whose sidebar relative updated label is 0d, 1d, 2d, or 3d; threads shown as 4d or older are hidden behind Show more.
+
+#### Prerequisites/Setup
+1. Dev server running (`pnpm run dev --host 127.0.0.1 --port 4173`).
+2. A project folder has threads last updated today, 1-3 days ago, and 4+ days ago.
+3. Light theme and dark theme both available from the appearance switcher.
+
+#### Steps
+1. In light theme, open the sidebar Projects section and expand the test project folder.
+2. Confirm rows labeled 0d/now/hours/minutes, 1d, 2d, and 3d are visible before clicking Show more.
+3. Confirm rows labeled 4d or older are hidden while Show more is visible.
+4. Click Show more and confirm the 4d+ rows appear, then click Show less and confirm they are hidden again.
+5. Select a 4d+ thread, return to the project folder, and confirm the selected old thread remains visible before Show more is clicked.
+6. Use sidebar search for a 4d+ thread and confirm search results still show matching old threads without requiring Show more.
+7. Collapse the project folder and confirm thread rows stay hidden regardless of age.
+8. Switch to dark theme and repeat steps 1-7.
+
+#### Expected Results
+- Expanded project folders show recent threads through the same updatedAtIso-with-createdAtIso-fallback basis as the right-side relative label.
+- Threads shown as 4d or older are hidden until Show more is clicked.
+- Show less restores the age-limited view.
+- The active selected thread remains visible even when it is 4d or older.
+- Search and collapsed project behavior are unchanged.
+- Rows and Show more/Show less controls remain readable in light theme and dark theme.
+
+#### Rollback/Cleanup
+- None.

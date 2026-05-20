@@ -914,6 +914,11 @@ import {
   hasThreadsAttention,
   type ThreadAttentionState,
 } from './threadTreeIndicators'
+import {
+  getInitialVisibleProjectThreads,
+  getThreadRelativeTimestampMs,
+  hasHiddenProjectThreads,
+} from './threadTreeShowMore'
 
 const props = defineProps<{
   groups: UiProjectGroup[]
@@ -1421,7 +1426,7 @@ const threadTimestampById = computed(() => {
   const map = new Map<string, number>()
   for (const group of props.groups) {
     for (const thread of group.threads) {
-      const timestamp = new Date(thread.updatedAtIso || thread.createdAtIso).getTime()
+      const timestamp = getThreadRelativeTimestampMs(thread)
       map.set(thread.id, timestamp)
     }
   }
@@ -2886,12 +2891,15 @@ function visibleThreads(group: UiProjectGroup): UiThread[] {
   if (isCollapsed(group.projectName)) return []
 
   const rows = projectThreads(group)
-  return isExpanded(group.projectName) ? rows : rows.slice(0, 10)
+  return isExpanded(group.projectName)
+    ? rows
+    : getInitialVisibleProjectThreads(rows, { selectedThreadId: props.selectedThreadId })
 }
 
 function hasHiddenThreads(group: UiProjectGroup): boolean {
   if (isSearchActive.value) return false
-  return !isCollapsed(group.projectName) && projectThreads(group).length > 10
+  if (isCollapsed(group.projectName)) return false
+  return hasHiddenProjectThreads(projectThreads(group), { selectedThreadId: props.selectedThreadId })
 }
 
 function hasThreads(group: UiProjectGroup): boolean {
