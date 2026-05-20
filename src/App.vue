@@ -1248,7 +1248,6 @@ import {
 import {
   appendTextToPersistedDraftForThread,
   clearPersistedDraftForThread,
-  createEmptyComposerDraftPayload,
   loadPersistedDraftForThread,
 } from './composables/composerDraftStorage'
 import {
@@ -3377,14 +3376,14 @@ function buildCompletedDictationMessageText(job: DictationBackgroundJob): string
     .join('\n\n')
 }
 
-function areStringListsEqual(left: string[], right: string[]): boolean {
+function areStringArraysEqual(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index])
 }
 
 function areComposerDraftPayloadsEqual(left: ComposerDraftPayload, right: ComposerDraftPayload): boolean {
   return (
     left.text === right.text
-    && areStringListsEqual(left.imageUrls, right.imageUrls)
+    && areStringArraysEqual(left.imageUrls, right.imageUrls)
     && left.fileAttachments.length === right.fileAttachments.length
     && left.fileAttachments.every((attachment, index) => {
       const other = right.fileAttachments[index]
@@ -3414,24 +3413,18 @@ function reconcileCompletedDictationDraft(threadId: string, snapshot: ComposerDr
   const normalizedThreadId = threadId.trim()
   if (!normalizedThreadId) return
 
-  const composer = selectedThreadId.value === normalizedThreadId ? threadComposerRef.value : null
+  if (selectedThreadId.value === normalizedThreadId && threadComposerRef.value) {
+    if (threadComposerRef.value.clearDraftIfMatchesSnapshot(snapshot)) return
+  }
+
   const persistedDraft = loadPersistedDraftForThread(normalizedThreadId)
-  if (!persistedDraft) {
-    if (composer && !composer.hasUnsavedDraft()) {
-      composer.hydrateDraft(createEmptyComposerDraftPayload())
-    }
+  if (!persistedDraft) return
+
+  if (!areComposerDraftPayloadsEqual(persistedDraft, snapshot)) {
     return
   }
 
-  if (areComposerDraftPayloadsEqual(persistedDraft, snapshot)) {
-    clearPersistedDraftForThread(normalizedThreadId)
-    composer?.hydrateDraft(createEmptyComposerDraftPayload())
-    return
-  }
-
-  // Rehydrate the current draft to clear completed dictation feedback without
-  // deleting edits made after recording stopped.
-  composer?.hydrateDraft(persistedDraft)
+  clearPersistedDraftForThread(normalizedThreadId)
 }
 
 async function onDictationBackgroundCompleted(job: DictationBackgroundJob): Promise<void> {

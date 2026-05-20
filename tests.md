@@ -355,16 +355,22 @@ Background dictation transcription and target-thread auto-send.
 4. Wait for transcription to complete.
 5. Return to the original thread.
 6. Confirm the transcribed phrase was sent to the original thread, not the currently selected thread.
-7. Repeat with the original thread busy and the composer send mode set to Queue; confirm the transcript appears as a queued turn or starts when the thread becomes idle.
-8. Repeat with the original thread busy and the composer send mode set to Steer; confirm the transcript is sent as an immediate steer turn for the original thread.
-9. Use the "Transcribe dictation into draft" action and navigate away; return to the original thread and confirm the transcript is appended to that thread draft.
-10. Switch to dark theme and repeat steps 1-9.
-11. From the new-thread/home composer, record dictation and confirm the original inline flow still creates or fills the new-thread draft instead of trying to target `__new-thread__`.
+7. Attach an image or screenshot, type a short prefix such as `text and screenshot`, start dictation, speak a second unique phrase, stop dictation, and immediately switch to another thread.
+8. Return to the original thread after transcription completes and confirm one sent message contains the typed prefix, the transcribed phrase, and the image attachment.
+9. Confirm the source draft is cleared only when it still matches the captured snapshot; if text or attachments were changed after stopping dictation, confirm those later edits remain in the draft.
+10. Repeat with the original thread busy and the composer send mode set to Queue; confirm the combined text/image message appears as a queued turn or starts when the thread becomes idle.
+11. Repeat with the original thread busy and the composer send mode set to Steer; confirm the combined text/image message is sent as an immediate steer turn for the original thread.
+12. Use the "Transcribe dictation into draft" action and navigate away; return to the original thread and confirm the transcript is appended to that thread draft without auto-sending.
+13. Switch to dark theme and repeat steps 1-12.
+14. From the new-thread/home composer, record dictation and confirm the original inline flow still creates or fills the new-thread draft instead of trying to target `__new-thread__`.
 
 #### Expected Results
 - Stopping dictation hands the saved recording to a background job before thread navigation changes the target.
 - The background job transcribes independently of the active selected thread.
-- Auto-send dispatches to the original existing thread, starting an idle thread or queueing a busy thread without changing the selected thread.
+- Auto-send dispatches one combined message to the original existing thread, starting an idle thread or queueing a busy thread without changing the selected thread.
+- A composer snapshot captured at dictation stop carries typed text, images, file attachments, and selected skills into the sent message with the transcript appended.
+- Background transcription status clears promptly after completion and does not require switching away and back to update the composer.
+- Source draft cleanup is snapshot-safe and does not delete edits made after recording stopped.
 - Draft-only dictation appends to the original thread draft when the user returns.
 - Light theme and dark theme status text remains readable and does not overlap composer controls.
 - New-thread dictation keeps the pre-existing inline transcription behavior.
