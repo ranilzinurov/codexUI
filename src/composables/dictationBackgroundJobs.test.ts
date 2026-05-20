@@ -11,8 +11,12 @@ import {
   startOrResumePendingDictationBackgroundJobs,
   useDictationBackgroundJobs,
   type DictationBackgroundJob,
+  type DictationDraftSnapshot,
 } from './dictationBackgroundJobs'
 import type { StoredDictationRecording } from './dictationTranscription'
+
+const JOB_DB_NAME_FOR_TEST = 'codex-web-local-dictation-jobs'
+const JOB_STORE_FOR_TEST = 'jobs'
 
 const transcriptionMock = vi.hoisted(() => {
   const recordings = new Map<string, StoredDictationRecording>()
@@ -186,6 +190,13 @@ function installFakeIndexedDb(): void {
   })
 }
 
+function getFakeJobRecords(): Map<string, unknown> {
+  const database = fakeDatabases.get(JOB_DB_NAME_FOR_TEST)
+  const store = database?.stores.get(JOB_STORE_FOR_TEST)
+  if (!store) throw new Error('Expected fake dictation jobs store to exist')
+  return store.records
+}
+
 function makeRecording(options: Partial<StoredDictationRecording> = {}): StoredDictationRecording {
   return {
     key: 'thread:alpha',
@@ -241,6 +252,99 @@ describe('dictation background jobs', () => {
     expect(await getDictationBackgroundJobsForThread('alpha')).toHaveLength(1)
     expect(await getDictationBackgroundJobsForStorageKey('thread:alpha')).toHaveLength(1)
     expect(await listDictationBackgroundJobs()).toHaveLength(1)
+  })
+
+  it('persists draft snapshots and normalizes untrusted stored records', async () => {
+    const recording = makeRecording()
+    const draftSnapshot: DictationDraftSnapshot = {
+      text: 'typed before stop',
+      imageUrls: ['blob:image-one'],
+      fileAttachments: [{
+        label: 'notes.md',
+        path: '/workspace/notes.md',
+        fsPath: '/workspace/notes.md',
+      }],
+      skills: [{
+        name: 'frontend-skill',
+        path: '/skills/frontend-skill/SKILL.md',
+      }],
+    }
+
+    const job = await createDictationBackgroundJob(recording, { draftSnapshot })
+    draftSnapshot.imageUrls.push('blob:mutated-after-create')
+
+    expect(job.draftSnapshot).toEqual({
+      text: 'typed before stop',
+      imageUrls: ['blob:image-one'],
+      fileAttachments: [{
+        label: 'notes.md',
+        path: '/workspace/notes.md',
+        fsPath: '/workspace/notes.md',
+      }],
+      skills: [{
+        name: 'frontend-skill',
+        path: '/skills/frontend-skill/SKILL.md',
+      }],
+    })
+
+    const records = getFakeJobRecords()
+    const storedRecord = records.get(job.id) as Record<string, unknown>
+    records.set(job.id, {
+      ...storedRecord,
+      draftSnapshot: {
+        text: 42,
+        imageUrls: ['blob:image-ok', 7, null, ''],
+        fileAttachments: [
+          { label: 'valid.txt', path: '/tmp/valid.txt', fsPath: '/tmp/valid.txt', extra: true },
+          { label: 'missing-fs-path.txt', path: '/tmp/missing-fs-path.txt' },
+          { label: 9, path: '/tmp/bad-label.txt', fsPath: '/tmp/bad-label.txt' },
+        ],
+        skills: [
+          { name: 'valid-skill', path: '/skills/valid/SKILL.md', extra: 'ignored' },
+          { name: 'missing-path' },
+          { name: 3, path: '/skills/bad/SKILL.md' },
+        ],
+      },
+    })
+    resetDictationBackgroundJobsForTest()
+
+    expect((await getDictationBackgroundJob(job.id))?.draftSnapshot).toEqual({
+      text: '',
+      imageUrls: ['blob:image-ok', ''],
+      fileAttachments: [{
+        label: 'valid.txt',
+        path: '/tmp/valid.txt',
+        fsPath: '/tmp/valid.txt',
+      }],
+      skills: [{
+        name: 'valid-skill',
+        path: '/skills/valid/SKILL.md',
+      }],
+    })
+  })
+
+  it('defaults missing persisted draft snapshots for older jobs', async () => {
+    const recording = makeRecording()
+    const job = await createDictationBackgroundJob(recording, {
+      draftSnapshot: {
+        text: 'old draft',
+        imageUrls: ['blob:image'],
+        fileAttachments: [],
+        skills: [],
+      },
+    })
+    const records = getFakeJobRecords()
+    const storedRecord = { ...(records.get(job.id) as Record<string, unknown>) }
+    delete storedRecord.draftSnapshot
+    records.set(job.id, storedRecord)
+    resetDictationBackgroundJobsForTest()
+
+    expect((await getDictationBackgroundJob(job.id))?.draftSnapshot).toEqual({
+      text: '',
+      imageUrls: [],
+      fileAttachments: [],
+      skills: [],
+    })
   })
 
   it('does not transcribe the same job twice when resume is invoked concurrently', async () => {
@@ -317,17 +421,57 @@ describe('dictation background jobs', () => {
     }))
   })
 
-  it('starts manager-created jobs immediately', async () => {
+  it('emits manager job state when completion dispatch fails', async () => {
     const recording = makeRecording()
     transcriptionMock.recordings.set(recording.key, recording)
-    const onCompleted = vi.fn()
-    const manager = useDictationBackgroundJobs({ onCompleted })
+    const manager = useDictationBackgroundJobs({
+      onCompleted: async () => {
+        throw new Error('target thread send failed')
+      },
+    })
 
     const job = await manager.createJob({
       recording,
       threadId: 'alpha',
       autoSend: true,
       draftOnly: false,
+    })
+
+    await vi.waitFor(() => {
+      expect(manager.jobs.value.find((candidate) => candidate.id === job.id)).toMatchObject({
+        id: job.id,
+        status: 'failed',
+        transcript: 'transcript:recording-alpha',
+        error: 'target thread send failed',
+      })
+    })
+  })
+
+  it('starts manager-created jobs immediately', async () => {
+    const recording = makeRecording()
+    transcriptionMock.recordings.set(recording.key, recording)
+    const onCompleted = vi.fn()
+    const manager = useDictationBackgroundJobs({ onCompleted })
+    const draftSnapshot: DictationDraftSnapshot = {
+      text: 'send this with the transcript',
+      imageUrls: ['blob:image-one'],
+      fileAttachments: [{
+        label: 'design.png',
+        path: '/workspace/design.png',
+        fsPath: '/workspace/design.png',
+      }],
+      skills: [{
+        name: 'impeccable',
+        path: '/skills/impeccable/SKILL.md',
+      }],
+    }
+
+    const job = await manager.createJob({
+      recording,
+      threadId: 'alpha',
+      autoSend: true,
+      draftOnly: false,
+      draftSnapshot,
       mode: 'queue',
       collaborationMode: 'plan',
     })
@@ -337,9 +481,15 @@ describe('dictation background jobs', () => {
         id: job.id,
         status: 'completed',
         transcript: 'transcript:recording-alpha',
+        draftSnapshot,
         mode: 'queue',
         collaborationMode: 'plan',
       }))
+    })
+    expect(manager.jobs.value.find((candidate) => candidate.id === job.id)).toMatchObject({
+      status: 'completed',
+      transcript: 'transcript:recording-alpha',
+      draftSnapshot,
     })
     expect(transcriptionMock.deleteStoredDictationRecording).toHaveBeenCalledWith(recording.key, recording.id)
     expect((await getDictationBackgroundJob(job.id))?.status).toBe('completed')

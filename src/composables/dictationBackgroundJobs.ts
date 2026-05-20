@@ -5,6 +5,7 @@ import {
   transcribeStoredDictationRecording,
   type StoredDictationRecording,
 } from './dictationTranscription'
+import type { ComposerDraftPayload } from './composerDraftStorage'
 
 const JOB_DB_NAME = 'codex-web-local-dictation-jobs'
 const JOB_DB_VERSION = 1
@@ -12,6 +13,8 @@ const JOB_STORE = 'jobs'
 const JOB_ID_PREFIX = 'dictation-job:'
 
 export type DictationBackgroundJobStatus = 'queued' | 'transcribing' | 'completed' | 'failed'
+
+export type DictationDraftSnapshot = ComposerDraftPayload
 
 export type DictationBackgroundJob = {
   id: string
@@ -21,6 +24,7 @@ export type DictationBackgroundJob = {
   language: string
   autoSend: boolean
   draftOnly: boolean
+  draftSnapshot: DictationDraftSnapshot
   mode: 'steer' | 'queue'
   collaborationMode: 'default' | 'plan'
   status: DictationBackgroundJobStatus
@@ -38,6 +42,7 @@ export type CreateDictationBackgroundJobOptions = {
   language?: string
   autoSend?: boolean
   draftOnly?: boolean
+  draftSnapshot?: DictationDraftSnapshot
   mode?: 'steer' | 'queue'
   collaborationMode?: 'default' | 'plan'
 }
@@ -58,6 +63,7 @@ export type CreateDictationBackgroundJobInput = {
   threadId: string
   autoSend: boolean
   draftOnly: boolean
+  draftSnapshot?: DictationDraftSnapshot
   mode?: 'steer' | 'queue'
   collaborationMode?: 'default' | 'plan'
 }
@@ -82,12 +88,85 @@ function readTrimmedString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+function readDraftString(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
 function nowMs(): number {
   return Date.now()
 }
 
+function createEmptyDraftSnapshot(): DictationDraftSnapshot {
+  return {
+    text: '',
+    imageUrls: [],
+    fileAttachments: [],
+    skills: [],
+  }
+}
+
+function normalizeStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((item): item is string => typeof item === 'string')
+}
+
+function normalizeDraftSnapshot(value: unknown): DictationDraftSnapshot {
+  if (!value || typeof value !== 'object') return createEmptyDraftSnapshot()
+  const record = value as Record<string, unknown>
+
+  const fileAttachments = Array.isArray(record.fileAttachments)
+    ? record.fileAttachments.flatMap((item) => {
+      if (!item || typeof item !== 'object') return []
+      const attachment = item as Record<string, unknown>
+      if (
+        typeof attachment.label !== 'string' ||
+        typeof attachment.path !== 'string' ||
+        typeof attachment.fsPath !== 'string'
+      ) {
+        return []
+      }
+      return [{
+        label: attachment.label,
+        path: attachment.path,
+        fsPath: attachment.fsPath,
+      }]
+    })
+    : []
+
+  const skills = Array.isArray(record.skills)
+    ? record.skills.flatMap((item) => {
+      if (!item || typeof item !== 'object') return []
+      const skill = item as Record<string, unknown>
+      if (typeof skill.name !== 'string' || typeof skill.path !== 'string') return []
+      return [{
+        name: skill.name,
+        path: skill.path,
+      }]
+    })
+    : []
+
+  return {
+    text: readDraftString(record.text),
+    imageUrls: normalizeStringList(record.imageUrls),
+    fileAttachments,
+    skills,
+  }
+}
+
+function cloneDraftSnapshot(snapshot: DictationDraftSnapshot): DictationDraftSnapshot {
+  return {
+    text: snapshot.text,
+    imageUrls: [...snapshot.imageUrls],
+    fileAttachments: snapshot.fileAttachments.map((attachment) => ({ ...attachment })),
+    skills: snapshot.skills.map((skill) => ({ ...skill })),
+  }
+}
+
 function cloneJob(job: DictationBackgroundJob): DictationBackgroundJob {
-  return { ...job }
+  return {
+    ...job,
+    draftSnapshot: cloneDraftSnapshot(job.draftSnapshot),
+  }
 }
 
 function createSnapshot(): DictationBackgroundJob[] {
@@ -149,6 +228,7 @@ function normalizeJob(value: unknown): DictationBackgroundJob | null {
     language: readTrimmedString(record.language),
     autoSend: record.autoSend !== false,
     draftOnly: record.draftOnly === true,
+    draftSnapshot: normalizeDraftSnapshot(record.draftSnapshot),
     mode: record.mode === 'queue' ? 'queue' : 'steer',
     collaborationMode: record.collaborationMode === 'plan' ? 'plan' : 'default',
     status: record.status,
@@ -443,6 +523,7 @@ export async function createDictationBackgroundJob(
     language: readTrimmedString(options.language) || readTrimmedString(recording.language),
     autoSend: options.autoSend ?? true,
     draftOnly: options.draftOnly ?? false,
+    draftSnapshot: normalizeDraftSnapshot(options.draftSnapshot),
     mode: options.mode === 'queue' ? 'queue' : 'steer',
     collaborationMode: options.collaborationMode === 'plan' ? 'plan' : 'default',
     status: 'queued',
@@ -593,6 +674,7 @@ export function useDictationBackgroundJobs(options: {
         threadId: input.threadId,
         autoSend: input.autoSend,
         draftOnly: input.draftOnly,
+        draftSnapshot: input.draftSnapshot,
         mode: input.mode,
         collaborationMode: input.collaborationMode,
       })
