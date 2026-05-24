@@ -16,7 +16,7 @@ CODEXUI_THREAD_TITLE_API_KEY=<codex-lb-api-key>
 
 `threadAutoTitle` appends `/responses`, so the full local Responses API URL is `http://127.0.0.1:2455/v1/responses`.
 
-The request flow is captured in [thread-title-routing.mmd](thread-title-routing.mmd) and rendered as [thread-title-routing.svg](thread-title-routing.svg).
+The request flow is captured in [thread-title-routing.mmd](thread-title-routing.mmd) and rendered as [thread-title-routing.svg](thread-title-routing.svg) plus [thread-title-routing.png](thread-title-routing.png).
 
 Use placeholder values in examples and documentation. Do not commit real API keys, bearer tokens, or provider secrets.
 
