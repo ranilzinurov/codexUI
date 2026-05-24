@@ -1,21 +1,21 @@
 flowchart TD
   user[Пользователь открывает<br/>или создаёт тред]
   ui[Браузер CodexUI]
-  bridge[Серверный bridge CodexUI<br/>codexAppServerBridge.ts]
-  appserver[Codex app-server]
+  bridge[Серверный мост CodexUI<br/>codexAppServerBridge.ts]
+  appserver[Сервер Codex<br/>app-server]
   codex[Ход модели Codex]
   event[RPC-событие<br/>turn/completed]
-  manager[ThreadAutoTitleManager<br/>threadAutoTitle.ts]
-  read[RPC thread/read<br/>includeTurns: true]
+  manager[Менеджер автоназваний тредов<br/>ThreadAutoTitleManager]
+  read[RPC: прочитать тред<br/>thread/read, includeTurns: true]
   source[Первые сообщения пользователя<br/>и ассистента<br/>до 6 элементов, сжатый текст]
-  config{Есть явная настройка<br/>title LLM?}
+  config{Есть явная настройка<br/>модели для названия?}
   local[Локальная эвристика<br/>без сетевого вызова]
   lb[Локальный Codex LB<br/>http://127.0.0.1:2455/v1]
-  responses[POST /v1/responses<br/>модель gpt-5.4-mini<br/>reasoning low<br/>store false]
+  responses[POST /v1/responses<br/>модель gpt-5.4-mini<br/>рассуждение: low<br/>не сохранять ответ]
   title[Очищенное короткое название]
-  setname[RPC thread/name/set]
+  setname[RPC: записать название<br/>thread/name/set]
   notify[RPC-событие<br/>thread/name/updated]
-  cache[Кэш названий на фронтенде<br/>threadTitleById]
+  cache[Кэш названий во фронтенде<br/>threadTitleById]
   sidebar[Сайдбар показывает<br/>новое название]
   openai[Официальный OpenAI API<br/>для названий не используется]
 
@@ -39,7 +39,7 @@ flowchart TD
   notify --> cache
   cache --> sidebar
 
-  manager -. fallback удалён .-> openai
+  manager -. запасной переход удалён .-> openai
   openai -. заблокирован,<br/>если явно не настроить .-> config
 
   subgraph Текущая граница безопасности
@@ -49,9 +49,9 @@ flowchart TD
   end
 
   subgraph Возможная оптимизация
-    opt1[Переиспользовать Codex app-server<br/>или локальный Codex-процесс]
-    opt2[Передать сжатое начало треда<br/>в локальный summarizer turn]
-    opt3[Вернуть название без<br/>OpenAI-compatible proxy hop]
+    opt1[Переиспользовать сервер Codex<br/>или локальный процесс Codex]
+    opt2[Передать сжатое начало треда<br/>в локальный ход суммаризации]
+    opt3[Вернуть название без перехода<br/>через OpenAI-совместимый прокси]
     opt1 --> opt2 --> opt3
   end
 
