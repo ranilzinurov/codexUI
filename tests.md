@@ -5567,3 +5567,31 @@ Expanded project folders initially show only threads whose sidebar relative upda
 
 #### Rollback/Cleanup
 - None.
+
+---
+
+### Thread auto-title routes through local Codex load balancer
+
+#### Feature/Change Name
+Thread auto-title LLM routing documentation and manual configuration check.
+
+#### Prerequisites/Setup
+1. Local Codex load balancer is running and reachable from the CodexUI server environment.
+2. `CODEXUI_THREAD_TITLE_*` variables are configured with placeholder-safe documented values, not real secrets in committed files.
+3. Dev server running if performing an end-to-end title generation check.
+
+#### Steps
+1. Inspect the deployment environment or local `.env` override used outside version control.
+2. Confirm `CODEXUI_THREAD_TITLE_BASE_URL` points to the local Codex load balancer, not the official OpenAI API host.
+3. Confirm `CODEXUI_THREAD_TITLE_MODEL` uses the expected local title model or load-balancer alias.
+4. Start a new thread and send a message that should trigger automatic title generation.
+5. Check local load-balancer logs and confirm the title-generation request was received there.
+6. Confirm no committed documentation or test fixture contains a real API key, bearer token, or provider secret.
+
+#### Expected Results
+- Thread auto-title generation calls are routed through the local Codex load balancer via `CODEXUI_THREAD_TITLE_*`.
+- The official OpenAI API is not contacted for this path unless a deployment intentionally overrides the local routing.
+- Documentation examples remain placeholder-only and contain no real secrets.
+
+#### Rollback/Cleanup
+- Remove or restore any local, uncommitted environment overrides used for the manual check.
