@@ -136,28 +136,67 @@ async function runModelTitleTest(generateThreadTitleFromConversationWithModel) {
 async function runModelTitleDisabledTest(generateThreadTitleFromConversationWithModel) {
   const previousEnv = {
     CODEXUI_THREAD_TITLE_API_KEY: process.env.CODEXUI_THREAD_TITLE_API_KEY,
+    CODEXUI_THREAD_TITLE_BASE_URL: process.env.CODEXUI_THREAD_TITLE_BASE_URL,
     CODEXUI_THREAD_TITLE_LLM: process.env.CODEXUI_THREAD_TITLE_LLM,
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   }
+  const previousFetch = globalThis.fetch
+  const fetchCalls = []
 
   try {
+    globalThis.fetch = async (...args) => {
+      fetchCalls.push(args)
+      throw new Error('Title model generation should not make a request without explicit title API settings')
+    }
+
     delete process.env.CODEXUI_THREAD_TITLE_API_KEY
+    delete process.env.CODEXUI_THREAD_TITLE_BASE_URL
+    process.env.OPENAI_API_KEY = 'openai-key-must-not-be-used'
+    process.env.OPENAI_BASE_URL = 'http://127.0.0.1:9/v1'
+    process.env.CODEXUI_THREAD_TITLE_LLM = 'on'
+    assertEqual(
+      await generateThreadTitleFromConversationWithModel('Create a tracker task', 'Done.'),
+      '',
+      'Model title generation should not fall back to OPENAI_API_KEY or OPENAI_BASE_URL',
+    )
+    assertEqual(fetchCalls.length, 0, 'OpenAI fallback env should not trigger a title request')
+
+    process.env.CODEXUI_THREAD_TITLE_API_KEY = 'title-key-without-title-base-url'
+    delete process.env.CODEXUI_THREAD_TITLE_BASE_URL
+    process.env.OPENAI_BASE_URL = 'http://127.0.0.1:9/v1'
     delete process.env.OPENAI_API_KEY
     process.env.CODEXUI_THREAD_TITLE_LLM = 'on'
     assertEqual(
       await generateThreadTitleFromConversationWithModel('Create a tracker task', 'Done.'),
       '',
-      'Model title generation should no-op without an API key',
+      'Model title generation should no-op without CODEXUI_THREAD_TITLE_BASE_URL',
     )
+    assertEqual(fetchCalls.length, 0, 'Missing title base URL should not trigger a title request')
+
+    delete process.env.CODEXUI_THREAD_TITLE_API_KEY
+    process.env.CODEXUI_THREAD_TITLE_BASE_URL = 'http://127.0.0.1:9/v1'
+    process.env.OPENAI_API_KEY = 'openai-key-must-not-be-used'
+    delete process.env.OPENAI_BASE_URL
+    process.env.CODEXUI_THREAD_TITLE_LLM = 'on'
+    assertEqual(
+      await generateThreadTitleFromConversationWithModel('Create a tracker task', 'Done.'),
+      '',
+      'Model title generation should no-op without CODEXUI_THREAD_TITLE_API_KEY',
+    )
+    assertEqual(fetchCalls.length, 0, 'Missing title API key should not trigger a title request')
 
     process.env.CODEXUI_THREAD_TITLE_API_KEY = 'unused-key'
+    process.env.CODEXUI_THREAD_TITLE_BASE_URL = 'http://127.0.0.1:9/v1'
     process.env.CODEXUI_THREAD_TITLE_LLM = 'off'
     assertEqual(
       await generateThreadTitleFromConversationWithModel('Create a tracker task', 'Done.'),
       '',
       'Model title generation should respect the off switch',
     )
+    assertEqual(fetchCalls.length, 0, 'Disabled title model generation should not trigger a title request')
   } finally {
+    globalThis.fetch = previousFetch
     restoreEnv(previousEnv)
   }
 }
