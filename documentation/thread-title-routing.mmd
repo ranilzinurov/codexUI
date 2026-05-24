@@ -1,0 +1,59 @@
+flowchart TD
+  user[User opens or creates a thread]
+  ui[CodexUI browser]
+  bridge[CodexUI server bridge<br/>codexAppServerBridge.ts]
+  appserver[Codex app-server]
+  codex[Codex model turn]
+  event[RPC notification<br/>turn/completed]
+  manager[ThreadAutoTitleManager<br/>threadAutoTitle.ts]
+  read[RPC thread/read<br/>includeTurns: true]
+  source[First user and assistant items<br/>max 6 items, compacted]
+  config{Explicit title LLM config?}
+  local[Local heuristic title<br/>no network call]
+  lb[Codex LB<br/>http://127.0.0.1:2455/v1]
+  responses[POST /v1/responses<br/>model gpt-5.4-mini<br/>reasoning low<br/>store false]
+  title[Sanitized short title]
+  setname[RPC thread/name/set]
+  notify[RPC notification<br/>thread/name/updated]
+  cache[Frontend title cache<br/>threadTitleById]
+  sidebar[Sidebar shows updated title]
+  openai[Official OpenAI API<br/>not used by title path]
+
+  user --> ui --> bridge
+  bridge --> appserver
+  appserver --> codex
+  codex --> event
+  event --> manager
+  manager --> read
+  read --> appserver
+  appserver --> source
+  source --> config
+  config -- no CODEXUI_THREAD_TITLE_API_KEY or BASE_URL --> local
+  config -- CODEXUI_THREAD_TITLE_* present --> lb
+  lb --> responses
+  responses --> title
+  local --> title
+  title --> setname
+  setname --> appserver
+  appserver --> notify
+  notify --> cache
+  cache --> sidebar
+
+  manager -. removed fallback .-> openai
+  openai -. blocked unless explicitly configured .-> config
+
+  subgraph Current safety boundary
+    config
+    lb
+    openai
+  end
+
+  subgraph Possible optimization
+    opt1[Reuse Codex app-server or local Codex process]
+    opt2[Send compact early-thread text to local summarizer turn]
+    opt3[Return title without OpenAI-compatible proxy hop]
+    opt1 --> opt2 --> opt3
+  end
+
+  source -. future path .-> opt1
+  opt3 -. title candidate .-> title

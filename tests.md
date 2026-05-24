@@ -5582,8 +5582,8 @@ Thread auto-title LLM routing documentation and manual configuration check.
 
 #### Steps
 1. Inspect the deployment environment or local `.env` override used outside version control.
-2. Confirm `CODEXUI_THREAD_TITLE_BASE_URL` points to the local Codex load balancer, not the official OpenAI API host.
-3. Confirm `CODEXUI_THREAD_TITLE_MODEL` uses the expected local title model or load-balancer alias.
+2. Confirm `CODEXUI_THREAD_TITLE_BASE_URL` points to `http://127.0.0.1:2455/v1`, not the official OpenAI API host.
+3. Confirm `CODEXUI_THREAD_TITLE_MODEL` uses `gpt-5.4-mini` or the expected local load-balancer alias.
 4. Start a new thread and send a message that should trigger automatic title generation.
 5. Check local load-balancer logs and confirm the title-generation request was received there.
 6. Confirm no committed documentation or test fixture contains a real API key, bearer token, or provider secret.

@@ -54,7 +54,7 @@ const MAX_TITLE_LENGTH = 72
 const MAX_TITLE_WORDS = 10
 const MAX_REMEMBERED_THREAD_IDS = 5_000
 const MAX_COUNTERPARTY_WORDS = 3
-const DEFAULT_TITLE_MODEL = 'gpt-5.5'
+const DEFAULT_TITLE_MODEL = 'gpt-5.4-mini'
 const DEFAULT_TITLE_REASONING_EFFORT = 'low'
 const DEFAULT_TITLE_TIMEOUT_MS = 8_000
 const TITLE_MODEL_MAX_OUTPUT_TOKENS = 80
@@ -496,15 +496,12 @@ function shouldUseModelTitleGeneration(): boolean {
 }
 
 function readThreadTitleApiKey(): string {
-  return process.env.CODEXUI_THREAD_TITLE_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim() || ''
+  return process.env.CODEXUI_THREAD_TITLE_API_KEY?.trim() || ''
 }
 
 function readThreadTitleBaseUrl(): string {
-  return normalizeBaseUrl(
-    process.env.CODEXUI_THREAD_TITLE_BASE_URL?.trim() ||
-    process.env.OPENAI_BASE_URL?.trim() ||
-    'https://api.openai.com/v1',
-  )
+  const baseUrl = process.env.CODEXUI_THREAD_TITLE_BASE_URL?.trim()
+  return baseUrl ? normalizeBaseUrl(baseUrl) : ''
 }
 
 function readThreadTitleModel(): string {
@@ -520,10 +517,12 @@ function readThreadTitleModelConfig(): ThreadTitleModelConfig | null {
 
   const apiKey = readThreadTitleApiKey()
   if (!apiKey) return null
+  const baseUrl = readThreadTitleBaseUrl()
+  if (!baseUrl) return null
 
   return {
     apiKey,
-    baseUrl: readThreadTitleBaseUrl(),
+    baseUrl,
     model: readThreadTitleModel(),
     reasoningEffort: readThreadTitleReasoningEffort(),
     timeoutMs: parsePositiveInteger(process.env.CODEXUI_THREAD_TITLE_TIMEOUT_MS, DEFAULT_TITLE_TIMEOUT_MS),
