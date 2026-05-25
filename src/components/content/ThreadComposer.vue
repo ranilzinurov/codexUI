@@ -1,20 +1,56 @@
 <template>
   <form class="thread-composer" @submit.prevent="onSubmit(isTurnInProgress ? activeInProgressMode : 'steer')">
-    <div v-if="liveCollabAgents.length > 0" class="thread-composer-agent-status" aria-live="polite">
-      <p v-if="liveActivityLabel" class="thread-composer-agent-activity">
-        {{ liveActivityLabel }}
-      </p>
-      <div class="thread-composer-agent-rows">
-        <template v-for="agent in liveCollabAgents" :key="agent.id">
-          <span
-            class="thread-composer-agent-dot"
-            :data-status="agent.status"
-            :title="agentStatusTitle(agent)"
-            aria-hidden="true"
-          />
-          <span class="thread-composer-agent-name" :title="agent.name">{{ agent.name }}</span>
-          <span class="thread-composer-agent-task" :title="agentTaskTitle(agent)">{{ agent.task || 'working' }}</span>
-        </template>
+    <div v-if="hasRuntimeActivity" class="thread-composer-agent-status" :data-collapsed="isRuntimeActivityCollapsed" aria-live="polite">
+      <div class="thread-composer-agent-header">
+        <p class="thread-composer-agent-activity">
+          {{ runtimeActivityTitle }}
+          <span class="thread-composer-agent-summary">{{ runtimeActivitySummary }}</span>
+        </p>
+        <button
+          v-if="canCollapseRuntimeActivity"
+          type="button"
+          class="thread-composer-agent-toggle"
+          :aria-expanded="!isRuntimeActivityCollapsed"
+          :title="isRuntimeActivityCollapsed ? 'Expand activity' : 'Collapse activity'"
+          @click="toggleRuntimeActivityCollapsed"
+        >
+          {{ isRuntimeActivityCollapsed ? 'Expand' : 'Collapse' }}
+        </button>
+      </div>
+      <div v-if="isRuntimeActivityCollapsed" class="thread-composer-activity-collapsed">
+        {{ collapsedRuntimeActivitySummary }}
+      </div>
+      <div v-else class="thread-composer-activity-sections">
+        <section v-if="liveCollabAgents.length > 0" class="thread-composer-activity-section">
+          <p v-if="liveMcpActivities.length > 0" class="thread-composer-activity-section-title">Agents</p>
+          <div class="thread-composer-agent-rows">
+            <template v-for="agent in liveCollabAgents" :key="agent.id">
+              <span
+                class="thread-composer-agent-dot"
+                :data-status="agent.status"
+                :title="agentStatusTitle(agent)"
+                aria-hidden="true"
+              />
+              <span class="thread-composer-agent-name" :title="agent.name">{{ agent.name }}</span>
+              <span class="thread-composer-agent-task" :title="agentTaskTitle(agent)">{{ agent.task || 'working' }}</span>
+            </template>
+          </div>
+        </section>
+        <section v-if="liveMcpActivities.length > 0" class="thread-composer-activity-section">
+          <p class="thread-composer-activity-section-title">MCP</p>
+          <div class="thread-composer-agent-rows thread-composer-mcp-rows">
+            <template v-for="activity in liveMcpActivities" :key="activity.id">
+              <span
+                class="thread-composer-agent-dot"
+                :data-status="activity.status"
+                :title="mcpStatusTitle(activity)"
+                aria-hidden="true"
+              />
+              <span class="thread-composer-agent-name" :title="activity.name">{{ activity.name }}</span>
+              <span class="thread-composer-agent-task" :title="mcpTaskTitle(activity)">{{ activity.detail || 'working' }}</span>
+            </template>
+          </div>
+        </section>
       </div>
     </div>
 
@@ -471,6 +507,7 @@ import type {
   SpeedMode,
   UiCollabAgentStatus,
   UiLiveOverlay,
+  UiMcpActivity,
   UiRateLimitSnapshot,
   UiRateLimitWindow,
   UiThreadTokenUsage,
@@ -593,10 +630,46 @@ const emit = defineEmits<{
 const { t } = useUiLanguage()
 
 const liveCollabAgents = computed<UiCollabAgentStatus[]>(() => props.liveOverlay?.collabAgents ?? [])
+const liveMcpActivities = computed<UiMcpActivity[]>(() => props.liveOverlay?.mcpActivities ?? [])
+const isRuntimeActivityCollapsed = ref(false)
+const hasRuntimeActivity = computed(() => liveCollabAgents.value.length > 0 || liveMcpActivities.value.length > 0)
+const canCollapseRuntimeActivity = computed(() => liveCollabAgents.value.length + liveMcpActivities.value.length > 1)
 const liveActivityLabel = computed(() => {
   const label = props.liveOverlay?.activityLabel.trim() ?? ''
-  return label && liveCollabAgents.value.length > 0 ? label : ''
+  return label && hasRuntimeActivity.value ? label : ''
 })
+const runtimeActivityTitle = computed(() => liveActivityLabel.value || 'Working')
+const runtimeActivitySummary = computed(() => {
+  const total = liveCollabAgents.value.length + liveMcpActivities.value.length
+  if (total === 0) return ''
+  return `${total} active`
+})
+const collapsedRuntimeActivitySummary = computed(() => {
+  const parts: string[] = []
+  if (liveCollabAgents.value.length > 0) {
+    parts.push(`Agents ${formatStatusCounts(liveCollabAgents.value.map((agent) => agent.status))}`)
+  }
+  if (liveMcpActivities.value.length > 0) {
+    parts.push(`MCP ${formatStatusCounts(liveMcpActivities.value.map((activity) => activity.status))}`)
+  }
+  return parts.join(' · ')
+})
+
+function formatStatusCounts(statuses: string[]): string {
+  const total = statuses.length
+  const completed = statuses.filter((status) => status === 'completed').length
+  const failed = statuses.filter((status) => status === 'failed').length
+  const active = statuses.filter((status) => status === 'running' || status === 'pending' || status === 'waiting').length
+  const parts = [`${total} total`]
+  if (active > 0) parts.push(`${active} active`)
+  if (completed > 0) parts.push(`${completed} done`)
+  if (failed > 0) parts.push(`${failed} failed`)
+  return parts.join(', ')
+}
+
+function toggleRuntimeActivityCollapsed(): void {
+  isRuntimeActivityCollapsed.value = !isRuntimeActivityCollapsed.value
+}
 
 function agentStatusTitle(agent: UiCollabAgentStatus): string {
   return `${agent.name}: ${agent.status}`
@@ -605,6 +678,15 @@ function agentStatusTitle(agent: UiCollabAgentStatus): string {
 function agentTaskTitle(agent: UiCollabAgentStatus): string {
   const task = agent.task.trim()
   return task ? `${agent.name}: ${task}` : agent.name
+}
+
+function mcpStatusTitle(activity: UiMcpActivity): string {
+  return `${activity.name}: ${activity.status}`
+}
+
+function mcpTaskTitle(activity: UiMcpActivity): string {
+  const task = activity.detail.trim()
+  return task ? `${activity.name}: ${task}` : activity.name
 }
 
 type SelectedImage = {
@@ -2649,8 +2731,36 @@ watch(
   @apply mb-2 px-1 text-xs;
 }
 
+.thread-composer-agent-header {
+  @apply mb-1 flex min-w-0 items-center justify-between gap-2;
+}
+
 .thread-composer-agent-activity {
-  @apply mb-1 font-medium text-zinc-500;
+  @apply m-0 min-w-0 truncate font-medium text-zinc-500;
+}
+
+.thread-composer-agent-summary {
+  @apply ml-1 font-normal text-zinc-400;
+}
+
+.thread-composer-agent-toggle {
+  @apply shrink-0 rounded-md border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px] font-medium text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-700;
+}
+
+.thread-composer-activity-collapsed {
+  @apply min-w-0 truncate rounded-md border border-zinc-200 bg-zinc-50/80 px-2.5 py-1 text-xs font-medium text-zinc-600;
+}
+
+.thread-composer-activity-sections {
+  @apply flex flex-col gap-2;
+}
+
+.thread-composer-activity-section {
+  @apply min-w-0;
+}
+
+.thread-composer-activity-section-title {
+  @apply m-0 mb-1 text-[11px] font-semibold uppercase tracking-normal text-zinc-400;
 }
 
 .thread-composer-agent-rows {
@@ -2671,6 +2781,10 @@ watch(
 
 .thread-composer-agent-dot[data-status='running'] {
   background: #f59e0b;
+}
+
+.thread-composer-agent-dot[data-status='waiting'] {
+  background: #60a5fa;
 }
 
 .thread-composer-agent-dot[data-status='completed'] {

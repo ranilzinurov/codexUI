@@ -58,3 +58,10 @@
 - Updated project cron automation notes for the combined Automations panel.
 - Updated Automations panel notes for active/newest sorting and direct edit buttons.
 - Updated project cron automation notes for absolute cwd validation and multi-cwd preservation.
+
+## 2026-05-25
+
+- Added runtime activity source notes for grouped sub-agent and MCP activity rows.
+- Created wiki page: `concepts/runtime-activity-panel.md`.
+- Documents: `UiLiveOverlay.mcpActivities`, live MCP notification handling, pending MCP/server request display, and one-line collapsed composer summaries.
+- Updated `index.md`.

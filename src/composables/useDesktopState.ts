@@ -59,6 +59,7 @@ import type {
   UiCollabAgentStatus,
   UiLiveOverlay,
   UiMessage,
+  UiMcpActivity,
   UiPlanData,
   UiPlanStep,
   UiProjectGroup,
@@ -1586,6 +1587,7 @@ export function useDesktopState() {
   const liveCommandsByThreadId = ref<Record<string, UiMessage[]>>({})
   const liveFileChangeMessagesByThreadId = ref<Record<string, UiMessage[]>>({})
   const liveCollabAgentsByThreadId = ref<Record<string, UiCollabAgentStatus[]>>({})
+  const liveMcpActivitiesByThreadId = ref<Record<string, UiMcpActivity[]>>({})
   const collabAgentDisplayNameByThreadId = ref<Record<string, string>>({})
   const collabAgentParentThreadIdByThreadId = ref<Record<string, string>>({})
   const collabAgentReasoningSummaryByThreadId = ref<Record<string, string>>({})
@@ -1770,14 +1772,19 @@ export function useDesktopState() {
       : ''
     const errorText = (turnErrorByThreadId.value[threadId]?.message ?? '').trim()
     const collabAgents = isInProgress ? (liveCollabAgentsByThreadId.value[threadId] ?? []) : []
+    const mcpActivities = [
+      ...(isInProgress ? (liveMcpActivitiesByThreadId.value[threadId] ?? []) : []),
+      ...buildMcpActivities(selectedThreadServerRequests.value),
+    ]
 
-    if (!activity && !reasoningText && !errorText && collabAgents.length === 0) return null
+    if (!activity && !reasoningText && !errorText && collabAgents.length === 0 && mcpActivities.length === 0) return null
     return {
       activityLabel: activity?.label || 'Thinking',
       activityDetails: activity?.details ?? [],
       reasoningText,
       errorText,
       collabAgents,
+      mcpActivities,
     }
   })
   const codexQuota = computed<UiRateLimitSnapshot | null>(() => codexRateLimit.value)
@@ -2011,6 +2018,7 @@ export function useDesktopState() {
         setLiveAgentMessagesForThread(threadId, [])
         clearLiveReasoningForThread(threadId)
         clearLiveCollabAgentsForThread(threadId)
+        clearLiveMcpActivitiesForThread(threadId)
         if (liveCommandsByThreadId.value[threadId]) {
           liveCommandsByThreadId.value = omitKey(liveCommandsByThreadId.value, threadId)
         }
@@ -2411,6 +2419,7 @@ export function useDesktopState() {
     liveCommandsByThreadId.value = pruneThreadStateMap(liveCommandsByThreadId.value, activeThreadIds)
     liveFileChangeMessagesByThreadId.value = pruneThreadStateMap(liveFileChangeMessagesByThreadId.value, activeThreadIds)
     liveCollabAgentsByThreadId.value = pruneThreadStateMap(liveCollabAgentsByThreadId.value, activeThreadIds)
+    liveMcpActivitiesByThreadId.value = pruneThreadStateMap(liveMcpActivitiesByThreadId.value, activeThreadIds)
     turnSummaryByThreadId.value = pruneThreadStateMap(turnSummaryByThreadId.value, activeThreadIds)
     turnActivityByThreadId.value = pruneThreadStateMap(turnActivityByThreadId.value, activeThreadIds)
     turnErrorByThreadId.value = pruneThreadStateMap(turnErrorByThreadId.value, activeThreadIds)
@@ -2920,11 +2929,39 @@ export function useDesktopState() {
     liveFileChangeMessagesByThreadId.value = omitKey(liveFileChangeMessagesByThreadId.value, threadId)
   }
 
+  function setLiveMcpActivitiesForThread(threadId: string, activities: UiMcpActivity[]): void {
+    if (!threadId) return
+    if (activities.length === 0) {
+      if (threadId in liveMcpActivitiesByThreadId.value) {
+        liveMcpActivitiesByThreadId.value = omitKey(liveMcpActivitiesByThreadId.value, threadId)
+      }
+      return
+    }
+    liveMcpActivitiesByThreadId.value = {
+      ...liveMcpActivitiesByThreadId.value,
+      [threadId]: activities,
+    }
+  }
+
+  function upsertLiveMcpActivity(threadId: string, activity: UiMcpActivity): void {
+    const previous = liveMcpActivitiesByThreadId.value[threadId] ?? []
+    const index = previous.findIndex((row) => row.id === activity.id)
+    const next = [...previous]
+    if (index >= 0) next.splice(index, 1, activity)
+    else next.push(activity)
+    setLiveMcpActivitiesForThread(threadId, next)
+  }
+
+  function clearLiveMcpActivitiesForThread(threadId: string): void {
+    setLiveMcpActivitiesForThread(threadId, [])
+  }
+
   function clearCompletedTurnLiveState(threadId: string): void {
     if (!threadId) return
     clearLivePlansForThread(threadId)
     clearLiveReasoningForThread(threadId)
     clearLiveCollabAgentsForThread(threadId)
+    clearLiveMcpActivitiesForThread(threadId)
     setTurnActivityForThread(threadId, null)
     if (threadId === selectedThreadId.value) {
       activeReasoningItemId = ''
@@ -3377,6 +3414,67 @@ export function useDesktopState() {
     }
 
     return questionIds
+  }
+
+  function buildMcpActivities(requests: UiServerRequest[]): UiMcpActivity[] {
+    return requests
+      .map((request): UiMcpActivity | null => {
+        const params = asRecord(request.params)
+        if (request.method === 'mcpServer/elicitation/request') {
+          const serverName = sanitizeDisplayText(readString(params?.serverName)) || 'MCP server'
+          const message = sanitizeDisplayText(readString(params?.message))
+          const mode = sanitizeDisplayText(readString(params?.mode))
+          return {
+            id: `request:${String(request.id)}`,
+            name: formatMcpServerName(serverName),
+            detail: message || (mode === 'url' ? 'Waiting for URL confirmation' : 'Waiting for input'),
+            status: 'waiting' as const,
+          }
+        }
+
+        if (request.method !== 'item/tool/call') return null
+        const rawTool = sanitizeDisplayText(
+          readString(params?.tool) ||
+          readString(params?.toolName) ||
+          readString(params?.tool_name) ||
+          readString(params?.name),
+        )
+        const parsed = parseMcpToolName(rawTool)
+        if (!parsed) return null
+        return {
+          id: `request:${String(request.id)}`,
+          name: parsed.serverName,
+          detail: parsed.toolName ? `Calling ${parsed.toolName}` : 'Calling MCP tool',
+          status: 'running' as const,
+        }
+      })
+      .filter((activity): activity is UiMcpActivity => activity !== null)
+  }
+
+  function formatMcpServerName(value: string): string {
+    const trimmed = sanitizeDisplayText(value)
+    if (!trimmed) return 'MCP server'
+    return /mcp$/iu.test(trimmed) ? trimmed : `${trimmed} MCP`
+  }
+
+  function parseMcpToolName(toolName: string): { serverName: string; toolName: string } | null {
+    const normalized = sanitizeDisplayText(toolName)
+    if (!normalized) return null
+    if (normalized.startsWith('mcp__')) {
+      const [, server = '', tool = ''] = normalized.split('__')
+      return {
+        serverName: formatMcpServerName(server.replace(/[_-]+/gu, ' ')),
+        toolName: tool.replace(/[_-]+/gu, ' ').trim(),
+      }
+    }
+    const match = normalized.match(/^([^:]+)\s*:\s*(.+)$/u)
+    if (match && /mcp/iu.test(match[1])) {
+      return {
+        serverName: formatMcpServerName(match[1].replace(/mcp/giu, '')),
+        toolName: match[2].trim(),
+      }
+    }
+    return null
   }
 
   function upsertPendingServerRequest(request: UiServerRequest): void {
@@ -4059,6 +4157,55 @@ export function useDesktopState() {
     }
   }
 
+  function normalizeMcpToolCallStatus(value: unknown): UiMcpActivity['status'] {
+    if (value === 'failed') return 'failed'
+    if (value === 'completed') return 'completed'
+    return 'running'
+  }
+
+  function readMcpActivityFromItem(item: Record<string, unknown>, fallbackDetail: string): UiMcpActivity | null {
+    if (item.type !== 'mcpToolCall') return null
+    const id = readString(item.id)
+    if (!id) return null
+    const server = sanitizeDisplayText(readString(item.server))
+    const tool = sanitizeDisplayText(readString(item.tool))
+    const error = asRecord(item.error)
+    const errorMessage = sanitizeDisplayText(readString(error?.message))
+    return {
+      id,
+      name: formatMcpServerName(server),
+      detail: errorMessage || fallbackDetail || (tool ? `Calling ${tool}` : 'Calling MCP tool'),
+      status: normalizeMcpToolCallStatus(item.status),
+    }
+  }
+
+  function applyMcpActivityRealtimeUpdate(notification: RpcNotification): void {
+    const threadId = extractThreadIdFromNotification(notification)
+    if (!threadId) return
+    const params = asRecord(notification.params)
+    if (!params) return
+
+    if (notification.method === 'item/mcpToolCall/progress') {
+      const itemId = readString(params.itemId)
+      if (!itemId) return
+      const previous = liveMcpActivitiesByThreadId.value[threadId]?.find((activity) => activity.id === itemId)
+      upsertLiveMcpActivity(threadId, {
+        id: itemId,
+        name: previous?.name ?? 'MCP server',
+        detail: sanitizeDisplayText(readString(params.message)) || previous?.detail || 'Working',
+        status: 'running',
+      })
+      return
+    }
+
+    if (notification.method !== 'item/started' && notification.method !== 'item/completed') return
+    const item = asRecord(params.item)
+    if (!item || item.type !== 'mcpToolCall') return
+    const activity = readMcpActivityFromItem(item, notification.method === 'item/completed' ? 'Completed' : 'Starting MCP tool')
+    if (!activity) return
+    upsertLiveMcpActivity(threadId, activity)
+  }
+
   function upsertLiveCommand(threadId: string, msg: UiMessage): void {
     const previous = liveCommandsByThreadId.value[threadId] ?? []
     const next = upsertMessage(previous, msg)
@@ -4177,6 +4324,7 @@ export function useDesktopState() {
       clearLivePlansForThread(startedTurn.threadId)
       clearLiveFileChangesForThread(startedTurn.threadId)
       clearLiveCollabAgentsForThread(startedTurn.threadId)
+      clearLiveMcpActivitiesForThread(startedTurn.threadId)
       setTurnSummaryForThread(startedTurn.threadId, null)
       setTurnErrorForThread(startedTurn.threadId, null)
       setThreadInProgress(startedTurn.threadId, true)
@@ -4301,6 +4449,7 @@ export function useDesktopState() {
     }
 
     applyCollabAgentRealtimeUpdate(notification)
+    applyMcpActivityRealtimeUpdate(notification)
 
     if (!notificationThreadId || notificationThreadId !== selectedThreadId.value) return
 
@@ -4875,6 +5024,7 @@ export function useDesktopState() {
       } else {
         clearLiveAgentMessagesForThread(threadId)
         clearLiveCollabAgentsForThread(threadId)
+        clearLiveMcpActivitiesForThread(threadId)
       }
       removeLiveCommandsPersistedIn(threadId, nextMessages)
       removeLiveFileChangesPersistedIn(threadId, nextMessages)
@@ -5206,6 +5356,7 @@ export function useDesktopState() {
       setLiveAgentMessagesForThread(forkedThreadId, [])
       clearLiveReasoningForThread(forkedThreadId)
       clearLiveCollabAgentsForThread(forkedThreadId)
+      clearLiveMcpActivitiesForThread(forkedThreadId)
       if (liveCommandsByThreadId.value[forkedThreadId]) {
         liveCommandsByThreadId.value = omitKey(liveCommandsByThreadId.value, forkedThreadId)
       }
@@ -5766,6 +5917,7 @@ export function useDesktopState() {
       setLiveAgentMessagesForThread(threadId, [])
       clearLiveReasoningForThread(threadId)
       clearLiveCollabAgentsForThread(threadId)
+      clearLiveMcpActivitiesForThread(threadId)
       if (liveCommandsByThreadId.value[threadId]) {
         liveCommandsByThreadId.value = omitKey(liveCommandsByThreadId.value, threadId)
       }
@@ -6121,6 +6273,7 @@ export function useDesktopState() {
     liveCommandsByThreadId.value = {}
     liveFileChangeMessagesByThreadId.value = {}
     liveCollabAgentsByThreadId.value = {}
+    liveMcpActivitiesByThreadId.value = {}
     collabAgentDisplayNameByThreadId.value = {}
     collabAgentParentThreadIdByThreadId.value = {}
     collabAgentReasoningSummaryByThreadId.value = {}

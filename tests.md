@@ -5595,3 +5595,33 @@ Thread auto-title LLM routing documentation and manual configuration check.
 
 #### Rollback/Cleanup
 - Remove or restore any local, uncommitted environment overrides used for the manual check.
+
+---
+
+### Collapsible Agents and MCP Runtime Activity
+
+#### Feature/Change Name
+Composer runtime activity panel groups sub-agent rows and MCP activity rows, with a one-line collapsed summary.
+
+#### Prerequisites/Setup
+1. Dev server running: `pnpm run dev --host 127.0.0.1 --port 4173`.
+2. A thread is actively running with multiple sub-agents, or a visual fixture injects representative activity rows.
+3. At least one MCP tool call or MCP elicitation request is active or represented in the fixture.
+4. Light theme and dark theme are available.
+
+#### Steps
+1. In light theme, open the active thread and confirm the composer activity panel appears above the message input.
+2. Confirm agent rows are grouped first and MCP rows are grouped below under an `MCP` section.
+3. Click `Collapse` and confirm the activity panel becomes a single summary row showing total, active, done, and failed counts where applicable.
+4. Click `Expand` and confirm all agent and MCP rows return without shifting the composer width.
+5. Confirm completed or resolved MCP work disappears once the active request/turn is no longer in progress.
+6. Switch to dark theme and repeat steps 1 through 5.
+
+#### Expected Results
+- Many agents no longer force a tall activity block when collapsed.
+- The collapsed row remains one line, truncates safely, and does not overflow horizontally.
+- MCP activity uses the same compact status vocabulary as agent activity while staying visually grouped below agents.
+- Light and dark themes both keep the panel readable without light surfaces leaking into dark mode.
+
+#### Rollback/Cleanup
+- Stop the test turn or resolve pending MCP/server requests used for the fixture.

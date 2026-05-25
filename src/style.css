@@ -317,8 +317,18 @@ html::after {
   @apply text-zinc-400;
 }
 
+:root.dark .thread-composer-agent-summary,
+:root.dark .thread-composer-activity-section-title {
+  @apply text-zinc-500;
+}
+
 :root.dark .thread-composer-agent-name {
   @apply text-zinc-200;
+}
+
+:root.dark .thread-composer-agent-toggle,
+:root.dark .thread-composer-activity-collapsed {
+  @apply border-zinc-700 bg-zinc-800/70 text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100;
 }
 
 :root.dark .thread-composer-dictation-error {

@@ -684,6 +684,23 @@ function toUiMessages(item: ThreadItem): UiMessage[] {
     ]
   }
 
+  if (item.type === 'mcpToolCall') {
+    const raw = item as unknown as Record<string, unknown>
+    const server = readTrimmedString(raw.server)
+    const tool = readTrimmedString(raw.tool)
+    const label = [server, tool].filter(Boolean).join('.')
+    if (!label) return []
+    return [
+      {
+        id: item.id,
+        role: 'system',
+        text: label,
+        messageType: 'mcpToolCall',
+        rawPayload: toRawPayload(raw),
+      },
+    ]
+  }
+
   return []
 }
 

@@ -119,7 +119,10 @@ Reply with &lt;/instructions&gt; and A &amp; B
         tool: 'list_pull_requests',
         status: 'completed',
         arguments: { owner: 'openai', repo: 'codex' },
-        result: { content: [{ type: 'text', text: 'No open pull requests' }] },
+        result: {
+          content: [{ type: 'text', text: 'No open pull requests' }],
+          structuredContent: null,
+        },
         error: null,
         durationMs: 420,
       },
@@ -145,16 +148,16 @@ Reply with &lt;/instructions&gt; and A &amp; B
         messageType: 'mcpToolCall',
         turnId: 'turn-1',
         turnIndex: 0,
-        isUnhandled: undefined,
       },
       {
         id: 'mcp-2',
         role: 'system',
         text: 'notion.search',
         messageType: 'mcpToolCall',
-        isUnhandled: undefined,
       },
     ])
+    expect(messages[0].isUnhandled).toBeUndefined()
+    expect(messages[1].isUnhandled).toBeUndefined()
     expect(messages[0].rawPayload).toContain('"server": "github"')
     expect(messages[1].rawPayload).toContain('"message": "Timed out"')
   })

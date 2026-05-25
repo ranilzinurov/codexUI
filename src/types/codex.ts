@@ -257,6 +257,7 @@ export type UiLiveOverlay = {
   reasoningText: string
   errorText: string
   collabAgents: UiCollabAgentStatus[]
+  mcpActivities: UiMcpActivity[]
 }
 
 export type UiCollabAgentStatusKind = 'pending' | 'running' | 'completed' | 'failed' | 'shutdown' | 'notFound'
@@ -266,6 +267,15 @@ export type UiCollabAgentStatus = {
   name: string
   task: string
   status: UiCollabAgentStatusKind
+}
+
+export type UiMcpActivityStatus = 'running' | 'waiting' | 'completed' | 'failed'
+
+export type UiMcpActivity = {
+  id: string
+  name: string
+  detail: string
+  status: UiMcpActivityStatus
 }
 
 export type UiCreditsSnapshot = {
