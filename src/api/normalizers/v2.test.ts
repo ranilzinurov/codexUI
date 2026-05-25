@@ -109,6 +109,55 @@ Reply with &lt;/instructions&gt; and A &amp; B
       turnIndex: 12,
     })
   })
+
+  it('normalizes MCP tool calls as renderable activity rows for collapsed summaries', () => {
+    const messages = normalizeThreadMessagesV2(threadReadResponseWithContent([
+      {
+        type: 'mcpToolCall',
+        id: 'mcp-1',
+        server: 'github',
+        tool: 'list_pull_requests',
+        status: 'completed',
+        arguments: { owner: 'openai', repo: 'codex' },
+        result: { content: [{ type: 'text', text: 'No open pull requests' }] },
+        error: null,
+        durationMs: 420,
+      },
+      {
+        type: 'mcpToolCall',
+        id: 'mcp-2',
+        server: 'notion',
+        tool: 'search',
+        status: 'failed',
+        arguments: { query: 'collapsed agent rows' },
+        result: null,
+        error: { message: 'Timed out' },
+        durationMs: 1500,
+      },
+    ]))
+
+    expect(messages).toHaveLength(2)
+    expect(messages).toMatchObject([
+      {
+        id: 'mcp-1',
+        role: 'system',
+        text: 'github.list_pull_requests',
+        messageType: 'mcpToolCall',
+        turnId: 'turn-1',
+        turnIndex: 0,
+        isUnhandled: undefined,
+      },
+      {
+        id: 'mcp-2',
+        role: 'system',
+        text: 'notion.search',
+        messageType: 'mcpToolCall',
+        isUnhandled: undefined,
+      },
+    ])
+    expect(messages[0].rawPayload).toContain('"server": "github"')
+    expect(messages[1].rawPayload).toContain('"message": "Timed out"')
+  })
 })
 
 describe('normalizeCollabAgentsFromItems', () => {
@@ -152,6 +201,52 @@ describe('normalizeCollabAgentsFromItems', () => {
       name: 'Hilbert',
       task: 'waiting for delegated result',
     })
+  })
+
+  it('preserves deterministic many-agent rows for collapsed summary fixtures', () => {
+    const agents = normalizeCollabAgentsFromItems([{
+      type: 'collabAgentToolCall',
+      id: 'collab-many',
+      tool: 'wait',
+      status: 'inProgress',
+      senderThreadId: 'parent-thread',
+      receiverThreadIds: [
+        'agent-thread-1',
+        'agent-thread-2',
+        'agent-thread-3',
+        'agent-thread-4',
+        'agent-thread-5',
+        'agent-thread-6',
+      ],
+      prompt: 'Review focused test fixtures',
+      agentsStates: {
+        'agent-thread-1': { status: 'running', message: 'Reading normalizer tests' },
+        'agent-thread-2': { status: 'completed', message: 'Prepared MCP fixture' },
+        'agent-thread-3': { status: 'errored', message: 'Fixture needs implementation' },
+        'agent-thread-4': { status: 'shutdown', message: '' },
+        'agent-thread-5': { status: 'notFound', message: null },
+        'agent-thread-6': { status: 'queued', message: 'Waiting for turn' },
+      },
+    }], {
+      agentDisplayNames: new Map([
+        ['agent-thread-1', 'Ada'],
+        ['agent-thread-2', 'Grace'],
+        ['agent-thread-3', 'Linus'],
+        ['agent-thread-4', 'Margaret'],
+        ['agent-thread-5', 'Radia'],
+        ['agent-thread-6', 'Ken'],
+      ]),
+    })
+
+    expect(agents).toHaveLength(6)
+    expect(agents).toMatchObject([
+      { id: 'agent-thread-1', name: 'Ada', task: 'Reading normalizer tests', status: 'running' },
+      { id: 'agent-thread-2', name: 'Grace', task: 'Prepared MCP fixture', status: 'completed' },
+      { id: 'agent-thread-3', name: 'Linus', task: 'Fixture needs implementation', status: 'failed' },
+      { id: 'agent-thread-4', name: 'Margaret', task: 'Review focused test fixtures', status: 'shutdown' },
+      { id: 'agent-thread-5', name: 'Radia', task: 'Review focused test fixtures', status: 'notFound' },
+      { id: 'agent-thread-6', name: 'Ken', task: 'Waiting for turn', status: 'pending' },
+    ])
   })
 })
 
