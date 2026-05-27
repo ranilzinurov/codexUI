@@ -1,5 +1,5 @@
 import type { RpcEnvelope, RpcMethodCatalog } from '../types/codex'
-import { CodexApiError, extractErrorMessage } from './codexErrors'
+import { CodexApiError, extractErrorMessage, sanitizeCodexErrorMessage } from './codexErrors'
 
 type RpcRequestBody = {
   method: string
@@ -98,7 +98,7 @@ export async function rpcCall<T>(method: string, params?: unknown): Promise<T> {
         continue
       }
 
-      const detail = extractErrorMessage(payload, '') || rawText?.slice(0, 500) || ''
+      const detail = extractErrorMessage(payload, '') || (rawText ? sanitizeCodexErrorMessage(rawText.slice(0, 500), '') : '')
       const prefix = `RPC ${method} failed with HTTP ${response.status}`
       throw new CodexApiError(
         detail ? `${prefix}: ${detail}` : prefix,

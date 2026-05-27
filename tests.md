@@ -5625,3 +5625,31 @@ Composer runtime activity panel groups sub-agent rows and MCP activity rows, wit
 
 #### Rollback/Cleanup
 - Stop the test turn or resolve pending MCP/server requests used for the fixture.
+
+---
+
+### Directory Hub Apps Directory Failure
+
+#### Feature/Change Name
+Apps tab concise error state when the app directory cannot load.
+
+#### Prerequisites/Setup
+1. Dev server running: `pnpm run dev --host 127.0.0.1 --port 4173`.
+2. Ability to force or simulate an `app/list` failure, for example by running against a Codex CLI/app-server build that returns an app-list error.
+3. Light theme and dark theme are available from the appearance setting.
+
+#### Steps
+1. In light theme, open `http://127.0.0.1:4173/#/skills?tab=apps`.
+2. Trigger or confirm the `app/list` failure state.
+3. Confirm the Apps tab error text is concise and says the Apps directory is temporarily unavailable.
+4. Confirm the visible error does not expose raw RPC method names, JSON payloads, stack traces, HTML, or long server error details.
+5. Click `Refresh` and confirm the same concise error is shown if the failure persists.
+6. Switch to dark theme and repeat steps 1-5.
+
+#### Expected Results
+- The Apps tab displays `Apps directory temporarily unavailable. Refresh or try again later.` for app-list failures.
+- Raw backend/RPC/HTML details are not visible in the Apps tab error surface.
+- The error block remains readable and visually consistent in both light theme and dark theme.
+
+#### Rollback/Cleanup
+- Restore the normal app-server/Codex CLI behavior if a local failure stub or downgraded server was used.

@@ -694,6 +694,7 @@ import SkillsHub from './SkillsHub.vue'
 type DirectoryTab = 'plugins' | 'apps' | 'composio' | 'skills'
 const COMPOSIO_SKILL_PATH = '/Users/igor/.codex/skills/shared_skills/composio-cli/SKILL.md'
 const COMPOSIO_PAGE_LIMIT = 50
+const APP_DIRECTORY_UNAVAILABLE_MESSAGE = 'Apps directory temporarily unavailable. Refresh or try again later.'
 
 const POPULAR_LIMIT = 100
 const POPULAR_APP_NAME_BONUSES: Array<[RegExp, number]> = [
@@ -1325,8 +1326,8 @@ async function loadApps(): Promise<void> {
   appError.value = ''
   try {
     apps.value = await listDirectoryApps(props.threadId?.trim() || undefined)
-  } catch (error) {
-    appError.value = error instanceof Error ? error.message : 'Failed to load apps'
+  } catch {
+    appError.value = APP_DIRECTORY_UNAVAILABLE_MESSAGE
   } finally {
     isLoadingApps.value = false
   }

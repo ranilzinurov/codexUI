@@ -46,6 +46,7 @@ import {
 } from '../commandResolution.js'
 import type { CollaborationModeKind, ReasoningEffort } from '../types/codex.js'
 import { isAbsoluteLikePath } from '../pathUtils.js'
+import { sanitizeCodexErrorMessage } from '../api/codexErrors.js'
 
 type JsonRpcCall = {
   jsonrpc: '2.0'
@@ -949,21 +950,21 @@ function trimThreadTurnsInRpcResult(method: string, result: unknown): unknown {
 
 function getErrorMessage(payload: unknown, fallback: string): string {
   if (payload instanceof Error && payload.message.trim().length > 0) {
-    return payload.message
+    return sanitizeCodexErrorMessage(payload.message, fallback)
   }
 
   const record = asRecord(payload)
-  if (!record) return fallback
+  if (!record) return sanitizeCodexErrorMessage(fallback, '')
 
   const error = record.error
-  if (typeof error === 'string' && error.length > 0) return error
+  if (typeof error === 'string' && error.length > 0) return sanitizeCodexErrorMessage(error, fallback)
 
   const nestedError = asRecord(error)
   if (nestedError && typeof nestedError.message === 'string' && nestedError.message.length > 0) {
-    return nestedError.message
+    return sanitizeCodexErrorMessage(nestedError.message, fallback)
   }
 
-  return fallback
+  return sanitizeCodexErrorMessage(fallback, '')
 }
 
 function isAccountRateLimitsUnavailableError(method: string, payload: unknown): boolean {
@@ -5517,7 +5518,7 @@ class AppServerProcess {
       if (!pendingRequest) return
 
       if (message.error) {
-        pendingRequest.reject(new Error(message.error.message))
+        pendingRequest.reject(new Error(sanitizeCodexErrorMessage(message.error.message)))
       } else {
         pendingRequest.resolve(message.result)
       }

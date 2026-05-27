@@ -10,6 +10,7 @@ import {
 } from './codexAppServerBridge'
 
 const originalCodexHome = process.env.CODEX_HOME
+const cloudflareHtml = '<!DOCTYPE html><html><head><title>Attention Required! | Cloudflare</title></head><body>Cloudflare Ray ID: abc123</body></html>'
 
 afterEach(() => {
   if (originalCodexHome === undefined) {
@@ -97,6 +98,12 @@ describe('callRpcWithArchiveRecovery', () => {
 describe('isUnauthenticatedRateLimitError', () => {
   it('matches unauthenticated rate-limit failures from a fresh Codex home', () => {
     expect(isUnauthenticatedRateLimitError(new Error('codex account authentication required to read rate limits'))).toBe(true)
+  })
+
+  it('preserves rate-limit matching context while sanitizing unsafe HTML bodies', () => {
+    expect(isUnauthenticatedRateLimitError(new Error(
+      `codex account authentication required to read rate limits: ${cloudflareHtml}`,
+    ))).toBe(true)
   })
 
   it('does not match unrelated authentication failures', () => {

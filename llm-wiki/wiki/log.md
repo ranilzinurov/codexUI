@@ -1,5 +1,11 @@
 # Log
 
+## [2026-05-27] ingest | Directory Hub Apps failure message
+- Added source: `raw/features/directory-hub-apps-failure-message.md`.
+- Updated wiki page: `concepts/directory-hub-composio-skills.md`.
+- Documents: Apps tab `app/list` failures render a concise temporary-unavailability message and hide raw RPC/HTML/server details.
+- Updated `index.md`.
+
 ## [2026-05-15] ingest | codex thread link rendering review follow-up
 - Added source: `raw/fixes/codex-thread-link-pr174.md`.
 - Updated wiki page: `concepts/realtime-chat-rendering.md`.

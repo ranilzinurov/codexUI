@@ -58,6 +58,14 @@ Search ranking has a specific edge-case rule:
 - Exact slug/name matches outrank description-only matches.
 - Example: searching `instagram` should show the `Instagram` connector before `Meta Ads`, even though Meta Ads mentions Instagram and may have more tools.
 
+## Apps Tab Failure State
+
+The Apps tab treats `app/list` failures as a concise availability state:
+
+- The visible error says `Apps directory temporarily unavailable. Refresh or try again later.`
+- Raw RPC, JSON, stack, or HTML response details are not shown in the user-facing error block.
+- Manual verification should check the same behavior in light theme and dark theme.
+
 ## Testing Lessons
 
 Use assertions, not screenshots alone.
@@ -85,3 +93,4 @@ Unit tests now cover:
 - [Concept: Skills route UI](./skills-route-ui.md)
 - [Overview](../overview.md)
 - [Source: Directory Hub Composio and Skills Search](../../raw/features/directory-hub-composio-skills-search.md)
+- [Source: Directory Hub Apps Failure Message](../../raw/features/directory-hub-apps-failure-message.md)
