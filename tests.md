@@ -6023,7 +6023,7 @@ Manifest V3 load-unpacked extension scaffold.
 7. Run `node extension/browser-annotation/dev/validate-extension.mjs`.
 8. For the manual smoke test, open `chrome://extensions`, enable Developer mode, click `Load unpacked`, and select `extension/browser-annotation`.
 9. Serve the repository with `python3 -m http.server 8899` and open `http://127.0.0.1:8899/extension/browser-annotation/dev/test-page.html`.
-10. Click the extension action, confirm the side panel opens, then click `Inject overlay`.
+10. Click the extension action or press `Ctrl+Shift+Y`, confirm the side panel opens and annotation mode starts; if it is not active, click `Inject overlay`.
 11. Confirm the overlay placeholder appears on the page.
 12. In a light OS/browser color scheme, confirm the side panel text, fields, badge, and buttons are readable.
 13. In a dark OS/browser color scheme, repeat the side panel check and confirm it uses dark surfaces via `prefers-color-scheme`.
@@ -6033,7 +6033,7 @@ Manifest V3 load-unpacked extension scaffold.
 - All static Node checks pass.
 - The validator confirms Manifest V3, service worker path, side panel path, required permissions, production host permission, narrow local development host permissions, and required scaffold files.
 - The extension loads without a build step.
-- Overlay injection happens only after the user clicks `Inject overlay`.
+- Overlay injection happens only after the user clicks the extension action, uses the extension action shortcut, or clicks `Inject overlay`.
 - Restricted browser pages and Chrome Web Store pages are not offered as injectable targets.
 - Light and dark side panel color schemes are readable.
 
@@ -6065,7 +6065,7 @@ Extension server URL and pairing-token validation.
 9. Run `node extension/browser-annotation/dev/validate-extension.mjs`.
 10. Run `node extension/browser-annotation/dev/pairing-client-smoke.mjs`.
 11. Load `extension/browser-annotation` as an unpacked Chrome extension.
-12. Open the side panel with no token saved and confirm it shows `Disconnected`.
+12. Open the side panel with the extension action or `Ctrl+Shift+Y`, with no token saved, and confirm it shows `Disconnected`.
 13. Enter `http://127.0.0.1:<port>` or `http://localhost:<port>` and an invalid token, then click `Save and validate`.
 14. Confirm the side panel shows `Error` and does not expose the token outside the password field.
 15. Paste a valid listener token from Codex UI and click `Save and validate`.
@@ -6105,8 +6105,8 @@ Page overlay, selected element context, and local annotation queue.
 4. Run `node extension/browser-annotation/dev/selection-context-smoke.mjs`.
 5. Run `git diff --check -- extension/browser-annotation`.
 6. Open `http://127.0.0.1:8899/extension/browser-annotation/dev/test-page.html`.
-7. Click the extension action to open the side panel.
-8. Click `Inject overlay`.
+7. Click the extension action or press `Ctrl+Shift+Y` to open the side panel and start annotation mode.
+8. If annotation mode is not active, click `Inject overlay`.
 9. Hover the sample button, input, and card, and confirm the hover outline tracks each element.
 10. Click the sample button and confirm a selected outline remains and the side panel queue count increments.
 11. Repeat selection for the sample input and sample card.
@@ -6149,7 +6149,7 @@ Visible-tab capture, device-pixel-ratio crop, and bounded preview storage.
 6. Run `node extension/browser-annotation/dev/screenshot-crop-smoke.mjs`.
 7. Run `git diff --check -- extension/browser-annotation`.
 8. Open `http://127.0.0.1:8899/extension/browser-annotation/dev/test-page.html`.
-9. Click the extension action, then click `Inject overlay`.
+9. Click the extension action or press `Ctrl+Shift+Y`; if annotation mode is not active, click `Inject overlay`.
 10. Select the sample button and confirm the queue row shows a crop preview matching the button.
 11. Select the sample input and card and confirm their preview aspect/contents match the selected elements.
 12. Confirm no full visible-tab screenshot appears in extension storage; only cropped previews are stored.

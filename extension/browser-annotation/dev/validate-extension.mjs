@@ -39,6 +39,10 @@ assert(
   manifest.side_panel?.default_path === "sidepanel/sidepanel.html",
   "side_panel.default_path must point at sidepanel/sidepanel.html"
 );
+assert(
+  manifest.commands?._execute_action?.suggested_key?.default === "Ctrl+Shift+Y",
+  "commands._execute_action must provide the annotation keyboard shortcut"
+);
 
 for (const permission of requiredPermissions) {
   assert(

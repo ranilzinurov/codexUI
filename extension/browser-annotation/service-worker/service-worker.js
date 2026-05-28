@@ -48,6 +48,12 @@ chrome.runtime.onStartup.addListener(() => {
   enableActionSidePanelBehavior();
 });
 
+chrome.action.onClicked.addListener((tab) => {
+  injectOverlayIntoTab(tab).catch((error) => {
+    console.warn("Unable to start browser annotation from the extension action.", error);
+  });
+});
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   handleMessage(message, _sender)
     .then((response) => sendResponse(response))
@@ -228,6 +234,10 @@ async function getActiveTab() {
 
 async function injectOverlayIntoActiveTab() {
   const tab = await getActiveTab();
+  return injectOverlayIntoTab(tab);
+}
+
+async function injectOverlayIntoTab(tab) {
   if (!tab || typeof tab.id !== "number") {
     throw new Error("No active tab is available for annotation.");
   }

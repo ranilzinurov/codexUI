@@ -6,7 +6,7 @@ No build step is required. The folder is designed to be loaded directly with Chr
 
 ## Files
 
-- `manifest.json` declares MV3, the service worker, side panel, `activeTab`/`scripting`/`tabs`/`sidePanel` permissions, target host access for `https://annotate.todo-tg-app.ru/*`, and narrow local development host access for `http://127.0.0.1/*` plus `http://localhost/*`.
+- `manifest.json` declares MV3, the service worker, side panel, action keyboard shortcut, `activeTab`/`scripting`/`tabs`/`sidePanel` permissions, target host access for `https://annotate.todo-tg-app.ru/*`, and narrow local development host access for `http://127.0.0.1/*` plus `http://localhost/*`.
 - `service-worker/service-worker.js` owns side-panel messages, local settings, pairing-token validation, active-tab checks, action-click side-panel behavior, user-gesture content-script injection, visible-tab capture, crop preview creation, local selected-element queue storage, queue mutation, and annotation-batch POSTs.
 - `sidepanel/` contains the load-unpacked side panel UI.
 - `content/content-script.js` installs a Shadow DOM overlay, tracks hover/selected element boxes while annotation mode is active, and sends selected element context back to the service worker.
@@ -44,12 +44,12 @@ node extension/browser-annotation/dev/screenshot-crop-smoke.mjs
 2. Enable Developer mode.
 3. Choose **Load unpacked** and select this folder.
 4. Open any normal `http(s)` page. For the included test page, serve the repository locally first, for example `python3 -m http.server 8899`, then open `http://127.0.0.1:8899/extension/browser-annotation/dev/test-page.html`.
-5. Click the extension action to open the side panel.
+5. Click the extension action, or press `Ctrl+Shift+Y`, to open the side panel and start annotation mode on the active page.
 6. Keep the default server URL (`https://annotate.todo-tg-app.ru`) or enter `http://127.0.0.1:<port>` / `http://localhost:<port>` for local Codex UI testing.
 7. Paste a Codex UI browser annotation pairing token. The token stays in extension local storage and is only sent as `Authorization: Bearer <token>` to `/codex-api/extension/listen/status`.
 8. Click **Save and validate**.
 9. Confirm the side panel shows **Connected** for an active token, **Disconnected** when no token is stored, and **Error** for invalid, expired, unreachable, or malformed status responses.
-10. Click **Inject overlay**.
+10. If annotation mode is not already active, click **Inject overlay**.
 11. Confirm the page shows the "Codex annotation mode" panel and a blue hover box follows the button, input, and sample card.
 12. Click the sample button, sample input, and sample card.
 13. Confirm the selected element gets a green box, the overlay reports that the element was queued, and the side panel queue count/list updates.
