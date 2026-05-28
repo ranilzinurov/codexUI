@@ -1,5 +1,11 @@
 # Log
 
+## [2026-05-28] ingest | Directory Hub Apps cached snapshot fallback
+- Added source: `raw/features/directory-hub-apps-cached-snapshot-fallback.md`.
+- Updated wiki page: `concepts/directory-hub-composio-skills.md`.
+- Documents: bridge fallback from failed `app/list` calls to `app/list/updated` snapshots or local app-directory cache, while no-cache rejections still propagate for the unavailable state.
+- Updated `index.md`.
+
 ## [2026-05-27] ingest | Directory Hub Apps failure message
 - Added source: `raw/features/directory-hub-apps-failure-message.md`.
 - Updated wiki page: `concepts/directory-hub-composio-skills.md`.

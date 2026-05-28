@@ -5653,3 +5653,36 @@ Apps tab concise error state when the app directory cannot load.
 
 #### Rollback/Cleanup
 - Restore the normal app-server/Codex CLI behavior if a local failure stub or downgraded server was used.
+
+---
+
+### Directory Hub Apps Cached Snapshot Fallback
+
+#### Feature/Change Name
+Apps tab cached snapshot fallback app-list loading.
+
+#### Prerequisites/Setup
+1. Dev server running: `pnpm run dev --host 127.0.0.1 --port 4173`.
+2. A usable cached app directory exists, either from a prior `app/list/updated` snapshot or a seeded `CODEX_HOME/cache/codex_app_directory/<hash>.json` file containing `{ "connectors": [...] }`.
+3. Ability to force or observe an upstream `app/list` failure, such as the `chatgpt.com` connector directory returning 403 while the local cache exists.
+4. Light theme and dark theme are available from the appearance setting.
+
+#### Steps
+1. In light theme, open `http://127.0.0.1:4173/#/skills?tab=apps`.
+2. Trigger or confirm an upstream `app/list` failure while the cached app snapshot is available.
+3. Confirm the bridge returns a successful Apps list response with normal `data` rows from the cached snapshot.
+4. Confirm the returned app rows render as normal app cards.
+5. Confirm the page does not show the Apps directory unavailable message while cached rows are available.
+6. Click `Refresh` and confirm app rows still render if the upstream request keeps failing and the cache remains available.
+7. Remove or invalidate the cached snapshot, repeat the failing load, and confirm the concise unavailable message appears.
+8. Switch to dark theme and repeat steps 1-7.
+
+#### Expected Results
+- Upstream `app/list` failure renders cached app rows when a bridge snapshot or valid local cache exists.
+- Cached fallback rows render as ordinary app cards with search and sort behavior intact.
+- Cached fallback implementation details do not leak as raw JSON or debug text in the Apps tab.
+- The unavailable message appears only when the upstream request fails and no cached fallback page is available.
+- App cards and empty/loading states remain readable in both light theme and dark theme.
+
+#### Rollback/Cleanup
+- Remove any local response stub or restore the normal app-server/Codex CLI behavior after verification.

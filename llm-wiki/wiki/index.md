@@ -21,6 +21,7 @@
 - [../raw/features/integrated-terminal.md](../raw/features/integrated-terminal.md): source facts for the integrated terminal implementation and follow-up tests.
 - [../raw/features/directory-hub-composio-skills-search.md](../raw/features/directory-hub-composio-skills-search.md): source facts for Directory Hub, Composio connectors, Skills search/install, and edge-case tests.
 - [../raw/features/directory-hub-apps-failure-message.md](../raw/features/directory-hub-apps-failure-message.md): source facts for the Directory Hub Apps tab concise app-list failure message.
+- [../raw/features/directory-hub-apps-cached-snapshot-fallback.md](../raw/features/directory-hub-apps-cached-snapshot-fallback.md): source facts for bridge-backed Apps tab cached snapshot fallback and app-list regression coverage.
 - [../raw/features/realtime-chat-rendering-inline-media.md](../raw/features/realtime-chat-rendering-inline-media.md): source facts for realtime chat rendering and inline media sanitization.
 - [../raw/features/runtime-activity-agents-mcp.md](../raw/features/runtime-activity-agents-mcp.md): source facts for grouped agents/MCP runtime activity and collapsed summaries.
 - [../raw/features/skills-route-ui-and-first-launch-card.md](../raw/features/skills-route-ui-and-first-launch-card.md): source facts for the Skills route rename, first-launch Plugins card, dark-theme fix, and dev-server workflow adjustment.

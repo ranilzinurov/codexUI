@@ -75,6 +75,21 @@ type RpcExecutor = {
   rpc: (method: string, params: unknown) => Promise<unknown>
 }
 
+type AppListSnapshotReader = {
+  getLastAppListUpdatedSnapshot?: () => unknown | null
+}
+
+type AppListFallbackPage = {
+  data: unknown[]
+  nextCursor: string | null
+}
+
+type AppListDiskCacheSnapshot = {
+  cacheDir: string
+  signature: string
+  rows: unknown[]
+}
+
 type ServerRequestReply = {
   result?: unknown
   error?: {
@@ -233,9 +248,15 @@ const THREAD_METHODS_WITH_THREAD_SNAPSHOT = new Set([...THREAD_METHODS_WITH_TURN
 const THREAD_SEARCH_FULL_TEXT_THREAD_LIMIT = 100
 const PROJECTLESS_THREAD_DIRECTORY_MAX_ATTEMPTS = 100
 const PROJECTLESS_THREAD_SLUG_MAX_LENGTH = 80
+const APP_LIST_FALLBACK_PAGE_LIMIT_DEFAULT = 100
+const APP_LIST_FALLBACK_PAGE_LIMIT_MAX = 1000
+const APP_LIST_FALLBACK_CURSOR_PREFIX = 'codexui-app-list:'
+const APP_DIRECTORY_CACHE_MAX_BYTES = 50 * 1024 * 1024
 const API_PERF_LOGGING_ENV_KEY = 'CODEXUI_API_PERF_LOGGING'
 const API_PERF_MS_THRESHOLD_ENV_KEY = 'CODEXUI_API_PERF_MS_THRESHOLD'
 const API_PERF_BODY_MB_THRESHOLD_ENV_KEY = 'CODEXUI_API_PERF_BODY_MB_THRESHOLD'
+
+let appListDiskCacheSnapshot: AppListDiskCacheSnapshot | null = null
 const DEFAULT_API_PERF_MS_THRESHOLD = 300
 const DEFAULT_API_PERF_BODY_MB_THRESHOLD = 1
 const RESTART_SCRIPT_PATH = process.env.CODEXUI_RESTART_SCRIPT
@@ -565,6 +586,136 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null
+}
+
+function isUsableAppListRow(value: unknown): boolean {
+  const record = asRecord(value)
+  return Boolean(readNonEmptyString(record?.id) && readNonEmptyString(record?.name))
+}
+
+export function extractAppListRowsForFallback(value: unknown): unknown[] | null {
+  const record = asRecord(value)
+  const candidates: unknown[] = []
+  if (Array.isArray(value)) candidates.push(value)
+  if (record) {
+    candidates.push(record.data, record.apps, record.connectors)
+    for (const nestedKey of ['snapshot', 'result', 'payload']) {
+      const nestedRecord = asRecord(record[nestedKey])
+      if (!nestedRecord) continue
+      candidates.push(nestedRecord.data, nestedRecord.apps, nestedRecord.connectors)
+    }
+  }
+
+  let sawEmptyCandidate = false
+  for (const candidate of candidates) {
+    if (!Array.isArray(candidate)) continue
+    const rows = candidate.filter(isUsableAppListRow)
+    if (rows.length > 0) return rows
+    if (candidate.length === 0) sawEmptyCandidate = true
+  }
+
+  return sawEmptyCandidate ? [] : null
+}
+
+function parseAppListFallbackLimit(value: unknown): number {
+  const raw = typeof value === 'number'
+    ? value
+    : typeof value === 'string'
+      ? Number.parseInt(value, 10)
+      : NaN
+  if (!Number.isFinite(raw)) return APP_LIST_FALLBACK_PAGE_LIMIT_DEFAULT
+  return Math.max(1, Math.min(APP_LIST_FALLBACK_PAGE_LIMIT_MAX, Math.trunc(raw)))
+}
+
+function parseAppListFallbackCursor(value: unknown, total: number): number | null {
+  if (value === null || value === undefined || value === '') return 0
+  if (typeof value !== 'string' || !value.startsWith(APP_LIST_FALLBACK_CURSOR_PREFIX)) return null
+  const raw = Number.parseInt(value.slice(APP_LIST_FALLBACK_CURSOR_PREFIX.length), 10)
+  if (!Number.isFinite(raw)) return null
+  return Math.max(0, Math.min(total, Math.trunc(raw)))
+}
+
+export function paginateAppListRowsForFallback(rows: unknown[], params: unknown): AppListFallbackPage {
+  const paramsRecord = asRecord(params)
+  const limit = parseAppListFallbackLimit(paramsRecord?.limit)
+  const cursor = parseAppListFallbackCursor(paramsRecord?.cursor, rows.length)
+  if (cursor === null) {
+    return {
+      data: [],
+      nextCursor: null,
+    }
+  }
+  const nextOffset = cursor + limit
+  return {
+    data: rows.slice(cursor, nextOffset),
+    nextCursor: nextOffset < rows.length ? `${APP_LIST_FALLBACK_CURSOR_PREFIX}${nextOffset}` : null,
+  }
+}
+
+async function readAppListRowsFromDiskCache(): Promise<unknown[] | null> {
+  const cacheDir = join(getCodexHomeDir(), 'cache', 'codex_app_directory')
+  let entries: Array<{ name: string; mtimeMs: number; size: number }> = []
+  try {
+    const dirents = await readdir(cacheDir, { withFileTypes: true })
+    const files = await Promise.all(dirents
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+      .map(async (entry) => {
+        const filePath = join(cacheDir, entry.name)
+        try {
+          const fileStat = await stat(filePath)
+          if (fileStat.size > APP_DIRECTORY_CACHE_MAX_BYTES) return null
+          return { name: entry.name, mtimeMs: fileStat.mtimeMs, size: fileStat.size }
+        } catch {
+          return null
+        }
+      }))
+    entries = files
+      .filter((entry): entry is { name: string; mtimeMs: number; size: number } => Boolean(entry))
+      .sort((left, right) => right.mtimeMs - left.mtimeMs)
+  } catch {
+    return null
+  }
+
+  const signature = entries.map((entry) => `${entry.name}:${entry.mtimeMs}:${entry.size}`).join('|')
+  if (appListDiskCacheSnapshot?.cacheDir === cacheDir && appListDiskCacheSnapshot.signature === signature) {
+    return appListDiskCacheSnapshot.rows
+  }
+
+  for (const entry of entries) {
+    try {
+      const raw = await readFile(join(cacheDir, entry.name), 'utf8')
+      const rows = extractAppListRowsForFallback(JSON.parse(raw))
+      if (rows) {
+        appListDiskCacheSnapshot = { cacheDir, signature, rows }
+        return rows
+      }
+    } catch {
+      continue
+    }
+  }
+
+  return null
+}
+
+function shouldSkipAppListFallback(params: unknown): boolean {
+  const paramsRecord = asRecord(params)
+  if (!paramsRecord) return false
+  if (paramsRecord.forceRefetch === true || paramsRecord.force_refetch === true) return true
+  return readNonEmptyString(paramsRecord.threadId ?? paramsRecord.thread_id).length > 0
+}
+
+export async function readAppListFallbackPage(
+  params: unknown,
+  updatedSnapshot: unknown | null | undefined = null,
+): Promise<AppListFallbackPage | null> {
+  const snapshotRows = extractAppListRowsForFallback(updatedSnapshot)
+  if (snapshotRows) {
+    return paginateAppListRowsForFallback(snapshotRows, params)
+  }
+
+  const diskRows = await readAppListRowsFromDiskCache()
+  if (!diskRows) return null
+  return paginateAppListRowsForFallback(diskRows, params)
 }
 
 function isInlineDataUrl(value: string): boolean {
@@ -1862,6 +2013,30 @@ export async function callRpcWithArchiveRecovery(
       name: readThreadArchiveFallbackName(threadReadResult),
     })
     return appServer.rpc(method, params ?? null)
+  }
+}
+
+export async function callRpcWithAppListFallback(
+  appServer: RpcExecutor & AppListSnapshotReader,
+  method: string,
+  params: unknown,
+): Promise<unknown> {
+  try {
+    return await callRpcWithArchiveRecovery(appServer, method, params)
+  } catch (error) {
+    if (method !== 'app/list') {
+      throw error
+    }
+    if (shouldSkipAppListFallback(params)) {
+      throw error
+    }
+
+    const fallbackPage = await readAppListFallbackPage(
+      params,
+      appServer.getLastAppListUpdatedSnapshot?.() ?? null,
+    )
+    if (fallbackPage) return fallbackPage
+    throw error
   }
 }
 
@@ -5410,6 +5585,7 @@ class AppServerProcess {
   private readonly appServerArgs = buildAppServerArgs()
   private readonly streamEventsByThreadId = new Map<string, StreamEventFrame[]>()
   private readonly lastThreadReadSnapshotByThreadId = new Map<string, unknown>()
+  private lastAppListUpdatedSnapshot: unknown[] | null = null
   private readonly threadTurnPageReadCacheByThreadId = new Map<string, { result: unknown; expiresAt: number }>()
   private readonly threadTurnPageReadPromiseByThreadId = new Map<string, Promise<unknown>>()
   private readonly capturedItemsByThreadId = new Map<string, Map<string, CapturedItem>>()
@@ -5540,6 +5716,12 @@ class AppServerProcess {
   }
 
   private emitNotification(notification: { method: string; params: unknown }): void {
+    if (notification.method === 'app/list/updated') {
+      const snapshotRows = extractAppListRowsForFallback(notification.params)
+      if (snapshotRows) {
+        this.lastAppListUpdatedSnapshot = snapshotRows
+      }
+    }
     this.recordStreamEvent(notification)
     this.captureItemFromNotification(notification)
     const nThreadId = this.extractThreadIdFromParams(notification.params)
@@ -5605,6 +5787,10 @@ class AppServerProcess {
 
   getLastThreadReadSnapshot(threadId: string): unknown | null {
     return this.lastThreadReadSnapshotByThreadId.get(threadId) ?? null
+  }
+
+  getLastAppListUpdatedSnapshot(): unknown[] | null {
+    return this.lastAppListUpdatedSnapshot ? [...this.lastAppListUpdatedSnapshot] : null
   }
 
   async readThreadForTurnPage(threadId: string): Promise<unknown> {
@@ -7005,7 +7191,7 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
 
         let rpcResult: unknown
         try {
-          rpcResult = await callRpcWithArchiveRecovery(appServer, body.method, body.params ?? null)
+          rpcResult = await callRpcWithAppListFallback(appServer, body.method, body.params ?? null)
         } catch (error) {
           if (isAccountRateLimitsUnavailableError(body.method, error)) {
             setJson(res, 200, { result: null })

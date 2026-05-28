@@ -66,6 +66,17 @@ The Apps tab treats `app/list` failures as a concise availability state:
 - Raw RPC, JSON, stack, or HTML response details are not shown in the user-facing error block.
 - Manual verification should check the same behavior in light theme and dark theme.
 
+## Apps Cached Snapshot Fallback
+
+The bridge treats failed `app/list` calls like Codex's cached app-directory path when a usable snapshot exists:
+
+- The real `app/list` RPC is attempted first.
+- If it fails, non-forced and non-thread-scoped requests can return a normal `{ data, nextCursor }` page from the latest `app/list/updated` snapshot.
+- If no notification snapshot exists, the bridge can read the newest valid local `CODEX_HOME/cache/codex_app_directory` cache file.
+- Fallback cursors are bridge-owned and prefixed with `codexui-app-list:` so opaque app-server cursors are not treated as offsets.
+- If no cached fallback page exists, the rejection still propagates and the UI shows the concise unavailable state.
+- Manual verification should confirm cached snapshot rows render in both light theme and dark theme while the upstream directory request fails.
+
 ## Testing Lessons
 
 Use assertions, not screenshots alone.
@@ -79,6 +90,7 @@ Recommended checks:
 - Installed search results open local detail actions.
 - Failed installs do not create installed UI state.
 - Composio search sends `query`, preserves pagination params, and ranks exact matches first.
+- Apps tests should cover normal rows, local cached fallback rows, prefixed fallback cursors, force-refetch rejection, and final rejection propagation.
 - Light and dark screenshots should include both the Skills page and long installed-skill modal content.
 
 Unit tests now cover:
@@ -86,6 +98,7 @@ Unit tests now cover:
 - Composio exact query ranking over description-only matches.
 - Connected Composio connector ordering without a query.
 - Gateway query/cursor/limit params for Composio connector search.
+- Bridge app-list notification/disk fallback behavior and gateway app-list success/rejection normalization.
 
 ## Related Pages
 
@@ -94,3 +107,4 @@ Unit tests now cover:
 - [Overview](../overview.md)
 - [Source: Directory Hub Composio and Skills Search](../../raw/features/directory-hub-composio-skills-search.md)
 - [Source: Directory Hub Apps Failure Message](../../raw/features/directory-hub-apps-failure-message.md)
+- [Source: Directory Hub Apps Cached Snapshot Fallback](../../raw/features/directory-hub-apps-cached-snapshot-fallback.md)
