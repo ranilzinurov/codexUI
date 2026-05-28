@@ -101,6 +101,7 @@ Use these gates unless a phase explicitly narrows or expands them.
 | --- | --- | --- | --- | --- |
 | 2026-05-28 | Planning | Plan document | Completed | Initial implementation plan created. |
 | 2026-05-28 | Planning | Sub-agent protocol | Completed | Added mandatory worker-then-reviewer loop for every stage and phase. |
+| 2026-05-28 | Phase 0 | Stage 0.1 | Partial | Added server-only annotation transcription env config and a local smoke script that reports OpenAI key presence without printing the key. Key revocation/replacement remains unconfirmed outside the repo. |
 
 ## Phase 0: Foundations, Secrets, And Deployment Discovery
 
@@ -110,9 +111,9 @@ Checklist:
 
 - [ ] Stage 0.1: Secret rotation requirement
   - [ ] Confirm pasted OpenAI key was revoked/replaced outside the repo.
-  - [ ] Define env names: `OPENAI_API_KEY`, `CODEXUI_ANNOTATION_TRANSCRIBE_MODEL`, `CODEXUI_ANNOTATION_TRANSCRIBE_FALLBACK_MODEL`.
-  - [ ] Add server-side config reads with no client exposure.
-  - Smoke test: run a local env validation script that reports key presence without printing the key.
+  - [x] Define env names: `OPENAI_API_KEY`, `CODEXUI_ANNOTATION_TRANSCRIBE_MODEL`, `CODEXUI_ANNOTATION_TRANSCRIBE_FALLBACK_MODEL`.
+  - [x] Add server-side config reads with no client exposure.
+  - [x] Smoke test: run a local env validation script that reports key presence without printing the key.
 
 - [ ] Stage 0.2: Existing deployment discovery
   - [ ] Inspect existing `ops/nginx/`, YC CLI config, certificate manager usage, and current todo-tg-app subdomains.

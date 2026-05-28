@@ -53,6 +53,7 @@
     "postinstall": "node scripts/fix-pty-native-build.cjs",
     "test": "pnpm run build && node scripts/test-thread-auto-title.mjs && node scripts/test-web-push-notifications.mjs && node scripts/test-codexui-runtime-config.mjs && node scripts/test-codexui-transcription-override.mjs && node scripts/test-codexui-auth-shell-cache.mjs && node scripts/test-codexui-browser-startup-hardening.mjs",
     "test:unit": "vitest run",
+    "validate:annotation-transcription-env": "node scripts/validate-browser-annotation-transcription-env.mjs",
     "preview": "vite preview",
     "prepublishOnly": "pnpm run build",
     "profile:browser": "node scripts/profile-browser-runtime.cjs",
