@@ -70,7 +70,15 @@ state = BrowserAnnotationDevtoolsCapture.upsertNetworkEvent(
     wallTime: Date.parse("2026-05-28T10:00:02.000Z") / 1000,
     request: {
       method: "GET",
-      url: "https://app.example.test/api?token=secret"
+      url: "https://app.example.test/api?token=secret",
+      headers: {
+        Authorization: "Bearer secret",
+        Cookie: "sid=secret",
+        "Content-Type": "application/json",
+        "X-Api-Key": "secret",
+        "X-Codex-Trace": "trace-1"
+      },
+      postData: "{\"safe\":true}"
     }
   },
   { nowMs: Date.parse("2026-05-28T10:00:02.000Z") }
@@ -85,7 +93,13 @@ state = BrowserAnnotationDevtoolsCapture.upsertNetworkEvent(
       url: "https://app.example.test/api?token=secret",
       status: 404,
       statusText: "Not Found",
-      mimeType: "application/json"
+      mimeType: "application/json",
+      encodedDataLength: 128,
+      headers: {
+        "Content-Type": "application/json",
+        "Set-Cookie": "sid=secret",
+        "X-Request-Id": "request-1"
+      }
     }
   },
   { nowMs: Date.parse("2026-05-28T10:00:03.000Z") }
@@ -107,7 +121,61 @@ assert.equal(status.networkCount, 1);
 assert.equal(status.lastConsoleRow.level, "warn");
 assert.equal(status.lastNetworkRow.status, 404);
 assert.equal(status.lastNetworkRow.url, "https://app.example.test/api?token=%5Bredacted%5D");
-assert.equal(status.lastNetworkRow.bodyCapture.state, "metadata-only");
+assert.deepEqual(toPlainJson(status.lastNetworkRow.requestHeaders.slice(0, 5)), [
+  { name: "authorization", value: "[REDACTED]", redacted: true },
+  { name: "cookie", value: "[REDACTED]", redacted: true },
+  { name: "content-type", value: "application/json" },
+  { name: "x-api-key", value: "[REDACTED]", redacted: true },
+  { name: "x-codex-trace", value: "trace-1" }
+]);
+assert.deepEqual(toPlainJson(status.lastNetworkRow.responseHeaders.slice(0, 3)), [
+  { name: "content-type", value: "application/json" },
+  { name: "set-cookie", value: "[REDACTED]", redacted: true },
+  { name: "x-request-id", value: "request-1" }
+]);
+assert.equal(status.lastNetworkRow.requestBody.state, "not-captured");
+assert.equal(status.lastNetworkRow.requestBody.reason, "default-privacy");
+assert.equal(status.lastNetworkRow.requestBody.userOptIn, false);
+assert.equal(status.lastNetworkRow.requestBody.byteLength, 13);
+assert.equal(status.lastNetworkRow.responseBody.state, "not-captured");
+assert.equal(status.lastNetworkRow.responseBody.byteLength, 128);
+
+state = BrowserAnnotationDevtoolsCapture.upsertNetworkEvent(
+  state,
+  "BrowserAnnotation.responseBodyCaptured",
+  {
+    requestId: "request-1",
+    bodyText: "abcdef",
+    mimeType: "application/json"
+  },
+  {
+    nowMs: Date.parse("2026-05-28T10:00:04.500Z"),
+    captureBodies: true,
+    bodyCapBytes: 4
+  }
+);
+assert.equal(state.networkRows[0].responseBody.state, "trimmed");
+assert.equal(state.networkRows[0].responseBody.text, "abcd");
+assert.equal(state.networkRows[0].responseBody.byteLength, 4);
+assert.equal(state.networkRows[0].responseBody.originalByteLength, 6);
+
+state = BrowserAnnotationDevtoolsCapture.upsertNetworkEvent(
+  state,
+  "BrowserAnnotation.requestBodyCaptured",
+  {
+    requestId: "request-1",
+    bodyText: "{\"password\":\"secret\"}",
+    mimeType: "application/json"
+  },
+  {
+    nowMs: Date.parse("2026-05-28T10:00:04.750Z"),
+    captureBodies: true,
+    bodyCapBytes: 1024
+  }
+);
+assert.equal(state.networkRows[0].requestBody.state, "redacted");
+assert.equal(state.networkRows[0].requestBody.reason, "sensitive");
+assert.equal(state.networkRows[0].requestBody.userOptIn, true);
 
 const stopped = BrowserAnnotationDevtoolsCapture.stopDevtoolsCaptureState(state, "smoke-stop", {
   stoppedAtIso: "2026-05-28T10:00:05.000Z"
@@ -116,3 +184,7 @@ assert.equal(stopped.active, false);
 assert.equal(stopped.detachReason, "smoke-stop");
 
 console.log("Extension DevTools capture smoke passed.");
+
+function toPlainJson(value) {
+  return JSON.parse(JSON.stringify(value));
+}

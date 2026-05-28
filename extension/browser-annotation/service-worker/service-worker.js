@@ -57,7 +57,9 @@ const DEVTOOLS_CONSOLE_EVENT_METHODS = new Set([
 ]);
 const DEVTOOLS_NETWORK_EVENT_METHODS = new Set([
   "Network.requestWillBeSent",
+  "Network.requestWillBeSentExtraInfo",
   "Network.responseReceived",
+  "Network.responseReceivedExtraInfo",
   "Network.loadingFinished",
   "Network.loadingFailed"
 ]);
@@ -152,7 +154,7 @@ async function handleMessage(message, sender) {
   }
 
   if (message.type === MESSAGE_TYPES.START_DEVTOOLS_CAPTURE) {
-    return startDevtoolsCapture();
+    return startDevtoolsCapture(message.options || {});
   }
 
   if (message.type === MESSAGE_TYPES.STOP_DEVTOOLS_CAPTURE) {
@@ -457,7 +459,7 @@ async function sendAnnotationBatch() {
   };
 }
 
-async function startDevtoolsCapture() {
+async function startDevtoolsCapture(options = {}) {
   assertDebuggerApiAvailable();
   const tab = await getActiveTab();
   if (!tab || typeof tab.id !== "number") {
@@ -470,7 +472,7 @@ async function startDevtoolsCapture() {
   await stopDevtoolsCaptureIfActive("replaced");
 
   const debuggee = { tabId: tab.id };
-  const state = createDevtoolsCaptureState(tab);
+  const state = createDevtoolsCaptureState(tab, sanitizeDevtoolsCaptureOptions(options));
   try {
     await chrome.debugger.attach(debuggee, DEVTOOLS_PROTOCOL_VERSION);
     await chrome.debugger.sendCommand(debuggee, "Runtime.enable");
@@ -557,7 +559,55 @@ async function handleDebuggerEvent(source, method, params) {
   }
 
   if (DEVTOOLS_NETWORK_EVENT_METHODS.has(method)) {
-    await writeDevtoolsCaptureState(upsertNetworkEvent(state, method, params));
+    const nextState = upsertNetworkEvent(state, method, params, state.captureOptions);
+    await writeDevtoolsCaptureState(nextState);
+    if (method === "Network.loadingFinished") {
+      await captureResponseBodyIfAllowed(source, params);
+    }
+  }
+}
+
+async function captureResponseBodyIfAllowed(source, params) {
+  const state = await readDevtoolsCaptureState();
+  const options = state.captureOptions || {};
+  if (!state.active || !options.captureResponseBodies || !source || source.tabId !== state.tabId) {
+    return;
+  }
+  const requestId = params && params.requestId;
+  if (!requestId) {
+    return;
+  }
+  const row = state.networkRows.find((item) => item.requestId === requestId);
+  if (!row || row.failed || !isTextualDevtoolsMimeType(row.mimeType)) {
+    return;
+  }
+  const byteLength = typeof row.encodedDataLength === "number" ? row.encodedDataLength : undefined;
+  if (typeof byteLength === "number" && byteLength > options.bodyCapBytes) {
+    return;
+  }
+  try {
+    const result = await chrome.debugger.sendCommand(
+      { tabId: state.tabId },
+      "Network.getResponseBody",
+      { requestId }
+    );
+    if (!result || result.base64Encoded === true || typeof result.body !== "string") {
+      return;
+    }
+    const nextState = upsertNetworkEvent(
+      await readDevtoolsCaptureState(),
+      "BrowserAnnotation.responseBodyCaptured",
+      {
+        requestId,
+        bodyText: result.body,
+        byteLength,
+        mimeType: row.mimeType
+      },
+      options
+    );
+    await writeDevtoolsCaptureState(nextState);
+  } catch (error) {
+    console.warn("Unable to capture DevTools response body.", error);
   }
 }
 
@@ -629,6 +679,31 @@ function assertDebuggerApiAvailable() {
       "DevTools capture requires the chrome.debugger permission in the extension manifest."
     );
   }
+}
+
+function sanitizeDevtoolsCaptureOptions(options) {
+  const captureBodies = options.captureBodies === true ||
+    options.captureRequestBodies === true ||
+    options.captureResponseBodies === true ||
+    options.bodyCaptureMode === "request-response" ||
+    options.bodyCaptureMode === "full-body-opt-in";
+  return {
+    bodyCaptureMode: captureBodies ? "full-body-opt-in" : "metadata-only",
+    captureRequestBodies: captureBodies,
+    captureResponseBodies: captureBodies,
+    bodyCapBytes: 16 * 1024
+  };
+}
+
+function isTextualDevtoolsMimeType(value) {
+  const mimeType = String(value || "").toLowerCase();
+  return !mimeType ||
+    mimeType.startsWith("text/") ||
+    mimeType.includes("json") ||
+    mimeType.includes("javascript") ||
+    mimeType.includes("xml") ||
+    mimeType.includes("graphql") ||
+    mimeType.includes("form-urlencoded");
 }
 
 async function captureSelectedElementPreviewSafely(context, sender) {

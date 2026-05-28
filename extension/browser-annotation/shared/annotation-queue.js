@@ -171,21 +171,29 @@
 
     const errorCount = consoleRows.filter((row) => row.level === "error").length +
       networkRows.filter((row) => row.errorText || finiteNumber(row.status) >= 400).length;
+    const bodySummary = summarizeDevtoolsBodies(networkRows);
     return {
       id: createId("devtools-snapshot"),
       capturedAtIso,
       attachMode: "explicit-user-enabled",
       captureStartedAtIso: sanitizeText(capture.startedAtIso, 80) || capturedAtIso,
       captureEndedAtIso: capturedAtIso,
-      privacy: DEFAULT_PRIVACY_RULES,
+      privacy: {
+        ...DEFAULT_PRIVACY_RULES,
+        bodyCaptureMode: bodySummary.capturedBodyCount > 0 || bodySummary.trimmedBodyCount > 0
+          ? "full-body-opt-in"
+          : "metadata-only"
+      },
       summary: {
         consoleCount: consoleRows.length,
         networkCount: networkRows.length,
         errorCount,
-        redactedHeaderCount: 0,
-        capturedBodyCount: 0,
-        trimmedBodyCount: 0,
-        omittedBodyCount: 0
+        redactedHeaderCount: networkRows.reduce((count, row) => (
+          count + countRedactedHeaders(row.requestHeaders) + countRedactedHeaders(row.responseHeaders)
+        ), 0),
+        capturedBodyCount: bodySummary.capturedBodyCount,
+        trimmedBodyCount: bodySummary.trimmedBodyCount,
+        omittedBodyCount: bodySummary.omittedBodyCount
       },
       console: consoleRows,
       network: networkRows
@@ -275,8 +283,8 @@
       method: sanitizeText(row.method, 20) || "GET",
       url,
       resourceType: sanitizeText(row.resourceType, 80),
-      requestHeaders: [],
-      responseHeaders: []
+      requestHeaders: readDevtoolsHeaders(row.requestHeaders),
+      responseHeaders: readDevtoolsHeaders(row.responseHeaders)
     };
     const finishedAtIso = sanitizeText(row.finishedAtIso, 80);
     const statusText = sanitizeText(row.statusText, 120);
@@ -296,7 +304,120 @@
     if (row.fromDiskCache === true) {
       record.fromCache = true;
     }
+    const requestBody = readDevtoolsBody(row.requestBody);
+    const responseBody = readDevtoolsBody(row.responseBody);
+    if (requestBody) {
+      record.requestBody = requestBody;
+    }
+    if (responseBody) {
+      record.responseBody = responseBody;
+    }
     return record;
+  }
+
+  function readDevtoolsHeaders(headers) {
+    if (!Array.isArray(headers)) {
+      return [];
+    }
+    return headers.flatMap((header) => {
+      if (!isRecord(header)) {
+        return [];
+      }
+      const name = sanitizeText(header.name, 160);
+      if (!name) {
+        return [];
+      }
+      const row = {
+        name,
+        value: sanitizeText(header.value, 600)
+      };
+      if (header.redacted === true) {
+        row.redacted = true;
+      }
+      return [row];
+    });
+  }
+
+  function readDevtoolsBody(body) {
+    if (!isRecord(body)) {
+      return null;
+    }
+    const capBytes = positiveInteger(body.capBytes, 16384);
+    const byteLength = typeof body.byteLength === "number" ? finiteNumber(body.byteLength) : undefined;
+    if (body.state === "captured" || body.state === "trimmed") {
+      if (body.userOptIn !== true || typeof body.text !== "string") {
+        return null;
+      }
+      const result = {
+        state: body.state,
+        userOptIn: true,
+        capBytes,
+        text: sanitizeText(body.text, capBytes),
+        byteLength: byteLength || estimateJsonBytes(body.text),
+        redactionApplied: body.redactionApplied === true
+      };
+      if (typeof body.originalByteLength === "number") {
+        result.originalByteLength = finiteNumber(body.originalByteLength);
+      }
+      return result;
+    }
+    if (body.state === "redacted") {
+      const result = {
+        state: "redacted",
+        reason: body.reason === "policy" ? "policy" : "sensitive",
+        userOptIn: body.userOptIn === true,
+        capBytes
+      };
+      if (byteLength !== undefined) {
+        result.byteLength = byteLength;
+      }
+      return result;
+    }
+    const result = {
+      state: "not-captured",
+      reason: readNotCapturedReason(body.reason),
+      userOptIn: false,
+      capBytes
+    };
+    if (byteLength !== undefined) {
+      result.byteLength = byteLength;
+    }
+    return result;
+  }
+
+  function readNotCapturedReason(reason) {
+    return reason === "binary" || reason === "too-large" || reason === "user-disabled"
+      ? reason
+      : "default-privacy";
+  }
+
+  function summarizeDevtoolsBodies(networkRows) {
+    const summary = {
+      capturedBodyCount: 0,
+      trimmedBodyCount: 0,
+      omittedBodyCount: 0
+    };
+    for (const row of networkRows) {
+      for (const body of [row.requestBody, row.responseBody]) {
+        if (!body) {
+          continue;
+        }
+        if (body.state === "captured") {
+          summary.capturedBodyCount += 1;
+        } else if (body.state === "trimmed") {
+          summary.trimmedBodyCount += 1;
+        } else if (body.state === "not-captured" || body.state === "redacted") {
+          summary.omittedBodyCount += 1;
+        }
+      }
+    }
+    return summary;
+  }
+
+  function countRedactedHeaders(headers) {
+    return Array.isArray(headers)
+      ? headers.filter((header) => header && header.redacted === true).length
+      : 0;
   }
 
   function toServerConsoleLevel(level) {

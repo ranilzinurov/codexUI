@@ -143,6 +143,11 @@ const devtoolsBatch = BrowserAnnotationQueue.buildAnnotationBatchPayload(
     {
       ...stageQueue[0],
       createdAtIso: "2026-05-28T10:03:00.000Z"
+    },
+    {
+      ...stageQueue[1],
+      id: "annotation-devtools-outside-window",
+      createdAtIso: "2026-05-28T10:10:00.000Z"
     }
   ],
   {
@@ -174,20 +179,89 @@ const devtoolsBatch = BrowserAnnotationQueue.buildAnnotationBatchPayload(
           status: 404,
           statusText: "Not Found",
           resourceType: "fetch",
-          failureReason: ""
+          failureReason: "",
+          requestHeaders: [
+            { name: "authorization", value: "[REDACTED]", redacted: true },
+            { name: "content-type", value: "application/json" }
+          ],
+          responseHeaders: [
+            { name: "set-cookie", value: "[REDACTED]", redacted: true }
+          ],
+          requestBody: {
+            state: "redacted",
+            reason: "sensitive",
+            userOptIn: true,
+            capBytes: 16384,
+            byteLength: 21
+          },
+          responseBody: {
+            state: "trimmed",
+            userOptIn: true,
+            capBytes: 4,
+            text: "abcd",
+            byteLength: 4,
+            originalByteLength: 6,
+            redactionApplied: false
+          }
         }
       ]
     }
   }
 );
 assert.equal(devtoolsBatch.devTools.attachMode, "explicit-user-enabled");
+assert.equal(devtoolsBatch.devTools.id, devtoolsBatch.items[0].devToolsContext.snapshotId);
+assert.equal(devtoolsBatch.devTools.captureStartedAtIso, "2026-05-28T10:02:00.000Z");
+assert.equal(devtoolsBatch.devTools.captureEndedAtIso, "2026-05-28T10:03:01.000Z");
+assert.equal(devtoolsBatch.devTools.privacy.bodyCaptureMode, "full-body-opt-in");
+assert.equal(devtoolsBatch.devTools.privacy.bodyCapBytes, 16384);
 assert.equal(devtoolsBatch.devTools.console[0].level, "warning");
-assert.equal(devtoolsBatch.devTools.network[0].requestHeaders.length, 0);
+assert.equal(devtoolsBatch.devTools.console[0].text, "codex-devtools-smoke:warning");
+assert.equal(devtoolsBatch.devTools.console[0].url, "https://app.example.test/settings");
+assert.equal(devtoolsBatch.devTools.console[0].lineNumber, 12);
+assert.deepEqual(toPlainJson(devtoolsBatch.devTools.network[0].requestHeaders), [
+  { name: "authorization", value: "[REDACTED]", redacted: true },
+  { name: "content-type", value: "application/json" }
+]);
+assert.deepEqual(toPlainJson(devtoolsBatch.devTools.network[0].responseHeaders), [
+  { name: "set-cookie", value: "[REDACTED]", redacted: true }
+]);
+assert.equal(devtoolsBatch.devTools.network[0].requestBody.state, "redacted");
+assert.equal(devtoolsBatch.devTools.network[0].responseBody.state, "trimmed");
+assert.equal(devtoolsBatch.devTools.network[0].responseBody.text, "abcd");
+assert.equal(devtoolsBatch.devTools.network[0].id, "network-smoke");
+assert.equal(devtoolsBatch.devTools.network[0].method, "GET");
+assert.equal(devtoolsBatch.devTools.network[0].url, "https://app.example.test/api/smoke?token=[redacted]");
+assert.equal(devtoolsBatch.devTools.network[0].status, 404);
+assert.equal(devtoolsBatch.devTools.network[0].statusText, "Not Found");
+assert.equal(devtoolsBatch.devTools.network[0].resourceType, "fetch");
 assert.equal(devtoolsBatch.devTools.summary.consoleCount, 1);
 assert.equal(devtoolsBatch.devTools.summary.networkCount, 1);
 assert.equal(devtoolsBatch.devTools.summary.errorCount, 1);
+assert.equal(devtoolsBatch.devTools.summary.redactedHeaderCount, 2);
+assert.equal(devtoolsBatch.devTools.summary.capturedBodyCount, 0);
+assert.equal(devtoolsBatch.devTools.summary.trimmedBodyCount, 1);
+assert.equal(devtoolsBatch.devTools.summary.omittedBodyCount, 1);
+assert.equal(devtoolsBatch.items[0].target.ariaLabel, "alpha action");
+assert.equal(devtoolsBatch.items[0].target.textSnippet, "alpha");
 assert.deepEqual(devtoolsBatch.items[0].devToolsContext.consoleEntryIds, ["console-smoke"]);
 assert.deepEqual(devtoolsBatch.items[0].devToolsContext.requestIds, ["network-smoke"]);
+assert.equal(devtoolsBatch.items[0].devToolsContext.startedAtIso, "2026-05-28T10:01:00.000Z");
+assert.equal(devtoolsBatch.items[0].devToolsContext.endedAtIso, "2026-05-28T10:03:30.000Z");
+assert.equal(devtoolsBatch.items[1].devToolsContext, undefined);
+assert.ok(devtoolsBatch.devTools.console.every((entry) => entry.id && entry.timestampIso && entry.text));
+assert.ok(devtoolsBatch.devTools.network.every((request) => (
+  request.id &&
+  request.startedAtIso &&
+  request.method &&
+  request.url &&
+  Array.isArray(request.requestHeaders) &&
+  Array.isArray(request.responseHeaders)
+)));
 assert.ok(!JSON.stringify(devtoolsBatch).includes("request-smoke"));
+assert.ok(!JSON.stringify(devtoolsBatch).includes("data:image/png"));
 
 console.log("Extension annotation queue smoke passed.");
+
+function toPlainJson(value) {
+  return JSON.parse(JSON.stringify(value));
+}

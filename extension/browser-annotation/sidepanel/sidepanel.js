@@ -15,6 +15,7 @@
     tabDetail: document.getElementById("tabDetail"),
     devtoolsStatus: document.getElementById("devtoolsStatus"),
     devtoolsDetail: document.getElementById("devtoolsDetail"),
+    captureDevtoolsBodies: document.getElementById("captureDevtoolsBodies"),
     enableDevtools: document.getElementById("enableDevtools"),
     disableDevtools: document.getElementById("disableDevtools"),
     queueStatus: document.getElementById("queueStatus"),
@@ -125,12 +126,16 @@
 
   async function enableDevtoolsCapture() {
     setBusy(true);
+    const captureOptions = readDevtoolsCaptureOptions();
     renderDevtoolsStatus({
       status: "pending",
       detail: "Requesting debugger attachment for the active tab..."
     });
     try {
-      const response = await sendRuntimeMessage({ type: MESSAGE_TYPES.START_DEVTOOLS_CAPTURE });
+      const response = await sendRuntimeMessage({
+        type: MESSAGE_TYPES.START_DEVTOOLS_CAPTURE,
+        options: captureOptions
+      });
       renderDevtoolsStatus(readDevtoolsStatus(response, "active"));
       setMessage("DevTools capture mode enabled for the active tab.", "ok");
     } catch (error) {
@@ -528,8 +533,18 @@
   function updateDevtoolsButtons(isBusy) {
     const state = lastDevtoolsStatus ? lastDevtoolsStatus.status : "inactive";
     const activeTabUnavailable = !lastState || !lastState.activeTab || lastState.activeTab.restricted;
+    elements.captureDevtoolsBodies.disabled = isBusy || state === "active" || state === "pending";
     elements.enableDevtools.disabled = isBusy || activeTabUnavailable || state === "active" || state === "pending";
     elements.disableDevtools.disabled = isBusy || state !== "active";
+  }
+
+  function readDevtoolsCaptureOptions() {
+    const captureBodies = elements.captureDevtoolsBodies.checked === true;
+    return {
+      bodyCaptureMode: captureBodies ? "request-response" : "metadata-only",
+      captureRequestBodies: captureBodies,
+      captureResponseBodies: captureBodies
+    };
   }
 
   function readQueueItemPage(item) {

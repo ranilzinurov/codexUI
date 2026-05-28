@@ -15,6 +15,49 @@
     "session",
     "token"
   ]);
+  const REDACTED_VALUE = "[REDACTED]";
+  const DEFAULT_BODY_CAP_BYTES = 16 * 1024;
+  const MAX_BODY_CAP_BYTES = 64 * 1024;
+  const MAX_HEADER_ROWS = 80;
+  const MAX_HEADER_NAME_CHARS = 160;
+  const MAX_HEADER_VALUE_CHARS = 600;
+  const SENSITIVE_HEADER_NAMES = new Set([
+    "authorization",
+    "cookie",
+    "proxy-authorization",
+    "set-cookie",
+    "x-api-key",
+    "x-auth-token",
+    "x-csrf-token",
+    "x-xsrf-token"
+  ]);
+  const SENSITIVE_HEADER_PARTS = [
+    "access-token",
+    "accesstoken",
+    "api-key",
+    "apikey",
+    "auth-token",
+    "authtoken",
+    "client-secret",
+    "clientsecret",
+    "csrf-token",
+    "csrftoken",
+    "id-token",
+    "idtoken",
+    "refresh-token",
+    "refreshtoken",
+    "session-token",
+    "sessiontoken"
+  ];
+  const SENSITIVE_BODY_FIELD_NAMES = new Set([
+    ...Array.from(SENSITIVE_QUERY_NAMES),
+    "csrf",
+    "id_token",
+    "session_id",
+    "x_api_key",
+    "x_auth_token",
+    "x_csrf_token"
+  ].map(normalizeSensitiveName));
 
   function createDevtoolsCaptureState(tab, options = {}) {
     const nowMs = Number(options.nowMs) || Date.now();
@@ -32,6 +75,7 @@
       stoppedAtIso: null,
       detachReason: "",
       error: "",
+      captureOptions: normalizeCaptureOptions(options),
       consoleRows: [],
       networkRows: []
     });
@@ -51,6 +95,7 @@
       stoppedAtIso: sanitizeText(value.stoppedAtIso, 80) || null,
       detachReason: sanitizeText(value.detachReason, 300),
       error: sanitizeText(value.error, 500),
+      captureOptions: normalizeCaptureOptions(value.captureOptions),
       consoleRows: Array.isArray(value.consoleRows)
         ? value.consoleRows.map(normalizeConsoleRow).filter(Boolean)
         : [],
@@ -71,6 +116,7 @@
       stoppedAtIso: null,
       detachReason: "",
       error: "",
+      captureOptions: normalizeCaptureOptions(),
       consoleRows: [],
       networkRows: []
     };
@@ -227,10 +273,10 @@
       slow: false,
       fromDiskCache: false,
       mimeType: "",
-      bodyCapture: {
-        state: "metadata-only",
-        reason: "Stage 3.1-3.3 captures metadata only."
-      }
+      requestHeaders: [],
+      responseHeaders: [],
+      requestBody: buildMetadataOnlyBodyCapture(params.request && params.request.postData),
+      responseBody: buildMetadataOnlyBodyCapture()
     };
 
     if (method === "Network.requestWillBeSent") {
@@ -242,6 +288,12 @@
       row.initiator = summarizeInitiator(params.initiator);
       row.failed = false;
       row.failureReason = "";
+      row.requestHeaders = shapeHeaders(request.headers);
+      row.requestBody = shapeBodyCapture({
+        rawText: request.postData,
+        byteLength: estimateBodyByteLength(request.postData),
+        options
+      });
       return normalizeNetworkRow(row);
     }
 
@@ -253,6 +305,42 @@
       row.resourceType = row.resourceType || sanitizeText(params.type, 80);
       row.fromDiskCache = response.fromDiskCache === true;
       row.mimeType = sanitizeText(response.mimeType, 160);
+      row.responseHeaders = shapeHeaders(response.headers);
+      row.responseBody = shapeBodyCapture({
+        byteLength: response.encodedDataLength,
+        mimeType: response.mimeType,
+        options
+      });
+      return normalizeNetworkRow(row);
+    }
+
+    if (method === "Network.requestWillBeSentExtraInfo") {
+      row.requestHeaders = mergeHeaderRows(row.requestHeaders, shapeHeaders(params.headers));
+      return normalizeNetworkRow(row);
+    }
+
+    if (method === "Network.responseReceivedExtraInfo") {
+      row.responseHeaders = mergeHeaderRows(row.responseHeaders, shapeHeaders(params.headers));
+      return normalizeNetworkRow(row);
+    }
+
+    if (method === "BrowserAnnotation.requestBodyCaptured") {
+      row.requestBody = shapeBodyCapture({
+        rawText: params.bodyText,
+        byteLength: params.byteLength,
+        mimeType: params.mimeType || row.mimeType,
+        options
+      });
+      return normalizeNetworkRow(row);
+    }
+
+    if (method === "BrowserAnnotation.responseBodyCaptured") {
+      row.responseBody = shapeBodyCapture({
+        rawText: params.bodyText,
+        byteLength: params.byteLength,
+        mimeType: params.mimeType || row.mimeType,
+        options
+      });
       return normalizeNetworkRow(row);
     }
 
@@ -348,11 +436,277 @@
       slow: row.slow === true,
       fromDiskCache: row.fromDiskCache === true,
       mimeType: sanitizeText(row.mimeType, 160),
-      bodyCapture: {
-        state: "metadata-only",
-        reason: "Stage 3.1-3.3 captures metadata only."
-      }
+      requestHeaders: Array.isArray(row.requestHeaders)
+        ? row.requestHeaders.map(normalizeHeaderRow).filter(Boolean).slice(0, MAX_HEADER_ROWS)
+        : [],
+      responseHeaders: Array.isArray(row.responseHeaders)
+        ? row.responseHeaders.map(normalizeHeaderRow).filter(Boolean).slice(0, MAX_HEADER_ROWS)
+        : [],
+      requestBody: normalizeBodyCapture(row.requestBody),
+      responseBody: normalizeBodyCapture(row.responseBody)
     };
+  }
+
+  function shapeHeaders(headers) {
+    return readHeaderEntries(headers)
+      .map(([name, value]) => shapeHeaderRow(name, value))
+      .filter(Boolean)
+      .slice(0, MAX_HEADER_ROWS);
+  }
+
+  function readHeaderEntries(headers) {
+    if (!headers) {
+      return [];
+    }
+    if (Array.isArray(headers)) {
+      return headers
+        .map((header) => {
+          if (!isRecord(header)) {
+            return null;
+          }
+          return [header.name, header.value];
+        })
+        .filter(Boolean);
+    }
+    if (isRecord(headers)) {
+      return Object.keys(headers).map((name) => [name, headers[name]]);
+    }
+    return [];
+  }
+
+  function shapeHeaderRow(name, value) {
+    const normalizedName = sanitizeText(name, MAX_HEADER_NAME_CHARS).toLowerCase();
+    if (!normalizedName) {
+      return null;
+    }
+    if (isSensitiveHeaderName(normalizedName)) {
+      return {
+        name: normalizedName,
+        value: REDACTED_VALUE,
+        redacted: true
+      };
+    }
+    return {
+      name: normalizedName,
+      value: sanitizeText(value, MAX_HEADER_VALUE_CHARS)
+    };
+  }
+
+  function normalizeHeaderRow(row) {
+    if (!isRecord(row)) {
+      return null;
+    }
+    return shapeHeaderRow(row.name, row.value);
+  }
+
+  function mergeHeaderRows(existing, incoming) {
+    const rows = [];
+    const indexes = new Map();
+    for (const header of [...(Array.isArray(existing) ? existing : []), ...(Array.isArray(incoming) ? incoming : [])]) {
+      const normalized = normalizeHeaderRow(header);
+      if (!normalized) {
+        continue;
+      }
+      const key = normalized.name;
+      if (indexes.has(key)) {
+        rows[indexes.get(key)] = normalized;
+      } else {
+        indexes.set(key, rows.length);
+        rows.push(normalized);
+      }
+    }
+    return rows.slice(0, MAX_HEADER_ROWS);
+  }
+
+  function isSensitiveHeaderName(name) {
+    const normalized = sanitizeText(name, MAX_HEADER_NAME_CHARS).toLowerCase();
+    return SENSITIVE_HEADER_NAMES.has(normalized) ||
+      SENSITIVE_HEADER_PARTS.some((part) => normalized.includes(part));
+  }
+
+  function shapeBodyCapture(input = {}) {
+    const options = input.options || {};
+    const capBytes = normalizeBodyCapBytes(options.bodyCapBytes || options.capBytes);
+    const byteLength = finiteOptionalNumber(input.byteLength);
+    const rawText = typeof input.rawText === "string" ? input.rawText : "";
+    const userOptIn = options.captureBodies === true ||
+      options.captureRequestBodies === true ||
+      options.captureResponseBodies === true ||
+      options.bodyCaptureMode === "full-body-opt-in" ||
+      options.bodyCaptureMode === "request-response";
+
+    if (!userOptIn || !rawText) {
+      return buildMetadataOnlyBodyCapture(byteLength, capBytes);
+    }
+    if (!isTextualMimeType(input.mimeType)) {
+      return {
+        state: "not-captured",
+        reason: "binary",
+        userOptIn: false,
+        capBytes,
+        byteLength
+      };
+    }
+    if (containsSensitiveBodyField(rawText)) {
+      return {
+        state: "redacted",
+        reason: "sensitive",
+        userOptIn: true,
+        capBytes,
+        byteLength: estimateBodyByteLength(rawText)
+      };
+    }
+    return trimCapturedTextBody(rawText, { capBytes });
+  }
+
+  function buildMetadataOnlyBodyCapture(byteLength, capBytes) {
+    const body = {
+      state: "not-captured",
+      reason: "default-privacy",
+      userOptIn: false,
+      capBytes: normalizeBodyCapBytes(capBytes)
+    };
+    const normalizedByteLength = finiteOptionalNumber(byteLength);
+    if (typeof normalizedByteLength === "number") {
+      body.byteLength = normalizedByteLength;
+    }
+    return body;
+  }
+
+  function normalizeBodyCapture(body) {
+    if (!isRecord(body)) {
+      return buildMetadataOnlyBodyCapture();
+    }
+    const capBytes = normalizeBodyCapBytes(body.capBytes);
+    const state = sanitizeText(body.state, 40);
+    if (state === "captured" || state === "trimmed") {
+      if (body.userOptIn !== true || typeof body.text !== "string") {
+        return buildMetadataOnlyBodyCapture(body.byteLength, capBytes);
+      }
+      const captured = trimCapturedTextBody(body.text, {
+        capBytes,
+        redactionApplied: body.redactionApplied === true
+      });
+      const originalByteLength = finiteOptionalNumber(body.originalByteLength);
+      if (state === "trimmed" || typeof originalByteLength === "number") {
+        captured.originalByteLength = originalByteLength || captured.originalByteLength || captured.byteLength;
+      }
+      if (state === "trimmed" && captured.originalByteLength >= captured.byteLength) {
+        captured.state = "trimmed";
+      }
+      return captured;
+    }
+    if (state === "redacted") {
+      return {
+        state: "redacted",
+        reason: body.reason === "policy" ? "policy" : "sensitive",
+        userOptIn: body.userOptIn === true,
+        capBytes,
+        byteLength: finiteOptionalNumber(body.byteLength)
+      };
+    }
+    return buildMetadataOnlyBodyCapture(body.byteLength, capBytes);
+  }
+
+  function normalizeCaptureOptions(value = {}) {
+    const options = isRecord(value) ? value : {};
+    const captureRequestBodies = options.captureBodies === true ||
+      options.captureRequestBodies === true ||
+      options.bodyCaptureMode === "full-body-opt-in" ||
+      options.bodyCaptureMode === "request-response";
+    const captureResponseBodies = options.captureBodies === true ||
+      options.captureResponseBodies === true ||
+      options.bodyCaptureMode === "full-body-opt-in" ||
+      options.bodyCaptureMode === "request-response";
+    return {
+      bodyCaptureMode: captureRequestBodies || captureResponseBodies
+        ? "full-body-opt-in"
+        : "metadata-only",
+      captureRequestBodies,
+      captureResponseBodies,
+      bodyCapBytes: normalizeBodyCapBytes(options.bodyCapBytes || options.capBytes)
+    };
+  }
+
+  function trimCapturedTextBody(value, options = {}) {
+    const capBytes = normalizeBodyCapBytes(options.capBytes);
+    const originalByteLength = estimateBodyByteLength(value);
+    const text = trimTextByBytes(value, capBytes);
+    const byteLength = estimateBodyByteLength(text);
+    const body = {
+      state: originalByteLength > capBytes ? "trimmed" : "captured",
+      userOptIn: true,
+      capBytes,
+      text,
+      byteLength,
+      redactionApplied: options.redactionApplied === true
+    };
+    if (originalByteLength > capBytes) {
+      body.originalByteLength = originalByteLength;
+    }
+    return body;
+  }
+
+  function trimTextByBytes(value, capBytes) {
+    if (estimateBodyByteLength(value) <= capBytes) {
+      return value;
+    }
+    let output = "";
+    let bytes = 0;
+    for (const char of value) {
+      const charBytes = estimateBodyByteLength(char);
+      if (bytes + charBytes > capBytes) {
+        break;
+      }
+      output += char;
+      bytes += charBytes;
+    }
+    return output;
+  }
+
+  function normalizeBodyCapBytes(value) {
+    const number = Number(value);
+    if (Number.isFinite(number) && number > 0) {
+      return Math.min(Math.floor(number), MAX_BODY_CAP_BYTES);
+    }
+    return DEFAULT_BODY_CAP_BYTES;
+  }
+
+  function estimateBodyByteLength(value) {
+    if (typeof value === "number") {
+      return finiteOptionalNumber(value);
+    }
+    const text = typeof value === "string" ? value : "";
+    if (typeof globalScope.TextEncoder === "function") {
+      return new globalScope.TextEncoder().encode(text).byteLength;
+    }
+    return text.length;
+  }
+
+  function finiteOptionalNumber(value) {
+    const number = Number(value);
+    return Number.isFinite(number) && number >= 0 ? number : undefined;
+  }
+
+  function isTextualMimeType(value) {
+    const mimeType = sanitizeText(value, 160).toLowerCase();
+    return !mimeType ||
+      mimeType.startsWith("text/") ||
+      mimeType.includes("json") ||
+      mimeType.includes("javascript") ||
+      mimeType.includes("xml") ||
+      mimeType.includes("graphql") ||
+      mimeType.includes("form-urlencoded");
+  }
+
+  function containsSensitiveBodyField(value) {
+    const pattern = /["']?([A-Za-z][A-Za-z0-9_-]*)["']?\s*[:=]/g;
+    return Array.from(String(value || "").matchAll(pattern))
+      .some((match) => SENSITIVE_BODY_FIELD_NAMES.has(normalizeSensitiveName(match[1] || "")));
+  }
+
+  function normalizeSensitiveName(value) {
+    return String(value || "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
   }
 
   function summarizeRemoteObjects(args) {

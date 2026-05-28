@@ -145,6 +145,40 @@ textarea:focus {
   outline: 2px solid color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
+.toggle-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 9px;
+  align-items: start;
+  padding: 9px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.toggle-row input {
+  width: 18px;
+  min-height: 18px;
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+}
+
+.toggle-row span {
+  display: grid;
+  gap: 3px;
+}
+
+.toggle-row small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.toggle-row:has(input:disabled) {
+  opacity: 0.65;
+}
+
 .button {
   min-height: 36px;
   border: 1px solid transparent;
