@@ -42,6 +42,7 @@ import {
 import { ThreadTerminalManager } from './terminalManager.js'
 import { WebPushNotifications } from './webPushNotifications.js'
 import { ThreadAutoTitleManager } from './threadAutoTitle.js'
+import { handleBrowserAnnotationListenRoutes } from './browserAnnotationListen.js'
 import { getSpawnInvocation } from '../utils/commandInvocation.js'
 import {
   getNpmGlobalBinDir,
@@ -6786,6 +6787,10 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
       }
 
       const url = new URL(req.url, 'http://localhost')
+
+      if (await handleBrowserAnnotationListenRoutes(req, res, url)) {
+        return
+      }
 
       if (req.method === 'GET' && url.pathname === '/codex-api/restart/status') {
         setJson(res, 200, { data: await getRestartStatus() })

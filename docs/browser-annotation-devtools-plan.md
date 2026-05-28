@@ -167,6 +167,7 @@ Use these gates unless a phase explicitly narrows or expands them.
 | 2026-05-28 | Phase 0 | Stage 0.3 | Completed | Fixed the fake-timer queue scheduling test timeout by stubbing constructor queue recovery inside the scheduler test and cleaning fake timers in `finally`. Added `test:coverage` with Vitest Istanbul coverage over TypeScript files, zero baseline thresholds, and explicit optional Tailwind Oxide Linux binding for reliable local builds. `pnpm run test:unit` passed 19 files / 142 tests; `pnpm run build` passed; `pnpm run test:coverage` passed with baseline Statements 18.34%, Branches 15.46%, Functions 21.23%, Lines 19.12%. |
 | 2026-05-28 | Phase 0 | Stage 0.4 | Completed | Added `src/api/browserAnnotationContracts.ts` with `AnnotationBatch`, `AnnotationItem`, `DevToolsSnapshot`, `VoiceNote`, uploaded asset records, privacy redaction/body cap helpers, and representative examples. Focused Vitest passed 11 tests; reviewer accepted after privacy fixes for raw redacted/not-captured text, sensitive body fields, UTF-8 caps, and malformed arrays. |
 | 2026-05-28 | Phase 0 | Stage 0.2 decision | Completed | Repo-side routing decision recorded: `annotate.todo-tg-app.ru` should be a narrow annotation ingress to the existing Codex UI backend, not a full alternate UI mirror. Public DNS, certificate, and nginx deployment remain Phase 5 tasks because the current hostname resolves via wildcard and lacks a valid TLS SAN. |
+| 2026-05-28 | Phase 1 | Stage 1.2 | Completed | Added server pairing endpoints under `/codex-api/extension/listen` with TTL-bound in-memory sessions, SHA-256 token hashes, same-thread replacement, global session cap, route-local malformed JSON handling, and a 16 KiB request body limit. Worker smoke tests passed, reviewer findings were fixed, and re-review found no remaining issues. Verification: `pnpm vitest run src/server/browserAnnotationListen.test.ts --reporter=verbose` passed 8 tests; `pnpm exec vue-tsc --noEmit` passed. Performance audit: code-path analysis only; status/stop are direct lookup when `sessionId` is supplied, token-only fallback scans at most 100 retained sessions. |
 
 ## Phase 0: Foundations, Secrets, And Deployment Discovery
 
@@ -222,13 +223,13 @@ Checklist:
   - [ ] Add revoke/stop listening.
   - Smoke test: create/revoke session in light and dark themes.
 
-- [ ] Stage 1.2: Server pairing endpoints
-  - [ ] Add `POST /codex-api/extension/listen/start`.
-  - [ ] Add `POST /codex-api/extension/listen/stop`.
-  - [ ] Add `GET /codex-api/extension/listen/status`.
-  - [ ] Store sessions server-side with TTL and hashed token.
-  - [ ] Enforce existing Codex UI auth and extension bearer token.
-  - Smoke test: endpoint CJS script covers success, expiry, wrong token, revoked token.
+- [x] Stage 1.2: Server pairing endpoints
+  - [x] Add `POST /codex-api/extension/listen/start`.
+  - [x] Add `POST /codex-api/extension/listen/stop`.
+  - [x] Add `GET /codex-api/extension/listen/status`.
+  - [x] Store sessions server-side with TTL and hashed token.
+  - [x] Enforce existing Codex UI auth and extension bearer token.
+  - Smoke test: `pnpm vitest run src/server/browserAnnotationListen.test.ts --reporter=verbose` covers success, expiry, wrong token, revoked token, malformed JSON, oversized body, same-thread replacement, and session cap.
 
 - [ ] Stage 1.3: Asset upload endpoint
   - [ ] Accept screenshot/crop/audio uploads from paired extension.

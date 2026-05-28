@@ -5835,3 +5835,34 @@ Phase 0 unit, build, lint-substitute, and coverage baseline gates.
 
 #### Rollback/Cleanup
 - Delete any temporary diagnostic log used for testing, or unset `CODEXUI_PREVIOUS_RESPONSE_ERROR_LOG` to return to the default path.
+
+---
+
+### Browser Annotation Server Pairing Endpoints
+
+#### Feature/Change Name
+Browser annotation short-lived listen session API.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Dependencies are installed.
+3. No browser or dev server is required for the focused endpoint tests.
+
+#### Steps
+1. Run `pnpm vitest run src/server/browserAnnotationListen.test.ts --reporter=verbose`.
+2. Confirm `/codex-api/extension/listen/start` returns a session with a one-time `pairingToken`.
+3. Confirm `/codex-api/extension/listen/status` accepts the returned bearer token and never echoes `pairingToken`.
+4. Confirm expired, revoked, and wrong tokens are rejected.
+5. Confirm malformed JSON returns `400` and oversized JSON returns `413`.
+6. Confirm starting a new session for the same thread revokes the older active session and the global session cap removes oldest records.
+7. Run `pnpm exec vue-tsc --noEmit`.
+8. Light and dark theme verification is not applicable because this stage adds server endpoints only and no UI surface.
+
+#### Expected Results
+- The focused Vitest file passes all endpoint cases.
+- The server typecheck passes.
+- Tokens are stored server-side only as hashes and are returned only from the start endpoint.
+- Status/stop requests require a bearer token and can be scoped by `sessionId`.
+
+#### Rollback/Cleanup
+- None. Sessions are in-memory and expire or disappear when the server process exits.
