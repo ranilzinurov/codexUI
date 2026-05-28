@@ -13,6 +13,7 @@ import type { WorkspaceRootsState } from '../api/codexGateway'
 
 const gatewayMocks = vi.hoisted(() => ({
   archiveThread: vi.fn(),
+  createSideThread: vi.fn(),
   forkThread: vi.fn(),
   getAccountRateLimits: vi.fn(),
   getAvailableCollaborationModes: vi.fn(),
@@ -80,8 +81,48 @@ function installTestWindow(initialStorage: Record<string, string> = {}) {
   })
 }
 
+type SideChatDesktopState = ReturnType<typeof useDesktopState> & {
+  sideThreadId: { value: string }
+  sideMessages: { value: Array<{ id: string; role: string; text: string; messageType?: string }> }
+  sideLiveOverlay: { value: { activityLabel?: string; reasoningText?: string } | null }
+  openSideChatForSelectedThread: () => Promise<string>
+  sendMessageToSideChat: (
+    text: string,
+    imageUrls?: string[],
+    skills?: Array<{ name: string; path: string }>,
+    mode?: 'steer' | 'queue',
+    fileAttachments?: Array<{ label: string; path: string; fsPath?: string }>,
+  ) => Promise<unknown>
+  closeSideChat: () => void
+}
+
+function expectSideChatState(state: ReturnType<typeof useDesktopState>): SideChatDesktopState {
+  const sideState = state as SideChatDesktopState
+  expect(typeof sideState.openSideChatForSelectedThread).toBe('function')
+  expect(typeof sideState.sendMessageToSideChat).toBe('function')
+  expect(typeof sideState.closeSideChat).toBe('function')
+  expect(sideState.sideThreadId).toEqual(expect.objectContaining({ value: expect.any(String) }))
+  expect(sideState.sideMessages).toEqual(expect.objectContaining({ value: expect.any(Array) }))
+  expect(sideState.sideLiveOverlay).toEqual(expect.objectContaining({ value: null }))
+  return sideState
+}
+
+function installNotificationListener() {
+  let notify: (notification: { method: string; params: unknown; atIso: string }) => void = () => {
+    throw new Error('notification listener was not registered')
+  }
+  gatewayMocks.subscribeCodexNotifications.mockImplementation((
+    listener: (notification: { method: string; params: unknown; atIso: string }) => void,
+  ) => {
+    notify = listener
+    return () => {}
+  })
+  return (notification: { method: string; params: unknown; atIso: string }) => notify(notification)
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
+  gatewayMocks.createSideThread.mockResolvedValue({ threadId: 'side-thread', model: 'gpt-5.4' })
   gatewayMocks.getThreadQueueState.mockResolvedValue({})
   gatewayMocks.getThreadSummary.mockRejectedValue(new Error('thread summary unavailable'))
   gatewayMocks.getThreadTitleCache.mockResolvedValue({ titles: {} })
@@ -516,6 +557,126 @@ describe('target thread message sender', () => {
     expect(call[6]).toEqual([{ label: 'notes.md', path: '/tmp/project/notes.md', fsPath: '/tmp/project/notes.md' }])
     expect(call[7]).toBe('plan')
     expect(gatewayMocks.setThreadQueueState).not.toHaveBeenCalled()
+  })
+})
+
+describe('side-chat state API', () => {
+  it('opens a side chat for the selected thread without changing selectedThreadId', async () => {
+    installTestWindow({ 'codex-web-local.selected-thread-id.v1': 'main-thread' })
+    const state = useDesktopState()
+    const sideState = expectSideChatState(state)
+
+    const sideThreadId = await sideState.openSideChatForSelectedThread()
+
+    expect(gatewayMocks.createSideThread).toHaveBeenCalledWith('main-thread')
+    expect(sideThreadId).toBe('side-thread')
+    expect(sideState.sideThreadId.value).toBe('side-thread')
+    expect(state.selectedThreadId.value).toBe('main-thread')
+  })
+
+  it('sends side-chat turns to sideThreadId while the main send remains selectedThreadId-bound', async () => {
+    installTestWindow({ 'codex-web-local.selected-thread-id.v1': 'main-thread' })
+    gatewayMocks.resumeThread.mockResolvedValue({ model: 'gpt-5.4' })
+    gatewayMocks.startThreadTurn.mockResolvedValue('turn-1')
+    const state = useDesktopState()
+    const sideState = expectSideChatState(state)
+
+    await sideState.openSideChatForSelectedThread()
+    await sideState.sendMessageToSideChat('side transcript', ['blob:side-image'])
+    await state.sendMessageToSelectedThread('main transcript')
+
+    expect(gatewayMocks.startThreadTurn).toHaveBeenCalledTimes(2)
+    expect(gatewayMocks.startThreadTurn.mock.calls[0][0]).toBe('side-thread')
+    expect(gatewayMocks.startThreadTurn.mock.calls[0][1]).toBe('side transcript')
+    expect(gatewayMocks.startThreadTurn.mock.calls[0][2]).toEqual(['blob:side-image'])
+    expect(gatewayMocks.startThreadTurn.mock.calls[1][0]).toBe('main-thread')
+    expect(gatewayMocks.startThreadTurn.mock.calls[1][1]).toBe('main transcript')
+    expect(state.selectedThreadId.value).toBe('main-thread')
+  })
+
+  it('routes side-thread notification deltas into the side overlay and side messages only', async () => {
+    installTestWindow({ 'codex-web-local.selected-thread-id.v1': 'main-thread' })
+    const notify = installNotificationListener()
+    const state = useDesktopState()
+    const sideState = expectSideChatState(state)
+    state.startPolling()
+
+    await sideState.openSideChatForSelectedThread()
+
+    notify({
+      method: 'turn/started',
+      params: { threadId: 'side-thread', turnId: 'side-turn' },
+      atIso: '2026-05-28T00:00:00.000Z',
+    })
+    notify({
+      method: 'item/reasoning/summaryTextDelta',
+      params: {
+        threadId: 'side-thread',
+        turnId: 'side-turn',
+        itemId: 'side-reasoning',
+        summaryIndex: 0,
+        delta: 'Side thinking stays beside the main thread.',
+      },
+      atIso: '2026-05-28T00:00:01.000Z',
+    })
+    notify({
+      method: 'item/agentMessage/delta',
+      params: {
+        threadId: 'side-thread',
+        turnId: 'side-turn',
+        itemId: 'side-agent-message',
+        delta: 'Side answer',
+      },
+      atIso: '2026-05-28T00:00:02.000Z',
+    })
+
+    expect(sideState.sideLiveOverlay.value).toMatchObject({
+      activityLabel: 'Thinking',
+      reasoningText: 'Side thinking stays beside the main thread.',
+    })
+    expect(sideState.sideMessages.value).toEqual([
+      expect.objectContaining({
+        id: 'side-agent-message',
+        role: 'assistant',
+        text: 'Side answer',
+        messageType: 'agentMessage.live',
+      }),
+    ])
+    expect(state.selectedLiveOverlay.value).toBe(null)
+    expect(state.messages.value).toEqual([])
+    expect(state.selectedThreadId.value).toBe('main-thread')
+  })
+
+  it('closes the side chat by clearing side state while preserving selectedThreadId', async () => {
+    installTestWindow({ 'codex-web-local.selected-thread-id.v1': 'main-thread' })
+    const notify = installNotificationListener()
+    const state = useDesktopState()
+    const sideState = expectSideChatState(state)
+    state.startPolling()
+
+    await sideState.openSideChatForSelectedThread()
+    notify({
+      method: 'turn/started',
+      params: { threadId: 'side-thread', turnId: 'side-turn' },
+      atIso: '2026-05-28T00:00:00.000Z',
+    })
+    notify({
+      method: 'item/agentMessage/delta',
+      params: {
+        threadId: 'side-thread',
+        turnId: 'side-turn',
+        itemId: 'side-agent-message',
+        delta: 'Side answer',
+      },
+      atIso: '2026-05-28T00:00:01.000Z',
+    })
+
+    sideState.closeSideChat()
+
+    expect(sideState.sideThreadId.value).toBe('')
+    expect(sideState.sideMessages.value).toEqual([])
+    expect(sideState.sideLiveOverlay.value).toBe(null)
+    expect(state.selectedThreadId.value).toBe('main-thread')
   })
 })
 
