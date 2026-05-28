@@ -12,13 +12,31 @@
   function buildAnnotationBatchUrl(serverUrl, session) {
     const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
     const url = new URL(constants.ANNOTATION_BATCH_PATH, `${normalizedServerUrl}/`);
+    appendSessionParams(url, session);
+    return url.toString();
+  }
+
+  function buildAssetUploadUrl(serverUrl, session) {
+    const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
+    const url = new URL(constants.ASSET_UPLOAD_PATH, `${normalizedServerUrl}/`);
+    appendSessionParams(url, session);
+    return url.toString();
+  }
+
+  function buildTranscribeUrl(serverUrl, session) {
+    const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
+    const url = new URL(constants.TRANSCRIBE_PATH, `${normalizedServerUrl}/`);
+    appendSessionParams(url, session);
+    return url.toString();
+  }
+
+  function appendSessionParams(url, session) {
     if (session && session.sessionId) {
       url.searchParams.set("sessionId", session.sessionId);
     }
     if (session && session.threadId) {
       url.searchParams.set("threadId", session.threadId);
     }
-    return url.toString();
   }
 
   async function readJsonSafely(response) {
@@ -79,7 +97,9 @@
 
   globalScope.BrowserAnnotationPairingClient = {
     buildAnnotationBatchUrl,
+    buildAssetUploadUrl,
     buildListenStatusUrl,
+    buildTranscribeUrl,
     readJsonSafely,
     readStatusError,
     readSessionFromStatusPayload

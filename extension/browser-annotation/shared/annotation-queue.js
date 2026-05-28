@@ -97,7 +97,8 @@
 
     const createdAtIso = options.createdAtIso || new Date().toISOString();
     const devtoolsSnapshot = buildDevtoolsSnapshot(options.devtoolsCapture, createdAtIso);
-    const batchItems = items.map((item) => buildBatchItem(item, devtoolsSnapshot));
+    const voiceAssetMap = new Map();
+    const batchItems = items.map((item) => buildBatchItem(item, devtoolsSnapshot, voiceAssetMap));
     return {
       schemaVersion: 1,
       batchId: options.batchId || createId("annotation-batch"),
@@ -110,7 +111,7 @@
       targetThreadId: options.targetThreadId || undefined,
       page: readBatchPage(items),
       privacy: DEFAULT_PRIVACY_RULES,
-      assets: [],
+      assets: Array.from(voiceAssetMap.values()),
       items: batchItems,
       ...(devtoolsSnapshot ? { devTools: devtoolsSnapshot } : {})
     };
@@ -120,14 +121,15 @@
     return Array.isArray(queue) ? queue.filter(isRecord) : [];
   }
 
-  function buildBatchItem(item, devtoolsSnapshot) {
+  function buildBatchItem(item, devtoolsSnapshot, voiceAssetMap) {
     const context = isRecord(item.context) ? item.context : {};
     const page = readItemPage(item);
     const noteText = sanitizeNoteText(item.noteText);
     const createdAtIso = item.createdAtIso || new Date().toISOString();
+    const voiceNote = readVoiceNote(item.voice, item.id, voiceAssetMap);
     const batchItem = {
       id: item.id || createId("annotation"),
-      kind: noteText ? "mixed" : "screenshot",
+      kind: readAnnotationKind(noteText, voiceNote),
       createdAtIso,
       page
     };
@@ -143,6 +145,9 @@
     }
 
     batchItem.noteText = noteText;
+    if (voiceNote) {
+      batchItem.voiceNote = voiceNote;
+    }
 
     const selectedText = sanitizeText(context.text, 1000);
     if (selectedText) {
@@ -155,6 +160,156 @@
     }
 
     return batchItem;
+  }
+
+  function readAnnotationKind(noteText, voiceNote) {
+    if (voiceNote && noteText) {
+      return "mixed";
+    }
+    if (voiceNote) {
+      return "voice";
+    }
+    return noteText ? "mixed" : "screenshot";
+  }
+
+  function readVoiceNote(value, itemId, voiceAssetMap) {
+    if (!isRecord(value)) {
+      return null;
+    }
+
+    const asset = readVoiceAsset(value, itemId);
+    const transcript = readVoiceTranscript(value);
+    if (!asset && !transcript) {
+      return null;
+    }
+
+    const voiceNote = {};
+    if (asset) {
+      voiceNote.assetId = asset.id;
+      voiceAssetMap.set(asset.id, asset);
+      if (asset.durationMs !== undefined) {
+        voiceNote.durationMs = asset.durationMs;
+      }
+      if (asset.byteLength !== undefined) {
+        voiceNote.byteLength = asset.byteLength;
+      }
+      if (asset.mimeType) {
+        voiceNote.mimeType = asset.mimeType;
+      }
+    }
+    if (transcript) {
+      voiceNote.transcript = transcript;
+    }
+    const recordedAtIso = sanitizeText(value.recordedAtIso, 80);
+    if (recordedAtIso) {
+      voiceNote.recordedAtIso = recordedAtIso;
+    }
+    return Object.keys(voiceNote).length > 0 ? voiceNote : null;
+  }
+
+  function readVoiceAsset(value, itemId) {
+    const nestedAudio = isRecord(value.audio) ? value.audio : {};
+    const nestedAsset = isRecord(value.asset) ? value.asset : {};
+    const hasAssetMetadata = Boolean(
+      value.assetId ||
+      value.assetRef ||
+      value.mimeType ||
+      value.byteLength ||
+      value.durationMs ||
+      nestedAudio.assetId ||
+      nestedAudio.assetRef ||
+      nestedAudio.mimeType ||
+      nestedAudio.type ||
+      nestedAudio.byteLength ||
+      nestedAudio.size ||
+      nestedAudio.durationMs ||
+      nestedAsset.id ||
+      nestedAsset.mimeType ||
+      nestedAsset.byteLength
+    );
+    if (!hasAssetMetadata) {
+      return null;
+    }
+    const assetId = sanitizeText(
+      value.assetId || value.assetRef || nestedAudio.assetId || nestedAudio.assetRef || nestedAsset.id,
+      160
+    ) || createId(`voice-note-audio-${sanitizeText(itemId, 80) || "asset"}`);
+    const mimeType = sanitizeText(
+      value.mimeType || nestedAudio.mimeType || nestedAudio.type || nestedAsset.mimeType,
+      120
+    ) || "audio/webm";
+    const asset = {
+      id: assetId,
+      kind: "voice-note-audio",
+      mimeType
+    };
+
+    const byteLength = positiveNumber(
+      value.byteLength || nestedAudio.byteLength || nestedAudio.size || nestedAsset.byteLength
+    );
+    const durationMs = positiveNumber(value.durationMs || nestedAudio.durationMs);
+    const sha256 = sanitizeText(value.sha256 || nestedAudio.sha256 || nestedAsset.sha256, 160);
+    const createdAtIso = sanitizeText(value.createdAtIso || value.recordedAtIso, 80);
+    const uploadStatus = sanitizeText(value.uploadStatus || nestedAsset.uploadStatus, 40);
+
+    if (byteLength !== undefined) {
+      asset.byteLength = byteLength;
+    }
+    if (durationMs !== undefined) {
+      asset.durationMs = durationMs;
+    }
+    if (sha256) {
+      asset.sha256 = sha256;
+    }
+    if (createdAtIso) {
+      asset.createdAtIso = createdAtIso;
+    }
+    if (uploadStatus) {
+      asset.uploadStatus = uploadStatus;
+    }
+    return asset;
+  }
+
+  function readVoiceTranscript(value) {
+    const transcript = isRecord(value.transcript) ? value.transcript : {};
+    const status = sanitizeText(value.transcriptStatus || transcript.status, 40);
+    const text = sanitizeText(value.transcriptText || transcript.text, constants.MAX_ANNOTATION_NOTE_CHARS);
+    const error = sanitizeText(value.transcriptError || transcript.error, 300);
+    const normalizedStatus = readTranscriptStatus(status, text, error);
+    if (!normalizedStatus && !text) {
+      return null;
+    }
+
+    const result = {
+      status: normalizedStatus || "completed"
+    };
+    if (text) {
+      result.text = text;
+    }
+    if (error) {
+      result.error = error;
+    }
+    const language = sanitizeText(value.language || transcript.language, 40);
+    if (language) {
+      result.language = language;
+    }
+    if (typeof transcript.confidence === "number") {
+      result.confidence = finiteNumber(transcript.confidence);
+    }
+    return result;
+  }
+
+  function readTranscriptStatus(status, text, error) {
+    if (status === "completed" || status === "failed" || status === "pending") {
+      return status;
+    }
+    if (error) {
+      return "failed";
+    }
+    if (text) {
+      return "completed";
+    }
+    return "";
   }
 
   function buildDevtoolsSnapshot(devtoolsCapture, capturedAtIso) {
@@ -526,6 +681,11 @@
   function positiveInteger(value, fallback) {
     const number = Number(value);
     return Number.isFinite(number) && number > 0 ? Math.floor(number) : fallback;
+  }
+
+  function positiveNumber(value) {
+    const number = Number(value);
+    return Number.isFinite(number) && number > 0 ? number : undefined;
   }
 
   function sanitizeNoteText(value) {

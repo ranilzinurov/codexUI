@@ -43,6 +43,34 @@ This file tracks manual regression and feature verification steps.
 #### Rollback/Cleanup
 - Stop the fixture server with `Ctrl+C`.
 
+### Feature: Browser annotation voice metadata contract
+
+#### Prerequisites
+- Work from the repository root on `browser-annotation-devtools`.
+- No extension UI recording flow is required; this covers shared extension-side metadata only.
+
+#### Steps
+1. Run `node --check extension/browser-annotation/shared/constants.js`.
+2. Run `node --check extension/browser-annotation/shared/pairing-client.js`.
+3. Run `node --check extension/browser-annotation/shared/annotation-queue.js`.
+4. Run `node --check extension/browser-annotation/dev/pairing-client-smoke.mjs`.
+5. Run `node --check extension/browser-annotation/dev/annotation-queue-smoke.mjs`.
+6. Run `node extension/browser-annotation/dev/pairing-client-smoke.mjs`.
+7. Run `node extension/browser-annotation/dev/annotation-queue-smoke.mjs`.
+8. For light-theme regression, load the extension side panel and confirm the existing annotation queue UI is unchanged.
+9. For dark-theme regression, repeat the side panel check with dark theme enabled.
+
+#### Expected Results
+- Pairing URL builders return listen status, annotation batch, asset upload, and transcribe URLs with `sessionId` and `threadId` query parameters where required.
+- Voice-only queue metadata produces an item with `kind: "voice"`, a `voiceNote`, and one `assets[]` record with `kind: "voice-note-audio"`.
+- Note plus voice metadata produces an item with `kind: "mixed"` while preserving the note text.
+- Failed and pending transcript metadata is preserved as sanitized status/error metadata.
+- Asset references are preserved without including raw audio, data URLs, or base64 payloads in the annotation batch JSON.
+- Light and dark side panel surfaces remain unchanged because no UI recording controls were added.
+
+#### Rollback/Cleanup
+- No cleanup is required.
+
 ### Feature: Project recency sort, pins, and mobile move mode
 
 #### Prerequisites

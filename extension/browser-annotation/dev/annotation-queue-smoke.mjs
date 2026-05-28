@@ -260,6 +260,136 @@ assert.ok(devtoolsBatch.devTools.network.every((request) => (
 assert.ok(!JSON.stringify(devtoolsBatch).includes("request-smoke"));
 assert.ok(!JSON.stringify(devtoolsBatch).includes("data:image/png"));
 
+const voiceOnlyBatch = BrowserAnnotationQueue.buildAnnotationBatchPayload(
+  [
+    {
+      ...stageQueue[0],
+      id: "annotation-voice-only",
+      noteText: "",
+      voice: {
+        assetId: "voice-asset-1",
+        mimeType: "audio/webm",
+        byteLength: 2048,
+        durationMs: 3400,
+        recordedAtIso: "2026-05-28T10:04:00.000Z",
+        transcript: {
+          status: "completed",
+          text: "Open the advanced settings panel.",
+          language: "en"
+        },
+        dataUrl: "data:audio/webm;base64,must-not-ship",
+        rawAudio: "must-not-ship"
+      }
+    }
+  ],
+  {
+    batchId: "annotation-batch-voice-only",
+    createdAtIso: "2026-05-28T10:04:05.000Z"
+  }
+);
+assert.equal(voiceOnlyBatch.items[0].kind, "voice");
+assert.equal(voiceOnlyBatch.items[0].noteText, "");
+assert.equal(voiceOnlyBatch.items[0].voiceNote.assetId, "voice-asset-1");
+assert.equal(voiceOnlyBatch.items[0].voiceNote.durationMs, 3400);
+assert.equal(voiceOnlyBatch.items[0].voiceNote.mimeType, "audio/webm");
+assert.equal(voiceOnlyBatch.items[0].voiceNote.transcript.status, "completed");
+assert.equal(voiceOnlyBatch.items[0].voiceNote.transcript.text, "Open the advanced settings panel.");
+assert.deepEqual(toPlainJson(voiceOnlyBatch.assets), [
+  {
+    id: "voice-asset-1",
+    kind: "voice-note-audio",
+    mimeType: "audio/webm",
+    byteLength: 2048,
+    durationMs: 3400,
+    createdAtIso: "2026-05-28T10:04:00.000Z"
+  }
+]);
+assert.ok(!JSON.stringify(voiceOnlyBatch).includes("data:audio"));
+assert.ok(!JSON.stringify(voiceOnlyBatch).includes("must-not-ship"));
+
+const noteAndVoiceBatch = BrowserAnnotationQueue.buildAnnotationBatchPayload(
+  [
+    {
+      ...stageQueue[1],
+      id: "annotation-note-voice",
+      noteText: "User typed note",
+      voice: {
+        asset: {
+          id: "voice-asset-2",
+          mimeType: "audio/mp4",
+          byteLength: 4096,
+          sha256: "abc123"
+        },
+        transcriptText: "Voice transcript text"
+      }
+    }
+  ],
+  {
+    batchId: "annotation-batch-note-voice",
+    createdAtIso: "2026-05-28T10:05:00.000Z"
+  }
+);
+assert.equal(noteAndVoiceBatch.items[0].kind, "mixed");
+assert.equal(noteAndVoiceBatch.items[0].noteText, "User typed note");
+assert.equal(noteAndVoiceBatch.items[0].voiceNote.assetId, "voice-asset-2");
+assert.equal(noteAndVoiceBatch.items[0].voiceNote.transcript.status, "completed");
+assert.equal(noteAndVoiceBatch.items[0].voiceNote.transcript.text, "Voice transcript text");
+assert.equal(noteAndVoiceBatch.assets[0].sha256, "abc123");
+
+const failedTranscriptBatch = BrowserAnnotationQueue.buildAnnotationBatchPayload(
+  [
+    {
+      ...stageQueue[0],
+      id: "annotation-failed-transcript",
+      voice: {
+        assetId: "voice-asset-3",
+        transcript: {
+          status: "failed",
+          error: "Speech was not recognized."
+        }
+      }
+    }
+  ],
+  {
+    batchId: "annotation-batch-failed-transcript",
+    createdAtIso: "2026-05-28T10:06:00.000Z"
+  }
+);
+assert.equal(failedTranscriptBatch.items[0].kind, "voice");
+assert.equal(failedTranscriptBatch.items[0].voiceNote.transcript.status, "failed");
+assert.equal(failedTranscriptBatch.items[0].voiceNote.transcript.error, "Speech was not recognized.");
+
+const assetReferenceBatch = BrowserAnnotationQueue.buildAnnotationBatchPayload(
+  [
+    {
+      ...stageQueue[0],
+      id: "annotation-asset-reference",
+      voice: {
+        audio: {
+          assetRef: "voice-asset-ref",
+          type: "audio/ogg",
+          size: 512
+        },
+        transcriptStatus: "pending"
+      }
+    }
+  ],
+  {
+    batchId: "annotation-batch-asset-reference",
+    createdAtIso: "2026-05-28T10:07:00.000Z"
+  }
+);
+assert.equal(assetReferenceBatch.items[0].voiceNote.assetId, "voice-asset-ref");
+assert.equal(assetReferenceBatch.items[0].voiceNote.transcript.status, "pending");
+assert.deepEqual(toPlainJson(assetReferenceBatch.assets), [
+  {
+    id: "voice-asset-ref",
+    kind: "voice-note-audio",
+    mimeType: "audio/ogg",
+    byteLength: 512
+  }
+]);
+
 console.log("Extension annotation queue smoke passed.");
 
 function toPlainJson(value) {

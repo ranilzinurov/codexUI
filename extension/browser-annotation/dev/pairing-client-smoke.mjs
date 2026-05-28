@@ -37,6 +37,24 @@ assert.equal(
   "http://127.0.0.1:4173/codex-api/extension/listen/status"
 );
 
+const uploadUrl = BrowserAnnotationPairingClient.buildAssetUploadUrl(
+  "http://127.0.0.1:4173/local/path?ignored=true#hash",
+  { sessionId: "session-1", threadId: "thread-1" }
+);
+assert.equal(
+  uploadUrl,
+  "http://127.0.0.1:4173/codex-api/extension/assets?sessionId=session-1&threadId=thread-1"
+);
+
+const transcribeUrl = BrowserAnnotationPairingClient.buildTranscribeUrl(
+  "https://annotate.todo-tg-app.ru/",
+  { sessionId: "session-1", threadId: "thread-1" }
+);
+assert.equal(
+  transcribeUrl,
+  "https://annotate.todo-tg-app.ru/codex-api/extension/transcribe?sessionId=session-1&threadId=thread-1"
+);
+
 const session = BrowserAnnotationPairingClient.readSessionFromStatusPayload({
   ok: true,
   session: {
