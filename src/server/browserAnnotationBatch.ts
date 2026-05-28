@@ -121,14 +121,24 @@ export async function handleBrowserAnnotationBatchRoute(
     return true
   }
 
+  const queuedAtIso = options.nowIso?.() ?? new Date().toISOString()
   const assembled = buildBrowserAnnotationQueuedMessage(batch, {
     id: options.idFactory?.() ?? `annotation-batch-${Date.now()}-${randomBytes(3).toString('hex')}`,
-    nowIso: options.nowIso?.() ?? new Date().toISOString(),
+    nowIso: queuedAtIso,
     sessionId: session.sessionId,
     threadId: session.threadId,
   })
 
   await appendQueuedMessage(session.threadId, assembled.message)
+  store.recordReceivedBatch(session.sessionId, {
+    batchId: batch.batchId,
+    queuedMessageId: assembled.message.id,
+    receivedAtIso: queuedAtIso,
+    annotationCount: batch.items.length,
+    imageCount: assembled.imageCount,
+    consoleCount: batch.devTools?.console.length ?? 0,
+    networkCount: batch.devTools?.network.length ?? 0,
+  })
   options.scheduleThreadQueueDrain?.(session.threadId, 0)
 
   setJson(res, 200, {

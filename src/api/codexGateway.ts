@@ -232,7 +232,18 @@ export type BrowserAnnotationListenSession = {
   expiresAtIso: string
   createdAtIso: string
   status: BrowserAnnotationListenStatus
+  lastReceivedBatch?: BrowserAnnotationLastReceivedBatch
   pairingToken?: string
+}
+
+export type BrowserAnnotationLastReceivedBatch = {
+  batchId: string
+  queuedMessageId: string
+  receivedAtIso: string
+  annotationCount: number
+  imageCount: number
+  consoleCount: number
+  networkCount: number
 }
 
 export type BrowserAnnotationListenSelector = {

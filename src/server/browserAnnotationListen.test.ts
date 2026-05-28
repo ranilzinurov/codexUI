@@ -92,6 +92,30 @@ describe('browser annotation listen endpoints', () => {
     expect(statusSession.threadId).toBe('thread-1')
     expect(statusSession.status).toBe('active')
     expect(statusSession.pairingToken).toBeUndefined()
+
+    store.recordReceivedBatch(started.sessionId, {
+      batchId: 'batch-1',
+      queuedMessageId: 'queued-batch-message',
+      receivedAtIso: '2026-01-01T00:00:01.000Z',
+      annotationCount: 2,
+      imageCount: 1,
+      consoleCount: 3,
+      networkCount: 4,
+    })
+    const statusAfterBatch = await requestJson(baseUrl, `/codex-api/extension/listen/status?sessionId=${started.sessionId}`, {
+      headers: { Authorization: `Bearer ${started.pairingToken}` },
+    })
+
+    expect(statusAfterBatch.status).toBe(200)
+    expect(sessionFrom(statusAfterBatch.body).lastReceivedBatch).toEqual({
+      batchId: 'batch-1',
+      queuedMessageId: 'queued-batch-message',
+      receivedAtIso: '2026-01-01T00:00:01.000Z',
+      annotationCount: 2,
+      imageCount: 1,
+      consoleCount: 3,
+      networkCount: 4,
+    })
   })
 
   it('rejects expired pairing tokens', async () => {

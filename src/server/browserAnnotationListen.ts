@@ -16,7 +16,18 @@ export type BrowserAnnotationListenSessionResponse = {
   expiresAtIso: string
   createdAtIso: string
   status: BrowserAnnotationListenStatus
+  lastReceivedBatch?: BrowserAnnotationListenLastReceivedBatch
   pairingToken?: string
+}
+
+export type BrowserAnnotationListenLastReceivedBatch = {
+  batchId: string
+  queuedMessageId: string
+  receivedAtIso: string
+  annotationCount: number
+  imageCount: number
+  consoleCount: number
+  networkCount: number
 }
 
 type BrowserAnnotationListenSessionRecord = {
@@ -28,6 +39,7 @@ type BrowserAnnotationListenSessionRecord = {
   revokedAtMs: number | null
   serverUrl: string | null
   serverPath: string
+  lastReceivedBatch: BrowserAnnotationListenLastReceivedBatch | null
 }
 
 type BrowserAnnotationListenStoreOptions = {
@@ -72,6 +84,7 @@ export class BrowserAnnotationListenStore {
       revokedAtMs: null,
       serverUrl: input.serverUrl,
       serverPath: input.serverPath,
+      lastReceivedBatch: null,
     }
     this.sessions.set(session.sessionId, session)
     return {
@@ -97,6 +110,13 @@ export class BrowserAnnotationListenStore {
   getSessionStatus(sessionId: string): BrowserAnnotationListenStatus | null {
     const session = this.sessions.get(sessionId)
     return session ? this.getStatus(session) : null
+  }
+
+  recordReceivedBatch(sessionId: string, batch: BrowserAnnotationListenLastReceivedBatch): BrowserAnnotationListenSessionResponse | null {
+    const session = this.sessions.get(sessionId)
+    if (!session || this.getStatus(session) !== 'active') return null
+    session.lastReceivedBatch = { ...batch }
+    return this.toResponse(session)
   }
 
   private findAuthorizedSession(token: string, selector: { sessionId?: string; threadId?: string }): BrowserAnnotationListenSessionRecord | null {
@@ -153,6 +173,7 @@ export class BrowserAnnotationListenStore {
       expiresAtIso: new Date(session.expiresAtMs).toISOString(),
       createdAtIso: new Date(session.createdAtMs).toISOString(),
       status: this.getStatus(session),
+      ...(session.lastReceivedBatch ? { lastReceivedBatch: { ...session.lastReceivedBatch } } : {}),
     }
   }
 }

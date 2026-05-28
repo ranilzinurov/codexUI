@@ -145,6 +145,15 @@ describe('browser annotation listen helpers', () => {
           expiresAtIso: '2026-05-28T12:10:00.000Z',
           createdAtIso: '2026-05-28T12:00:00.000Z',
           status: 'active',
+          lastReceivedBatch: {
+            batchId: 'batch-1',
+            queuedMessageId: 'queued-batch-message',
+            receivedAtIso: '2026-05-28T12:01:00.000Z',
+            annotationCount: 2,
+            imageCount: 1,
+            consoleCount: 3,
+            networkCount: 4,
+          },
         },
       }), {
         status: 200,
@@ -152,9 +161,18 @@ describe('browser annotation listen helpers', () => {
       })
     }))
 
-    await getBrowserAnnotationListenStatus('token-1', { sessionId: 'session-1', threadId: 'thread-1' })
+    const status = await getBrowserAnnotationListenStatus('token-1', { sessionId: 'session-1', threadId: 'thread-1' })
     await stopBrowserAnnotationListenSession('token-1', { sessionId: 'session-1', threadId: 'thread-1' })
 
+    expect(status.lastReceivedBatch).toEqual({
+      batchId: 'batch-1',
+      queuedMessageId: 'queued-batch-message',
+      receivedAtIso: '2026-05-28T12:01:00.000Z',
+      annotationCount: 2,
+      imageCount: 1,
+      consoleCount: 3,
+      networkCount: 4,
+    })
     expect(requests[0].input).toBe('/codex-api/extension/listen/status?sessionId=session-1&threadId=thread-1')
     expect((requests[0].init?.headers as Record<string, string>).Authorization).toBe('Bearer token-1')
     expect(requests[1].input).toBe('/codex-api/extension/listen/stop')

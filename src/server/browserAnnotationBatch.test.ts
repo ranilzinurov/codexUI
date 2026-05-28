@@ -258,6 +258,19 @@ describe('browser annotation batch endpoint', () => {
     expect(queue.messages[0]?.message.text).toContain('The save button never becomes enabled.')
     expect(queue.messages[0]?.message.text).toContain('Voice note: voice-1 (complete, 2000ms)')
     expect(queue.messages[0]?.message.text).toContain('Please inspect the failed save request.')
+    const statusAfterBatch = await requestJson(baseUrl, `/codex-api/extension/listen/status?sessionId=${session.sessionId}`, {
+      headers: { Authorization: `Bearer ${session.pairingToken}` },
+    })
+    expect(statusAfterBatch.status).toBe(200)
+    expect((statusAfterBatch.body.session as Record<string, unknown>).lastReceivedBatch).toEqual({
+      batchId: 'batch-1',
+      queuedMessageId: 'queued-batch-message',
+      receivedAtIso: '2026-05-28T12:00:00.000Z',
+      annotationCount: 2,
+      imageCount: 0,
+      consoleCount: 1,
+      networkCount: 1,
+    })
     expect(queue.scheduled).toEqual([{ threadId: 'thread-batch', delayMs: 0 }])
   })
 

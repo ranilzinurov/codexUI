@@ -43,6 +43,16 @@
           <span class="browser-annotation-listener-label">{{ t('Expires') }}</span>
           <span class="browser-annotation-listener-value" :title="session.expiresAtIso">{{ expiresLabel }}</span>
         </div>
+        <div v-if="session.lastReceivedBatch" class="browser-annotation-listener-last-batch">
+          <div class="browser-annotation-listener-row">
+            <span class="browser-annotation-listener-label">{{ t('Last batch') }}</span>
+            <span class="browser-annotation-listener-value" :title="session.lastReceivedBatch.batchId">{{ lastBatchLabel }}</span>
+          </div>
+          <div class="browser-annotation-listener-row">
+            <span class="browser-annotation-listener-label">{{ t('Context') }}</span>
+            <span class="browser-annotation-listener-value">{{ lastBatchContextLabel }}</span>
+          </div>
+        </div>
         <div class="browser-annotation-listener-copy-row">
           <label class="browser-annotation-listener-copy-field">
             <span class="browser-annotation-listener-label">{{ t('Server URL') }}</span>
@@ -105,6 +115,22 @@ const listenerUrl = computed(() => {
   return `${current.serverUrl.replace(/\/+$/, '')}${path.startsWith('/') ? path : `/${path}`}`
 })
 const expiresLabel = computed(() => formatDateTime(session.value?.expiresAtIso ?? ''))
+const lastBatchLabel = computed(() => {
+  const batch = session.value?.lastReceivedBatch
+  if (!batch) return ''
+  const receivedAt = formatDateTime(batch.receivedAtIso)
+  const count = countLabel(batch.annotationCount, t('annotation'), t('annotations'))
+  return receivedAt ? `${count} at ${receivedAt}` : count
+})
+const lastBatchContextLabel = computed(() => {
+  const batch = session.value?.lastReceivedBatch
+  if (!batch) return ''
+  return [
+    countLabel(batch.imageCount, t('image'), t('images')),
+    countLabel(batch.consoleCount, t('console row'), t('console rows')),
+    countLabel(batch.networkCount, t('network request'), t('network requests')),
+  ].join(' · ')
+})
 const statusText = computed(() => {
   if (phase.value === 'starting') return t('Creating a short-lived extension pairing session.')
   if (phase.value === 'stopping') return t('Revoking the active browser listener.')
@@ -275,6 +301,10 @@ function formatDateTime(value: string): string {
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
+
+function countLabel(count: number, singular: string, plural: string): string {
+  return `${count} ${count === 1 ? singular : plural}`
+}
 </script>
 
 <style scoped>
@@ -369,6 +399,12 @@ function formatDateTime(value: string): string {
 
 .browser-annotation-listener-row {
   @apply grid grid-cols-[4.75rem_minmax(0,1fr)] items-center gap-2 text-xs;
+}
+
+.browser-annotation-listener-last-batch {
+  @apply grid gap-2 rounded-lg border px-2 py-2;
+  background: var(--annotation-listener-bg);
+  border-color: var(--annotation-listener-control-border);
 }
 
 .browser-annotation-listener-label {

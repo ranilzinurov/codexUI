@@ -6442,6 +6442,38 @@ Document troubleshooting for pairing, DNS/nginx/HTTPS, active-tab permissions, q
 
 ---
 
+### Browser Annotation Listener Last Batch Metadata
+
+#### Feature/Change Name
+Show safe last-received browser annotation batch metadata in the active listener panel.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Start or reuse a Codex UI browser annotation listener session.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/browserAnnotationListen.test.ts src/server/browserAnnotationBatch.test.ts src/api/codexGateway.test.ts --reporter=verbose`.
+2. Run `pnpm exec vue-tsc --noEmit`.
+3. Run `pnpm run test:browser-annotation`.
+4. Start a listener from a thread and pair the extension.
+5. Send an annotation batch.
+6. Wait for the listener panel status refresh, or trigger a status refresh by reopening the selected thread.
+7. Confirm the panel shows `Last batch` with annotation count and received time.
+8. Confirm the context line shows image, console, and network counts only.
+9. Repeat the panel readability check in light and dark themes.
+
+#### Expected Results
+- Focused Vitest, typecheck, and browser annotation endpoint suites pass.
+- The listen status response includes only safe metadata: batch id, queued message id, timestamp, and counts.
+- Raw annotation text, DOM snippets, tokens, screenshots, audio, and DevTools bodies are not exposed in listener status.
+- The listener panel keeps the same light/dark styling and remains readable.
+
+#### Rollback/Cleanup
+- Stop or revoke the listener session.
+- Clear extension storage if manual test data remains.
+
+---
+
 ### Browser Annotation DevTools Persistence Serialization
 
 #### Feature/Change Name
