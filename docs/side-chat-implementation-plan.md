@@ -46,7 +46,7 @@ Expected red failures:
 - [x] Phase 0: TDD branch and red tests
 - [x] Phase 1: Gateway contract
 - [x] Phase 2: Desktop state and notification routing
-- [ ] Phase 3: Slash command integration
+- [x] Phase 3: Slash command integration
 - [ ] Phase 4: Side panel UI
 - [ ] Phase 5: Requests, approvals, and error handling
 - [ ] Phase 6: Documentation, regression, and performance audit
@@ -152,12 +152,12 @@ Purpose: make `/side` open Side Chat from the composer.
 
 Atomic steps:
 
-- [ ] Add `side` to `WEB_SUPPORTED_COMMANDS`.
-- [ ] Handle `/side` in `App.vue`.
-- [ ] If `/side` has args, open Side Chat and send the args as the first side message.
-- [ ] If `/side` has no args, open an empty Side Chat panel.
-- [ ] Keep unsupported commands falling through to the existing message.
-- [ ] Do not change `/fork`, `/new`, `/plan`, or `/review` behavior.
+- [x] Add `side` to `WEB_SUPPORTED_COMMANDS`.
+- [x] Handle `/side` in `App.vue`.
+- [x] If `/side` has args, open Side Chat and send the args as the first side message.
+- [x] If `/side` has no args, open an empty Side Chat panel.
+- [x] Keep unsupported commands falling through to the existing message.
+- [x] Do not change `/fork`, `/new`, `/plan`, or `/review` behavior.
 
 Smoke tests:
 
@@ -301,4 +301,5 @@ Completion criteria:
 - [x] 2026-05-28: Ran targeted red baseline: `8 failed | 35 passed`.
 - [x] 2026-05-28: Implemented Phase 1 gateway contract; `src/api/codexGateway.test.ts` passes 11/11.
 - [x] 2026-05-28: Implemented Phase 2 desktop state and side-thread notification routing; `src/composables/useDesktopState.test.ts` passes 30/30.
+- [x] 2026-05-28: Implemented Phase 3 slash command integration; targeted TDD suite passes 43/43.
 - [ ] Implementation paused until explicit user approval.

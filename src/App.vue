@@ -1527,6 +1527,8 @@ const {
   renameThreadById,
   forkThreadFromTurn,
   sendMessageToSelectedThread,
+  openSideChatForSelectedThread,
+  sendMessageToSideChat,
   sendMessageToThread,
   sendMessageToNewThread,
   interruptSelectedThreadTurn,
@@ -3517,6 +3519,14 @@ async function onSlashCommand(payload: ParsedCodexSlashCommand): Promise<void> {
       const nextThreadId = await forkThreadById(threadId)
       if (nextThreadId) {
         await router.push({ name: 'thread', params: { threadId: nextThreadId } })
+      }
+      return
+    }
+
+    if (command === 'side') {
+      const sideThreadId = await openSideChatForSelectedThread()
+      if (sideThreadId && args) {
+        await sendMessageToSideChat(args)
       }
       return
     }

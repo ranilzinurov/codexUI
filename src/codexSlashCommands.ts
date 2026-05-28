@@ -30,6 +30,7 @@ const WEB_SUPPORTED_COMMANDS = new Set([
   'fast',
   'model',
   'skills',
+  'side',
 ])
 
 const UPSTREAM_COMMANDS: Array<{ command: string; description: string }> = [
