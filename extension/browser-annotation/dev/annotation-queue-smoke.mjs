@@ -355,12 +355,18 @@ const patchedNoteAndVoiceQueue = BrowserAnnotationQueue.updateAnnotationQueueIte
       byteLength: 200,
       durationMs: 900,
       uploadedAtIso: "2026-05-28T10:05:02.000Z",
-      transcriptText: "Only voice changed"
+      transcriptText: "Only voice changed",
+      base64: "raw-audio-base64",
+      audioBase64: "raw-audio-base64",
+      dataUrl: "data:audio/webm;base64,raw-audio-base64"
     }
   }
 );
 assert.equal(patchedNoteAndVoiceQueue[0].noteText, "Keep this note");
 assert.equal(patchedNoteAndVoiceQueue[0].voice.assetId, "voice-asset-preserve");
+assert.equal(Object.prototype.hasOwnProperty.call(patchedNoteAndVoiceQueue[0].voice, "base64"), false);
+assert.equal(Object.prototype.hasOwnProperty.call(patchedNoteAndVoiceQueue[0].voice, "audioBase64"), false);
+assert.equal(Object.prototype.hasOwnProperty.call(patchedNoteAndVoiceQueue[0].voice, "dataUrl"), false);
 
 const failedTranscriptBatch = BrowserAnnotationQueue.buildAnnotationBatchPayload(
   [

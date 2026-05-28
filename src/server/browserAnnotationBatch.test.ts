@@ -253,6 +253,7 @@ describe('browser annotation batch endpoint', () => {
     expect(queue.messages).toHaveLength(1)
     expect(queue.messages[0]?.threadId).toBe('thread-batch')
     expect(queue.messages[0]?.message.text).toContain('The save button never becomes enabled.')
+    expect(queue.messages[0]?.message.text).toContain('Voice note: voice-1 (complete, 2000ms)')
     expect(queue.messages[0]?.message.text).toContain('Please inspect the failed save request.')
     expect(queue.scheduled).toEqual([{ threadId: 'thread-batch', delayMs: 0 }])
   })

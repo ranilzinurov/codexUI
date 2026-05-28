@@ -337,7 +337,15 @@
     }
     const voice = {};
     for (const [key, item] of Object.entries(value)) {
-      if (key === "dataUrl" || key === "rawAudio" || key === "blob" || key === "chunks") {
+      const normalizedKey = key.toLowerCase();
+      if (
+        normalizedKey === "dataurl" ||
+        normalizedKey === "rawaudio" ||
+        normalizedKey === "blob" ||
+        normalizedKey === "chunks" ||
+        normalizedKey === "base64" ||
+        normalizedKey === "audiobase64"
+      ) {
         continue;
       }
       if (isRecord(item)) {

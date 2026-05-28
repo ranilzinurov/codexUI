@@ -6270,6 +6270,51 @@ Queue notes, edit/delete/reorder, and send one annotation batch.
 
 ---
 
+### Browser Annotation Voice Notes
+
+#### Feature/Change Name
+Record, upload, transcribe, and send per-annotation voice notes without storing raw audio in queue JSON.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Chrome is installed and `extension/browser-annotation` is loaded unpacked.
+3. Start Codex UI and create an active browser annotation listener token from a thread.
+4. The server has browser annotation transcription configured, or be ready to verify the failed-transcription path.
+5. Serve a normal `http(s)` test page and pair the extension with the listener token.
+
+#### Steps
+1. Run `find extension/browser-annotation -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check`.
+2. Run `node extension/browser-annotation/dev/validate-extension.mjs`.
+3. Run `node extension/browser-annotation/dev/pairing-client-smoke.mjs`.
+4. Run `node extension/browser-annotation/dev/annotation-queue-smoke.mjs`.
+5. Run `pnpm run test:browser-annotation`.
+6. Queue an annotation on the test page.
+7. Click `Record`, speak briefly, then click `Cancel`; confirm no voice note remains.
+8. Click `Record` again, speak briefly, then click `Stop`.
+9. Confirm the row shows upload and transcription progress, then either a ready voice note or a transcription error while preserving the uploaded audio metadata.
+10. Type a note in the same row and confirm voice upload/transcription does not clear the note text.
+11. Delete the voice note while upload/transcription is active and confirm the row returns to no voice note, in-flight requests are aborted, and Send is not left disabled.
+12. Record another voice note, wait for upload/transcription to settle, then click `Send queued annotations`.
+13. Confirm the batch contains a `voice-note-audio` asset record, item `voiceNote`, no raw audio/base64/data URL, and the Codex UI prompt includes typed note plus voice transcript or voice error.
+14. Repeat the queue row voice controls and status readability check in light and dark OS/browser color schemes.
+
+#### Expected Results
+- Static, extension smoke, and browser annotation endpoint tests pass.
+- Asset upload uses `/codex-api/extension/assets/upload?sessionId=...&threadId=...` with bearer auth and multipart `kind=audio` plus `file`.
+- Transcription uses `/codex-api/extension/transcribe?sessionId=...&threadId=...` with bearer auth and multipart `file`.
+- Queue storage contains only voice metadata: asset id, mime type, byte length, duration, uploaded timestamp, transcript status/text/error/language.
+- Raw `Blob`, chunks, base64, and data URLs never appear in queue storage or batch JSON.
+- `voiceNote.transcriptStatus` is `complete` or `failed`, and failed transcription does not drop the annotation.
+- Send is disabled while recording/uploading/transcribing and re-enabled after completion or cancellation.
+- Light and dark side-panel voice controls remain readable.
+
+#### Rollback/Cleanup
+- Delete test voice notes from the queue or clear extension storage from `chrome://extensions`.
+- Remove the unpacked extension if it was loaded only for this test.
+- Stop or revoke the browser annotation listener session.
+
+---
+
 ### Browser Annotation DevTools Persistence Serialization
 
 #### Feature/Change Name
