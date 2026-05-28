@@ -9,6 +9,18 @@
     return new URL(constants.LISTEN_STATUS_PATH, `${normalizedServerUrl}/`).toString();
   }
 
+  function buildAnnotationBatchUrl(serverUrl, session) {
+    const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
+    const url = new URL(constants.ANNOTATION_BATCH_PATH, `${normalizedServerUrl}/`);
+    if (session && session.sessionId) {
+      url.searchParams.set("sessionId", session.sessionId);
+    }
+    if (session && session.threadId) {
+      url.searchParams.set("threadId", session.threadId);
+    }
+    return url.toString();
+  }
+
   async function readJsonSafely(response) {
     const text = await response.text();
     if (!text.trim()) {
@@ -66,6 +78,7 @@
   }
 
   globalScope.BrowserAnnotationPairingClient = {
+    buildAnnotationBatchUrl,
     buildListenStatusUrl,
     readJsonSafely,
     readStatusError,

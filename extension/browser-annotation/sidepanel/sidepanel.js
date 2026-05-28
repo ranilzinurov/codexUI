@@ -15,13 +15,18 @@
     tabDetail: document.getElementById("tabDetail"),
     queueStatus: document.getElementById("queueStatus"),
     queueDetail: document.getElementById("queueDetail"),
+    batchMeta: document.getElementById("batchMeta"),
     queueList: document.getElementById("queueList"),
+    sendBatch: document.getElementById("sendBatch"),
     message: document.getElementById("message")
   };
   let lastState = null;
 
   elements.saveSettings.addEventListener("click", saveSettings);
   elements.injectOverlay.addEventListener("click", injectOverlay);
+  elements.sendBatch.addEventListener("click", sendBatch);
+  elements.queueList.addEventListener("click", handleQueueClick);
+  elements.queueList.addEventListener("change", handleQueueChange);
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
       refreshState();
@@ -114,6 +119,7 @@
     elements.connectionStatus.textContent = connectionLabel(state.connection.status);
     elements.connectionDetail.textContent = connectionDetail(state.connection);
     renderQueue(state.queue);
+    updateSendButton(false);
 
     if (!state.activeTab) {
       elements.tabStatus.textContent = "Unavailable";
@@ -133,6 +139,7 @@
     elements.saveSettings.disabled = isBusy;
     elements.injectOverlay.disabled =
       isBusy || !lastState || !lastState.activeTab || lastState.activeTab.restricted;
+    updateSendButton(isBusy);
   }
 
   function setMessage(text, tone) {
@@ -197,19 +204,192 @@
     elements.queueDetail.textContent =
       items.length === 0
         ? "Select elements on the page to queue annotation context for later stages."
-        : "Stored locally in the extension. Batch send is added in a later stage.";
+        : "Add notes, adjust order, then send one batch to Codex UI.";
+    renderBatchMeta(items);
     elements.queueList.replaceChildren(
-      ...items.slice(-5).reverse().map((item) => {
+      ...items.map((item, index) => {
         const row = document.createElement("li");
+        row.dataset.annotationId = item.id || "";
+        const header = document.createElement("div");
+        header.className = "queue-row-header";
+        const heading = document.createElement("div");
         const name = document.createElement("strong");
         const context = item.context || {};
         name.textContent = queueItemName(context);
         const meta = document.createElement("span");
         meta.textContent = context.selector || context.xpath || "No selector";
-        row.append(createPreview(item.preview), name, meta);
+        heading.append(name, meta);
+        header.append(heading, createQueueActions(item, index, items.length));
+        row.append(createPreview(item.preview), header, createNoteField(item));
         return row;
       })
     );
+    updateSendButton(false);
+  }
+
+  function renderBatchMeta(items) {
+    if (items.length === 0) {
+      elements.batchMeta.hidden = true;
+      elements.batchMeta.replaceChildren();
+      return;
+    }
+    const page = readQueueItemPage(items[0]);
+    const title = document.createElement("strong");
+    title.textContent = "Batch page";
+    const detail = document.createElement("span");
+    detail.textContent = page.title ? `${page.title} - ${page.url}` : page.url;
+    elements.batchMeta.replaceChildren(title, detail);
+    elements.batchMeta.hidden = false;
+  }
+
+  function createQueueActions(item, index, itemCount) {
+    const actions = document.createElement("div");
+    actions.className = "queue-actions";
+    actions.append(
+      createActionButton("Move up", "up", "↑", index === 0),
+      createActionButton("Move down", "down", "↓", index === itemCount - 1),
+      createActionButton("Delete", "delete", "×", false)
+    );
+    actions.dataset.annotationId = item.id || "";
+    return actions;
+  }
+
+  function createActionButton(label, action, text, disabled) {
+    const button = document.createElement("button");
+    button.className = "icon-button";
+    button.type = "button";
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    button.dataset.queueAction = action;
+    button.textContent = text;
+    button.disabled = disabled;
+    return button;
+  }
+
+  function createNoteField(item) {
+    const label = document.createElement("label");
+    label.className = "queue-note-label";
+    const text = document.createElement("span");
+    text.textContent = "Note";
+    const textarea = document.createElement("textarea");
+    textarea.dataset.annotationId = item.id || "";
+    textarea.maxLength = 2000;
+    textarea.placeholder = "What should Codex inspect here?";
+    textarea.value = item.noteText || "";
+    label.append(text, textarea);
+    return label;
+  }
+
+  async function handleQueueClick(event) {
+    const button = event.target.closest("[data-queue-action]");
+    if (!button || button.disabled) {
+      return;
+    }
+    const row = button.closest("[data-annotation-id]");
+    const id = row ? row.dataset.annotationId : "";
+    if (!id) {
+      return;
+    }
+
+    const action = button.dataset.queueAction;
+    setBusy(true);
+    try {
+      if (action === "delete") {
+        const response = await sendRuntimeMessage({
+          type: MESSAGE_TYPES.DELETE_ANNOTATION_QUEUE_ITEM,
+          id
+        });
+        applyQueueResponse(response);
+        setMessage("Annotation removed from the queue.", "ok");
+      } else {
+        const response = await sendRuntimeMessage({
+          type: MESSAGE_TYPES.MOVE_ANNOTATION_QUEUE_ITEM,
+          id,
+          direction: action === "up" ? -1 : 1
+        });
+        applyQueueResponse(response);
+        setMessage("Queue order updated.", "ok");
+      }
+    } catch (error) {
+      setMessage(error.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleQueueChange(event) {
+    if (!event.target.matches("textarea[data-annotation-id]")) {
+      return;
+    }
+    await saveQueueNote(event.target.dataset.annotationId, event.target.value);
+  }
+
+  async function saveQueueNote(id, noteText) {
+    if (!id) {
+      return;
+    }
+    const response = await sendRuntimeMessage({
+      type: MESSAGE_TYPES.UPDATE_ANNOTATION_QUEUE_ITEM,
+      id,
+      patch: { noteText }
+    });
+    applyQueueResponse(response);
+  }
+
+  async function persistVisibleNotes() {
+    const fields = Array.from(elements.queueList.querySelectorAll("textarea[data-annotation-id]"));
+    for (const field of fields) {
+      await saveQueueNote(field.dataset.annotationId, field.value);
+    }
+  }
+
+  async function sendBatch() {
+    setBusy(true);
+    try {
+      await persistVisibleNotes();
+      const response = await sendRuntimeMessage({
+        type: MESSAGE_TYPES.SEND_ANNOTATION_BATCH
+      });
+      renderState(response.state);
+      const count = response.result && response.result.annotationCount
+        ? response.result.annotationCount
+        : "queued";
+      setMessage(`Sent ${count} annotation${count === 1 ? "" : "s"} to Codex UI.`, "ok");
+    } catch (error) {
+      setMessage(error.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function updateSendButton(isBusy) {
+    const itemCount = lastState && Array.isArray(lastState.queue) ? lastState.queue.length : 0;
+    const connected = lastState && lastState.connection.status === "connected";
+    elements.sendBatch.disabled = isBusy || itemCount === 0 || !connected;
+  }
+
+  function applyQueueResponse(response) {
+    if (response.state) {
+      renderState(response.state);
+      return;
+    }
+    if (lastState && Array.isArray(response.queue)) {
+      lastState = {
+        ...lastState,
+        queue: response.queue
+      };
+      renderQueue(response.queue);
+    }
+  }
+
+  function readQueueItemPage(item) {
+    const context = item && item.context ? item.context : {};
+    const page = context.page || {};
+    const tab = item && item.tab ? item.tab : {};
+    return {
+      title: page.title || tab.title || "",
+      url: page.url || tab.url || "Unknown page"
+    };
   }
 
   function createPreview(preview) {

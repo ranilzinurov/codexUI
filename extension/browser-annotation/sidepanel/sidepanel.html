@@ -48,7 +48,9 @@
           <strong id="queueStatus">Empty</strong>
         </div>
         <p id="queueDetail" class="muted">Select elements on the page to queue annotation context for later stages.</p>
+        <div id="batchMeta" class="batch-meta" hidden></div>
         <ol id="queueList" class="queue-list" aria-label="Queued annotations"></ol>
+        <button id="sendBatch" class="button button-primary" type="button" disabled>Send queued annotations</button>
       </section>
 
       <p id="message" class="message" role="status" aria-live="polite"></p>

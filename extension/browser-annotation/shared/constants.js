@@ -18,6 +18,10 @@
       GET_STATE: "browserAnnotation.getState",
       SAVE_SETTINGS: "browserAnnotation.saveSettings",
       INJECT_OVERLAY: "browserAnnotation.injectOverlay",
+      UPDATE_ANNOTATION_QUEUE_ITEM: "browserAnnotation.updateAnnotationQueueItem",
+      DELETE_ANNOTATION_QUEUE_ITEM: "browserAnnotation.deleteAnnotationQueueItem",
+      MOVE_ANNOTATION_QUEUE_ITEM: "browserAnnotation.moveAnnotationQueueItem",
+      SEND_ANNOTATION_BATCH: "browserAnnotation.sendAnnotationBatch",
       CONTENT_PING: "browserAnnotation.contentPing",
       CONTENT_START_OVERLAY: "browserAnnotation.contentStartOverlay",
       CONTENT_ELEMENT_SELECTED: "browserAnnotation.contentElementSelected"
@@ -27,6 +31,7 @@
       pairingToken: ""
     }),
     LISTEN_STATUS_PATH: "/codex-api/extension/listen/status",
+    ANNOTATION_BATCH_PATH: "/codex-api/extension/annotation-batch",
     TARGET_HOST_PATTERN: "https://annotate.todo-tg-app.ru/*",
     ALLOWED_TAB_PROTOCOLS: Object.freeze([
       "http:",
@@ -40,6 +45,8 @@
     MAX_SCREENSHOT_PREVIEW_EDGE_PX: 640,
     MAX_SCREENSHOT_PREVIEW_DATA_URL_CHARS: 250000,
     MAX_ANNOTATION_QUEUE_STORAGE_BYTES: 5500000,
+    MAX_ANNOTATION_NOTE_CHARS: 2000,
+    MAX_ANNOTATION_BATCH_BYTES: 1024 * 1024,
     RESTRICTED_URL_PREFIXES: Object.freeze([
       "chrome://",
       "chrome-extension://",

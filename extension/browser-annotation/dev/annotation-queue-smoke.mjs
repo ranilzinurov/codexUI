@@ -47,4 +47,80 @@ const countTrimmed = BrowserAnnotationQueue.trimAnnotationQueue(
 assert.equal(countTrimmed.length, 25);
 assert.equal(countTrimmed[0].id, "small-15");
 
+const stageQueue = ["alpha", "bravo", "charlie"].map((name, index) => ({
+  id: `annotation-${name}`,
+  createdAtIso: `2026-05-28T10:00:0${index}.000Z`,
+  tab: {
+    id: 7,
+    title: "Queue smoke",
+    url: "https://app.example.test/settings"
+  },
+  context: {
+    selector: `#${name}`,
+    xpath: `/html/body/button[${index + 1}]`,
+    tagName: "button",
+    text: name,
+    aria: {
+      label: `${name} action`
+    },
+    rect: {
+      x: index * 10,
+      y: index * 20,
+      width: 120,
+      height: 36
+    },
+    viewport: {
+      width: 1280,
+      height: 720,
+      scrollX: 0,
+      scrollY: 64,
+      devicePixelRatio: 1
+    },
+    page: {
+      title: "Queue smoke",
+      url: "https://app.example.test/settings"
+    }
+  },
+  preview: {
+    dataUrl: `data:image/png;base64,${name}`,
+    width: 120,
+    height: 36
+  }
+}));
+
+let edited = BrowserAnnotationQueue.updateAnnotationQueueItem(stageQueue, "annotation-alpha", {
+  noteText: "First note"
+});
+edited = BrowserAnnotationQueue.updateAnnotationQueueItem(edited, "annotation-bravo", {
+  noteText: "Second note"
+});
+edited = BrowserAnnotationQueue.moveAnnotationQueueItem(edited, "annotation-bravo", -1);
+edited = BrowserAnnotationQueue.deleteAnnotationQueueItem(edited, "annotation-charlie");
+
+assert.deepEqual(
+  edited.map((item) => item.id),
+  ["annotation-bravo", "annotation-alpha"]
+);
+
+const batch = BrowserAnnotationQueue.buildAnnotationBatchPayload(edited, {
+  batchId: "annotation-batch-smoke",
+  createdAtIso: "2026-05-28T10:01:00.000Z",
+  targetThreadId: "thread-smoke",
+  extensionVersion: "0.1.0"
+});
+assert.equal(batch.schemaVersion, 1);
+assert.equal(batch.targetThreadId, "thread-smoke");
+assert.equal(batch.page.url, "https://app.example.test/settings");
+assert.equal(batch.assets.length, 0);
+assert.equal(batch.items.length, 2);
+assert.equal(batch.items[0].id, "annotation-bravo");
+assert.equal(batch.items[0].noteText, "Second note");
+assert.equal(batch.items[0].target.selector, "#bravo");
+assert.equal(batch.items[0].viewport.width, 1280);
+assert.ok(!JSON.stringify(batch).includes("data:image/png"));
+assert.ok(
+  BrowserAnnotationQueue.estimateJsonBytes(batch) <
+    BrowserAnnotationConstants.MAX_ANNOTATION_BATCH_BYTES
+);
+
 console.log("Extension annotation queue smoke passed.");

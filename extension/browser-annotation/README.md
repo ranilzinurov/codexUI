@@ -1,13 +1,13 @@
 # Codex UI Browser Annotation Extension
 
-Manifest V3 MVP scaffold for browser annotation. This stage includes extension structure, locally stored server URL and pairing token, bearer-token validation against the Codex UI listen status endpoint, connected/disconnected/error side-panel state, restricted-page guards, user-requested overlay injection, element hover/selection overlays, visible-tab screenshot capture, selected-element crop previews, and a local annotation queue.
+Manifest V3 MVP scaffold for browser annotation. This stage includes extension structure, locally stored server URL and pairing token, bearer-token validation against the Codex UI listen status endpoint, connected/disconnected/error side-panel state, restricted-page guards, user-requested overlay injection, element hover/selection overlays, visible-tab screenshot capture, selected-element crop previews, a local annotation queue with per-item notes/edit/delete/reorder, and batch send to Codex UI.
 
 No build step is required. The folder is designed to be loaded directly with Chrome's **Load unpacked** flow.
 
 ## Files
 
 - `manifest.json` declares MV3, the service worker, side panel, `activeTab`/`scripting`/`tabs`/`sidePanel` permissions, target host access for `https://annotate.todo-tg-app.ru/*`, and narrow local development host access for `http://127.0.0.1/*` plus `http://localhost/*`.
-- `service-worker/service-worker.js` owns side-panel messages, local settings, pairing-token validation, active-tab checks, action-click side-panel behavior, user-gesture content-script injection, visible-tab capture, crop preview creation, and local selected-element queue storage.
+- `service-worker/service-worker.js` owns side-panel messages, local settings, pairing-token validation, active-tab checks, action-click side-panel behavior, user-gesture content-script injection, visible-tab capture, crop preview creation, local selected-element queue storage, queue mutation, and annotation-batch POSTs.
 - `sidepanel/` contains the load-unpacked side panel UI.
 - `content/content-script.js` installs a Shadow DOM overlay, tracks hover/selected element boxes while annotation mode is active, and sends selected element context back to the service worker.
 - `shared/` contains small globals, JSDoc contract typedefs, message names, storage keys, URL rules, pairing status helpers, selection-context helpers, screenshot crop helpers, and defaults used by the service worker, content script, and side panel.
@@ -55,8 +55,13 @@ node extension/browser-annotation/dev/screenshot-crop-smoke.mjs
 13. Confirm the selected element gets a green box, the overlay reports that the element was queued, and the side panel queue count/list updates.
 14. Confirm each queue row includes a visible preview cropped to the selected element. On a DPR 2 display, a 120 CSS-pixel wide selected element should produce a 240 pixel wide stored preview unless it exceeds the preview cap.
 15. Open the extension service worker console and inspect `chrome.storage.local.get("browserAnnotation.annotationQueue")`. Confirm the queued item stores `preview.dataUrl`, `preview.cropRect`, `preview.devicePixelRatio`, and no full-tab screenshot.
-16. Press Esc and confirm hover tracking stops until **Inject overlay** is clicked again.
+16. Create three queued annotations, type a distinct note into each queue row, move the second row up, and delete the remaining third row.
+17. Click **Send queued annotations** with a valid connected pairing token and confirm the queue clears after the server accepts the batch. The batch request should be a POST to `/codex-api/extension/annotation-batch` with the pairing token as `Authorization: Bearer <token>`.
+18. Inspect the annotation-batch request body if available. Confirm it contains one top-level `page`, two `items`, each item note, selector/rect/viewport context, `assets: []`, and no `preview.dataUrl` or other screenshot data URL.
+19. Press Esc and confirm hover tracking stops until **Inject overlay** is clicked again.
 
 Restricted pages such as `chrome://extensions`, `chrome-extension://...`, `file://...`, `devtools://...`, and `about:` pages should show a clear side-panel error instead of attempting injection.
 
 Preview payloads are bounded by `MAX_SCREENSHOT_PREVIEW_EDGE_PX` and `MAX_SCREENSHOT_PREVIEW_DATA_URL_CHARS`. The service worker keeps the full visible-tab screenshot only in memory long enough to crop it, then stores only the cropped preview with the queue item.
+
+Annotation-batch payloads are capped before send by `MAX_ANNOTATION_BATCH_BYTES`. Local crop previews remain extension-only in this stage because uploaded screenshot asset references are produced by a later stage.
