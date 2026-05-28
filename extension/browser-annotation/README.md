@@ -6,7 +6,7 @@ No build step is required. The folder is designed to be loaded directly with Chr
 
 ## Files
 
-- `manifest.json` declares MV3, the service worker, side panel, action keyboard shortcut, `activeTab`/`debugger`/`scripting`/`tabs`/`sidePanel` permissions, target host access for `https://annotate.todo-tg-app.ru/*`, the current manual-test host `http://46.62.215.111/*`, and narrow local development host access for `http://127.0.0.1/*` plus `http://localhost/*`.
+- `manifest.json` declares MV3, the service worker, side panel, action keyboard shortcut, `activeTab`/`alarms`/`debugger`/`scripting`/`tabs`/`sidePanel` permissions, target host access for `https://annotate.todo-tg-app.ru/*`, the current manual-test host `http://46.62.215.111/*`, and narrow local development host access for `http://127.0.0.1/*` plus `http://localhost/*`.
 - `service-worker/service-worker.js` owns side-panel messages, local settings, pairing-token validation, active-tab checks, action-click side-panel behavior, user-gesture content-script injection, visible-tab capture, best-effort crop preview creation, explicit `chrome.debugger` attach/detach, bounded DevTools console/network capture, local selected-element queue storage, queue mutation, and annotation-batch POSTs.
 - `sidepanel/` contains the load-unpacked side panel UI.
 - `content/content-script.js` installs a Shadow DOM overlay, tracks hover/selected element boxes while annotation mode is active, and sends selected element context back to the service worker.
@@ -35,6 +35,7 @@ node --check extension/browser-annotation/dev/annotation-queue-smoke.mjs
 node --check extension/browser-annotation/dev/screenshot-crop-smoke.mjs
 node --check extension/browser-annotation/dev/devtools-capture-smoke.mjs
 node --check extension/browser-annotation/dev/devtools-fixture-smoke.mjs
+node --check extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.mjs
 node extension/browser-annotation/dev/validate-extension.mjs
 node extension/browser-annotation/dev/pairing-client-smoke.mjs
 node extension/browser-annotation/dev/selection-context-smoke.mjs
@@ -42,6 +43,7 @@ node extension/browser-annotation/dev/annotation-queue-smoke.mjs
 node extension/browser-annotation/dev/screenshot-crop-smoke.mjs
 node extension/browser-annotation/dev/devtools-capture-smoke.mjs
 node extension/browser-annotation/dev/devtools-fixture-smoke.mjs
+node extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.mjs
 ```
 
 ## Manual Load-Unpacked Smoke Test

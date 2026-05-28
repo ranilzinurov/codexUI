@@ -1,0 +1,288 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import vm from "node:vm";
+
+const extensionRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const storage = new Map();
+const detachedTabs = [];
+let pendingBodyResponse = null;
+
+const context = vm.createContext({
+  Date,
+  Math,
+  Promise,
+  Set,
+  Symbol,
+  TextEncoder,
+  URL,
+  clearTimeout,
+  console,
+  fetch,
+  setTimeout,
+  globalThis: {},
+  importScripts: (...paths) => {
+    for (const scriptPath of paths) {
+      const source = readFileSync(resolve(extensionRoot, "service-worker", scriptPath), "utf8");
+      vm.runInContext(source, context, { filename: scriptPath });
+    }
+  }
+});
+context.globalThis = context;
+context.chrome = createChromeStub(storage, detachedTabs, () => pendingBodyResponse);
+
+const serviceWorkerSource = readFileSync(
+  resolve(extensionRoot, "service-worker/service-worker.js"),
+  "utf8"
+);
+vm.runInContext(serviceWorkerSource, context, {
+  filename: "service-worker/service-worker.js"
+});
+
+const { BrowserAnnotationConstants, BrowserAnnotationDevtoolsCapture } = context;
+const storageKey = BrowserAnnotationConstants.STORAGE_KEYS.devtoolsCapture;
+const nowMs = Date.now();
+const initialState = BrowserAnnotationDevtoolsCapture.createDevtoolsCaptureState(
+  {
+    id: 42,
+    title: "Persistence smoke",
+    url: "https://app.example.test/persistence"
+  },
+  {
+    nowMs,
+    timeoutMs: 60000
+  }
+);
+storage.set(storageKey, initialState);
+
+const source = { tabId: 42 };
+const burst = [];
+for (let index = 0; index < 12; index += 1) {
+  burst.push(
+    context.handleDebuggerEvent(source, "Runtime.consoleAPICalled", {
+      type: "log",
+      timestamp: nowMs + index,
+      args: [{ value: `burst-console-${index}` }]
+    })
+  );
+  burst.push(
+    context.handleDebuggerEvent(source, "Network.requestWillBeSent", {
+      requestId: `burst-request-${index}`,
+      type: "Fetch",
+      wallTime: (nowMs + 1000 + index) / 1000,
+      request: {
+        method: "GET",
+        url: `https://app.example.test/api/${index}`,
+        headers: {}
+      }
+    })
+  );
+}
+
+await Promise.all(burst);
+
+const finalState = storage.get(storageKey);
+assert.equal(finalState.active, true);
+assert.equal(finalState.consoleRows.length, 12);
+assert.equal(finalState.networkRows.length, 12);
+assert.deepEqual(
+  finalState.consoleRows.map((row) => row.text).sort(),
+  Array.from({ length: 12 }, (_value, index) => `burst-console-${index}`).sort()
+);
+assert.deepEqual(
+  finalState.networkRows.map((row) => row.requestId).sort(),
+  Array.from({ length: 12 }, (_value, index) => `burst-request-${index}`).sort()
+);
+
+storage.set(storageKey, BrowserAnnotationDevtoolsCapture.createDevtoolsCaptureState(
+  {
+    id: 42,
+    title: "Stop race smoke",
+    url: "https://app.example.test/stop-race"
+  },
+  {
+    nowMs,
+    timeoutMs: 60000
+  }
+));
+context.devtoolsCaptureTabId = 42;
+await Promise.all([
+  context.handleDebuggerEvent(source, "Runtime.consoleAPICalled", {
+    type: "log",
+    timestamp: nowMs + 2000,
+    args: [{ value: "queued-before-stop" }]
+  }),
+  context.stopDevtoolsCapture("smoke-stop")
+]);
+
+const stoppedState = storage.get(storageKey);
+assert.equal(stoppedState.active, false);
+assert.equal(stoppedState.detachReason, "smoke-stop");
+assert.equal(detachedTabs.includes(42), true);
+
+let firstCapture = BrowserAnnotationDevtoolsCapture.createDevtoolsCaptureState(
+  {
+    id: 42,
+    title: "Body stale capture",
+    url: "https://app.example.test/body-stale"
+  },
+  {
+    nowMs,
+    timeoutMs: 60000,
+    captureResponseBodies: true
+  }
+);
+firstCapture = BrowserAnnotationDevtoolsCapture.upsertNetworkEvent(
+  firstCapture,
+  "Network.requestWillBeSent",
+  {
+    requestId: "stale-body-request",
+    type: "Fetch",
+    wallTime: nowMs / 1000,
+    request: {
+      method: "GET",
+      url: "https://app.example.test/error",
+      headers: {}
+    }
+  },
+  firstCapture.captureOptions
+);
+firstCapture = BrowserAnnotationDevtoolsCapture.upsertNetworkEvent(
+  firstCapture,
+  "Network.responseReceived",
+  {
+    requestId: "stale-body-request",
+    type: "Fetch",
+    response: {
+      url: "https://app.example.test/error",
+      status: 500,
+      mimeType: "application/json",
+      encodedDataLength: 16,
+      headers: {}
+    }
+  },
+  firstCapture.captureOptions
+);
+firstCapture = BrowserAnnotationDevtoolsCapture.upsertNetworkEvent(
+  firstCapture,
+  "Network.loadingFinished",
+  {
+    requestId: "stale-body-request",
+    encodedDataLength: 16
+  },
+  firstCapture.captureOptions
+);
+storage.set(storageKey, firstCapture);
+context.devtoolsCaptureTabId = 42;
+
+pendingBodyResponse = deferred();
+const staleBodyCapture = context.captureResponseBodyIfAllowed(source, {
+  requestId: "stale-body-request"
+});
+await delay(0);
+const secondCapture = BrowserAnnotationDevtoolsCapture.createDevtoolsCaptureState(
+  {
+    id: 42,
+    title: "Restarted same tab",
+    url: "https://app.example.test/restarted"
+  },
+  {
+    nowMs: nowMs + 5000,
+    timeoutMs: 60000,
+    captureResponseBodies: true
+  }
+);
+storage.set(storageKey, secondCapture);
+pendingBodyResponse.resolve({ body: "{\"error\":true}", base64Encoded: false });
+await staleBodyCapture;
+
+const restartedState = storage.get(storageKey);
+assert.equal(restartedState.active, true);
+assert.equal(restartedState.startedAtIso, secondCapture.startedAtIso);
+assert.equal(restartedState.networkRows.some((row) => row.requestId === "stale-body-request"), false);
+
+console.log("Extension DevTools service worker persistence smoke passed.");
+
+function createChromeStub(localStorage, detachLog, getPendingBodyResponse) {
+  const addListener = () => {};
+  return {
+    action: {
+      onClicked: { addListener }
+    },
+    alarms: {
+      clear: async () => {},
+      create: () => {},
+      onAlarm: { addListener }
+    },
+    debugger: {
+      attach: async () => {},
+      detach: async (debuggee) => {
+        detachLog.push(debuggee.tabId);
+      },
+      sendCommand: async () => {
+        const pending = getPendingBodyResponse();
+        if (pending) {
+          return pending.promise;
+        }
+        return { body: "", base64Encoded: false };
+      },
+      onDetach: { addListener },
+      onEvent: { addListener }
+    },
+    runtime: {
+      getURL: (path) => `chrome-extension://test/${path}`,
+      onInstalled: { addListener },
+      onMessage: { addListener },
+      onStartup: { addListener }
+    },
+    scripting: {
+      executeScript: async () => {}
+    },
+    sidePanel: {
+      setPanelBehavior: async () => {}
+    },
+    storage: {
+      local: {
+        get: async (key) => {
+          await delay(0);
+          const keys = Array.isArray(key) ? key : [key];
+          return Object.fromEntries(keys.map((item) => [item, clone(localStorage.get(item))]));
+        },
+        set: async (value) => {
+          await delay(0);
+          for (const [key, item] of Object.entries(value)) {
+            localStorage.set(key, clone(item));
+          }
+        }
+      }
+    },
+    tabs: {
+      captureVisibleTab: async () => "",
+      onRemoved: { addListener },
+      query: async () => []
+    }
+  };
+}
+
+function delay(ms) {
+  return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
+}
+
+function deferred() {
+  let resolveDeferred;
+  let rejectDeferred;
+  const promise = new Promise((resolve, reject) => {
+    resolveDeferred = resolve;
+    rejectDeferred = reject;
+  });
+  return {
+    promise,
+    resolve: resolveDeferred,
+    reject: rejectDeferred
+  };
+}
+
+function clone(value) {
+  return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+}

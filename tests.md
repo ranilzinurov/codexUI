@@ -6242,6 +6242,33 @@ Queue notes, edit/delete/reorder, and send one annotation batch.
 
 ---
 
+### Browser Annotation DevTools Persistence Serialization
+
+#### Feature/Change Name
+Serialize DevTools debugger event persistence to preserve bursty console and network rows.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Use Node.js 18 or newer.
+
+#### Steps
+1. Run `node --check extension/browser-annotation/service-worker/service-worker.js`.
+2. Run `node --check extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.mjs`.
+3. Run `node extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.mjs`.
+4. Optional manual check: load `extension/browser-annotation` as an unpacked extension, start DevTools capture, trigger many console logs and fetches quickly from a test page, then confirm the side panel keeps all expected DevTools rows.
+
+#### Expected Results
+- Static checks pass.
+- The persistence smoke prints `Extension DevTools service worker persistence smoke passed.`
+- Bursty debugger events are applied sequentially, so later writes do not overwrite rows captured by earlier events.
+- No UI styling changed; existing DevTools capture rows remain readable in both light and dark side panel themes.
+
+#### Rollback/Cleanup
+- Remove the unpacked extension from `chrome://extensions` if the optional manual check was performed.
+- Clear extension storage from the extension details page if manual DevTools capture data remains.
+
+---
+
 ### Browser Annotation DevTools Console Secret Redaction
 
 #### Feature/Change Name
@@ -6256,15 +6283,60 @@ DevTools console capture redacts secrets before console rows are stored.
 2. Run `node extension/browser-annotation/dev/annotation-queue-smoke.mjs`.
 3. Manually start a DevTools capture in the unpacked extension against a test page.
 4. In the page console, emit `password=supersecret token=abc123 cookie=sid=sekret Authorization: Bearer abc`.
-5. Send or inspect the captured annotation batch payload.
-6. Repeat the side-panel capture status readability check in light and dark OS/browser color schemes.
+5. Emit JSON- and Basic-auth-shaped examples such as `{"token":"json-token-abc","password":"json-secret"}` and `Authorization: Basic basic-secret-abc`.
+6. Send or inspect the captured annotation batch payload.
+7. Repeat the side-panel capture status readability check in light and dark OS/browser color schemes.
 
 #### Expected Results
 - The smoke tests pass.
 - `consoleRows` and the batch DevTools console payload do not contain `password=supersecret`, `token=abc123`, `cookie=sid=sekret`, `Authorization: Bearer abc`, or the raw secret values.
+- JSON-style secret values and Basic auth credentials are redacted before they appear in `consoleRows`.
 - Redacted console text uses `[REDACTED]`.
 - Light and dark side-panel capture status remains readable.
 
 #### Rollback/Cleanup
 - Stop DevTools capture.
 - Remove the unpacked extension from `chrome://extensions` if it was loaded only for this test.
+
+---
+
+### Browser Annotation DevTools Failed Body Capture Timeout
+
+#### Feature/Change Name
+DevTools response body capture is limited to small textual failures and timeout uses MV3 alarms.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Chrome is installed for the manual alarm/capture smoke test.
+3. Load `extension/browser-annotation` as an unpacked extension.
+4. Serve a test page that can issue successful, `>=400`, large, binary, and failed network requests.
+
+#### Steps
+1. Run `node --check extension/browser-annotation/service-worker/service-worker.js`.
+2. Run `node --check extension/browser-annotation/shared/devtools-capture.js`.
+3. Run `node --check extension/browser-annotation/dev/validate-extension.mjs`.
+4. Run `node extension/browser-annotation/dev/validate-extension.mjs`.
+5. Run `node extension/browser-annotation/dev/devtools-capture-smoke.mjs`.
+6. Enable DevTools capture with body capture opt-in.
+7. Trigger a successful small textual request, a small textual `404` or `500`, a large textual error over the cap, a response with unknown `encodedDataLength`, and a binary error response.
+8. Confirm only the small textual HTTP error attempts response body capture; successful, large, unknown-size, and binary responses remain metadata-only.
+9. Close and reopen the side panel while DevTools capture is still active.
+10. Confirm the body-capture checkbox is still checked, disabled, and accompanied by status/help text explaining that body capture is active for the current capture session.
+11. Stop DevTools capture, start it again without body opt-in, close and reopen the side panel, and confirm the checkbox is unchecked, disabled while active, and the status/help text says bodies are excluded for that active session.
+12. Let the capture timeout expire or shorten `DEVTOOLS_CAPTURE_TIMEOUT_MS` in a temporary local build and confirm the debugger detaches after the service worker has been allowed to go idle.
+13. Repeat the side-panel capture status readability check in light and dark OS/browser color schemes.
+
+#### Expected Results
+- Static checks, manifest validation, and DevTools capture smoke pass.
+- The manifest includes the `alarms` permission required for MV3 wakeup-backed timeout handling.
+- `Network.getResponseBody` is not requested for successful, large, unknown-size, or non-textual responses.
+- Request bodies from successful `Network.requestWillBeSent` events remain metadata-only even when body capture is opted in.
+- Failed HTTP responses with status `>=400` and failed network rows are eligible only when `encodedDataLength` is numeric and at or below the body cap.
+- Reopening the side panel during active capture preserves the checked/disabled body-capture state and explanatory text for the active session.
+- The alarm reconciliation stops expired DevTools capture and detaches the debugger even if the in-memory `setTimeout` was lost when the service worker suspended.
+- Light and dark side-panel capture status remains readable.
+
+#### Rollback/Cleanup
+- Stop DevTools capture.
+- Remove the unpacked extension from `chrome://extensions` if it was loaded only for this test.
+- Revert any temporary local timeout constant used for the manual alarm smoke test.

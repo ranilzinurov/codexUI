@@ -8,6 +8,7 @@ const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
 
 const requiredPermissions = [
   "activeTab",
+  "alarms",
   "debugger",
   "scripting",
   "tabs",

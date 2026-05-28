@@ -62,6 +62,8 @@ state = BrowserAnnotationDevtoolsCapture.appendConsoleEvent(
 );
 
 const rawConsoleSecret = "password=supersecret token=abc123 cookie=sid=sekret Authorization: Bearer abc";
+const rawConsoleJsonSecret = "{\"token\":\"json-token-abc\",\"password\":\"json-secret\"}";
+const rawConsoleBasicSecret = "Authorization: Basic basic-secret-abc";
 state = BrowserAnnotationDevtoolsCapture.appendConsoleEvent(
   state,
   "Runtime.consoleAPICalled",
@@ -70,6 +72,8 @@ state = BrowserAnnotationDevtoolsCapture.appendConsoleEvent(
     timestamp: Date.parse("2026-05-28T10:00:01.250Z"),
     args: [
       { value: `runtime string ${rawConsoleSecret}` },
+      { value: `runtime json ${rawConsoleJsonSecret}` },
+      { value: `runtime basic ${rawConsoleBasicSecret}` },
       { description: `runtime description ${rawConsoleSecret}` },
       {
         type: "object",
@@ -182,8 +186,44 @@ state = BrowserAnnotationDevtoolsCapture.upsertNetworkEvent(
   { nowMs: Date.parse("2026-05-28T10:00:04.000Z") }
 );
 
+let requestOptInState = BrowserAnnotationDevtoolsCapture.createDevtoolsCaptureState(
+  {
+    id: 11,
+    title: "Request body opt-in smoke",
+    url: "https://app.example.test/request-body"
+  },
+  {
+    nowMs: Date.parse("2026-05-28T10:00:04.100Z"),
+    captureRequestBodies: true,
+    captureResponseBodies: true
+  }
+);
+requestOptInState = BrowserAnnotationDevtoolsCapture.upsertNetworkEvent(
+  requestOptInState,
+  "Network.requestWillBeSent",
+  {
+    requestId: "request-opt-in-1",
+    type: "Fetch",
+    wallTime: Date.parse("2026-05-28T10:00:04.200Z") / 1000,
+    request: {
+      method: "POST",
+      url: "https://app.example.test/success",
+      headers: { "Content-Type": "application/json" },
+      postData: "{\"safe\":\"but-successful\"}"
+    }
+  },
+  { captureRequestBodies: true, captureResponseBodies: true }
+);
+assert.equal(requestOptInState.networkRows[0].requestBody.state, "not-captured");
+assert.equal(requestOptInState.networkRows[0].requestBody.reason, "default-privacy");
+assert.equal(requestOptInState.networkRows[0].requestBody.userOptIn, false);
+assert.equal(requestOptInState.networkRows[0].requestBody.byteLength, 25);
+
 const status = BrowserAnnotationDevtoolsCapture.buildDevtoolsCaptureStatus(state);
 assert.equal(status.status, "active");
+assert.equal(status.captureOptions.bodyCaptureMode, "metadata-only");
+assert.equal(status.captureOptions.captureRequestBodies, false);
+assert.equal(status.captureOptions.captureResponseBodies, false);
 assert.equal(status.consoleCount, 4);
 assert.equal(status.networkCount, 1);
 assert.equal(status.lastConsoleRow.level, "error");
@@ -195,7 +235,13 @@ for (const rawSecretPart of [
   "token=abc123",
   "cookie=sid=sekret",
   "Authorization: Bearer abc",
+  "Authorization: Basic basic-secret-abc",
   "Bearer abc",
+  "Basic basic-secret-abc",
+  "\"token\":\"json-token-abc\"",
+  "\"password\":\"json-secret\"",
+  "json-token-abc",
+  "json-secret",
   "supersecret",
   "abc123",
   "sid=sekret"
@@ -262,6 +308,24 @@ state = BrowserAnnotationDevtoolsCapture.upsertNetworkEvent(
 assert.equal(state.networkRows[0].requestBody.state, "redacted");
 assert.equal(state.networkRows[0].requestBody.reason, "sensitive");
 assert.equal(state.networkRows[0].requestBody.userOptIn, true);
+
+const bodyOptInState = BrowserAnnotationDevtoolsCapture.createDevtoolsCaptureState(
+  {
+    id: 10,
+    title: "Body opt-in smoke",
+    url: "https://app.example.test/body-opt-in"
+  },
+  {
+    nowMs: Date.parse("2026-05-28T10:00:05.000Z"),
+    captureRequestBodies: true,
+    captureResponseBodies: true
+  }
+);
+const bodyOptInStatus = BrowserAnnotationDevtoolsCapture.buildDevtoolsCaptureStatus(bodyOptInState);
+assert.equal(bodyOptInStatus.status, "active");
+assert.equal(bodyOptInStatus.captureOptions.bodyCaptureMode, "full-body-opt-in");
+assert.equal(bodyOptInStatus.captureOptions.captureRequestBodies, true);
+assert.equal(bodyOptInStatus.captureOptions.captureResponseBodies, true);
 
 const stopped = BrowserAnnotationDevtoolsCapture.stopDevtoolsCaptureState(state, "smoke-stop", {
   stoppedAtIso: "2026-05-28T10:00:05.000Z"

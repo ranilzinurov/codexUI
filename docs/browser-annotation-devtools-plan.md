@@ -181,6 +181,7 @@ Use these gates unless a phase explicitly narrows or expands them.
 | 2026-05-28 | Phase 2 | Full regression | Completed | Extension static gate passed: `node --check` for all extension JS/MJS files plus validator, pairing, selection, annotation-queue, and screenshot-crop smokes. Server batch gate passed: `pnpm exec vitest run src/server/browserAnnotationBatch.test.ts --reporter=verbose` passed 8 tests and `pnpm run test:browser-annotation` passed 6 files / 52 tests. Repo gates passed: `pnpm run test:unit` passed 23 files / 178 tests, `pnpm run build` passed, `pnpm exec vue-tsc --noEmit` passed, and `pnpm run test:coverage` passed with Statements 21.14%, Branches 17.8%, Functions 23.47%, Lines 22.02%. Performance profile passed with `PROFILE_BASE_URL=http://127.0.0.1:4173 PROFILE_WAIT_MS=7000 pnpm run profile:browser`; report `output/playwright/browser-runtime-profile-home-2026-05-28T10-05-35-117Z.json`, warnings `[]`, duplicateCounts threadList/skills/rateLimits/providerModels all 1, totalApiKB 212.4. Xvfb load-unpacked smoke loaded the extension service worker and overlay; real Chrome toolbar-action manual test then passed via `http://46.62.215.111/browser-annotation-test.html` through Nginx, pairing with public `Server URL: http://46.62.215.111`, selecting three elements, queueing them despite best-effort preview capture, and sending all 3 annotations to Codex UI. The backend queue drained the submitted `Browser annotation batch` into thread `019e6d66-d035-7641-912b-463c22c7e921`. |
 | 2026-05-28 | Phase 3 | Stages 3.1-3.3 | Completed | Added explicit DevTools capture mode to the extension. The manifest now requests `debugger`; the side panel shows enable/disable controls and active/error counts; the service worker attaches to the active tab on user request, enables Runtime/Log/Network domains, captures bounded console and network metadata, and detaches on stop, send, tab close, timeout, or debugger detach. Added `shared/devtools-capture.js`, DevTools fixture server/smokes, and batch payload wiring so captured rows are included as `devTools` with per-annotation `devToolsContext`. Verification: all extension JS/MJS `node --check` passed; validator, pairing, selection, annotation-queue, screenshot-crop, DevTools capture, and DevTools fixture smokes passed; `pnpm exec vitest run src/server/browserAnnotationBatch.test.ts --reporter=verbose` passed 8 tests. Performance audit: capture is explicit, no polling or body storage, console/network rows and serialized storage are bounded; storage writes happen per captured event and may be batched later if real pages produce high event volume. |
 | 2026-05-28 | Phase 3 | Stages 3.4-3.5 | Completed | Added safe DevTools header/body shaping and prompt correlation. Network rows now carry contract-compatible request/response headers with sensitive values redacted, metadata-only request/response body records by default, and explicit body-capture opt-in from the side panel. Opt-in response bodies are fetched through `Network.getResponseBody` only for textual bounded responses; request bodies from CDP events and response bodies are byte-capped, UTF-8 safe, and redacted when sensitive field names appear. Batch payloads now include headers/body privacy summary counts and per-annotation `devToolsContext` windows. Verification: annotation-queue and DevTools capture smokes passed; server batch regression passed 8 tests. Performance audit: no body capture unless explicitly enabled, body text is capped at 16 KiB by default / 64 KiB max, headers are capped to 80 rows with 600-char values, and network/body payloads remain under the existing batch size cap. |
+| 2026-05-28 | Phase 3 | Reviewer hardening | Completed | Closed reviewer findings for DevTools privacy and lifecycle: console redaction now covers JSON-style secrets and Basic/Bearer authorization strings, response body capture is limited to opt-in small textual failed/error responses with known encoded size, request bodies stay metadata-only from `requestWillBeSent`, DevTools state mutations are serialized, timeout detach is backed by `chrome.alarms`, side-panel body opt-in state reflects active capture options after reopen, and stale async response-body reads are dropped after stop/restart on the same tab. Verification: extension static/smoke suite passed, `pnpm run test:unit` passed 23 files / 178 tests, `pnpm run build` passed, `pnpm run test:coverage` passed at the current baseline, `pnpm run test:browser-annotation` passed 6 files / 52 tests, and performance profile `output/playwright/browser-runtime-profile-home-2026-05-28T13-54-41-828Z.json` reported warnings `[]`, duplicateCounts threadList/skills/rateLimits/providerModels all 1, totalApiKB 212.4. Manual DevTools extension smoke on a real Chrome page remains the next acceptance step. |
 
 ## Phase 0: Foundations, Secrets, And Deployment Discovery
 
@@ -366,16 +367,16 @@ Checklist:
 
 Phase 3 full regression:
 
-- [ ] Extension DevTools test page suite
-- [ ] `pnpm run test:unit`
-- [ ] `pnpm run build`
-- [ ] Linter gate
-- [ ] Coverage gate
+- [x] Extension DevTools test page suite
+- [x] `pnpm run test:unit`
+- [x] `pnpm run build`
+- [x] Linter gate
+- [x] Coverage gate
 - [ ] Manual extension test on a real dev page
-- [ ] Verify debugger always detaches
-- [ ] Performance audit for request volume, body limits, and memory caps
-- [ ] Update [tests.md](../tests.md)
-- [ ] Commit Phase 3 changes
+- [x] Verify debugger always detaches
+- [x] Performance audit for request volume, body limits, and memory caps
+- [x] Update [tests.md](../tests.md)
+- [x] Commit Phase 3 changes
 
 ## Phase 4: Voice Annotation
 

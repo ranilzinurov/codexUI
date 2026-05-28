@@ -63,9 +63,12 @@ const DEVTOOLS_NETWORK_EVENT_METHODS = new Set([
   "Network.loadingFinished",
   "Network.loadingFailed"
 ]);
+const DEVTOOLS_CAPTURE_TIMEOUT_ALARM = "browserAnnotation.devtoolsCaptureTimeout";
 
 let devtoolsCaptureTimer = null;
 let devtoolsCaptureTabId = null;
+let devtoolsCapturePersistenceQueue = Promise.resolve();
+const DEVTOOLS_CAPTURE_NO_WRITE = Symbol("devtoolsCaptureNoWrite");
 
 enableActionSidePanelBehavior();
 
@@ -75,6 +78,9 @@ chrome.runtime.onInstalled.addListener(() => {
 
 chrome.runtime.onStartup.addListener(() => {
   enableActionSidePanelBehavior();
+  reconcileDevtoolsCaptureTimeout("startup").catch((error) => {
+    console.warn("Unable to reconcile DevTools capture timeout on startup.", error);
+  });
 });
 
 chrome.action.onClicked.addListener((tab) => {
@@ -93,6 +99,17 @@ if (chrome.debugger && chrome.debugger.onEvent && chrome.debugger.onDetach) {
   chrome.debugger.onDetach.addListener((source, reason) => {
     handleDebuggerDetach(source, reason).catch((error) => {
       console.warn("Unable to process debugger detach.", error);
+    });
+  });
+}
+
+if (chrome.alarms && chrome.alarms.onAlarm) {
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (!alarm || alarm.name !== DEVTOOLS_CAPTURE_TIMEOUT_ALARM) {
+      return;
+    }
+    reconcileDevtoolsCaptureTimeout("alarm").catch((error) => {
+      console.warn("Unable to reconcile DevTools capture timeout alarm.", error);
     });
   });
 }
@@ -482,13 +499,13 @@ async function startDevtoolsCapture(options = {}) {
     await safeDetachDebuggee(debuggee);
     const message = error instanceof Error ? error.message : String(error);
     const failedState = stopDevtoolsCaptureState(state, "attach-failed", { error: message });
-    await writeDevtoolsCaptureState(failedState);
+    await replaceDevtoolsCaptureState(failedState);
     throw new Error(`Unable to start DevTools capture: ${message}`);
   }
 
   devtoolsCaptureTabId = tab.id;
-  scheduleDevtoolsCaptureTimeout(tab.id, state.expiresAtIso);
-  await writeDevtoolsCaptureState(state);
+  await replaceDevtoolsCaptureState(state);
+  await scheduleDevtoolsCaptureTimeout(tab.id, state.expiresAtIso);
   return {
     ok: true,
     devtoolsCapture: buildDevtoolsCaptureStatus(state),
@@ -497,17 +514,21 @@ async function startDevtoolsCapture(options = {}) {
 }
 
 async function stopDevtoolsCapture(reason) {
-  const state = await readDevtoolsCaptureState();
-  clearDevtoolsCaptureTimeout();
-  const tabId = devtoolsCaptureTabId || state.tabId;
+  let detachTabId = null;
+  const stoppedState = await updateDevtoolsCaptureState((state) => {
+    const tabId = devtoolsCaptureTabId || state.tabId;
+    if (state.active && typeof tabId === "number") {
+      detachTabId = tabId;
+    }
+    return stopDevtoolsCaptureState(state, reason || "stopped");
+  });
+  await clearDevtoolsCaptureTimeout();
   devtoolsCaptureTabId = null;
 
-  if (state.active && typeof tabId === "number") {
-    await safeDetachDebuggee({ tabId });
+  if (typeof detachTabId === "number") {
+    await safeDetachDebuggee({ tabId: detachTabId });
   }
 
-  const stoppedState = stopDevtoolsCaptureState(state, reason || "stopped");
-  await writeDevtoolsCaptureState(stoppedState);
   return {
     ok: true,
     devtoolsCapture: buildDevtoolsCaptureStatus(stoppedState),
@@ -535,7 +556,7 @@ async function getDevtoolsCaptureStatus() {
   }
   if (state.active && typeof state.tabId === "number" && !devtoolsCaptureTimer) {
     devtoolsCaptureTabId = state.tabId;
-    scheduleDevtoolsCaptureTimeout(state.tabId, state.expiresAtIso);
+    await scheduleDevtoolsCaptureTimeout(state.tabId, state.expiresAtIso);
   }
   return {
     ok: true,
@@ -544,26 +565,40 @@ async function getDevtoolsCaptureStatus() {
 }
 
 async function handleDebuggerEvent(source, method, params) {
-  const state = await readDevtoolsCaptureState();
-  if (!state.active || !source || source.tabId !== state.tabId) {
-    return;
-  }
-  if (isDevtoolsCaptureExpired(state)) {
-    await stopDevtoolsCapture("timeout");
-    return;
-  }
+  let captureResponseBody = false;
+  let expiredTabId = null;
 
-  if (DEVTOOLS_CONSOLE_EVENT_METHODS.has(method)) {
-    await writeDevtoolsCaptureState(appendConsoleEvent(state, method, params));
-    return;
-  }
-
-  if (DEVTOOLS_NETWORK_EVENT_METHODS.has(method)) {
-    const nextState = upsertNetworkEvent(state, method, params, state.captureOptions);
-    await writeDevtoolsCaptureState(nextState);
-    if (method === "Network.loadingFinished") {
-      await captureResponseBodyIfAllowed(source, params);
+  await updateDevtoolsCaptureState((state) => {
+    if (!state.active || !source || source.tabId !== state.tabId) {
+      return DEVTOOLS_CAPTURE_NO_WRITE;
     }
+    if (isDevtoolsCaptureExpired(state)) {
+      expiredTabId = state.tabId;
+      return stopDevtoolsCaptureState(state, "timeout");
+    }
+
+    if (DEVTOOLS_CONSOLE_EVENT_METHODS.has(method)) {
+      return appendConsoleEvent(state, method, params);
+    }
+
+    if (DEVTOOLS_NETWORK_EVENT_METHODS.has(method)) {
+      captureResponseBody =
+        method === "Network.loadingFinished" || method === "Network.loadingFailed";
+      return upsertNetworkEvent(state, method, params, state.captureOptions);
+    }
+
+    return DEVTOOLS_CAPTURE_NO_WRITE;
+  });
+
+  if (expiredTabId !== null) {
+    await clearDevtoolsCaptureTimeout();
+    devtoolsCaptureTabId = null;
+    await safeDetachDebuggee({ tabId: expiredTabId });
+    return;
+  }
+
+  if (captureResponseBody) {
+    await captureResponseBodyIfAllowed(source, params);
   }
 }
 
@@ -578,13 +613,11 @@ async function captureResponseBodyIfAllowed(source, params) {
     return;
   }
   const row = state.networkRows.find((item) => item.requestId === requestId);
-  if (!row || row.failed || !isTextualDevtoolsMimeType(row.mimeType)) {
+  if (!shouldCaptureDevtoolsResponseBody(row, options)) {
     return;
   }
-  const byteLength = typeof row.encodedDataLength === "number" ? row.encodedDataLength : undefined;
-  if (typeof byteLength === "number" && byteLength > options.bodyCapBytes) {
-    return;
-  }
+  const captureStartedAtIso = state.startedAtIso;
+  const byteLength = row.encodedDataLength;
   try {
     const result = await chrome.debugger.sendCommand(
       { tabId: state.tabId },
@@ -594,32 +627,50 @@ async function captureResponseBodyIfAllowed(source, params) {
     if (!result || result.base64Encoded === true || typeof result.body !== "string") {
       return;
     }
-    const nextState = upsertNetworkEvent(
-      await readDevtoolsCaptureState(),
-      "BrowserAnnotation.responseBodyCaptured",
-      {
-        requestId,
-        bodyText: result.body,
-        byteLength,
-        mimeType: row.mimeType
-      },
-      options
-    );
-    await writeDevtoolsCaptureState(nextState);
+    await updateDevtoolsCaptureState((latestState) => {
+      if (
+        !latestState.active ||
+        !source ||
+        source.tabId !== latestState.tabId ||
+        latestState.startedAtIso !== captureStartedAtIso
+      ) {
+        return DEVTOOLS_CAPTURE_NO_WRITE;
+      }
+      const latestRow = latestState.networkRows.find((item) => item.requestId === requestId);
+      if (!shouldCaptureDevtoolsResponseBody(latestRow, latestState.captureOptions || options)) {
+        return DEVTOOLS_CAPTURE_NO_WRITE;
+      }
+      return upsertNetworkEvent(
+        latestState,
+        "BrowserAnnotation.responseBodyCaptured",
+        {
+          requestId,
+          bodyText: result.body,
+          byteLength,
+          mimeType: row.mimeType
+        },
+        latestState.captureOptions || options
+      );
+    });
   } catch (error) {
     console.warn("Unable to capture DevTools response body.", error);
   }
 }
 
 async function handleDebuggerDetach(source, reason) {
-  const state = await readDevtoolsCaptureState();
-  if (!state.active || !source || source.tabId !== state.tabId) {
+  let detached = false;
+  await updateDevtoolsCaptureState((state) => {
+    if (!state.active || !source || source.tabId !== state.tabId) {
+      return DEVTOOLS_CAPTURE_NO_WRITE;
+    }
+    detached = true;
+    return stopDevtoolsCaptureState(state, reason || "detached");
+  });
+  if (!detached) {
     return;
   }
-  clearDevtoolsCaptureTimeout();
+  await clearDevtoolsCaptureTimeout();
   devtoolsCaptureTabId = null;
-  const stoppedState = stopDevtoolsCaptureState(state, reason || "detached");
-  await writeDevtoolsCaptureState(stoppedState);
 }
 
 async function readDevtoolsCaptureState() {
@@ -637,9 +688,34 @@ async function writeDevtoolsCaptureState(state) {
   return nextState;
 }
 
-function scheduleDevtoolsCaptureTimeout(tabId, expiresAtIso) {
-  clearDevtoolsCaptureTimeout();
-  const delayMs = Math.max(0, Date.parse(expiresAtIso) - Date.now());
+async function updateDevtoolsCaptureState(mutator) {
+  return enqueueDevtoolsCapturePersistence(async () => {
+    const state = await readDevtoolsCaptureState();
+    const nextState = await mutator(state);
+    if (nextState === DEVTOOLS_CAPTURE_NO_WRITE) {
+      return state;
+    }
+    return writeDevtoolsCaptureState(nextState);
+  });
+}
+
+async function replaceDevtoolsCaptureState(nextState) {
+  return enqueueDevtoolsCapturePersistence(async () => writeDevtoolsCaptureState(nextState));
+}
+
+function enqueueDevtoolsCapturePersistence(task) {
+  const result = devtoolsCapturePersistenceQueue.then(task, task);
+  devtoolsCapturePersistenceQueue = result.catch(() => {});
+  return result;
+}
+
+async function scheduleDevtoolsCaptureTimeout(tabId, expiresAtIso) {
+  await clearDevtoolsCaptureTimeout();
+  const expiresAtMs = Date.parse(expiresAtIso);
+  const dueAtMs = Number.isFinite(expiresAtMs)
+    ? expiresAtMs
+    : Date.now() + DEVTOOLS_CAPTURE_TIMEOUT_MS;
+  const delayMs = Math.max(0, dueAtMs - Date.now());
   devtoolsCaptureTimer = setTimeout(() => {
     if (devtoolsCaptureTabId !== tabId) {
       return;
@@ -647,13 +723,56 @@ function scheduleDevtoolsCaptureTimeout(tabId, expiresAtIso) {
     stopDevtoolsCapture("timeout").catch((error) => {
       console.warn("Unable to stop timed-out DevTools capture.", error);
     });
-  }, Math.min(delayMs || DEVTOOLS_CAPTURE_TIMEOUT_MS, DEVTOOLS_CAPTURE_TIMEOUT_MS));
+  }, Math.min(delayMs, DEVTOOLS_CAPTURE_TIMEOUT_MS));
+  await createDevtoolsCaptureTimeoutAlarm(dueAtMs);
 }
 
-function clearDevtoolsCaptureTimeout() {
+async function clearDevtoolsCaptureTimeout() {
   if (devtoolsCaptureTimer) {
     clearTimeout(devtoolsCaptureTimer);
     devtoolsCaptureTimer = null;
+  }
+  await clearDevtoolsCaptureTimeoutAlarm();
+}
+
+async function createDevtoolsCaptureTimeoutAlarm(whenMs) {
+  if (!chrome.alarms || !chrome.alarms.create) {
+    return;
+  }
+  try {
+    await chrome.alarms.create(DEVTOOLS_CAPTURE_TIMEOUT_ALARM, {
+      when: Math.max(Date.now(), whenMs)
+    });
+  } catch (error) {
+    console.warn("Unable to create DevTools capture timeout alarm.", error);
+  }
+}
+
+async function clearDevtoolsCaptureTimeoutAlarm() {
+  if (!chrome.alarms || !chrome.alarms.clear) {
+    return;
+  }
+  try {
+    await chrome.alarms.clear(DEVTOOLS_CAPTURE_TIMEOUT_ALARM);
+  } catch (error) {
+    console.warn("Unable to clear DevTools capture timeout alarm.", error);
+  }
+}
+
+async function reconcileDevtoolsCaptureTimeout(_trigger) {
+  const state = await readDevtoolsCaptureState();
+  if (!state.active) {
+    await clearDevtoolsCaptureTimeout();
+    devtoolsCaptureTabId = null;
+    return;
+  }
+  if (isDevtoolsCaptureExpired(state)) {
+    await stopDevtoolsCapture("timeout");
+    return;
+  }
+  if (typeof state.tabId === "number") {
+    devtoolsCaptureTabId = state.tabId;
+    await scheduleDevtoolsCaptureTimeout(state.tabId, state.expiresAtIso);
   }
 }
 
@@ -693,6 +812,31 @@ function sanitizeDevtoolsCaptureOptions(options) {
     captureResponseBodies: captureBodies,
     bodyCapBytes: 16 * 1024
   };
+}
+
+function shouldCaptureDevtoolsResponseBody(row, options) {
+  if (!row || options.captureResponseBodies !== true) {
+    return false;
+  }
+  const status = typeof row.status === "number" ? row.status : null;
+  const isHttpError = typeof status === "number" && status >= 400;
+  if (!row.failed && !isHttpError) {
+    return false;
+  }
+  if (!isKnownTextualDevtoolsMimeType(row.mimeType)) {
+    return false;
+  }
+  const byteLength = row.encodedDataLength;
+  const capBytes = typeof options.bodyCapBytes === "number" ? options.bodyCapBytes : 16 * 1024;
+  return typeof byteLength === "number" &&
+    Number.isFinite(byteLength) &&
+    byteLength >= 0 &&
+    byteLength <= capBytes;
+}
+
+function isKnownTextualDevtoolsMimeType(value) {
+  const mimeType = String(value || "").toLowerCase();
+  return Boolean(mimeType) && isTextualDevtoolsMimeType(mimeType);
 }
 
 function isTextualDevtoolsMimeType(value) {

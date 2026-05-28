@@ -178,6 +178,7 @@
       stoppedAtIso: normalized.stoppedAtIso,
       detachReason: normalized.detachReason,
       error: normalized.error,
+      captureOptions: normalized.captureOptions,
       consoleCount: normalized.consoleRows.length,
       networkCount: normalized.networkRows.length,
       lastConsoleRow: normalized.consoleRows[normalized.consoleRows.length - 1] || null,
@@ -289,11 +290,10 @@
       row.failed = false;
       row.failureReason = "";
       row.requestHeaders = shapeHeaders(request.headers);
-      row.requestBody = shapeBodyCapture({
-        rawText: request.postData,
-        byteLength: estimateBodyByteLength(request.postData),
-        options
-      });
+      row.requestBody = buildMetadataOnlyBodyCapture(
+        estimateBodyByteLength(request.postData),
+        options && (options.bodyCapBytes || options.capBytes)
+      );
       return normalizeNetworkRow(row);
     }
 
@@ -305,6 +305,7 @@
       row.resourceType = row.resourceType || sanitizeText(params.type, 80);
       row.fromDiskCache = response.fromDiskCache === true;
       row.mimeType = sanitizeText(response.mimeType, 160);
+      row.encodedDataLength = finiteOptionalNumber(response.encodedDataLength);
       row.responseHeaders = shapeHeaders(response.headers);
       row.responseBody = shapeBodyCapture({
         byteLength: response.encodedDataLength,
@@ -347,7 +348,7 @@
     if (method === "Network.loadingFinished") {
       row.finishedAtIso = new Date(nowMs).toISOString();
       row.durationMs = estimateDurationMs(row.startedAtIso, row.finishedAtIso);
-      row.encodedDataLength = finiteNumber(params.encodedDataLength);
+      row.encodedDataLength = finiteOptionalNumber(params.encodedDataLength);
       row.slow = Boolean(row.durationMs && row.durationMs >= constants.DEVTOOLS_SLOW_REQUEST_MS);
       return normalizeNetworkRow(row);
     }
@@ -884,12 +885,18 @@
       return "";
     }
     text = text.replace(
-      /\b(authorization)\s*[:=]\s*bearer\s+[^\s,;'"})\]]+/gi,
-      (_match, name) => `${name}: Bearer ${REDACTED_VALUE}`
+      /\b(authorization|proxy-authorization)\s*[:=]\s*(bearer|basic|digest|token)\s+[^\s,;'"})\]]+/gi,
+      (_match, name, scheme) => `${name}: ${scheme} ${REDACTED_VALUE}`
     );
     text = text.replace(
       /\b(cookie|set-cookie)\s*[:=]\s*[^,;'"})\]]+(?:=[^,;'"})\]]+)?/gi,
       (_match, name) => `${name}=${REDACTED_VALUE}`
+    );
+    text = text.replace(
+      /(["'])([A-Za-z][A-Za-z0-9_-]*)\1\s*:\s*(["'])(?:\\.|(?!\3).)*\3/g,
+      (match, keyQuote, name, valueQuote) => isSensitiveConsoleName(name)
+        ? `${keyQuote}${name}${keyQuote}: ${valueQuote}${REDACTED_VALUE}${valueQuote}`
+        : match
     );
     text = text.replace(
       /\b([A-Za-z][A-Za-z0-9_-]*)\s*[:=]\s*([^,\s;'"})\]]+)/g,

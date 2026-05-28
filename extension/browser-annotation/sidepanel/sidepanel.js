@@ -16,6 +16,7 @@
     devtoolsStatus: document.getElementById("devtoolsStatus"),
     devtoolsDetail: document.getElementById("devtoolsDetail"),
     captureDevtoolsBodies: document.getElementById("captureDevtoolsBodies"),
+    captureDevtoolsBodiesHelp: document.getElementById("captureDevtoolsBodiesHelp"),
     enableDevtools: document.getElementById("enableDevtools"),
     disableDevtools: document.getElementById("disableDevtools"),
     queueStatus: document.getElementById("queueStatus"),
@@ -496,24 +497,30 @@
     const status = devtools && typeof devtools.status === "string"
       ? devtools.status
       : "inactive";
+    const captureOptions = normalizeDevtoolsCaptureOptions(devtools && devtools.captureOptions);
     const activeTabId = devtools && typeof devtools.tabId === "number"
       ? ` Attached to tab ${devtools.tabId}.`
       : "";
     if (status === "active") {
       return {
         status,
-        detail: (devtools.detail || "DevTools capture is active for the current tab.") + activeTabId
+        detail: (devtools.detail || "DevTools capture is active for the current tab.") +
+          activeTabId +
+          ` ${devtoolsBodyCaptureDetail(captureOptions)}`,
+        captureOptions
       };
     }
     if (status === "pending" || status === "error") {
       return {
         status,
-        detail: devtools.detail || (status === "pending" ? "Updating DevTools capture mode..." : "DevTools capture status is unavailable.")
+        detail: devtools.detail || (status === "pending" ? "Updating DevTools capture mode..." : "DevTools capture status is unavailable."),
+        captureOptions
       };
     }
     return {
       status: "inactive",
-      detail: devtools && devtools.detail ? devtools.detail : "DevTools capture is off."
+      detail: devtools && devtools.detail ? devtools.detail : "DevTools capture is off.",
+      captureOptions
     };
   }
 
@@ -533,6 +540,21 @@
   function updateDevtoolsButtons(isBusy) {
     const state = lastDevtoolsStatus ? lastDevtoolsStatus.status : "inactive";
     const activeTabUnavailable = !lastState || !lastState.activeTab || lastState.activeTab.restricted;
+    const activeOptions = lastDevtoolsStatus && state === "active"
+      ? lastDevtoolsStatus.captureOptions
+      : null;
+    const activeBodyCapture = activeOptions
+      ? activeOptions.captureRequestBodies === true && activeOptions.captureResponseBodies === true
+      : false;
+    if (state === "active") {
+      elements.captureDevtoolsBodies.checked = activeBodyCapture;
+      elements.captureDevtoolsBodiesHelp.textContent = activeBodyCapture
+        ? "Active for this capture. Disable DevTools capture to change body collection."
+        : "Metadata-only for this capture. Disable DevTools capture to opt in to body collection.";
+    } else {
+      elements.captureDevtoolsBodiesHelp.textContent =
+        "Off by default. Enable only for pages where body contents are safe to share with Codex.";
+    }
     elements.captureDevtoolsBodies.disabled = isBusy || state === "active" || state === "pending";
     elements.enableDevtools.disabled = isBusy || activeTabUnavailable || state === "active" || state === "pending";
     elements.disableDevtools.disabled = isBusy || state !== "active";
@@ -545,6 +567,34 @@
       captureRequestBodies: captureBodies,
       captureResponseBodies: captureBodies
     };
+  }
+
+  function normalizeDevtoolsCaptureOptions(options) {
+    const source = options && typeof options === "object" ? options : {};
+    const captureRequestBodies = source.captureBodies === true ||
+      source.captureRequestBodies === true ||
+      source.bodyCaptureMode === "full-body-opt-in" ||
+      source.bodyCaptureMode === "request-response";
+    const captureResponseBodies = source.captureBodies === true ||
+      source.captureResponseBodies === true ||
+      source.bodyCaptureMode === "full-body-opt-in" ||
+      source.bodyCaptureMode === "request-response";
+    return {
+      bodyCaptureMode: captureRequestBodies || captureResponseBodies
+        ? "full-body-opt-in"
+        : "metadata-only",
+      captureRequestBodies,
+      captureResponseBodies
+    };
+  }
+
+  function devtoolsBodyCaptureDetail(options) {
+    const captureBodies = options &&
+      options.captureRequestBodies === true &&
+      options.captureResponseBodies === true;
+    return captureBodies
+      ? "Request and response body capture is enabled for this active session."
+      : "Request and response bodies are excluded for this active session.";
   }
 
   function readQueueItemPage(item) {
