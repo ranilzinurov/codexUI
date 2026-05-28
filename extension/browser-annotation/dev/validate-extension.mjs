@@ -15,6 +15,7 @@ const requiredPermissions = [
 ];
 const requiredHostPermissions = [
   "https://annotate.todo-tg-app.ru/*",
+  "http://46.62.215.111/*",
   "http://127.0.0.1/*",
   "http://localhost/*"
 ];

@@ -6074,7 +6074,7 @@ Extension server URL and pairing-token validation.
 
 #### Expected Results
 - All static Node checks pass.
-- The validator confirms the extension host permissions are limited to `https://annotate.todo-tg-app.ru/*`, `http://127.0.0.1/*`, and `http://localhost/*`.
+- The validator confirms the extension host permissions are limited to `https://annotate.todo-tg-app.ru/*`, `http://46.62.215.111/*`, `http://127.0.0.1/*`, and `http://localhost/*`.
 - The pairing client smoke confirms status URL construction, malformed JSON handling, error parsing, and omission of any returned `pairingToken`.
 - Extension local storage contains only the user-configured server URL and pasted pairing token; no provider API key is present.
 - Status validation sends the token only as `Authorization: Bearer <token>` to `/codex-api/extension/listen/status`.
