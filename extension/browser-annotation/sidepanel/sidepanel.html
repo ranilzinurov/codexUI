@@ -25,7 +25,12 @@
           <span>Pairing token</span>
           <input id="pairingToken" type="password" autocomplete="off" spellcheck="false" placeholder="Paste token later">
         </label>
-        <button id="saveSettings" class="button button-secondary" type="button">Save settings</button>
+        <button id="saveSettings" class="button button-secondary" type="button">Save and validate</button>
+        <div class="status-row">
+          <span>Connection</span>
+          <strong id="connectionStatus">Checking...</strong>
+        </div>
+        <p id="connectionDetail" class="muted">Paste a pairing token from Codex UI.</p>
       </section>
 
       <section class="section">

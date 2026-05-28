@@ -8,6 +8,8 @@
     serverUrl: document.getElementById("serverUrl"),
     pairingToken: document.getElementById("pairingToken"),
     saveSettings: document.getElementById("saveSettings"),
+    connectionStatus: document.getElementById("connectionStatus"),
+    connectionDetail: document.getElementById("connectionDetail"),
     injectOverlay: document.getElementById("injectOverlay"),
     tabStatus: document.getElementById("tabStatus"),
     tabDetail: document.getElementById("tabDetail"),
@@ -49,7 +51,7 @@
         }
       });
       renderState(response.state);
-      setMessage("Settings saved locally in the extension.", "ok");
+      setMessage(connectionMessage(response.state.connection), response.state.connection.status);
     } catch (error) {
       setMessage(error.message, "error");
     } finally {
@@ -94,10 +96,14 @@
     elements.serverUrl.value = state.settings.serverUrl || "";
     elements.pairingToken.value = state.settings.pairingToken || "";
 
-    const configured = state.connection === "configured";
-    elements.connectionBadge.textContent = configured ? "Configured" : "Disconnected";
-    elements.connectionBadge.classList.toggle("badge-ready", configured);
-    elements.connectionBadge.classList.toggle("badge-muted", !configured);
+    const connected = state.connection.status === "connected";
+    const error = state.connection.status === "error";
+    elements.connectionBadge.textContent = connectionLabel(state.connection.status);
+    elements.connectionBadge.classList.toggle("badge-ready", connected);
+    elements.connectionBadge.classList.toggle("badge-error", error);
+    elements.connectionBadge.classList.toggle("badge-muted", !connected && !error);
+    elements.connectionStatus.textContent = connectionLabel(state.connection.status);
+    elements.connectionDetail.textContent = connectionDetail(state.connection);
 
     if (!state.activeTab) {
       elements.tabStatus.textContent = "Unavailable";
@@ -122,6 +128,55 @@
   function setMessage(text, tone) {
     elements.message.textContent = text;
     elements.message.classList.toggle("message-error", tone === "error");
-    elements.message.classList.toggle("message-ok", tone === "ok");
+    elements.message.classList.toggle("message-ok", tone === "ok" || tone === "connected");
+  }
+
+  function connectionLabel(status) {
+    if (status === "connected") {
+      return "Connected";
+    }
+    if (status === "error") {
+      return "Error";
+    }
+    return "Disconnected";
+  }
+
+  function connectionDetail(connection) {
+    if (!connection) {
+      return "Connection state is unavailable.";
+    }
+
+    if (connection.status === "connected" && connection.session) {
+      const expiry = formatDateTime(connection.session.expiresAtIso);
+      return expiry
+        ? `Validated for thread ${connection.session.threadId}. Expires ${expiry}.`
+        : `Validated for thread ${connection.session.threadId}.`;
+    }
+
+    return connection.detail || "Paste a pairing token from Codex UI.";
+  }
+
+  function connectionMessage(connection) {
+    if (!connection) {
+      return "Settings saved locally in the extension.";
+    }
+    if (connection.status === "connected") {
+      return "Pairing token validated.";
+    }
+    if (connection.status === "error") {
+      return connection.detail || "Pairing token could not be validated.";
+    }
+    return "Settings saved locally in the extension.";
+  }
+
+  function formatDateTime(value) {
+    if (!value) {
+      return "";
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return "";
+    }
+    return date.toLocaleString();
   }
 })();

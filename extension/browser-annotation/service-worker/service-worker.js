@@ -1,4 +1,8 @@
-importScripts("../shared/constants.js", "../shared/url-utils.js");
+importScripts(
+  "../shared/constants.js",
+  "../shared/url-utils.js",
+  "../shared/pairing-client.js"
+);
 
 const {
   MESSAGE_TYPES,
@@ -10,6 +14,12 @@ const {
   isRestrictedTabUrl,
   describeRestrictedUrl
 } = globalThis.BrowserAnnotationUrlUtils;
+const {
+  buildListenStatusUrl,
+  readJsonSafely,
+  readStatusError,
+  readSessionFromStatusPayload
+} = globalThis.BrowserAnnotationPairingClient;
 
 enableActionSidePanelBehavior();
 
@@ -61,8 +71,9 @@ async function handleMessage(message) {
 }
 
 async function getPanelState() {
-  const [settings, activeTab] = await Promise.all([
-    readSettings(),
+  const settings = await readSettings();
+  const [connection, activeTab] = await Promise.all([
+    validateConnection(settings),
     getActiveTab()
   ]);
 
@@ -71,7 +82,7 @@ async function getPanelState() {
 
   return {
     settings,
-    connection: settings.pairingToken ? "configured" : "disconnected",
+    connection,
     activeTab: activeTab
       ? {
           id: activeTab.id,
@@ -105,6 +116,66 @@ function sanitizeSettings(settings) {
     serverUrl: normalizeServerUrl(settings.serverUrl),
     pairingToken: String(settings.pairingToken || "").trim()
   };
+}
+
+async function validateConnection(settings) {
+  if (!settings.pairingToken) {
+    return {
+      status: "disconnected",
+      checkedAtIso: null,
+      session: null,
+      detail: "Paste a pairing token from Codex UI to connect."
+    };
+  }
+
+  const checkedAtIso = new Date().toISOString();
+  let statusUrl;
+  try {
+    statusUrl = buildListenStatusUrl(settings.serverUrl);
+  } catch (error) {
+    return {
+      status: "error",
+      checkedAtIso,
+      session: null,
+      detail: error instanceof Error ? error.message : "Invalid server URL."
+    };
+  }
+
+  try {
+    const response = await fetch(statusUrl, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${settings.pairingToken}`
+      },
+      cache: "no-store"
+    });
+    const payload = await readJsonSafely(response);
+    if (!response.ok) {
+      throw new Error(
+        readStatusError(payload, `Pairing status check failed (${response.status}).`)
+      );
+    }
+
+    const session = readSessionFromStatusPayload(payload);
+    if (!session) {
+      throw new Error("Pairing status response did not include a valid session.");
+    }
+
+    return {
+      status: "connected",
+      checkedAtIso,
+      session,
+      detail: `Connected to thread ${session.threadId}.`
+    };
+  } catch (error) {
+    return {
+      status: "error",
+      checkedAtIso,
+      session: null,
+      detail: error instanceof Error ? error.message : "Unable to validate pairing token."
+    };
+  }
 }
 
 async function getActiveTab() {

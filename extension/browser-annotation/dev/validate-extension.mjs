@@ -20,6 +20,7 @@ const requiredFiles = [
   manifest.side_panel?.default_path,
   "shared/constants.js",
   "shared/url-utils.js",
+  "shared/pairing-client.js",
   "content/content-script.js"
 ];
 

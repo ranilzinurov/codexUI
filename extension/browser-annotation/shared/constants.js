@@ -25,6 +25,7 @@
       serverUrl: "https://annotate.todo-tg-app.ru",
       pairingToken: ""
     }),
+    LISTEN_STATUS_PATH: "/codex-api/extension/listen/status",
     TARGET_HOST_PATTERN: "https://annotate.todo-tg-app.ru/*",
     ALLOWED_TAB_PROTOCOLS: Object.freeze([
       "http:",
