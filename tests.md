@@ -5686,3 +5686,38 @@ Apps tab cached snapshot fallback app-list loading.
 
 #### Rollback/Cleanup
 - Remove any local response stub or restore the normal app-server/Codex CLI behavior after verification.
+
+---
+
+### Unified Responses Proxy Stale Previous Response Recovery
+
+#### Feature/Change Name
+Unified Responses proxy recovers from stale `previous_response_id` without touching auth/accounts.
+
+#### Prerequisites/Setup
+1. Dev server running: `pnpm run dev --host 127.0.0.1 --port 4173`.
+2. A provider route that uses the unified Responses proxy is configured, such as Custom endpoint `Completions` mode through the local Responses-compatible proxy.
+3. A test thread exists with at least one successful assistant response so a follow-up request can carry a `previous_response_id`.
+4. Ability to simulate a stale upstream previous-response reference, for example by using an endpoint/proxy fixture that rejects the next request because the referenced previous response is unknown or expired.
+
+#### Steps
+1. Open the test thread and send a normal prompt that succeeds through the unified Responses proxy.
+2. In the same thread, configure the endpoint/proxy fixture so the next follow-up rejects the existing `previous_response_id` as stale, unknown, expired, or missing.
+3. Send a follow-up prompt in the same thread.
+4. Confirm the proxy retries or recovers by omitting/resetting the stale previous-response reference for that request.
+5. Confirm the recovered request completes with a normal assistant response.
+6. Inspect local auth/account state before and after the recovery, such as configured account selection, provider settings, and auth token files used by the test environment.
+7. Trigger the same stale previous-response failure again with recovery disabled or forced to fail, if available, and observe the visible error state.
+8. Light and dark theme UI is not changed by this behavior; if checking themes manually, verify only that no new UI surface appears and any ordinary failure/error text remains visible in both themes.
+
+#### Expected Results
+- Stale `previous_response_id` failures are handled within the unified Responses proxy recovery path.
+- The follow-up turn succeeds after recovery instead of permanently failing on the stale previous-response reference.
+- Recovery does not refresh, replace, remove, or switch auth/account state.
+- Existing provider configuration and selected account remain unchanged.
+- No light-theme or dark-theme UI behavior changes are introduced; theme verification is limited to unchanged UI and ordinary error visibility during manual failure checks.
+
+#### Rollback/Cleanup
+- Remove any endpoint/proxy fixture used to force stale `previous_response_id` failures.
+- Restore provider/API format, selected model, and test thread state to preferred defaults.
+- Restore any local auth/account files from the pre-test backup if the manual environment was inspected or copied for comparison.
