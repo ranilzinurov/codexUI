@@ -193,6 +193,7 @@ Use these gates unless a phase explicitly narrows or expands them.
 | 2026-05-28 | Phase 7 | Stage 7.1 security hardening | Partial | Hardened public ingress and extension/server data handling after security review. The public nginx template now blocks `/codex-api/extension/listen/start`; the production extension rejects non-local `http://` server URLs and removes the temporary public-IP host permission; pairing tokens move from `chrome.storage.local` to session storage, the listen session is revoked after successful send, and the local token is cleared; uploads now sniff declared MIME content before writing; uploaded image refs expire from the in-memory registry; docs now point production pairing at `https://annotate.todo-tg-app.ru`. Verification: extension static/smoke scripts passed, `pnpm run pack:browser-annotation` produced a prod artifact with only `https://annotate.todo-tg-app.ru/*`, `pnpm run test:browser-annotation` passed 6 files / 53 tests, and `pnpm exec vue-tsc --noEmit` passed. External browser-network-log and screenshot secret review remains part of final manual acceptance. |
 | 2026-05-28 | Phase 7 | Stage 7.2 reliability hardening | Partial | Hardened extension and server reliability after parallel review. Extension annotation queue read-modify-write operations are serialized; successful send removes only the sent queue snapshot so concurrently added items survive; DevTools capture stops on tab close/navigation even after MV3 service worker restart; status/send/revoke/upload/transcribe fetches now have bounded timeouts; batch and asset upload endpoints re-authorize after body parsing and before side effects so revoked/replaced sessions cannot enqueue or persist after slow in-flight requests. Verification: `node extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.mjs` covers queue races plus tab-close/navigation restart cases, focused batch/assets Vitest covers revoked-in-flight requests, `pnpm run test:browser-annotation` passed 6 files / 55 tests, `pnpm exec vue-tsc --noEmit` passed, and the production package rebuilt. Remaining partial risk: the existing generic `/codex-api/thread-queue-state` full-state PUT can still clobber queue messages from a stale UI snapshot; fixing that needs a broader queue revision/CAS design outside the extension-specific endpoints. |
 | 2026-05-28 | Phase 7 | Stage 7.3 packaging | Partial | Rebuilt the production extension artifact at `dist/browser-annotation-extension/codex-ui-browser-annotation-0.1.0.zip` with SHA-256 `816e71ea6c487da89eac88a4af7c4b3ff3169da4c20d3cd82cf7d18838d4e14d`; production validation passed and the unpacked manifest contains only `https://annotate.todo-tg-app.ru/*` in `host_permissions`. The extension README now documents development load-unpacked install, production zip distribution, HTTPS server URL, nginx ingress, and future Chrome Web Store notes. Clean Chrome profile install remains manual because browser automation was not requested for this stage. |
+| 2026-05-28 | Phase 7 | Final automated regression | Partial | Final automated gates passed: `pnpm run test:unit` passed 24 files / 183 tests, `pnpm run build` passed, `pnpm run test:coverage` passed with Statements 21.44%, Branches 18.04%, Functions 23.85%, Lines 22.31%, `pnpm run test:browser-annotation` passed 6 files / 55 tests, `pnpm run pack:browser-annotation` passed, and `PROFILE_BASE_URL=http://127.0.0.1:4173 PROFILE_WAIT_MS=7000 pnpm run profile:browser` produced `output/playwright/browser-runtime-profile-home-2026-05-28T16-19-42-856Z.json` with warnings `[]`, duplicateCounts threadList/skills/rateLimits/providerModels all 1, totalApiKB 215.6. Final real HTTPS pairing, clean Chrome install, light/dark side-panel pass, browser network/screenshot secret review, and the generic stale full-state queue PUT risk remain manual or follow-up acceptance items. |
 
 ## Phase 0: Foundations, Secrets, And Deployment Discovery
 
@@ -537,22 +538,22 @@ Checklist:
   - Smoke test: install artifact in clean Chrome profile.
 
 - [ ] Stage 7.4: Final docs and acceptance
-  - [ ] Finalize user docs.
-  - [ ] Finalize admin/deployment docs.
-  - [ ] Finalize [tests.md](../tests.md).
-  - [ ] Mark all completed checklist items in this plan.
+  - [x] Finalize user docs.
+  - [x] Finalize admin/deployment docs.
+  - [x] Finalize [tests.md](../tests.md).
+  - [x] Mark all completed checklist items in this plan.
 
 Phase 7 full regression:
 
-- [ ] `pnpm run test:unit`
-- [ ] `pnpm run build`
-- [ ] Linter gate
-- [ ] Coverage gate
+- [x] `pnpm run test:unit`
+- [x] `pnpm run build`
+- [x] Linter gate
+- [x] Coverage gate
 - [ ] Full end-to-end regression on `https://annotate.todo-tg-app.ru`
 - [ ] Full light/dark verification
-- [ ] Performance audit with profile output inspected for duplicates, warnings, API KB, slow rows
+- [x] Performance audit with profile output inspected for duplicates, warnings, API KB, slow rows
 - [ ] Security smoke suite
-- [ ] Update [tests.md](../tests.md)
+- [x] Update [tests.md](../tests.md)
 - [ ] Commit Phase 7 changes
 
 ## Final Acceptance Criteria
