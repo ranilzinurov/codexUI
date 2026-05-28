@@ -14,6 +14,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const distDir = join(__dirname, '..', 'dist')
 const spaEntryFile = join(distDir, 'index.html')
 const browserAnnotationZipFile = join(distDir, 'browser-annotation-extension', 'codex-ui-browser-annotation-0.1.0.zip')
+const browserAnnotationTestPageFile = join(__dirname, '..', 'public', 'browser-annotation-test.html')
 
 export type ServerOptions = {
   password?: string
@@ -95,6 +96,16 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
     res.type('application/zip')
     res.setHeader('Cache-Control', 'no-cache')
     res.sendFile(browserAnnotationZipFile)
+  })
+
+  app.get('/browser-annotation-test.html', (_req, res) => {
+    if (!existsSync(browserAnnotationTestPageFile)) {
+      res.status(404).json({ error: 'Browser annotation test page is not available.' })
+      return
+    }
+    res.type('html')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.sendFile(browserAnnotationTestPageFile)
   })
 
   // 1. Auth middleware (if password is set)
