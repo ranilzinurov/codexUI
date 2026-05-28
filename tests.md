@@ -19,26 +19,6 @@ This file tracks manual regression and feature verification steps.
 #### Rollback/Cleanup
 - <cleanup action, if any>
 
-### Feature: Browser annotation transcription env validation
-
-#### Prerequisites
-- Repository dependencies are installed.
-- Use only a fake or rotated `OPENAI_API_KEY` value for smoke testing.
-
-#### Steps
-1. Run `env -u OPENAI_API_KEY pnpm run validate:annotation-transcription-env` with no OpenAI key in the environment.
-2. Run `OPENAI_API_KEY=fake-smoke-key CODEXUI_ANNOTATION_TRANSCRIBE_MODEL=test-primary CODEXUI_ANNOTATION_TRANSCRIBE_FALLBACK_MODEL=test-fallback pnpm run validate:annotation-transcription-env`.
-3. Inspect both command outputs.
-
-#### Expected Results
-- The first run reports `"openAiApiKeyPresent": false`.
-- The second run reports `"openAiApiKeyPresent": true`.
-- Neither run prints the OpenAI key value.
-- Model fields reflect configured values or server defaults.
-
-#### Rollback/Cleanup
-- Unset any temporary shell env values used for the smoke test.
-
 ### Feature: Project recency sort, pins, and mobile move mode
 
 #### Prerequisites
