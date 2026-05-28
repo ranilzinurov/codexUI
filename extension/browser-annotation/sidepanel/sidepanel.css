@@ -205,6 +205,27 @@ input:focus {
   overflow-wrap: anywhere;
 }
 
+.queue-preview {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 48px;
+  margin-bottom: 6px;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 12px;
+}
+
+.queue-preview img {
+  display: block;
+  width: 100%;
+  max-height: 140px;
+  object-fit: contain;
+}
+
 .queue-list strong,
 .queue-list span {
   display: block;

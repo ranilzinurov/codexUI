@@ -1,14 +1,17 @@
 importScripts(
   "../shared/constants.js",
   "../shared/url-utils.js",
-  "../shared/pairing-client.js"
+  "../shared/pairing-client.js",
+  "../shared/screenshot-crop.js"
 );
 
 const {
   MESSAGE_TYPES,
   DEFAULT_SETTINGS,
   STORAGE_KEYS,
-  MAX_ANNOTATION_QUEUE_ITEMS
+  MAX_ANNOTATION_QUEUE_ITEMS,
+  MAX_SCREENSHOT_PREVIEW_EDGE_PX,
+  MAX_SCREENSHOT_PREVIEW_DATA_URL_CHARS
 } = globalThis.BrowserAnnotationConstants;
 const {
   normalizeServerUrl,
@@ -21,6 +24,9 @@ const {
   readStatusError,
   readSessionFromStatusPayload
 } = globalThis.BrowserAnnotationPairingClient;
+const {
+  cropScreenshotDataUrl
+} = globalThis.BrowserAnnotationScreenshotCrop;
 
 enableActionSidePanelBehavior();
 
@@ -224,6 +230,7 @@ async function saveSelectedElementContext(context, sender) {
     throw new Error("Selected element context is missing.");
   }
 
+  const preview = await captureSelectedElementPreview(context, sender);
   const queue = await readAnnotationQueue();
   const item = {
     id: `annotation-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
@@ -236,7 +243,8 @@ async function saveSelectedElementContext(context, sender) {
           url: sender.tab.url || ""
         }
       : null,
-    context
+    context,
+    preview
   };
   const nextQueue = [...queue, item].slice(-MAX_ANNOTATION_QUEUE_ITEMS);
   await chrome.storage.local.set({
@@ -253,4 +261,30 @@ async function readAnnotationQueue() {
   const stored = await chrome.storage.local.get(STORAGE_KEYS.annotationQueue);
   const queue = stored[STORAGE_KEYS.annotationQueue];
   return Array.isArray(queue) ? queue : [];
+}
+
+async function captureSelectedElementPreview(context, sender) {
+  if (!sender || !sender.tab || typeof sender.tab.windowId !== "number") {
+    throw new Error("Selected tab information is unavailable for screenshot capture.");
+  }
+  if (typeof sender.tab.id !== "number") {
+    throw new Error("Selected tab id is unavailable for screenshot capture.");
+  }
+  if (!context.rect || !context.viewport) {
+    throw new Error("Selected element context does not include crop geometry.");
+  }
+
+  const selectedTab = await chrome.tabs.get(sender.tab.id);
+  if (!selectedTab.active) {
+    throw new Error("Selected tab is no longer active for visible-tab capture.");
+  }
+
+  const dataUrl = await chrome.tabs.captureVisibleTab(sender.tab.windowId, {
+    format: "png"
+  });
+  return cropScreenshotDataUrl(dataUrl, context.rect, context.viewport, {
+    maxPreviewEdgePx: MAX_SCREENSHOT_PREVIEW_EDGE_PX,
+    maxPreviewDataUrlChars: MAX_SCREENSHOT_PREVIEW_DATA_URL_CHARS,
+    mimeType: "image/png"
+  });
 }

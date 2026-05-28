@@ -206,10 +206,28 @@
         name.textContent = queueItemName(context);
         const meta = document.createElement("span");
         meta.textContent = context.selector || context.xpath || "No selector";
-        row.append(name, meta);
+        row.append(createPreview(item.preview), name, meta);
         return row;
       })
     );
+  }
+
+  function createPreview(preview) {
+    const frame = document.createElement("div");
+    frame.className = "queue-preview";
+    if (!preview || !preview.dataUrl) {
+      frame.textContent = "No preview";
+      return frame;
+    }
+
+    const image = document.createElement("img");
+    image.src = preview.dataUrl;
+    image.alt = "Selected element preview";
+    image.loading = "lazy";
+    image.width = preview.width || 1;
+    image.height = preview.height || 1;
+    frame.append(image);
+    return frame;
   }
 
   function queueItemName(context) {

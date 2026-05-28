@@ -37,6 +37,8 @@
       annotationQueue: "browserAnnotation.annotationQueue"
     }),
     MAX_ANNOTATION_QUEUE_ITEMS: 25,
+    MAX_SCREENSHOT_PREVIEW_EDGE_PX: 640,
+    MAX_SCREENSHOT_PREVIEW_DATA_URL_CHARS: 750000,
     RESTRICTED_URL_PREFIXES: Object.freeze([
       "chrome://",
       "chrome-extension://",
