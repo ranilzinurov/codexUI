@@ -8,51 +8,59 @@
             {{ statusText }}
           </p>
         </div>
-        <button
-          v-if="!isActive"
-          class="browser-annotation-listener-primary"
-          type="button"
-          :disabled="isBusy || !threadId"
-          @click="onStart"
-        >
-          {{ phase === 'starting' ? t('Starting...') : t('Listen') }}
-        </button>
-        <button
-          v-else
-          class="browser-annotation-listener-secondary"
-          type="button"
-          :disabled="isBusy"
-          @click="onStop"
-        >
-          {{ phase === 'stopping' ? t('Stopping...') : t('Stop') }}
-        </button>
+        <div class="browser-annotation-listener-actions">
+          <button
+            v-if="session"
+            class="browser-annotation-listener-disclosure"
+            type="button"
+            :aria-expanded="detailsOpen"
+            @click="detailsOpen = !detailsOpen"
+          >
+            {{ detailsOpen ? t('Hide setup') : t('Setup') }}
+          </button>
+          <button
+            v-if="!isActive"
+            class="browser-annotation-listener-primary"
+            type="button"
+            :disabled="isBusy || !threadId"
+            @click="onStart"
+          >
+            {{ phase === 'starting' ? t('Starting...') : t('Listen') }}
+          </button>
+          <button
+            v-else
+            class="browser-annotation-listener-secondary"
+            type="button"
+            :disabled="isBusy"
+            @click="onStop"
+          >
+            {{ phase === 'stopping' ? t('Stopping...') : t('Stop') }}
+          </button>
+        </div>
       </header>
 
       <p v-if="errorMessage" class="browser-annotation-listener-error" role="alert">{{ errorMessage }}</p>
 
-      <div v-if="session" class="browser-annotation-listener-details">
-        <div class="browser-annotation-listener-row">
-          <span class="browser-annotation-listener-label">{{ t('Thread') }}</span>
-          <span class="browser-annotation-listener-value" :title="targetThreadTitle">{{ targetThreadTitle }}</span>
-        </div>
-        <div class="browser-annotation-listener-row">
-          <span class="browser-annotation-listener-label">{{ t('Status') }}</span>
-          <span class="browser-annotation-listener-value">{{ session.status }}</span>
-        </div>
-        <div class="browser-annotation-listener-row">
-          <span class="browser-annotation-listener-label">{{ t('Expires') }}</span>
-          <span class="browser-annotation-listener-value" :title="session.expiresAtIso">{{ expiresLabel }}</span>
-        </div>
-        <div v-if="session.lastReceivedBatch" class="browser-annotation-listener-last-batch">
-          <div class="browser-annotation-listener-row">
-            <span class="browser-annotation-listener-label">{{ t('Last batch') }}</span>
-            <span class="browser-annotation-listener-value" :title="session.lastReceivedBatch.batchId">{{ lastBatchLabel }}</span>
-          </div>
-          <div class="browser-annotation-listener-row">
-            <span class="browser-annotation-listener-label">{{ t('Context') }}</span>
-            <span class="browser-annotation-listener-value">{{ lastBatchContextLabel }}</span>
-          </div>
-        </div>
+      <div v-if="session" class="browser-annotation-listener-summary" aria-live="polite">
+        <span class="browser-annotation-listener-chip">
+          <span class="browser-annotation-listener-chip-label">{{ t('Status') }}</span>
+          <span class="browser-annotation-listener-chip-value">{{ session.status }}</span>
+        </span>
+        <span class="browser-annotation-listener-chip" :title="targetThreadTitle">
+          <span class="browser-annotation-listener-chip-label">{{ t('Thread') }}</span>
+          <span class="browser-annotation-listener-chip-value">{{ targetThreadTitle }}</span>
+        </span>
+        <span class="browser-annotation-listener-chip" :title="session.expiresAtIso">
+          <span class="browser-annotation-listener-chip-label">{{ t('Expires') }}</span>
+          <span class="browser-annotation-listener-chip-value">{{ expiresLabel }}</span>
+        </span>
+        <span v-if="session.lastReceivedBatch" class="browser-annotation-listener-chip" :title="`${session.lastReceivedBatch.batchId} · ${lastBatchContextLabel}`">
+          <span class="browser-annotation-listener-chip-label">{{ t('Last batch') }}</span>
+          <span class="browser-annotation-listener-chip-value">{{ lastBatchLabel }}</span>
+        </span>
+      </div>
+
+      <div v-if="session && detailsOpen" class="browser-annotation-listener-details">
         <div class="browser-annotation-listener-copy-row">
           <label class="browser-annotation-listener-copy-field">
             <span class="browser-annotation-listener-label">{{ t('Server URL') }}</span>
@@ -100,6 +108,7 @@ const pairingToken = ref('')
 const phase = ref<BusyPhase>('idle')
 const errorMessage = ref('')
 const copiedField = ref<CopiedField>('')
+const detailsOpen = ref(false)
 let statusInterval: number | null = null
 let copyResetTimeout: number | null = null
 let sessionGeneration = 0
@@ -177,6 +186,7 @@ async function onStart(): Promise<void> {
     }
     session.value = nextSession
     pairingToken.value = nextSession.pairingToken
+    detailsOpen.value = false
     startStatusPolling()
   } catch (error) {
     if (generation !== sessionGeneration || props.threadId !== requestedThreadId) return
@@ -284,6 +294,7 @@ function clearActiveSession(): void {
   pairingToken.value = ''
   errorMessage.value = ''
   copiedField.value = ''
+  detailsOpen.value = false
   phase.value = 'idle'
   stopStatusPolling()
 }
@@ -339,7 +350,7 @@ function countLabel(count: number, singular: string, plural: string): string {
 }
 
 .browser-annotation-listener-shell {
-  @apply w-full rounded-2xl border px-3 py-3 shadow-sm;
+  @apply w-full rounded-xl border px-3 py-2 shadow-sm;
   background: var(--annotation-listener-bg);
   border-color: var(--annotation-listener-border);
   color: var(--annotation-listener-text);
@@ -358,12 +369,17 @@ function countLabel(count: number, singular: string, plural: string): string {
 }
 
 .browser-annotation-listener-subtitle {
-  @apply m-0 mt-0.5 text-xs leading-relaxed;
+  @apply m-0 mt-0.5 truncate text-xs leading-relaxed;
   color: var(--annotation-listener-subtle);
+}
+
+.browser-annotation-listener-actions {
+  @apply flex shrink-0 items-center gap-2;
 }
 
 .browser-annotation-listener-primary,
 .browser-annotation-listener-secondary,
+.browser-annotation-listener-disclosure,
 .browser-annotation-listener-copy-button {
   @apply shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-60;
 }
@@ -375,6 +391,7 @@ function countLabel(count: number, singular: string, plural: string): string {
 }
 
 .browser-annotation-listener-secondary,
+.browser-annotation-listener-disclosure,
 .browser-annotation-listener-copy-button {
   background: transparent;
   border-color: var(--annotation-listener-control-border);
@@ -382,6 +399,7 @@ function countLabel(count: number, singular: string, plural: string): string {
 }
 
 .browser-annotation-listener-secondary:hover,
+.browser-annotation-listener-disclosure:hover,
 .browser-annotation-listener-copy-button:hover {
   background: var(--annotation-listener-hover-bg);
 }
@@ -391,8 +409,28 @@ function countLabel(count: number, singular: string, plural: string): string {
   color: var(--annotation-listener-error);
 }
 
+.browser-annotation-listener-summary {
+  @apply mt-2 flex min-w-0 flex-wrap items-center gap-1.5;
+}
+
+.browser-annotation-listener-chip {
+  @apply inline-flex max-w-full min-w-0 items-center gap-1 rounded-full border px-2 py-1 text-[11px] leading-none;
+  background: var(--annotation-listener-panel-bg);
+  border-color: var(--annotation-listener-control-border);
+  color: var(--annotation-listener-text);
+}
+
+.browser-annotation-listener-chip-label {
+  @apply shrink-0 font-semibold uppercase tracking-[0.12em];
+  color: var(--annotation-listener-subtle);
+}
+
+.browser-annotation-listener-chip-value {
+  @apply min-w-0 truncate;
+}
+
 .browser-annotation-listener-details {
-  @apply mt-3 grid gap-2 rounded-xl border p-2;
+  @apply mt-2 grid gap-2 rounded-xl border p-2;
   background: var(--annotation-listener-panel-bg);
   border-color: var(--annotation-listener-border);
 }
@@ -438,7 +476,17 @@ function countLabel(count: number, singular: string, plural: string): string {
 
 @media (max-width: 640px) {
   .browser-annotation-listener-header {
-    @apply items-start;
+    @apply items-center;
+  }
+
+  .browser-annotation-listener-actions {
+    @apply gap-1.5;
+  }
+
+  .browser-annotation-listener-disclosure,
+  .browser-annotation-listener-primary,
+  .browser-annotation-listener-secondary {
+    @apply px-2.5;
   }
 
   .browser-annotation-listener-copy-row {
