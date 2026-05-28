@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createServer } from 'node:http'
+import { createServer, type IncomingMessage } from 'node:http'
 import {
   chatCompletionToResponsesFormat,
   handleUnifiedResponsesProxyRequest,
@@ -23,6 +23,21 @@ function listen(server: ReturnType<typeof createServer>): Promise<number> {
 function close(server: ReturnType<typeof createServer>): Promise<void> {
   return new Promise((resolve, reject) => {
     server.close((error) => error ? reject(error) : resolve())
+  })
+}
+
+function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    req.on('data', (chunk: Buffer) => chunks.push(chunk))
+    req.on('error', reject)
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString()) as Record<string, unknown>)
+      } catch (error) {
+        reject(error)
+      }
+    })
   })
 }
 
@@ -167,6 +182,205 @@ describe('unified responses proxy reasoning_content translation', () => {
 
       expect(response.status).toBe(200)
       expect((upstreamRequest as Record<string, unknown> | null)?.stream).toBe(false)
+    } finally {
+      await close(proxy)
+      await close(upstream)
+    }
+  })
+
+  it('retries raw Responses once without previous_response_id when upstream reports it missing', async () => {
+    const upstreamRequests: Record<string, unknown>[] = []
+    const input = [
+      {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: 'recover this turn' }],
+      },
+    ]
+    const upstreamSuccess = {
+      id: 'resp_recovered',
+      object: 'response',
+      model: 'big-pickle',
+      output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }],
+    }
+    const upstream = createServer((req, res) => {
+      void (async () => {
+        upstreamRequests.push(await readJsonBody(req))
+        if (upstreamRequests.length === 1) {
+          res.writeHead(404, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({
+            error: {
+              type: 'previous_response_not_found',
+              code: 'previous_response_not_found',
+              message: 'Previous response was not found.',
+            },
+          }))
+          return
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify(upstreamSuccess))
+      })().catch((error) => {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: { message: error instanceof Error ? error.message : 'unknown error' } }))
+      })
+    })
+    const upstreamPort = await listen(upstream)
+
+    const proxy = createServer((req, res) => {
+      handleUnifiedResponsesProxyRequest(req, res, {
+        bearerToken: '',
+        requireBearerToken: false,
+        wireApi: 'responses',
+        responsesEndpoint: `http://127.0.0.1:${upstreamPort}/v1/responses`,
+        chatCompletionsEndpoint: `http://127.0.0.1:${upstreamPort}/v1/chat/completions`,
+        missingKeyMessage: 'missing',
+        responsesPayloadFormat: 'raw',
+      })
+    })
+    const proxyPort = await listen(proxy)
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${proxyPort}/v1/responses`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'big-pickle',
+          previous_response_id: 'resp_missing',
+          input,
+        }),
+      })
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(body).toEqual(upstreamSuccess)
+      expect(upstreamRequests).toHaveLength(2)
+      expect(upstreamRequests[0]).toMatchObject({
+        model: 'big-pickle',
+        previous_response_id: 'resp_missing',
+        input,
+      })
+      expect(upstreamRequests[1]).not.toHaveProperty('previous_response_id')
+      expect(upstreamRequests[1]).toMatchObject({
+        model: 'big-pickle',
+        input,
+      })
+    } finally {
+      await close(proxy)
+      await close(upstream)
+    }
+  })
+
+  it('forwards non-matching raw Responses upstream errors without retrying', async () => {
+    const upstreamRequests: Record<string, unknown>[] = []
+    const upstreamError = {
+      error: {
+        type: 'rate_limit_exceeded',
+        code: 'rate_limit_exceeded',
+        message: 'Slow down.',
+      },
+    }
+    const upstream = createServer((req, res) => {
+      void (async () => {
+        upstreamRequests.push(await readJsonBody(req))
+        res.writeHead(429, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify(upstreamError))
+      })().catch((error) => {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: { message: error instanceof Error ? error.message : 'unknown error' } }))
+      })
+    })
+    const upstreamPort = await listen(upstream)
+
+    const proxy = createServer((req, res) => {
+      handleUnifiedResponsesProxyRequest(req, res, {
+        bearerToken: '',
+        requireBearerToken: false,
+        wireApi: 'responses',
+        responsesEndpoint: `http://127.0.0.1:${upstreamPort}/v1/responses`,
+        chatCompletionsEndpoint: `http://127.0.0.1:${upstreamPort}/v1/chat/completions`,
+        missingKeyMessage: 'missing',
+        responsesPayloadFormat: 'raw',
+      })
+    })
+    const proxyPort = await listen(proxy)
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${proxyPort}/v1/responses`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'big-pickle',
+          previous_response_id: 'resp_existing',
+          input: 'hello',
+        }),
+      })
+      const body = await response.json()
+
+      expect(response.status).toBe(429)
+      expect(body).toEqual(upstreamError)
+      expect(upstreamRequests).toEqual([{
+        model: 'big-pickle',
+        previous_response_id: 'resp_existing',
+        input: 'hello',
+      }])
+    } finally {
+      await close(proxy)
+      await close(upstream)
+    }
+  })
+
+  it('does not retry raw Responses requests that omit previous_response_id', async () => {
+    const upstreamRequests: Record<string, unknown>[] = []
+    const upstreamError = {
+      error: {
+        type: 'previous_response_not_found',
+        code: 'previous_response_not_found',
+        message: 'Previous response was not found.',
+      },
+    }
+    const upstream = createServer((req, res) => {
+      void (async () => {
+        upstreamRequests.push(await readJsonBody(req))
+        res.writeHead(404, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify(upstreamError))
+      })().catch((error) => {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: { message: error instanceof Error ? error.message : 'unknown error' } }))
+      })
+    })
+    const upstreamPort = await listen(upstream)
+
+    const proxy = createServer((req, res) => {
+      handleUnifiedResponsesProxyRequest(req, res, {
+        bearerToken: '',
+        requireBearerToken: false,
+        wireApi: 'responses',
+        responsesEndpoint: `http://127.0.0.1:${upstreamPort}/v1/responses`,
+        chatCompletionsEndpoint: `http://127.0.0.1:${upstreamPort}/v1/chat/completions`,
+        missingKeyMessage: 'missing',
+        responsesPayloadFormat: 'raw',
+      })
+    })
+    const proxyPort = await listen(proxy)
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${proxyPort}/v1/responses`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'big-pickle',
+          input: 'hello',
+        }),
+      })
+      const body = await response.json()
+
+      expect(response.status).toBe(404)
+      expect(body).toEqual(upstreamError)
+      expect(upstreamRequests).toEqual([{
+        model: 'big-pickle',
+        input: 'hello',
+      }])
     } finally {
       await close(proxy)
       await close(upstream)
