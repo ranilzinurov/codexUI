@@ -5931,3 +5931,37 @@ Paired extension screenshot, crop, and audio upload API.
 
 #### Rollback/Cleanup
 - Test-uploaded files are removed by the focused test cleanup. Manual temp files can be removed from the system temp `codex-web-uploads` directory if needed.
+
+---
+
+### Browser Annotation Audio Transcription Endpoint
+
+#### Feature/Change Name
+Server-only paired extension audio transcription API.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Dependencies are installed.
+3. Do not use a real OpenAI API key unless the pasted key has been externally revoked/replaced.
+4. For local mocked verification, no real `OPENAI_API_KEY` is required.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/browserAnnotationTranscribe.test.ts src/server/browserAnnotationListen.test.ts src/server/browserAnnotationAssets.test.ts --reporter=verbose`.
+2. Confirm mocked OpenAI success uses `CODEXUI_ANNOTATION_TRANSCRIBE_MODEL`.
+3. Confirm mocked retryable provider failure falls back to `CODEXUI_ANNOTATION_TRANSCRIBE_FALLBACK_MODEL`.
+4. Confirm missing key/model config returns setup errors without calling OpenAI.
+5. Confirm missing/wrong/revoked/expired extension sessions are rejected before transcription.
+6. Confirm invalid mime types, oversized uploads, and malformed multipart bodies are rejected.
+7. Confirm provider and network errors containing key-like text are sanitized before being returned to the extension.
+8. Run `pnpm exec vue-tsc --noEmit`.
+9. Light and dark theme verification is not applicable because this stage adds a server endpoint only and no UI surface.
+
+#### Expected Results
+- The focused Vitest files pass.
+- The server typecheck passes.
+- The endpoint requires a paired listen session selected by query `sessionId` or `threadId`.
+- The OpenAI API key is read only on the server and is never returned to the browser/extension.
+- Provider fallback is bounded to one configured fallback attempt for retryable failures.
+
+#### Rollback/Cleanup
+- None for mocked tests. If a manual real-provider test is later run with a rotated key, unset temporary env vars after testing.

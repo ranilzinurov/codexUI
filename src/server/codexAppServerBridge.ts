@@ -44,6 +44,7 @@ import { WebPushNotifications } from './webPushNotifications.js'
 import { ThreadAutoTitleManager } from './threadAutoTitle.js'
 import { handleBrowserAnnotationListenRoutes } from './browserAnnotationListen.js'
 import { handleBrowserAnnotationAssetUploadRoute } from './browserAnnotationAssets.js'
+import { handleBrowserAnnotationTranscribeRoute } from './browserAnnotationTranscribe.js'
 import { getSpawnInvocation } from '../utils/commandInvocation.js'
 import {
   getNpmGlobalBinDir,
@@ -6794,6 +6795,10 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
       }
 
       if (await handleBrowserAnnotationAssetUploadRoute(req, res, url)) {
+        return
+      }
+
+      if (await handleBrowserAnnotationTranscribeRoute(req, res, url)) {
         return
       }
 

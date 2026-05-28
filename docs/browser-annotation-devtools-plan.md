@@ -170,6 +170,7 @@ Use these gates unless a phase explicitly narrows or expands them.
 | 2026-05-28 | Phase 1 | Stage 1.2 | Completed | Added server pairing endpoints under `/codex-api/extension/listen` with TTL-bound in-memory sessions, SHA-256 token hashes, same-thread replacement, global session cap, route-local malformed JSON handling, and a 16 KiB request body limit. Worker smoke tests passed, reviewer findings were fixed, and re-review found no remaining issues. Verification: `pnpm vitest run src/server/browserAnnotationListen.test.ts --reporter=verbose` passed 8 tests; `pnpm exec vue-tsc --noEmit` passed. Performance audit: code-path analysis only; status/stop are direct lookup when `sessionId` is supplied, token-only fallback scans at most 100 retained sessions. |
 | 2026-05-28 | Phase 1 | Stage 1.1 | Completed | Added compact active-thread listener UI, typed gateway helpers, copyable server URL/token, expiry/status display, stop/revoke, active-only token handling, and lifecycle guards for thread changes/unmount during in-flight requests. Codex.app parity pre-check was blocked because `/Applications/Codex.app` is unavailable and no CDP endpoint was exposed in this Linux environment; UI followed local composer/pending-panel patterns. Verification: `pnpm vitest run src/api/codexGateway.test.ts --reporter=verbose` passed 7 tests; `pnpm exec vue-tsc --noEmit` passed. Reviewer race findings were fixed and final re-review found no remaining issues. Performance audit: no startup requests; one start request on click and one 15s status poll only while active. |
 | 2026-05-28 | Phase 1 | Stage 1.3 | Completed | Added `POST /codex-api/extension/assets/upload` for paired extension screenshot/crop/audio multipart uploads. Uploads require query `sessionId`/`threadId` plus bearer token and authorize before body buffering, cap request bodies at 15 MiB, allow PNG/WebP/JPEG and WebM/WAV/MP4/MPEG, sanitize/cap filenames, persist under `tmpdir()/codex-web-uploads`, and return local image URLs for image assets. Reviewer findings around early auth and filename length were fixed. Verification: `pnpm vitest run src/server/browserAnnotationAssets.test.ts src/server/browserAnnotationListen.test.ts --reporter=verbose` passed 18 tests; `pnpm exec vue-tsc --noEmit` passed. Performance audit: code-path analysis; one bounded multipart parse and temp-file write per accepted upload, no token/body logging. |
+| 2026-05-28 | Phase 1 | Stage 1.4 | Completed | Added server-only `/codex-api/extension/transcribe` endpoint for paired extension audio transcription. The route authorizes the extension bearer/session selector before buffering, validates/caps multipart audio, reads only server env config, calls OpenAI `/v1/audio/transcriptions` with primary model and retryable fallback model, and returns sanitized UI-facing provider errors without exposing keys or provider details. OpenAI docs were checked via Context7 official API reference before implementation. Verification: `pnpm exec vitest run src/server/browserAnnotationTranscribe.test.ts src/server/browserAnnotationListen.test.ts src/server/browserAnnotationAssets.test.ts --reporter=verbose` passed 26 tests; `pnpm exec vue-tsc --noEmit` passed. Reviewer privacy finding was fixed and final re-review found no remaining issues. Performance audit: code-path analysis; at most two sequential provider calls, no disk writes, no browser/startup/thread path changed. |
 
 ## Phase 0: Foundations, Secrets, And Deployment Discovery
 
@@ -240,13 +241,13 @@ Checklist:
   - [x] Cap file size and mime types.
   - Smoke test: `pnpm vitest run src/server/browserAnnotationAssets.test.ts src/server/browserAnnotationListen.test.ts --reporter=verbose` covers PNG/WebP/WebM success and invalid type/oversize/auth/selector/revoked/malformed/long-name rejection paths.
 
-- [ ] Stage 1.4: OpenAI transcription endpoint
-  - [ ] Add server-only transcription for annotation audio.
-  - [ ] Primary model: configured `CODEXUI_ANNOTATION_TRANSCRIBE_MODEL`.
-  - [ ] Fallback model: configured `CODEXUI_ANNOTATION_TRANSCRIBE_FALLBACK_MODEL`.
-  - [ ] Do not expose OpenAI key to browser/extension.
-  - [ ] Include retry/error messages suitable for UI.
-  - Smoke test: mock OpenAI response; optional real call only with rotated env key.
+- [x] Stage 1.4: OpenAI transcription endpoint
+  - [x] Add server-only transcription for annotation audio.
+  - [x] Primary model: configured `CODEXUI_ANNOTATION_TRANSCRIBE_MODEL`.
+  - [x] Fallback model: configured `CODEXUI_ANNOTATION_TRANSCRIBE_FALLBACK_MODEL`.
+  - [x] Do not expose OpenAI key to browser/extension.
+  - [x] Include retry/error messages suitable for UI.
+  - Smoke test: mocked OpenAI success/fallback/config/auth/mime/oversize/malformed/expired/error-sanitization coverage; no real call made because key rotation remains externally unconfirmed.
 
 - [ ] Stage 1.5: Batch-to-thread queueing
   - [ ] Add `POST /codex-api/extension/annotation-batch`.
