@@ -62,6 +62,15 @@
     return `Chrome does not allow annotation scripts on this page (${parsed.href}). Open a normal http(s) page and try again.`;
   }
 
+  function getTabOriginPattern(url) {
+    const parsed = parseUrl(url);
+    if (!parsed || isRestrictedTabUrl(url)) {
+      return "";
+    }
+
+    return `${parsed.protocol}//${parsed.host}/*`;
+  }
+
   function parseUrl(url) {
     if (!url || typeof url !== "string") {
       return null;
@@ -82,6 +91,7 @@
   globalScope.BrowserAnnotationUrlUtils = {
     normalizeServerUrl,
     isRestrictedTabUrl,
-    describeRestrictedUrl
+    describeRestrictedUrl,
+    getTabOriginPattern
   };
 })(globalThis);

@@ -21,6 +21,20 @@ for (const relativePath of [
 }
 
 const { BrowserAnnotationPairingClient } = context;
+const { BrowserAnnotationUrlUtils } = context;
+
+assert.equal(
+  BrowserAnnotationUrlUtils.getTabOriginPattern("https://docs.example.test/path?q=1#section"),
+  "https://docs.example.test/*"
+);
+assert.equal(
+  BrowserAnnotationUrlUtils.getTabOriginPattern("http://127.0.0.1:4173/test-page.html"),
+  "http://127.0.0.1:4173/*"
+);
+assert.equal(BrowserAnnotationUrlUtils.getTabOriginPattern("chrome://extensions"), "");
+assert.equal(BrowserAnnotationUrlUtils.isRestrictedTabUrl("https://chromewebstore.google.com/detail/test"), true);
+assert.equal(BrowserAnnotationUrlUtils.isRestrictedTabUrl("https://news.example.test/article"), false);
+
 const defaultStatusUrl = BrowserAnnotationPairingClient.buildListenStatusUrl(
   "https://annotate.todo-tg-app.ru/"
 );

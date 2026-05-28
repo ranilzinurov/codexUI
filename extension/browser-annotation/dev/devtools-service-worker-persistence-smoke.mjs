@@ -7,9 +7,13 @@ import vm from "node:vm";
 const extensionRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const storage = new Map();
 const detachedTabs = [];
+const permissionRequests = [];
+const executedScripts = [];
 const tabRemovedListeners = [];
 const tabUpdatedListeners = [];
+const activeTabs = [];
 let pendingBodyResponse = null;
+let grantNextPermissionRequest = true;
 
 const context = vm.createContext({
   AbortController,
@@ -33,7 +37,15 @@ const context = vm.createContext({
   }
 });
 context.globalThis = context;
-context.chrome = createChromeStub(storage, detachedTabs, () => pendingBodyResponse);
+context.chrome = createChromeStub(
+  storage,
+  detachedTabs,
+  permissionRequests,
+  executedScripts,
+  activeTabs,
+  () => pendingBodyResponse,
+  () => grantNextPermissionRequest
+);
 
 const serviceWorkerSource = readFileSync(
   resolve(extensionRoot, "service-worker/service-worker.js"),
@@ -257,10 +269,51 @@ const concurrentQueue = storage.get(annotationQueueKey);
 assert.equal(concurrentQueue.length, 2);
 assert.deepEqual(concurrentQueue.map((item) => item.context.selector).sort(), ["#alpha", "#bravo"]);
 
+activeTabs.splice(0, activeTabs.length, {
+  id: 99,
+  windowId: 7,
+  active: true,
+  title: "Arbitrary host",
+  url: "https://arbitrary.example.test/feature"
+});
+const stateBeforePermission = await context.getPanelState();
+assert.equal(stateBeforePermission.activeTab.hostPermissionPattern, "https://arbitrary.example.test/*");
+assert.equal(stateBeforePermission.activeTab.hasHostAccess, false);
+assert.equal(stateBeforePermission.activeTab.needsHostPermission, true);
+assert.equal(stateBeforePermission.activeTab.hostAccessStatus, "needs_permission");
+
+grantNextPermissionRequest = false;
+await assert.rejects(
+  context.injectOverlayIntoActiveTab(),
+  /Permission denied\. Allow Codex UI Browser Annotation to access https:\/\/arbitrary\.example\.test\/\* before injecting the overlay\./u
+);
+assert.deepEqual(permissionRequests.at(-1), ["https://arbitrary.example.test/*"]);
+assert.equal(executedScripts.length, 0);
+
+grantNextPermissionRequest = true;
+const injectResult = await context.injectOverlayIntoActiveTab();
+assert.equal(injectResult.ok, true);
+assert.equal(injectResult.injected, true);
+assert.deepEqual(permissionRequests.at(-1), ["https://arbitrary.example.test/*"]);
+assert.equal(executedScripts.length, 1);
+const stateAfterPermission = await context.getPanelState();
+assert.equal(stateAfterPermission.activeTab.hasHostAccess, true);
+assert.equal(stateAfterPermission.activeTab.needsHostPermission, false);
+assert.equal(stateAfterPermission.activeTab.hostAccessStatus, "granted");
+
 console.log("Extension DevTools service worker persistence smoke passed.");
 
-function createChromeStub(localStorage, detachLog, getPendingBodyResponse) {
+function createChromeStub(
+  localStorage,
+  detachLog,
+  permissionRequestLog,
+  executeScriptLog,
+  activeTabList,
+  getPendingBodyResponse,
+  shouldGrantPermissionRequest
+) {
   const addListener = () => {};
+  const grantedOrigins = new Set();
   return {
     action: {
       onClicked: { addListener }
@@ -287,12 +340,32 @@ function createChromeStub(localStorage, detachLog, getPendingBodyResponse) {
     },
     runtime: {
       getURL: (path) => `chrome-extension://test/${path}`,
+      getManifest: () => ({ version: "0.1.0" }),
       onInstalled: { addListener },
       onMessage: { addListener },
       onStartup: { addListener }
     },
+    permissions: {
+      contains: async (request) => {
+        const origins = Array.isArray(request?.origins) ? request.origins : [];
+        return origins.every((origin) => grantedOrigins.has(origin));
+      },
+      request: async (request) => {
+        const origins = Array.isArray(request?.origins) ? request.origins : [];
+        permissionRequestLog.push([...origins]);
+        if (!shouldGrantPermissionRequest()) {
+          return false;
+        }
+        for (const origin of origins) {
+          grantedOrigins.add(origin);
+        }
+        return true;
+      }
+    },
     scripting: {
-      executeScript: async () => {}
+      executeScript: async (options) => {
+        executeScriptLog.push(clone(options));
+      }
     },
     sidePanel: {
       setPanelBehavior: async () => {}
@@ -314,10 +387,11 @@ function createChromeStub(localStorage, detachLog, getPendingBodyResponse) {
     },
     tabs: {
       captureVisibleTab: async () => "",
-      get: async () => ({ active: true }),
+      get: async (tabId) => activeTabList.find((tab) => tab.id === tabId) || { active: true },
       onRemoved: { addListener: (listener) => tabRemovedListeners.push(listener) },
       onUpdated: { addListener: (listener) => tabUpdatedListeners.push(listener) },
-      query: async () => []
+      query: async () => activeTabList,
+      sendMessage: async () => ({ ok: true })
     }
   };
 }

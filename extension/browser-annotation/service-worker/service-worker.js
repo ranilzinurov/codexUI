@@ -19,7 +19,8 @@ const {
 const {
   normalizeServerUrl,
   isRestrictedTabUrl,
-  describeRestrictedUrl
+  describeRestrictedUrl,
+  getTabOriginPattern
 } = globalThis.BrowserAnnotationUrlUtils;
 const {
   buildAnnotationBatchUrl,
@@ -243,9 +244,13 @@ async function getPanelState() {
   return buildPanelState(settings, connection, activeTab, queue, devtoolsCapture);
 }
 
-function buildPanelState(settings, connection, activeTab, queue, devtoolsCapture) {
+async function buildPanelState(settings, connection, activeTab, queue, devtoolsCapture) {
   const tabUrl = activeTab && activeTab.url ? activeTab.url : "";
   const restricted = isRestrictedTabUrl(tabUrl);
+  const hostPermissionPattern = restricted ? "" : getTabOriginPattern(tabUrl);
+  const hasHostAccess = hostPermissionPattern
+    ? await hasHostPermission(hostPermissionPattern)
+    : false;
   const captureState = normalizeDevtoolsCaptureState(devtoolsCapture);
 
   return {
@@ -259,7 +264,15 @@ function buildPanelState(settings, connection, activeTab, queue, devtoolsCapture
           title: activeTab.title || "",
           url: tabUrl,
           restricted,
-          restrictionReason: restricted ? describeRestrictedUrl(tabUrl) : ""
+          restrictionReason: restricted ? describeRestrictedUrl(tabUrl) : "",
+          hostPermissionPattern,
+          hasHostAccess,
+          needsHostPermission: Boolean(hostPermissionPattern && !hasHostAccess),
+          hostAccessStatus: restricted
+            ? "restricted"
+            : hasHostAccess
+              ? "granted"
+              : "needs_permission"
         }
       : null
   };
@@ -400,6 +413,9 @@ async function injectOverlayIntoTab(tab) {
     throw new Error(describeRestrictedUrl(tab.url));
   }
 
+  const hostPermissionPattern = getTabOriginPattern(tab.url);
+  await ensureHostPermission(hostPermissionPattern);
+
   await chrome.scripting.executeScript({
     target: { tabId: tab.id },
     files: [
@@ -418,6 +434,35 @@ async function injectOverlayIntoTab(tab) {
     injected: Boolean(response && response.ok),
     state: await getPanelState()
   };
+}
+
+async function hasHostPermission(originPattern) {
+  if (!originPattern || !chrome.permissions || !chrome.permissions.contains) {
+    return false;
+  }
+
+  return chrome.permissions.contains({ origins: [originPattern] });
+}
+
+async function ensureHostPermission(originPattern) {
+  if (!originPattern) {
+    throw new Error("No valid http(s) host permission is available for the active tab.");
+  }
+
+  if (!chrome.permissions || !chrome.permissions.contains || !chrome.permissions.request) {
+    throw new Error("Chrome host permissions API is unavailable; cannot inject the annotation overlay.");
+  }
+
+  if (await hasHostPermission(originPattern)) {
+    return;
+  }
+
+  const granted = await chrome.permissions.request({ origins: [originPattern] });
+  if (!granted) {
+    throw new Error(
+      `Permission denied. Allow Codex UI Browser Annotation to access ${originPattern} before injecting the overlay.`
+    );
+  }
 }
 
 async function saveSelectedElementContext(context, sender) {
@@ -561,7 +606,7 @@ async function sendAnnotationBatch() {
     ok: true,
     result: payload && payload.result ? payload.result : null,
     devtoolsStop,
-    state: buildPanelState({ ...settings, pairingToken: "" }, disconnected, activeTab, [], stoppedDevtoolsCapture)
+    state: await buildPanelState({ ...settings, pairingToken: "" }, disconnected, activeTab, [], stoppedDevtoolsCapture)
   };
 }
 

@@ -30,6 +30,10 @@ const developmentHostPermissions = [
   "http://localhost/*"
 ];
 const requiredHostPermissions = productionMode ? productionHostPermissions : developmentHostPermissions;
+const requiredOptionalHostPermissions = [
+  "http://*/*",
+  "https://*/*"
+];
 const requiredFiles = [
   manifest.background?.service_worker,
   manifest.side_panel?.default_path,
@@ -76,7 +80,22 @@ assert(
     manifest.host_permissions.every((permission, index) =>
       permission === requiredHostPermissions[index]
     ),
-  `host_permissions must be limited to ${productionMode ? "the production origin" : "production plus local development origins"}: ${requiredHostPermissions.join(", ")}`
+  `host_permissions must be limited to ${productionMode ? "pairing server origins" : "pairing plus local development origins"}: ${requiredHostPermissions.join(", ")}`
+);
+
+for (const hostPermission of requiredOptionalHostPermissions) {
+  assert(
+    manifest.optional_host_permissions?.includes(hostPermission),
+    `missing required optional host permission: ${hostPermission}`
+  );
+}
+assert(
+  Array.isArray(manifest.optional_host_permissions) &&
+    manifest.optional_host_permissions.length === requiredOptionalHostPermissions.length &&
+    manifest.optional_host_permissions.every((permission, index) =>
+      permission === requiredOptionalHostPermissions[index]
+    ),
+  `optional_host_permissions must be exactly: ${requiredOptionalHostPermissions.join(", ")}`
 );
 
 const csp = manifest.content_security_policy?.extension_pages || "";

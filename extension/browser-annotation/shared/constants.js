@@ -39,6 +39,10 @@
     ASSET_UPLOAD_PATH: "/codex-api/extension/assets/upload",
     TRANSCRIBE_PATH: "/codex-api/extension/transcribe",
     TARGET_HOST_PATTERN: "https://codex-ui.todo-tg-app.ru/*",
+    OPTIONAL_HOST_PERMISSION_PATTERNS: Object.freeze([
+      "http://*/*",
+      "https://*/*"
+    ]),
     ALLOWED_TAB_PROTOCOLS: Object.freeze([
       "http:",
       "https:"
