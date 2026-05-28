@@ -184,6 +184,7 @@ Use these gates unless a phase explicitly narrows or expands them.
 | 2026-05-28 | Phase 3 | Reviewer hardening | Completed | Closed reviewer findings for DevTools privacy and lifecycle: console redaction now covers JSON-style secrets and Basic/Bearer authorization strings, response body capture is limited to opt-in small textual failed/error responses with known encoded size, request bodies stay metadata-only from `requestWillBeSent`, DevTools state mutations are serialized, timeout detach is backed by `chrome.alarms`, side-panel body opt-in state reflects active capture options after reopen, and stale async response-body reads are dropped after stop/restart on the same tab. Verification: extension static/smoke suite passed, `pnpm run test:unit` passed 23 files / 178 tests, `pnpm run build` passed, `pnpm run test:coverage` passed at the current baseline, `pnpm run test:browser-annotation` passed 6 files / 52 tests, and performance profile `output/playwright/browser-runtime-profile-home-2026-05-28T13-54-41-828Z.json` reported warnings `[]`, duplicateCounts threadList/skills/rateLimits/providerModels all 1, totalApiKB 212.4. Manual DevTools extension smoke on a real Chrome page remains the next acceptance step. |
 | 2026-05-28 | Phase 4 | Stages 4.1-4.3 | Completed | Added per-annotation voice recording controls in the extension side panel, transient MediaRecorder blob handling, upload to `/codex-api/extension/assets/upload`, transcription through `/codex-api/extension/transcribe`, queue voice metadata sanitization, and batch `voice-note-audio`/`voiceNote` payload generation. Reviewer findings were fixed so voice metadata patches preserve typed notes, active recording state overrides persisted voice state, in-flight upload/transcription is aborted on delete, assets require `uploadedAtIso`, and raw `base64`/`audioBase64` voice fields are stripped from queue storage. Verification: extension static/smoke suite passed, `pnpm run test:browser-annotation` passed 6 files / 52 tests, `src/server/browserAnnotationBatch.test.ts` verifies the voice-only prompt includes `Voice note` metadata plus transcript text, and mocked transcription provider coverage lives in `src/server/browserAnnotationTranscribe.test.ts`. Full regression passed except manual light/dark voice smoke, which remains an acceptance step. Performance profile `output/playwright/browser-runtime-profile-home-2026-05-28T14-33-16-893Z.json` reported warnings `[]`, duplicateCounts threadList/skills/rateLimits/providerModels all 1, totalApiKB 214.4. |
 | 2026-05-28 | Phase 5 | DNS and repo deployment prep | Partial | Added explicit YC DNS record `annotate.todo-tg-app.ru. 300 A 46.62.215.111` in zone `todo-tg-app-ru`; public resolvers `8.8.8.8` and `1.1.1.1` returned `46.62.215.111`. Added `ops/nginx/annotate.todo-tg-app.ru.conf` narrow HTTPS ingress template for `/browser-annotation-test.html` and `/codex-api/extension/`, added production extension packaging via `pnpm run pack:browser-annotation`, tightened production artifact validation to require only `https://annotate.todo-tg-app.ru/*`, and allowed `annotate.todo-tg-app.ru` in Vite dev-server `allowedHosts`. Verification: `pnpm run pack:browser-annotation` produced `dist/browser-annotation-extension/codex-ui-browser-annotation-0.1.0.zip` with prod-only host permissions, `pnpm exec vue-tsc --noEmit` passed, `pnpm run test:browser-annotation` passed 6 files / 52 tests, `http://46.62.215.111/browser-annotation-test.html` returned `200` with the test-page heading, and check-host returned `200` from 6/6 nodes for `http://annotate.todo-tg-app.ru/browser-annotation-test.html`. Performance profile `output/playwright/browser-runtime-profile-home-2026-05-28T14-50-57-150Z.json` reported warnings `[]`, duplicateCounts threadList/skills/rateLimits/providerModels all 1, totalApiKB 214.3. HTTPS certbot/live nginx deployment and manual public-domain extension smoke remain blocked on root access to write `/etc/nginx`/issue certificate. |
+| 2026-05-28 | Phase 6 | Stage 6.1 prompt composer tuning | Completed | Added an explicit `## Request for Codex` section to browser annotation batch prompts. The request tells Codex to correlate DOM target, selector, note, voice transcript, attached screenshot image, and DevTools console/network evidence, then implement the appropriate repository fix and run focused verification. Verification: `pnpm exec vitest run src/server/browserAnnotationBatch.test.ts --reporter=verbose` passed 8 tests and now asserts the action request text is present. Manual rendered-message light/dark review remains part of Phase 6 UI/full workflow checks. |
 
 ## Phase 0: Foundations, Secrets, And Deployment Discovery
 
@@ -465,10 +466,10 @@ Objective: make the feature pleasant and align the long-term shape with OpenAI's
 
 Checklist:
 
-- [ ] Stage 6.1: Prompt composer tuning
-  - [ ] Ensure generated prompt is concise but complete.
-  - [ ] Include per-annotation screenshots, DOM, selector, user note, transcript, console, and network.
-  - [ ] Add clear instruction that Codex should implement fixes and verify.
+- [x] Stage 6.1: Prompt composer tuning
+  - [x] Ensure generated prompt is concise but complete.
+  - [x] Include per-annotation screenshots, DOM, selector, user note, transcript, console, and network.
+  - [x] Add clear instruction that Codex should implement fixes and verify.
   - Smoke test: inspect generated prompt snapshot.
 
 - [ ] Stage 6.2: Codex UI presentation
@@ -499,7 +500,7 @@ Phase 6 full regression:
 - [ ] Full manual workflow: pair, make multiple annotations, capture DevTools, record voice, send, Codex receives
 - [ ] Light/dark verification
 - [ ] Performance audit with `pnpm run profile:browser`
-- [ ] Update [tests.md](../tests.md)
+- [x] Update [tests.md](../tests.md)
 - [ ] Commit Phase 6 changes
 
 ## Phase 7: Final Hardening And Release Readiness

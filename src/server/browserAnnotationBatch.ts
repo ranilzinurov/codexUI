@@ -179,6 +179,9 @@ function buildBrowserAnnotationPrompt(batch: AnnotationBatch, queuedAtIso: strin
     '',
     'Privacy handling: sensitive headers and body fields are expected to be redacted by the extension contract. This prompt also redacts sensitive URL query parameters and omits body text for not-captured/redacted body states.',
     '',
+    '## Request for Codex',
+    'Use the annotated browser context below to understand the user-visible issue. Correlate each annotation with its DOM target, selector, note, voice transcript, attached screenshot image, and DevTools console/network evidence when present. Implement the appropriate fix in the repository when the cause is actionable, then run focused verification and report what changed.',
+    '',
     '## Annotation notes',
   ]
 

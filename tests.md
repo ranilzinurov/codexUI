@@ -6357,6 +6357,35 @@ Expose the browser annotation ingress at `https://annotate.todo-tg-app.ru` and p
 
 ---
 
+### Browser Annotation Prompt Composer Tuning
+
+#### Feature/Change Name
+Browser annotation batches include an explicit Codex action request that correlates annotations, screenshots, voice, DOM, and DevTools context.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Use Node.js 18 or newer.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/browserAnnotationBatch.test.ts --reporter=verbose`.
+2. Inspect the queued message text assembled by `buildBrowserAnnotationQueuedMessage`.
+3. Confirm the prompt contains a `## Request for Codex` section.
+4. Confirm the request tells Codex to correlate DOM target, selector, note, voice transcript, attached screenshot image, and DevTools console/network evidence when present.
+5. Confirm the request asks Codex to implement the appropriate repository fix and run focused verification.
+6. If checking manually in Codex UI, send a browser annotation batch and verify the rendered user message remains readable in light and dark themes.
+
+#### Expected Results
+- The focused Vitest file passes.
+- The prompt remains structured as metadata, request, annotation notes, and optional DevTools summary.
+- Sensitive URLs and body fields remain redacted by existing privacy assertions.
+- No UI style changes are required; any manual light/dark check should show the same readable message rendering as other user messages.
+
+#### Rollback/Cleanup
+- No cleanup is required for the focused unit test.
+- Delete any manually sent browser annotation batch thread messages if they were created only for smoke testing.
+
+---
+
 ### Browser Annotation DevTools Persistence Serialization
 
 #### Feature/Change Name
