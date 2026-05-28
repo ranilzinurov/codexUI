@@ -6765,3 +6765,31 @@ Recover from stale selected/resumed thread state before starting a turn.
 #### Rollback/Cleanup
 - Clear any test-only localStorage values, especially `codex-web-local.selected-thread-id.v1`.
 - No generated artifacts are required for this test.
+
+---
+
+### Browser Annotation Test Page Green Sample Action
+
+#### Feature/Change Name
+Render the browser annotation test page `Sample action` button as a green action button.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Start Codex UI with `pnpm run dev --host 127.0.0.1 --port 4173`, or serve the extension dev directory with `python3 -m http.server`.
+
+#### Steps
+1. Open `http://127.0.0.1:4173/browser-annotation-test.html`.
+2. Confirm the `Sample action` button inside the sample card has a green background, darker green border, and white label.
+3. Hover and press the button to confirm it darkens without resizing or shifting the sample card.
+4. Switch the browser or OS to dark theme and reload the same page.
+5. Repeat steps 2-3 in dark theme.
+6. For the extension dev copy, open `extension/browser-annotation/dev/test-page.html` through the local static server and repeat the light and dark theme checks.
+
+#### Expected Results
+- The annotated `Sample action` button is visibly green in both public and extension dev test pages.
+- The label remains readable in light and dark themes.
+- Hover and active states stay green and do not alter layout.
+- Other controls, including `Sample input`, keep their existing neutral styling.
+
+#### Rollback/Cleanup
+- Stop any temporary dev or static server started for this check.
