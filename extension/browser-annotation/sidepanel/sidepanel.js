@@ -31,6 +31,7 @@
     status: "inactive",
     detail: "DevTools capture is off."
   };
+  const voiceRecordings = new Map();
 
   elements.saveSettings.addEventListener("click", saveSettings);
   elements.injectOverlay.addEventListener("click", injectOverlay);
@@ -290,6 +291,7 @@
         ? "Select elements on the page to queue annotation context for later stages."
         : "Add notes, adjust order, then send one batch to Codex UI.";
     renderBatchMeta(items);
+    pruneVoiceRecordings(items);
     elements.queueList.replaceChildren(
       ...items.map((item, index) => {
         const row = document.createElement("li");
@@ -304,7 +306,7 @@
         meta.textContent = context.selector || context.xpath || "No selector";
         heading.append(name, meta);
         header.append(heading, createQueueActions(item, index, items.length));
-        row.append(createPreview(item.preview), header, createNoteField(item));
+        row.append(createPreview(item.preview), header, createVoiceRecorder(item), createNoteField(item));
         return row;
       })
     );
@@ -364,6 +366,53 @@
     return label;
   }
 
+  function createVoiceRecorder(item) {
+    const id = item.id || "";
+    const voice = getVoiceState(id);
+    const wrapper = document.createElement("div");
+    wrapper.className = "queue-voice";
+    wrapper.dataset.annotationId = id;
+    wrapper.dataset.voiceStatus = voice.status;
+
+    const status = document.createElement("div");
+    status.className = "queue-voice-status";
+
+    const label = document.createElement("strong");
+    label.textContent = "Voice note";
+    const detail = document.createElement("span");
+    detail.dataset.voiceStatusText = id;
+    detail.textContent = voiceStatusText(voice);
+    status.append(label, detail);
+
+    const controls = document.createElement("div");
+    controls.className = "queue-voice-controls";
+    controls.append(
+      createVoiceButton("Record voice note", "voice-record", "Record", voice.status === "recording" || voice.status === "stopping"),
+      createVoiceButton("Stop recording", "voice-stop", "Stop", voice.status !== "recording"),
+      createVoiceButton("Cancel recording", "voice-cancel", "Cancel", voice.status !== "recording"),
+      createVoiceButton("Delete recorded voice note", "voice-delete", "Delete", !voice.blob)
+    );
+
+    const duration = document.createElement("span");
+    duration.className = "queue-voice-duration";
+    duration.dataset.voiceDuration = id;
+    duration.textContent = formatDuration(voiceDurationMs(voice));
+
+    wrapper.append(status, controls, duration);
+    return wrapper;
+  }
+
+  function createVoiceButton(label, action, text, disabled) {
+    const button = document.createElement("button");
+    button.className = "button button-secondary queue-voice-button";
+    button.type = "button";
+    button.title = label;
+    button.dataset.queueAction = action;
+    button.textContent = text;
+    button.disabled = disabled;
+    return button;
+  }
+
   async function handleQueueClick(event) {
     const button = event.target.closest("[data-queue-action]");
     if (!button || button.disabled) {
@@ -376,6 +425,11 @@
     }
 
     const action = button.dataset.queueAction;
+    if (action.startsWith("voice-")) {
+      await handleVoiceAction(action, id);
+      return;
+    }
+
     setBusy(true);
     try {
       if (action === "delete") {
@@ -418,6 +472,246 @@
       patch: { noteText }
     });
     applyQueueResponse(response);
+  }
+
+  async function handleVoiceAction(action, id) {
+    if (action === "voice-record") {
+      await startVoiceRecording(id);
+      return;
+    }
+    if (action === "voice-stop") {
+      stopVoiceRecording(id);
+      return;
+    }
+    if (action === "voice-cancel") {
+      cancelVoiceRecording(id);
+      return;
+    }
+    if (action === "voice-delete") {
+      deleteVoiceRecording(id);
+    }
+  }
+
+  async function startVoiceRecording(id) {
+    if (!id) {
+      return;
+    }
+    if (!globalThis.MediaRecorder || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setVoiceError(id, "Voice recording is not available in this browser context.");
+      return;
+    }
+
+    const existing = voiceRecordings.get(id);
+    if (existing && (existing.status === "recording" || existing.status === "stopping")) {
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      const chunks = [];
+      const startedAt = Date.now();
+      const voice = {
+        status: "recording",
+        startedAt,
+        durationMs: 0,
+        blob: null,
+        mimeType: recorder.mimeType || "",
+        recorder,
+        stream,
+        chunks,
+        timerId: null,
+        error: "",
+        token: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
+      };
+      recorder.addEventListener("dataavailable", (event) => {
+        if (event.data && event.data.size > 0) {
+          chunks.push(event.data);
+        }
+      });
+      recorder.addEventListener("stop", () => {
+        finishVoiceRecording(id, voice.token);
+      }, { once: true });
+      voiceRecordings.set(id, voice);
+      recorder.start();
+      voice.timerId = setInterval(() => updateVoiceRow(id), 500);
+      updateVoiceRow(id);
+      setMessage("Recording voice note.", "neutral");
+    } catch (error) {
+      setVoiceError(id, error.message || "Unable to start voice recording.");
+    }
+  }
+
+  function stopVoiceRecording(id) {
+    const voice = voiceRecordings.get(id);
+    if (!voice || voice.status !== "recording" || !voice.recorder) {
+      return;
+    }
+    voice.status = "stopping";
+    voice.durationMs = Math.max(0, Date.now() - voice.startedAt);
+    updateVoiceRow(id);
+    voice.recorder.stop();
+  }
+
+  function cancelVoiceRecording(id) {
+    const voice = voiceRecordings.get(id);
+    if (!voice) {
+      return;
+    }
+    cleanupVoiceRecording(voice);
+    voiceRecordings.delete(id);
+    updateVoiceRow(id);
+    setMessage("Voice recording canceled.", "neutral");
+  }
+
+  function deleteVoiceRecording(id) {
+    const voice = voiceRecordings.get(id);
+    if (voice) {
+      cleanupVoiceRecording(voice);
+      voiceRecordings.delete(id);
+    }
+    updateVoiceRow(id);
+    setMessage("Voice note deleted.", "neutral");
+  }
+
+  function finishVoiceRecording(id, token) {
+    const voice = voiceRecordings.get(id);
+    if (!voice || voice.token !== token) {
+      return;
+    }
+    cleanupVoiceRecording(voice);
+    const durationMs = voice.startedAt ? Math.max(0, Date.now() - voice.startedAt) : voice.durationMs;
+    voice.status = "recorded";
+    voice.durationMs = durationMs;
+    voice.blob = new Blob(voice.chunks, { type: voice.mimeType || "audio/webm" });
+    voice.recorder = null;
+    voice.stream = null;
+    voice.chunks = [];
+    voice.error = "";
+    updateVoiceRow(id);
+    // TODO: Persist minimal voice metadata via UPDATE_ANNOTATION_QUEUE_ITEM when
+    // the queue item schema supports it. Raw audio Blob data must stay transient.
+    setMessage("Voice note recorded in side panel memory.", "ok");
+  }
+
+  function setVoiceError(id, message) {
+    const voice = voiceRecordings.get(id);
+    if (voice) {
+      cleanupVoiceRecording(voice);
+    }
+    voiceRecordings.set(id, {
+      status: "error",
+      startedAt: 0,
+      durationMs: 0,
+      blob: null,
+      mimeType: "",
+      recorder: null,
+      stream: null,
+      chunks: [],
+      timerId: null,
+      error: message
+    });
+    updateVoiceRow(id);
+    setMessage(message, "error");
+  }
+
+  function cleanupVoiceRecording(voice) {
+    if (voice.timerId) {
+      clearInterval(voice.timerId);
+      voice.timerId = null;
+    }
+    if (voice.stream) {
+      for (const track of voice.stream.getTracks()) {
+        track.stop();
+      }
+    }
+  }
+
+  function pruneVoiceRecordings(items) {
+    const liveIds = new Set(items.map((item) => item && item.id).filter(Boolean));
+    for (const [id, voice] of voiceRecordings) {
+      if (!liveIds.has(id)) {
+        cleanupVoiceRecording(voice);
+        voiceRecordings.delete(id);
+      }
+    }
+  }
+
+  function getVoiceState(id) {
+    return voiceRecordings.get(id) || {
+      status: "empty",
+      startedAt: 0,
+      durationMs: 0,
+      blob: null,
+      error: ""
+    };
+  }
+
+  function voiceDurationMs(voice) {
+    if (voice.status === "recording" && voice.startedAt) {
+      return Math.max(0, Date.now() - voice.startedAt);
+    }
+    return voice.durationMs || 0;
+  }
+
+  function updateVoiceRow(id) {
+    const voice = getVoiceState(id);
+    const wrapper = Array.from(elements.queueList.querySelectorAll(".queue-voice"))
+      .find((element) => element.dataset.annotationId === id);
+    if (!wrapper) {
+      return;
+    }
+    wrapper.dataset.voiceStatus = voice.status;
+    const status = wrapper.querySelector("[data-voice-status-text]");
+    const duration = wrapper.querySelector("[data-voice-duration]");
+    if (status) {
+      status.textContent = voiceStatusText(voice);
+    }
+    if (duration) {
+      duration.textContent = formatDuration(voiceDurationMs(voice));
+    }
+    for (const button of wrapper.querySelectorAll("[data-queue-action]")) {
+      const action = button.dataset.queueAction;
+      button.disabled =
+        (action === "voice-record" && (voice.status === "recording" || voice.status === "stopping")) ||
+        (action === "voice-stop" && voice.status !== "recording") ||
+        (action === "voice-cancel" && voice.status !== "recording") ||
+        (action === "voice-delete" && !voice.blob);
+    }
+  }
+
+  function voiceStatusText(voice) {
+    if (voice.status === "recording") {
+      return "Recording...";
+    }
+    if (voice.status === "stopping") {
+      return "Finalizing recording...";
+    }
+    if (voice.status === "recorded") {
+      const size = voice.blob ? `, ${formatBytes(voice.blob.size)}` : "";
+      return `Recorded${size}. Not uploaded yet.`;
+    }
+    if (voice.status === "error") {
+      return voice.error || "Recording failed.";
+    }
+    return "No voice note.";
+  }
+
+  function formatDuration(durationMs) {
+    const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = String(totalSeconds % 60).padStart(2, "0");
+    return `${minutes}:${seconds}`;
+  }
+
+  function formatBytes(size) {
+    if (!Number.isFinite(size) || size <= 0) {
+      return "0 B";
+    }
+    if (size < 1024) {
+      return `${size} B`;
+    }
+    return `${(size / 1024).toFixed(1)} KB`;
   }
 
   async function persistVisibleNotes() {

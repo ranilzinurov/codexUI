@@ -355,6 +355,78 @@ textarea:focus {
   font-weight: 700;
 }
 
+.queue-voice {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.queue-voice[data-voice-status="recording"] {
+  border-color: color-mix(in srgb, var(--danger) 48%, var(--border));
+}
+
+.queue-voice[data-voice-status="recorded"] {
+  border-color: color-mix(in srgb, var(--success) 48%, var(--border));
+}
+
+.queue-voice[data-voice-status="error"] {
+  border-color: color-mix(in srgb, var(--danger) 60%, var(--border));
+}
+
+.queue-voice-status {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.queue-voice-status strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.queue-voice-status span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.queue-voice[data-voice-status="recording"] .queue-voice-status span {
+  color: var(--danger);
+}
+
+.queue-voice[data-voice-status="recorded"] .queue-voice-status span {
+  color: var(--success);
+}
+
+.queue-voice[data-voice-status="error"] .queue-voice-status span {
+  color: var(--danger);
+}
+
+.queue-voice-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.queue-voice-button {
+  min-height: 30px;
+  padding: 5px 7px;
+  font-size: 12px;
+}
+
+.queue-voice-duration {
+  grid-column: 1 / -1;
+  justify-self: end;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
 .batch-meta {
   display: grid;
   gap: 4px;
