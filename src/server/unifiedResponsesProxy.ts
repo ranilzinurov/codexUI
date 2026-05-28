@@ -464,6 +464,101 @@ function copyProxyHeaders(upstreamHeaders: IncomingMessage['headers']): Record<s
   return headers
 }
 
+function parseJsonObject(value: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(value) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null
+  } catch {
+    return null
+  }
+}
+
+function hasOwnKey(value: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key)
+}
+
+function hasSafeFullResponsesInput(payload: Record<string, unknown>): boolean {
+  const input = payload.input
+  return typeof input === 'string' || (Array.isArray(input) && input.length > 0)
+}
+
+function isPreviousResponseNotFoundError(status: number, rawResponseBody: string): boolean {
+  if (status < 400) return false
+  const upstreamPayload = parseJsonObject(rawResponseBody)
+  const error = upstreamPayload?.error
+  if (!error || typeof error !== 'object' || Array.isArray(error)) return false
+
+  const errorRecord = error as Record<string, unknown>
+  if (errorRecord.code === 'previous_response_not_found') return true
+  if (errorRecord.param === 'previous_response_id') return true
+
+  const message = typeof errorRecord.message === 'string' ? errorRecord.message : ''
+  return /previous[_\s-]+response/i.test(message) && /not[_\s-]+found/i.test(message)
+}
+
+function shouldRecoverWithoutPreviousResponseId(
+  status: number,
+  rawResponseBody: string,
+  sanitizedPayload: Record<string, unknown> | null,
+): sanitizedPayload is Record<string, unknown> {
+  return Boolean(
+    sanitizedPayload
+      && hasOwnKey(sanitizedPayload, 'previous_response_id')
+      && hasSafeFullResponsesInput(sanitizedPayload)
+      && isPreviousResponseNotFoundError(status, rawResponseBody),
+  )
+}
+
+function payloadWithoutPreviousResponseId(sanitizedPayload: Record<string, unknown>): string {
+  const retryPayload = { ...sanitizedPayload }
+  delete retryPayload.previous_response_id
+  return JSON.stringify(retryPayload)
+}
+
+type BufferedProxyResponse = {
+  status: number
+  headers: IncomingMessage['headers']
+  body: string
+}
+
+function postJsonBuffered(
+  upstreamUrl: URL,
+  payload: string,
+  bearerToken: string,
+): Promise<BufferedProxyResponse> {
+  return new Promise((resolve, reject) => {
+    const requestFn = upstreamUrl.protocol === 'http:' ? httpRequest : httpsRequest
+    const proxyReq = requestFn({
+      hostname: upstreamUrl.hostname,
+      port: upstreamUrl.port || (upstreamUrl.protocol === 'http:' ? 80 : 443),
+      path: upstreamUrl.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload),
+        ...(bearerToken ? { 'Authorization': `Bearer ${bearerToken}` } : {}),
+      },
+    }, (upstreamRes) => {
+      const chunks: Buffer[] = []
+      upstreamRes.on('data', (chunk: Buffer) => chunks.push(chunk))
+      upstreamRes.on('end', () => {
+        resolve({
+          status: upstreamRes.statusCode ?? 502,
+          headers: upstreamRes.headers,
+          body: Buffer.concat(chunks).toString(),
+        })
+      })
+      upstreamRes.on('error', reject)
+    })
+
+    proxyReq.on('error', reject)
+    proxyReq.write(payload)
+    proxyReq.end()
+  })
+}
+
 function hasToolOutputsInInput(input: string | ResponsesApiInput[]): boolean {
   if (!Array.isArray(input)) return false
   return input.some((item) => item?.type === 'function_call_output' || item?.type === 'computer_call_output')
@@ -494,6 +589,7 @@ export function handleUnifiedResponsesProxyRequest(
 
       let payload = ''
       let upstreamUrl: URL
+      let rawResponsesPayload: Record<string, unknown> | null = null
 
       if (useChatPayload) {
         const chatReq: ChatCompletionsRequest = {
@@ -516,6 +612,7 @@ export function handleUnifiedResponsesProxyRequest(
             ? { ...(parsedBody as Record<string, unknown>) }
             : {}
         const sanitized = options.sanitizeResponsesRequest ? options.sanitizeResponsesRequest(requestBody) : requestBody
+        rawResponsesPayload = sanitized
         payload = JSON.stringify(sanitized)
         upstreamUrl = new URL(options.responsesEndpoint)
       }
@@ -543,6 +640,27 @@ export function handleUnifiedResponsesProxyRequest(
         upstreamRes.on('end', () => {
           const rawResponseBody = Buffer.concat(chunks).toString()
           if (!useChatPayload) {
+            if (
+              !res.headersSent
+              && !res.writableEnded
+              && shouldRecoverWithoutPreviousResponseId(status, rawResponseBody, rawResponsesPayload)
+            ) {
+              postJsonBuffered(
+                upstreamUrl,
+                payloadWithoutPreviousResponseId(rawResponsesPayload),
+                options.bearerToken,
+              ).then((retryResponse) => {
+                if (res.headersSent || res.writableEnded) return
+                res.writeHead(retryResponse.status, copyProxyHeaders(retryResponse.headers))
+                res.end(retryResponse.body)
+              }).catch((error: Error) => {
+                if (!res.headersSent && !res.writableEnded) {
+                  res.writeHead(502, { 'Content-Type': 'application/json' })
+                  res.end(JSON.stringify({ error: { message: `Proxy error: ${error.message}` } }))
+                }
+              })
+              return
+            }
             res.writeHead(status, copyProxyHeaders(upstreamRes.headers))
             res.end(rawResponseBody)
             return
