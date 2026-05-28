@@ -246,49 +246,49 @@ function onSubmit(): void {
   opacity: 0.5;
 }
 
-:global(:root.dark) .side-chat-panel {
+:global(:root.dark .side-chat-panel) {
   border-left-color: rgb(63 63 70);
   background: rgb(24 24 27);
 }
 
-:global(:root.dark) .side-chat-header,
-:global(:root.dark) .side-chat-composer,
-:global(:root.dark) .side-chat-pending-request {
+:global(:root.dark .side-chat-header),
+:global(:root.dark .side-chat-composer),
+:global(:root.dark .side-chat-pending-request) {
   border-color: rgb(63 63 70);
 }
 
-:global(:root.dark) .side-chat-title,
-:global(:root.dark) .side-chat-message-text,
-:global(:root.dark) .side-chat-live-text {
+:global(:root.dark .side-chat-title),
+:global(:root.dark .side-chat-message-text),
+:global(:root.dark .side-chat-live-text) {
   color: rgb(244 244 245);
 }
 
-:global(:root.dark) .side-chat-meta,
-:global(:root.dark) .side-chat-empty,
-:global(:root.dark) .side-chat-message-role {
+:global(:root.dark .side-chat-meta),
+:global(:root.dark .side-chat-empty),
+:global(:root.dark .side-chat-message-role) {
   color: rgb(161 161 170);
 }
 
-:global(:root.dark) .side-chat-icon-button,
-:global(:root.dark) .side-chat-send,
-:global(:root.dark) .side-chat-message,
-:global(:root.dark) .side-chat-input {
+:global(:root.dark .side-chat-icon-button),
+:global(:root.dark .side-chat-send),
+:global(:root.dark .side-chat-message),
+:global(:root.dark .side-chat-input) {
   border-color: rgb(63 63 70);
   background: rgb(39 39 42);
   color: rgb(244 244 245);
 }
 
-:global(:root.dark) .side-chat-message.is-user {
+:global(:root.dark .side-chat-message.is-user) {
   border-color: rgb(30 64 175);
   background: rgb(23 37 84);
 }
 
-:global(:root.dark) .side-chat-live {
+:global(:root.dark .side-chat-live) {
   border-color: rgb(82 82 91);
   background: rgb(39 39 42);
 }
 
-:global(:root.dark) .side-chat-live-label {
+:global(:root.dark .side-chat-live-label) {
   color: rgb(212 212 216);
 }
 
