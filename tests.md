@@ -6386,6 +6386,32 @@ Browser annotation batches include an explicit Codex action request that correla
 
 ---
 
+### Browser Annotation MCP/Plugin Design Decision
+
+#### Feature/Change Name
+Document the browser annotation MCP/plugin path as a future agent-driven architecture instead of an MVP blocker.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Read `docs/browser-annotation-mcp-plugin-design.md`.
+
+#### Steps
+1. Confirm the decision says no separate browser annotation MCP server or plugin is required for the current MVP.
+2. Confirm the document keeps current capture extension-driven through `/codex-api/extension/*`.
+3. Confirm future tool names are listed: `snapshot_dom`, `screenshot`, `inspect_console`, `inspect_network`, and `select_element`.
+4. Confirm the boundaries keep Chrome debugger, screenshot, audio, and token handling inside the explicit extension/user-consent flow.
+5. Confirm the risks section calls out duplicate ingress, permission complexity, user-gesture conflicts, and security review needs.
+
+#### Expected Results
+- The design decision is understandable without reading implementation code.
+- No runtime MCP/plugin code is required for this stage.
+- No UI styling changed; light/dark verification is not applicable to this design-only stage.
+
+#### Rollback/Cleanup
+- Remove or revise the design document if a future implementation phase chooses to build a browser annotation MCP server.
+
+---
+
 ### Browser Annotation DevTools Persistence Serialization
 
 #### Feature/Change Name
