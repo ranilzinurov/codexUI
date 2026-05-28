@@ -44,7 +44,7 @@ Expected red failures:
 ## Phase Checklist
 
 - [x] Phase 0: TDD branch and red tests
-- [ ] Phase 1: Gateway contract
+- [x] Phase 1: Gateway contract
 - [ ] Phase 2: Desktop state and notification routing
 - [ ] Phase 3: Slash command integration
 - [ ] Phase 4: Side panel UI
@@ -80,12 +80,12 @@ Purpose: add the safe app-server RPC layer for ephemeral side forks.
 
 Atomic steps:
 
-- [ ] Export `forkSideThread(parentThreadId)` from `codexGateway`.
-- [ ] Send `thread/fork` with `{ threadId, ephemeral: true, persistExtendedHistory: true }`.
-- [ ] Normalize returned `threadId`, `cwd`, and `model`.
-- [ ] Export `startSideThread(parentThreadId)` as the UI-facing gateway helper.
-- [ ] Keep unsupported-ephemeral failures explicit; do not silently start a normal turn in the main thread.
-- [ ] Keep existing `forkThread` behavior unchanged.
+- [x] Export `forkSideThread(parentThreadId)` from `codexGateway`.
+- [x] Send `thread/fork` with `{ threadId, ephemeral: true, persistExtendedHistory: true }`.
+- [x] Normalize returned `threadId`, `cwd`, and `model`.
+- [x] Export `startSideThread(parentThreadId)` as the UI-facing gateway helper.
+- [x] Keep unsupported-ephemeral failures explicit; do not silently start a normal turn in the main thread.
+- [x] Keep existing `forkThread` behavior unchanged.
 
 Smoke tests:
 
@@ -299,4 +299,5 @@ Completion criteria:
 - [x] 2026-05-28: Added desktop-state red tests.
 - [x] 2026-05-28: Refined state test contract to use `startSideThread`.
 - [x] 2026-05-28: Ran targeted red baseline: `8 failed | 35 passed`.
+- [x] 2026-05-28: Implemented Phase 1 gateway contract; `src/api/codexGateway.test.ts` passes 11/11.
 - [ ] Implementation paused until explicit user approval.

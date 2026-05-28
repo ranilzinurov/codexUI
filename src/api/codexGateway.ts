@@ -1746,6 +1746,12 @@ export type ForkedThread = {
   messages: UiMessage[]
 }
 
+export type SideThread = {
+  threadId: string
+  cwd: string
+  model: string
+}
+
 export async function startThread(cwd?: string, model?: string): Promise<StartedThread> {
   try {
     const params: Record<string, unknown> = {}
@@ -1767,6 +1773,36 @@ export async function startThread(cwd?: string, model?: string): Promise<Started
   } catch (error) {
     throw normalizeCodexApiError(error, 'Failed to start a new thread', 'thread/start')
   }
+}
+
+export async function forkSideThread(threadId: string): Promise<SideThread> {
+  try {
+    const normalizedThreadId = threadId.trim()
+    if (!normalizedThreadId) {
+      throw new Error('thread/fork requires threadId')
+    }
+
+    const payload = await callRpc<ThreadForkResponse & ThreadReadResponse & { thread?: { id?: string; cwd?: string } }>('thread/fork', {
+      threadId: normalizedThreadId,
+      ephemeral: true,
+      persistExtendedHistory: true,
+    })
+    const sideThreadId = normalizeThreadIdFromPayload(payload)
+    if (!sideThreadId) {
+      throw new Error('thread/fork did not return a thread id')
+    }
+    return {
+      threadId: sideThreadId,
+      cwd: normalizeThreadCwdFromPayload(payload),
+      model: normalizeThreadModelFromPayload(payload),
+    }
+  } catch (error) {
+    throw normalizeCodexApiError(error, `Failed to start side conversation for thread ${threadId}`, 'thread/fork')
+  }
+}
+
+export async function startSideThread(threadId: string): Promise<SideThread> {
+  return forkSideThread(threadId)
 }
 
 export async function forkThread(threadId: string): Promise<ForkedThread>
