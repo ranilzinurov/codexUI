@@ -49,7 +49,7 @@ Expected red failures:
 - [x] Phase 3: Slash command integration
 - [x] Phase 4: Side panel UI
 - [x] Phase 5: Requests, approvals, and error handling
-- [ ] Phase 6: Documentation, regression, and performance audit
+- [x] Phase 6: Documentation, regression, and performance audit
 
 ## Phase 0: TDD Branch and Red Tests
 
@@ -255,14 +255,14 @@ Purpose: finish the feature with durable testing notes and measured risk.
 
 Atomic steps:
 
-- [ ] Update [tests.md](../tests.md) with manual Side Chat test cases.
-- [ ] Include light-theme and dark-theme manual verification.
-- [ ] Document fallback behavior for unsupported ephemeral forks.
-- [ ] Document that Side Chat is temporary/one-off in the first release.
-- [ ] Run full targeted and project-level tests.
-- [ ] Run required lint/build/coverage gates.
-- [ ] Run performance audit and record results.
-- [ ] Commit each completed phase separately.
+- [x] Update [tests.md](../tests.md) with manual Side Chat test cases.
+- [x] Include light-theme and dark-theme manual verification.
+- [x] Document fallback behavior for unsupported ephemeral forks.
+- [x] Document that Side Chat is temporary/one-off in the first release.
+- [x] Run full targeted and project-level tests.
+- [x] Run required lint/build/coverage gates.
+- [x] Run performance audit and record results.
+- [x] Commit each completed phase separately.
 - [ ] Before merging to local main, diff-compare branch against main.
 
 Final regression:
@@ -283,13 +283,13 @@ PROFILE_BASE_URL=http://127.0.0.1:4173 PROFILE_WAIT_MS=7000 pnpm run profile:bro
 
 Completion criteria:
 
-- [ ] Main thread remains selected and unpolluted while Side Chat is open.
-- [ ] Side messages stream into the side panel.
-- [ ] `/side <question>` opens Side Chat and sends the question there.
-- [ ] Closing Side Chat leaves the main thread intact.
-- [ ] Unsupported backend behavior is explicit and safe.
-- [ ] Light and dark theme verification is documented.
-- [ ] Performance audit shows no changed-path duplicate requests or unacceptable payload growth.
+- [x] Main thread remains selected and unpolluted while Side Chat is open.
+- [x] Side messages stream into the side panel.
+- [x] `/side <question>` opens Side Chat and sends the question there.
+- [x] Closing Side Chat leaves the main thread intact.
+- [x] Unsupported backend behavior is explicit and safe.
+- [x] Light and dark theme verification is documented.
+- [x] Performance audit shows no changed-path duplicate requests or unacceptable payload growth.
 
 ## Work Log
 
@@ -306,3 +306,7 @@ Completion criteria:
 - [x] 2026-05-28: Implemented Phase 5 request surfacing by reusing `ThreadPendingRequestPanel` inside Side Chat and routing replies through the existing server-request responder.
 - [x] 2026-05-28: Ran targeted TDD suite: `3 passed` files, `43 passed` tests.
 - [x] 2026-05-28: Ran `pnpm run build:frontend`; fixed an unrelated Tailwind utility build blocker in `BrowserAnnotationListenerPanel.vue`.
+- [x] 2026-05-28: Updated `tests.md` with manual Side Chat checks for light theme, dark theme, mobile layout, unsupported ephemeral forks, and one-off cleanup.
+- [x] 2026-05-28: Ran `pnpm run test:coverage`: `23 passed` files, `180 passed` tests; coverage summary `21.46%` statements, `18.36%` branches, `24.15%` functions, `22.38%` lines.
+- [x] 2026-05-28: Ran `pnpm run test`: frontend build, CLI build, and project smoke scripts passed.
+- [x] 2026-05-28: Ran performance audit against side-worktree dev server on `http://127.0.0.1:4174` because `4173` was occupied by the main worktree. Report: `output/playwright/browser-runtime-profile-home-2026-05-28T09-18-54-712Z.json`; warnings `[]`; duplicate counts `threadList=1`, `threadListFirstPage=1`, `threadListCursor=0`, `threadResume=0`, `threadRead=0`, `skillsList=1`, `rateLimitsRead=1`, `providerModels=1`; total API `210.8 KB`.
