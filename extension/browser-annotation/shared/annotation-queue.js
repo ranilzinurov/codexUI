@@ -60,10 +60,19 @@
       if (item.id !== safeId) {
         return item;
       }
-      return {
-        ...item,
-        noteText: sanitizeNoteText(patch && patch.noteText)
-      };
+      const nextItem = { ...item };
+      if (patch && Object.prototype.hasOwnProperty.call(patch, "noteText")) {
+        nextItem.noteText = sanitizeNoteText(patch.noteText);
+      }
+      if (patch && Object.prototype.hasOwnProperty.call(patch, "voice")) {
+        const voice = sanitizeQueueVoice(patch.voice);
+        if (voice) {
+          nextItem.voice = voice;
+        } else {
+          delete nextItem.voice;
+        }
+      }
+      return nextItem;
     });
   }
 
@@ -178,27 +187,27 @@
     }
 
     const asset = readVoiceAsset(value, itemId);
-    const transcript = readVoiceTranscript(value);
-    if (!asset && !transcript) {
+    if (!asset) {
       return null;
     }
+    const transcript = readVoiceTranscript(value);
 
-    const voiceNote = {};
-    if (asset) {
-      voiceNote.assetId = asset.id;
-      voiceAssetMap.set(asset.id, asset);
-      if (asset.durationMs !== undefined) {
-        voiceNote.durationMs = asset.durationMs;
-      }
-      if (asset.byteLength !== undefined) {
-        voiceNote.byteLength = asset.byteLength;
-      }
-      if (asset.mimeType) {
-        voiceNote.mimeType = asset.mimeType;
-      }
+    const voiceNote = {
+      id: sanitizeText(value.id || value.voiceNoteId, 160) || createId("voice-note"),
+      assetId: asset.id,
+      mimeType: asset.mimeType,
+      durationMs: asset.durationMs || 0,
+      transcriptStatus: transcript ? transcript.status : "not-started"
+    };
+    voiceAssetMap.set(asset.id, asset);
+    if (transcript && transcript.text) {
+      voiceNote.transcriptText = transcript.text;
     }
-    if (transcript) {
-      voiceNote.transcript = transcript;
+    if (transcript && transcript.error) {
+      voiceNote.errorMessage = transcript.error;
+    }
+    if (transcript && transcript.language) {
+      voiceNote.language = transcript.language;
     }
     const recordedAtIso = sanitizeText(value.recordedAtIso, 80);
     if (recordedAtIso) {
@@ -238,34 +247,41 @@
       value.mimeType || nestedAudio.mimeType || nestedAudio.type || nestedAsset.mimeType,
       120
     ) || "audio/webm";
-    const asset = {
-      id: assetId,
-      kind: "voice-note-audio",
-      mimeType
-    };
-
     const byteLength = positiveNumber(
       value.byteLength || nestedAudio.byteLength || nestedAudio.size || nestedAsset.byteLength
     );
     const durationMs = positiveNumber(value.durationMs || nestedAudio.durationMs);
-    const sha256 = sanitizeText(value.sha256 || nestedAudio.sha256 || nestedAsset.sha256, 160);
-    const createdAtIso = sanitizeText(value.createdAtIso || value.recordedAtIso, 80);
-    const uploadStatus = sanitizeText(value.uploadStatus || nestedAsset.uploadStatus, 40);
-
-    if (byteLength !== undefined) {
-      asset.byteLength = byteLength;
+    if (byteLength === undefined) {
+      return null;
     }
+    const asset = {
+      id: assetId,
+      kind: "voice-note-audio",
+      mimeType,
+      byteLength
+    };
+
+    const sha256 = sanitizeText(value.sha256 || nestedAudio.sha256 || nestedAsset.sha256, 160);
+    const uploadedAtIso = sanitizeText(
+      value.uploadedAtIso || nestedAudio.uploadedAtIso || nestedAsset.uploadedAtIso || value.createdAtIso || value.recordedAtIso,
+      80
+    );
+    if (!uploadedAtIso) {
+      return null;
+    }
+    const storageKey = sanitizeText(value.storageKey || nestedAudio.storageKey || nestedAsset.storageKey, 500);
+
     if (durationMs !== undefined) {
       asset.durationMs = durationMs;
     }
     if (sha256) {
       asset.sha256 = sha256;
     }
-    if (createdAtIso) {
-      asset.createdAtIso = createdAtIso;
+    if (uploadedAtIso) {
+      asset.uploadedAtIso = uploadedAtIso;
     }
-    if (uploadStatus) {
-      asset.uploadStatus = uploadStatus;
+    if (storageKey) {
+      asset.storageKey = storageKey;
     }
     return asset;
   }
@@ -274,7 +290,7 @@
     const transcript = isRecord(value.transcript) ? value.transcript : {};
     const status = sanitizeText(value.transcriptStatus || transcript.status, 40);
     const text = sanitizeText(value.transcriptText || transcript.text, constants.MAX_ANNOTATION_NOTE_CHARS);
-    const error = sanitizeText(value.transcriptError || transcript.error, 300);
+    const error = sanitizeText(value.transcriptError || value.errorMessage || transcript.error, 300);
     const normalizedStatus = readTranscriptStatus(status, text, error);
     if (!normalizedStatus && !text) {
       return null;
@@ -300,16 +316,43 @@
   }
 
   function readTranscriptStatus(status, text, error) {
-    if (status === "completed" || status === "failed" || status === "pending") {
+    if (status === "complete" || status === "failed" || status === "pending" || status === "not-started" || status === "uncertain") {
       return status;
+    }
+    if (status === "completed" || status === "transcribed") {
+      return "complete";
     }
     if (error) {
       return "failed";
     }
     if (text) {
-      return "completed";
+      return "complete";
     }
     return "";
+  }
+
+  function sanitizeQueueVoice(value) {
+    if (!isRecord(value)) {
+      return null;
+    }
+    const voice = {};
+    for (const [key, item] of Object.entries(value)) {
+      if (key === "dataUrl" || key === "rawAudio" || key === "blob" || key === "chunks") {
+        continue;
+      }
+      if (isRecord(item)) {
+        voice[key] = sanitizeQueueVoice(item);
+      } else if (Array.isArray(item)) {
+        continue;
+      } else if (typeof item === "number") {
+        voice[key] = finiteNumber(item);
+      } else if (typeof item === "boolean") {
+        voice[key] = item;
+      } else {
+        voice[key] = sanitizeText(item, key.toLowerCase().includes("error") ? 300 : constants.MAX_ANNOTATION_NOTE_CHARS);
+      }
+    }
+    return Object.keys(voice).length > 0 ? voice : null;
   }
 
   function buildDevtoolsSnapshot(devtoolsCapture, capturedAtIso) {

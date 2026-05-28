@@ -292,8 +292,9 @@ assert.equal(voiceOnlyBatch.items[0].noteText, "");
 assert.equal(voiceOnlyBatch.items[0].voiceNote.assetId, "voice-asset-1");
 assert.equal(voiceOnlyBatch.items[0].voiceNote.durationMs, 3400);
 assert.equal(voiceOnlyBatch.items[0].voiceNote.mimeType, "audio/webm");
-assert.equal(voiceOnlyBatch.items[0].voiceNote.transcript.status, "completed");
-assert.equal(voiceOnlyBatch.items[0].voiceNote.transcript.text, "Open the advanced settings panel.");
+assert.equal(voiceOnlyBatch.items[0].voiceNote.transcriptStatus, "complete");
+assert.equal(voiceOnlyBatch.items[0].voiceNote.transcriptText, "Open the advanced settings panel.");
+assert.equal(voiceOnlyBatch.items[0].voiceNote.language, "en");
 assert.deepEqual(toPlainJson(voiceOnlyBatch.assets), [
   {
     id: "voice-asset-1",
@@ -301,7 +302,7 @@ assert.deepEqual(toPlainJson(voiceOnlyBatch.assets), [
     mimeType: "audio/webm",
     byteLength: 2048,
     durationMs: 3400,
-    createdAtIso: "2026-05-28T10:04:00.000Z"
+    uploadedAtIso: "2026-05-28T10:04:00.000Z"
   }
 ]);
 assert.ok(!JSON.stringify(voiceOnlyBatch).includes("data:audio"));
@@ -318,6 +319,8 @@ const noteAndVoiceBatch = BrowserAnnotationQueue.buildAnnotationBatchPayload(
           id: "voice-asset-2",
           mimeType: "audio/mp4",
           byteLength: 4096,
+          durationMs: 1200,
+          uploadedAtIso: "2026-05-28T10:05:01.000Z",
           sha256: "abc123"
         },
         transcriptText: "Voice transcript text"
@@ -332,9 +335,32 @@ const noteAndVoiceBatch = BrowserAnnotationQueue.buildAnnotationBatchPayload(
 assert.equal(noteAndVoiceBatch.items[0].kind, "mixed");
 assert.equal(noteAndVoiceBatch.items[0].noteText, "User typed note");
 assert.equal(noteAndVoiceBatch.items[0].voiceNote.assetId, "voice-asset-2");
-assert.equal(noteAndVoiceBatch.items[0].voiceNote.transcript.status, "completed");
-assert.equal(noteAndVoiceBatch.items[0].voiceNote.transcript.text, "Voice transcript text");
+assert.equal(noteAndVoiceBatch.items[0].voiceNote.transcriptStatus, "complete");
+assert.equal(noteAndVoiceBatch.items[0].voiceNote.transcriptText, "Voice transcript text");
 assert.equal(noteAndVoiceBatch.assets[0].sha256, "abc123");
+
+const patchedNoteAndVoiceQueue = BrowserAnnotationQueue.updateAnnotationQueueItem(
+  [
+    {
+      ...stageQueue[1],
+      id: "annotation-note-preserve",
+      noteText: "Keep this note"
+    }
+  ],
+  "annotation-note-preserve",
+  {
+    voice: {
+      assetId: "voice-asset-preserve",
+      mimeType: "audio/webm",
+      byteLength: 200,
+      durationMs: 900,
+      uploadedAtIso: "2026-05-28T10:05:02.000Z",
+      transcriptText: "Only voice changed"
+    }
+  }
+);
+assert.equal(patchedNoteAndVoiceQueue[0].noteText, "Keep this note");
+assert.equal(patchedNoteAndVoiceQueue[0].voice.assetId, "voice-asset-preserve");
 
 const failedTranscriptBatch = BrowserAnnotationQueue.buildAnnotationBatchPayload(
   [
@@ -343,6 +369,10 @@ const failedTranscriptBatch = BrowserAnnotationQueue.buildAnnotationBatchPayload
       id: "annotation-failed-transcript",
       voice: {
         assetId: "voice-asset-3",
+        mimeType: "audio/webm",
+        byteLength: 1024,
+        durationMs: 1500,
+        uploadedAtIso: "2026-05-28T10:06:01.000Z",
         transcript: {
           status: "failed",
           error: "Speech was not recognized."
@@ -356,8 +386,8 @@ const failedTranscriptBatch = BrowserAnnotationQueue.buildAnnotationBatchPayload
   }
 );
 assert.equal(failedTranscriptBatch.items[0].kind, "voice");
-assert.equal(failedTranscriptBatch.items[0].voiceNote.transcript.status, "failed");
-assert.equal(failedTranscriptBatch.items[0].voiceNote.transcript.error, "Speech was not recognized.");
+assert.equal(failedTranscriptBatch.items[0].voiceNote.transcriptStatus, "failed");
+assert.equal(failedTranscriptBatch.items[0].voiceNote.errorMessage, "Speech was not recognized.");
 
 const assetReferenceBatch = BrowserAnnotationQueue.buildAnnotationBatchPayload(
   [
@@ -368,7 +398,9 @@ const assetReferenceBatch = BrowserAnnotationQueue.buildAnnotationBatchPayload(
         audio: {
           assetRef: "voice-asset-ref",
           type: "audio/ogg",
-          size: 512
+          size: 512,
+          durationMs: 900,
+          uploadedAtIso: "2026-05-28T10:07:01.000Z"
         },
         transcriptStatus: "pending"
       }
@@ -380,13 +412,15 @@ const assetReferenceBatch = BrowserAnnotationQueue.buildAnnotationBatchPayload(
   }
 );
 assert.equal(assetReferenceBatch.items[0].voiceNote.assetId, "voice-asset-ref");
-assert.equal(assetReferenceBatch.items[0].voiceNote.transcript.status, "pending");
+assert.equal(assetReferenceBatch.items[0].voiceNote.transcriptStatus, "pending");
 assert.deepEqual(toPlainJson(assetReferenceBatch.assets), [
   {
     id: "voice-asset-ref",
     kind: "voice-note-audio",
     mimeType: "audio/ogg",
-    byteLength: 512
+    byteLength: 512,
+    durationMs: 900,
+    uploadedAtIso: "2026-05-28T10:07:01.000Z"
   }
 ]);
 

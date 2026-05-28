@@ -43,7 +43,7 @@ const uploadUrl = BrowserAnnotationPairingClient.buildAssetUploadUrl(
 );
 assert.equal(
   uploadUrl,
-  "http://127.0.0.1:4173/codex-api/extension/assets?sessionId=session-1&threadId=thread-1"
+  "http://127.0.0.1:4173/codex-api/extension/assets/upload?sessionId=session-1&threadId=thread-1"
 );
 
 const transcribeUrl = BrowserAnnotationPairingClient.buildTranscribeUrl(

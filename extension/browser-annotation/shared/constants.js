@@ -35,7 +35,7 @@
     }),
     LISTEN_STATUS_PATH: "/codex-api/extension/listen/status",
     ANNOTATION_BATCH_PATH: "/codex-api/extension/annotation-batch",
-    ASSET_UPLOAD_PATH: "/codex-api/extension/assets",
+    ASSET_UPLOAD_PATH: "/codex-api/extension/assets/upload",
     TRANSCRIBE_PATH: "/codex-api/extension/transcribe",
     TARGET_HOST_PATTERN: "https://annotate.todo-tg-app.ru/*",
     ALLOWED_TAB_PROTOCOLS: Object.freeze([

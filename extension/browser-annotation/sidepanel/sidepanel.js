@@ -2,6 +2,12 @@
   "use strict";
 
   const { MESSAGE_TYPES, STORAGE_KEYS } = globalThis.BrowserAnnotationConstants;
+  const {
+    buildAssetUploadUrl,
+    buildTranscribeUrl,
+    readJsonSafely,
+    readStatusError
+  } = globalThis.BrowserAnnotationPairingClient;
 
   const elements = {
     connectionBadge: document.getElementById("connectionBadge"),
@@ -387,10 +393,10 @@
     const controls = document.createElement("div");
     controls.className = "queue-voice-controls";
     controls.append(
-      createVoiceButton("Record voice note", "voice-record", "Record", voice.status === "recording" || voice.status === "stopping"),
+      createVoiceButton("Record voice note", "voice-record", "Record", isVoiceBusy(voice)),
       createVoiceButton("Stop recording", "voice-stop", "Stop", voice.status !== "recording"),
       createVoiceButton("Cancel recording", "voice-cancel", "Cancel", voice.status !== "recording"),
-      createVoiceButton("Delete recorded voice note", "voice-delete", "Delete", !voice.blob)
+      createVoiceButton("Delete recorded voice note", "voice-delete", "Delete", !voice.blob && !readPersistedVoice(item))
     );
 
     const duration = document.createElement("span");
@@ -484,11 +490,11 @@
       return;
     }
     if (action === "voice-cancel") {
-      cancelVoiceRecording(id);
+      await cancelVoiceRecording(id);
       return;
     }
     if (action === "voice-delete") {
-      deleteVoiceRecording(id);
+      await deleteVoiceRecording(id);
     }
   }
 
@@ -508,7 +514,10 @@
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      const mimeType = chooseVoiceMimeType();
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
       const chunks = [];
       const startedAt = Date.now();
       const voice = {
@@ -516,11 +525,12 @@
         startedAt,
         durationMs: 0,
         blob: null,
-        mimeType: recorder.mimeType || "",
+        mimeType: recorder.mimeType || mimeType || "audio/webm",
         recorder,
         stream,
         chunks,
         timerId: null,
+        abortController: null,
         error: "",
         token: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
       };
@@ -553,7 +563,7 @@
     voice.recorder.stop();
   }
 
-  function cancelVoiceRecording(id) {
+  async function cancelVoiceRecording(id) {
     const voice = voiceRecordings.get(id);
     if (!voice) {
       return;
@@ -561,17 +571,24 @@
     cleanupVoiceRecording(voice);
     voiceRecordings.delete(id);
     updateVoiceRow(id);
+    updateSendButton(false);
     setMessage("Voice recording canceled.", "neutral");
   }
 
-  function deleteVoiceRecording(id) {
+  async function deleteVoiceRecording(id) {
     const voice = voiceRecordings.get(id);
     if (voice) {
       cleanupVoiceRecording(voice);
       voiceRecordings.delete(id);
     }
-    updateVoiceRow(id);
-    setMessage("Voice note deleted.", "neutral");
+    try {
+      await patchQueueVoice(id, null);
+      updateVoiceRow(id);
+      updateSendButton(false);
+      setMessage("Voice note deleted.", "neutral");
+    } catch (error) {
+      setVoiceError(id, error.message || "Unable to delete voice note.");
+    }
   }
 
   function finishVoiceRecording(id, token) {
@@ -589,9 +606,135 @@
     voice.chunks = [];
     voice.error = "";
     updateVoiceRow(id);
-    // TODO: Persist minimal voice metadata via UPDATE_ANNOTATION_QUEUE_ITEM when
-    // the queue item schema supports it. Raw audio Blob data must stay transient.
-    setMessage("Voice note recorded in side panel memory.", "ok");
+    setMessage("Voice note recorded. Uploading audio for transcription...", "neutral");
+    uploadAndTranscribeVoice(id, voice, token).catch((error) => {
+      if (!voiceRecordings.has(id) || voiceRecordings.get(id).token !== token) {
+        return;
+      }
+      setVoiceError(id, error.message || "Unable to upload voice note.");
+    });
+  }
+
+  async function uploadAndTranscribeVoice(id, voice, token) {
+    if (!lastState || !lastState.connection || lastState.connection.status !== "connected" || !lastState.connection.session) {
+      throw new Error("Connect the extension before uploading voice notes.");
+    }
+    if (!voice || voice.token !== token || !voice.blob) {
+      return;
+    }
+
+    voice.status = "uploading";
+    voice.error = "";
+    voice.abortController = new AbortController();
+    updateVoiceRow(id);
+
+    const settings = lastState.settings || {};
+    const session = lastState.connection.session;
+    const uploadPayload = await uploadVoiceBlob(settings, session, voice.blob, voice.abortController.signal);
+    if (!voiceRecordings.has(id) || voiceRecordings.get(id).token !== token) {
+      return;
+    }
+
+    voice.status = "transcribing";
+    updateVoiceRow(id);
+    const transcript = await transcribeVoiceBlob(settings, session, voice.blob, voice.abortController.signal);
+    if (!voiceRecordings.has(id) || voiceRecordings.get(id).token !== token) {
+      return;
+    }
+
+    const voicePatch = buildVoicePatch(uploadPayload.asset, voice, transcript);
+    voice.status = transcript.ok ? "uploaded" : "error";
+    voice.error = transcript.ok ? "" : voicePatch.transcriptError;
+    voice.abortController = null;
+    await patchQueueVoice(id, voicePatch);
+    updateVoiceRow(id);
+    updateSendButton(false);
+    setMessage(
+      transcript.ok
+        ? "Voice note uploaded and transcribed."
+        : "Voice note uploaded, but transcription failed. It will be sent with the error.",
+      transcript.ok ? "ok" : "error"
+    );
+  }
+
+  async function uploadVoiceBlob(settings, session, blob, signal) {
+    const form = new FormData();
+    form.append("kind", "audio");
+    form.append("file", blob, voiceFileName(blob.type));
+    const response = await fetch(buildAssetUploadUrl(settings.serverUrl, session), {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${settings.pairingToken || ""}`
+      },
+      body: form,
+      cache: "no-store",
+      signal
+    });
+    const payload = await readJsonSafely(response);
+    if (!response.ok || !payload || !payload.asset) {
+      throw new Error(readStatusError(payload, `Voice upload failed (${response.status}).`));
+    }
+    return payload;
+  }
+
+  async function transcribeVoiceBlob(settings, session, blob, signal) {
+    const form = new FormData();
+    form.append("file", blob, voiceFileName(blob.type));
+    try {
+      const response = await fetch(buildTranscribeUrl(settings.serverUrl, session), {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${settings.pairingToken || ""}`
+        },
+        body: form,
+        cache: "no-store",
+        signal
+      });
+      const payload = await readJsonSafely(response);
+      if (!response.ok || !payload || payload.ok !== true) {
+        return {
+          ok: false,
+          error: readStatusError(payload, `Voice transcription failed (${response.status}).`)
+        };
+      }
+      return {
+        ok: true,
+        text: typeof payload.text === "string" ? payload.text : "",
+        language: typeof payload.language === "string" ? payload.language : ""
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error.message || "Voice transcription request failed."
+      };
+    }
+  }
+
+  function buildVoicePatch(asset, voice, transcript) {
+    return {
+      id: `voice-note-${asset.id}`,
+      assetId: asset.id,
+      mimeType: asset.mimeType || voice.blob.type || "audio/webm",
+      byteLength: asset.sizeBytes || voice.blob.size,
+      durationMs: voice.durationMs,
+      uploadedAtIso: new Date().toISOString(),
+      storageKey: asset.absolutePath || "",
+      transcriptStatus: transcript.ok ? "complete" : "failed",
+      transcriptText: transcript.ok ? transcript.text : "",
+      transcriptError: transcript.ok ? "" : transcript.error,
+      language: transcript.ok ? transcript.language : ""
+    };
+  }
+
+  async function patchQueueVoice(id, voice) {
+    const response = await sendRuntimeMessage({
+      type: MESSAGE_TYPES.UPDATE_ANNOTATION_QUEUE_ITEM,
+      id,
+      patch: { voice }
+    });
+    applyQueueResponse(response);
   }
 
   function setVoiceError(id, message) {
@@ -609,6 +752,7 @@
       stream: null,
       chunks: [],
       timerId: null,
+      abortController: null,
       error: message
     });
     updateVoiceRow(id);
@@ -625,6 +769,10 @@
         track.stop();
       }
     }
+    if (voice.abortController) {
+      voice.abortController.abort();
+      voice.abortController = null;
+    }
   }
 
   function pruneVoiceRecordings(items) {
@@ -638,6 +786,21 @@
   }
 
   function getVoiceState(id) {
+    const active = voiceRecordings.get(id);
+    if (active && active.status !== "empty") {
+      return active;
+    }
+    const persisted = readPersistedVoice(readQueueItem(id));
+    if (persisted) {
+      return {
+        status: persisted.transcriptStatus === "failed" ? "error" : "uploaded",
+        startedAt: 0,
+        durationMs: persisted.durationMs || 0,
+        blob: null,
+        mimeType: persisted.mimeType || "",
+        error: persisted.transcriptError || ""
+      };
+    }
     return voiceRecordings.get(id) || {
       status: "empty",
       startedAt: 0,
@@ -673,10 +836,10 @@
     for (const button of wrapper.querySelectorAll("[data-queue-action]")) {
       const action = button.dataset.queueAction;
       button.disabled =
-        (action === "voice-record" && (voice.status === "recording" || voice.status === "stopping")) ||
+        (action === "voice-record" && isVoiceBusy(voice)) ||
         (action === "voice-stop" && voice.status !== "recording") ||
         (action === "voice-cancel" && voice.status !== "recording") ||
-        (action === "voice-delete" && !voice.blob);
+        (action === "voice-delete" && !voice.blob && !readPersistedVoice(readQueueItem(id)));
     }
   }
 
@@ -689,7 +852,16 @@
     }
     if (voice.status === "recorded") {
       const size = voice.blob ? `, ${formatBytes(voice.blob.size)}` : "";
-      return `Recorded${size}. Not uploaded yet.`;
+      return `Recorded${size}. Waiting to upload.`;
+    }
+    if (voice.status === "uploading") {
+      return "Uploading audio...";
+    }
+    if (voice.status === "transcribing") {
+      return "Transcribing audio...";
+    }
+    if (voice.status === "uploaded") {
+      return "Voice note ready to send.";
     }
     if (voice.status === "error") {
       return voice.error || "Recording failed.";
@@ -712,6 +884,48 @@
       return `${size} B`;
     }
     return `${(size / 1024).toFixed(1)} KB`;
+  }
+
+  function isVoiceBusy(voice) {
+    return voice.status === "recording" ||
+      voice.status === "stopping" ||
+      voice.status === "uploading" ||
+      voice.status === "transcribing";
+  }
+
+  function chooseVoiceMimeType() {
+    if (!globalThis.MediaRecorder || typeof MediaRecorder.isTypeSupported !== "function") {
+      return "";
+    }
+    for (const mimeType of ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]) {
+      if (MediaRecorder.isTypeSupported(mimeType)) {
+        return mimeType;
+      }
+    }
+    return "";
+  }
+
+  function voiceFileName(mimeType) {
+    const normalized = String(mimeType || "").toLowerCase();
+    if (normalized.includes("mp4")) {
+      return "voice.mp4";
+    }
+    if (normalized.includes("wav")) {
+      return "voice.wav";
+    }
+    if (normalized.includes("mpeg") || normalized.includes("mp3")) {
+      return "voice.mp3";
+    }
+    return "voice.webm";
+  }
+
+  function readQueueItem(id) {
+    const queue = lastState && Array.isArray(lastState.queue) ? lastState.queue : [];
+    return queue.find((item) => item && item.id === id) || null;
+  }
+
+  function readPersistedVoice(item) {
+    return item && item.voice && typeof item.voice === "object" ? item.voice : null;
   }
 
   async function persistVisibleNotes() {
@@ -744,7 +958,8 @@
   function updateSendButton(isBusy) {
     const itemCount = lastState && Array.isArray(lastState.queue) ? lastState.queue.length : 0;
     const connected = lastState && lastState.connection.status === "connected";
-    elements.sendBatch.disabled = isBusy || itemCount === 0 || !connected;
+    const voiceBusy = Array.from(voiceRecordings.values()).some(isVoiceBusy);
+    elements.sendBatch.disabled = isBusy || voiceBusy || itemCount === 0 || !connected;
   }
 
   function applyQueueResponse(response) {
