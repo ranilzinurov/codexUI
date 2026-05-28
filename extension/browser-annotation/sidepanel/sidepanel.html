@@ -42,6 +42,19 @@
         <button id="injectOverlay" class="button button-primary" type="button">Inject overlay</button>
       </section>
 
+      <section class="section devtools-section" aria-labelledby="devtoolsHeading">
+        <div class="status-row">
+          <span id="devtoolsHeading">DevTools capture mode</span>
+          <strong id="devtoolsStatus">Checking...</strong>
+        </div>
+        <p id="devtoolsDetail" class="muted">Enable only when you want Codex to collect page console and network context for the active tab.</p>
+        <p class="warning">Chrome may show that this extension is debugging the page. While active, DevTools capture can observe console output and network metadata for the current tab.</p>
+        <div class="button-row">
+          <button id="enableDevtools" class="button button-primary" type="button">Enable DevTools capture</button>
+          <button id="disableDevtools" class="button button-secondary" type="button" disabled>Disable</button>
+        </div>
+      </section>
+
       <section class="section section-quiet">
         <div class="status-row">
           <span>Annotation queue</span>

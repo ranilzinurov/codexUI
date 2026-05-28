@@ -30,6 +30,8 @@
     bodyCaptureMode: "metadata-only",
     bodyCapBytes: 16384
   });
+  const DEVTOOLS_CONTEXT_BEFORE_MS = 2 * 60 * 1000;
+  const DEVTOOLS_CONTEXT_AFTER_MS = 30 * 1000;
 
   function trimAnnotationQueue(queue, options = {}) {
     const maxItems = positiveInteger(
@@ -94,7 +96,8 @@
     }
 
     const createdAtIso = options.createdAtIso || new Date().toISOString();
-    const batchItems = items.map((item) => buildBatchItem(item));
+    const devtoolsSnapshot = buildDevtoolsSnapshot(options.devtoolsCapture, createdAtIso);
+    const batchItems = items.map((item) => buildBatchItem(item, devtoolsSnapshot));
     return {
       schemaVersion: 1,
       batchId: options.batchId || createId("annotation-batch"),
@@ -108,7 +111,8 @@
       page: readBatchPage(items),
       privacy: DEFAULT_PRIVACY_RULES,
       assets: [],
-      items: batchItems
+      items: batchItems,
+      ...(devtoolsSnapshot ? { devTools: devtoolsSnapshot } : {})
     };
   }
 
@@ -116,14 +120,15 @@
     return Array.isArray(queue) ? queue.filter(isRecord) : [];
   }
 
-  function buildBatchItem(item) {
+  function buildBatchItem(item, devtoolsSnapshot) {
     const context = isRecord(item.context) ? item.context : {};
     const page = readItemPage(item);
     const noteText = sanitizeNoteText(item.noteText);
+    const createdAtIso = item.createdAtIso || new Date().toISOString();
     const batchItem = {
       id: item.id || createId("annotation"),
       kind: noteText ? "mixed" : "screenshot",
-      createdAtIso: item.createdAtIso || new Date().toISOString(),
+      createdAtIso,
       page
     };
 
@@ -144,7 +149,170 @@
       batchItem.selectedText = selectedText;
     }
 
+    const devToolsContext = buildItemDevtoolsContext(devtoolsSnapshot, createdAtIso);
+    if (devToolsContext) {
+      batchItem.devToolsContext = devToolsContext;
+    }
+
     return batchItem;
+  }
+
+  function buildDevtoolsSnapshot(devtoolsCapture, capturedAtIso) {
+    const capture = isRecord(devtoolsCapture) ? devtoolsCapture : {};
+    const consoleRows = Array.isArray(capture.consoleRows)
+      ? capture.consoleRows.map(toDevtoolsConsoleEntry).filter(Boolean)
+      : [];
+    const networkRows = Array.isArray(capture.networkRows)
+      ? capture.networkRows.map(toDevtoolsNetworkRecord).filter(Boolean)
+      : [];
+    if (consoleRows.length === 0 && networkRows.length === 0) {
+      return null;
+    }
+
+    const errorCount = consoleRows.filter((row) => row.level === "error").length +
+      networkRows.filter((row) => row.errorText || finiteNumber(row.status) >= 400).length;
+    return {
+      id: createId("devtools-snapshot"),
+      capturedAtIso,
+      attachMode: "explicit-user-enabled",
+      captureStartedAtIso: sanitizeText(capture.startedAtIso, 80) || capturedAtIso,
+      captureEndedAtIso: capturedAtIso,
+      privacy: DEFAULT_PRIVACY_RULES,
+      summary: {
+        consoleCount: consoleRows.length,
+        networkCount: networkRows.length,
+        errorCount,
+        redactedHeaderCount: 0,
+        capturedBodyCount: 0,
+        trimmedBodyCount: 0,
+        omittedBodyCount: 0
+      },
+      console: consoleRows,
+      network: networkRows
+    };
+  }
+
+  function buildItemDevtoolsContext(devtoolsSnapshot, createdAtIso) {
+    if (!devtoolsSnapshot) {
+      return null;
+    }
+    const createdAtMs = Date.parse(createdAtIso);
+    const startedAtMs = Number.isFinite(createdAtMs)
+      ? createdAtMs - DEVTOOLS_CONTEXT_BEFORE_MS
+      : Number.NEGATIVE_INFINITY;
+    const endedAtMs = Number.isFinite(createdAtMs)
+      ? createdAtMs + DEVTOOLS_CONTEXT_AFTER_MS
+      : Number.POSITIVE_INFINITY;
+    const consoleEntryIds = devtoolsSnapshot.console
+      .filter((row) => isIsoWithinWindow(row.timestampIso, startedAtMs, endedAtMs))
+      .map((row) => row.id);
+    const requestIds = devtoolsSnapshot.network
+      .filter((row) => {
+        const started = Date.parse(row.startedAtIso);
+        const finished = row.finishedAtIso ? Date.parse(row.finishedAtIso) : started;
+        return (!Number.isFinite(started) || started <= endedAtMs) &&
+          (!Number.isFinite(finished) || finished >= startedAtMs);
+      })
+      .map((row) => row.id);
+    if (consoleEntryIds.length === 0 && requestIds.length === 0) {
+      return null;
+    }
+    return {
+      snapshotId: devtoolsSnapshot.id,
+      startedAtIso: Number.isFinite(startedAtMs)
+        ? new Date(startedAtMs).toISOString()
+        : devtoolsSnapshot.captureStartedAtIso,
+      endedAtIso: Number.isFinite(endedAtMs)
+        ? new Date(endedAtMs).toISOString()
+        : devtoolsSnapshot.captureEndedAtIso,
+      requestIds,
+      consoleEntryIds
+    };
+  }
+
+  function toDevtoolsConsoleEntry(row) {
+    if (!isRecord(row)) {
+      return null;
+    }
+    const text = sanitizeText(row.text, 2000);
+    if (!text) {
+      return null;
+    }
+    const entry = {
+      id: sanitizeText(row.id, 120) || createId("console"),
+      level: toServerConsoleLevel(row.level),
+      timestampIso: sanitizeText(row.timestampIso, 80) || new Date().toISOString(),
+      text
+    };
+    const source = sanitizeText(row.source, 80);
+    const url = sanitizeText(row.url, 2048);
+    if (source) {
+      entry.source = source;
+    }
+    if (url) {
+      entry.url = url;
+    }
+    if (typeof row.lineNumber === "number") {
+      entry.lineNumber = finiteNumber(row.lineNumber);
+    }
+    if (typeof row.columnNumber === "number") {
+      entry.columnNumber = finiteNumber(row.columnNumber);
+    }
+    return entry;
+  }
+
+  function toDevtoolsNetworkRecord(row) {
+    if (!isRecord(row)) {
+      return null;
+    }
+    const url = sanitizeText(row.url, 2048);
+    if (!url) {
+      return null;
+    }
+    const record = {
+      id: sanitizeText(row.id, 120) || sanitizeText(row.requestId, 120) || createId("request"),
+      startedAtIso: sanitizeText(row.startedAtIso, 80) || new Date().toISOString(),
+      method: sanitizeText(row.method, 20) || "GET",
+      url,
+      resourceType: sanitizeText(row.resourceType, 80),
+      requestHeaders: [],
+      responseHeaders: []
+    };
+    const finishedAtIso = sanitizeText(row.finishedAtIso, 80);
+    const statusText = sanitizeText(row.statusText, 120);
+    const errorText = sanitizeText(row.failureReason, 300);
+    if (finishedAtIso) {
+      record.finishedAtIso = finishedAtIso;
+    }
+    if (typeof row.status === "number") {
+      record.status = finiteNumber(row.status);
+    }
+    if (statusText) {
+      record.statusText = statusText;
+    }
+    if (errorText) {
+      record.errorText = errorText;
+    }
+    if (row.fromDiskCache === true) {
+      record.fromCache = true;
+    }
+    return record;
+  }
+
+  function toServerConsoleLevel(level) {
+    const value = sanitizeText(level, 40).toLowerCase();
+    if (value === "warn" || value === "warning") {
+      return "warning";
+    }
+    if (value === "info" || value === "error" || value === "debug" || value === "log") {
+      return value;
+    }
+    return "log";
+  }
+
+  function isIsoWithinWindow(iso, startedAtMs, endedAtMs) {
+    const value = Date.parse(iso);
+    return !Number.isFinite(value) || (value >= startedAtMs && value <= endedAtMs);
   }
 
   function readBatchPage(items) {

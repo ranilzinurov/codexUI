@@ -9,6 +9,7 @@
   --accent: #2364d2;
   --accent-strong: #174ea6;
   --danger: #b42318;
+  --warning: #9a6700;
   --success: #137333;
 }
 
@@ -23,6 +24,7 @@
     --accent: #72a7ff;
     --accent-strong: #9ec2ff;
     --danger: #ff9b8f;
+    --warning: #f6c56f;
     --success: #7bd88f;
   }
 }
@@ -173,6 +175,12 @@ textarea:focus {
   border-color: var(--border);
 }
 
+.button-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
 .status-row {
   display: flex;
   align-items: center;
@@ -184,10 +192,31 @@ textarea:focus {
   text-align: right;
 }
 
+.status-active {
+  color: var(--success);
+}
+
+.status-error {
+  color: var(--danger);
+}
+
+.status-pending {
+  color: var(--warning);
+}
+
 .muted,
 .message {
   margin: 0;
   color: var(--muted);
+}
+
+.warning {
+  margin: 0;
+  padding: 8px;
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning) 32%, var(--border));
+  border-radius: 6px;
 }
 
 .message {

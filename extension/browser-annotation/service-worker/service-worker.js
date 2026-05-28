@@ -3,6 +3,7 @@ importScripts(
   "../shared/url-utils.js",
   "../shared/pairing-client.js",
   "../shared/annotation-queue.js",
+  "../shared/devtools-capture.js",
   "../shared/screenshot-crop.js"
 );
 
@@ -10,6 +11,7 @@ const {
   MESSAGE_TYPES,
   DEFAULT_SETTINGS,
   STORAGE_KEYS,
+  DEVTOOLS_CAPTURE_TIMEOUT_MS,
   MAX_SCREENSHOT_PREVIEW_EDGE_PX,
   MAX_SCREENSHOT_PREVIEW_DATA_URL_CHARS,
   MAX_ANNOTATION_BATCH_BYTES
@@ -37,6 +39,31 @@ const {
   trimAnnotationQueue,
   updateAnnotationQueueItem
 } = globalThis.BrowserAnnotationQueue;
+const {
+  appendConsoleEvent,
+  buildDevtoolsCaptureStatus,
+  createDevtoolsCaptureState,
+  emptyDevtoolsCaptureState,
+  normalizeDevtoolsCaptureState,
+  stopDevtoolsCaptureState,
+  upsertNetworkEvent
+} = globalThis.BrowserAnnotationDevtoolsCapture;
+
+const DEVTOOLS_PROTOCOL_VERSION = "1.3";
+const DEVTOOLS_CONSOLE_EVENT_METHODS = new Set([
+  "Runtime.consoleAPICalled",
+  "Runtime.exceptionThrown",
+  "Log.entryAdded"
+]);
+const DEVTOOLS_NETWORK_EVENT_METHODS = new Set([
+  "Network.requestWillBeSent",
+  "Network.responseReceived",
+  "Network.loadingFinished",
+  "Network.loadingFailed"
+]);
+
+let devtoolsCaptureTimer = null;
+let devtoolsCaptureTabId = null;
 
 enableActionSidePanelBehavior();
 
@@ -52,6 +79,28 @@ chrome.action.onClicked.addListener((tab) => {
   injectOverlayIntoTab(tab).catch((error) => {
     console.warn("Unable to start browser annotation from the extension action.", error);
   });
+});
+
+if (chrome.debugger && chrome.debugger.onEvent && chrome.debugger.onDetach) {
+  chrome.debugger.onEvent.addListener((source, method, params) => {
+    handleDebuggerEvent(source, method, params).catch((error) => {
+      console.warn("Unable to process debugger event.", error);
+    });
+  });
+
+  chrome.debugger.onDetach.addListener((source, reason) => {
+    handleDebuggerDetach(source, reason).catch((error) => {
+      console.warn("Unable to process debugger detach.", error);
+    });
+  });
+}
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (devtoolsCaptureTabId === tabId) {
+    stopDevtoolsCapture("tab-closed").catch((error) => {
+      console.warn("Unable to stop DevTools capture after tab close.", error);
+    });
+  }
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -102,6 +151,18 @@ async function handleMessage(message, sender) {
     return sendAnnotationBatch();
   }
 
+  if (message.type === MESSAGE_TYPES.START_DEVTOOLS_CAPTURE) {
+    return startDevtoolsCapture();
+  }
+
+  if (message.type === MESSAGE_TYPES.STOP_DEVTOOLS_CAPTURE) {
+    return stopDevtoolsCapture("user-stop");
+  }
+
+  if (message.type === MESSAGE_TYPES.GET_DEVTOOLS_CAPTURE_STATUS) {
+    return getDevtoolsCaptureStatus();
+  }
+
   if (message.type === MESSAGE_TYPES.CONTENT_PING) {
     return { ok: true };
   }
@@ -115,23 +176,26 @@ async function handleMessage(message, sender) {
 
 async function getPanelState() {
   const settings = await readSettings();
-  const [connection, activeTab, queue] = await Promise.all([
+  const [connection, activeTab, queue, devtoolsCapture] = await Promise.all([
     validateConnection(settings),
     getActiveTab(),
-    readAnnotationQueue()
+    readAnnotationQueue(),
+    readDevtoolsCaptureState()
   ]);
 
-  return buildPanelState(settings, connection, activeTab, queue);
+  return buildPanelState(settings, connection, activeTab, queue, devtoolsCapture);
 }
 
-function buildPanelState(settings, connection, activeTab, queue) {
+function buildPanelState(settings, connection, activeTab, queue, devtoolsCapture) {
   const tabUrl = activeTab && activeTab.url ? activeTab.url : "";
   const restricted = isRestrictedTabUrl(tabUrl);
+  const captureState = normalizeDevtoolsCaptureState(devtoolsCapture);
 
   return {
     settings,
     connection,
     queue,
+    devtoolsCapture: buildDevtoolsCaptureStatus(captureState),
     activeTab: activeTab
       ? {
           id: activeTab.id,
@@ -353,11 +417,13 @@ async function sendAnnotationBatch() {
     throw new Error("Annotation queue is empty.");
   }
 
+  const devtoolsCapture = await readDevtoolsCaptureState();
   const manifest = chrome.runtime.getManifest ? chrome.runtime.getManifest() : {};
   const batch = buildAnnotationBatchPayload(queue, {
     targetThreadId: connection.session.threadId,
     extensionVersion: manifest.version || "",
-    browserName: "Chrome"
+    browserName: "Chrome",
+    devtoolsCapture
   });
   const payloadBytes = estimateJsonBytes(batch);
   if (payloadBytes > MAX_ANNOTATION_BATCH_BYTES) {
@@ -380,12 +446,189 @@ async function sendAnnotationBatch() {
   }
 
   await writeAnnotationQueue([]);
+  const devtoolsStop = await stopDevtoolsCaptureIfActive("send-complete");
   const activeTab = await getActiveTab();
+  const stoppedDevtoolsCapture = await readDevtoolsCaptureState();
   return {
     ok: true,
     result: payload && payload.result ? payload.result : null,
-    state: buildPanelState(settings, connection, activeTab, [])
+    devtoolsStop,
+    state: buildPanelState(settings, connection, activeTab, [], stoppedDevtoolsCapture)
   };
+}
+
+async function startDevtoolsCapture() {
+  assertDebuggerApiAvailable();
+  const tab = await getActiveTab();
+  if (!tab || typeof tab.id !== "number") {
+    throw new Error("No active tab is available for DevTools capture.");
+  }
+  if (isRestrictedTabUrl(tab.url)) {
+    throw new Error(describeRestrictedUrl(tab.url));
+  }
+
+  await stopDevtoolsCaptureIfActive("replaced");
+
+  const debuggee = { tabId: tab.id };
+  const state = createDevtoolsCaptureState(tab);
+  try {
+    await chrome.debugger.attach(debuggee, DEVTOOLS_PROTOCOL_VERSION);
+    await chrome.debugger.sendCommand(debuggee, "Runtime.enable");
+    await chrome.debugger.sendCommand(debuggee, "Log.enable");
+    await chrome.debugger.sendCommand(debuggee, "Network.enable");
+  } catch (error) {
+    await safeDetachDebuggee(debuggee);
+    const message = error instanceof Error ? error.message : String(error);
+    const failedState = stopDevtoolsCaptureState(state, "attach-failed", { error: message });
+    await writeDevtoolsCaptureState(failedState);
+    throw new Error(`Unable to start DevTools capture: ${message}`);
+  }
+
+  devtoolsCaptureTabId = tab.id;
+  scheduleDevtoolsCaptureTimeout(tab.id, state.expiresAtIso);
+  await writeDevtoolsCaptureState(state);
+  return {
+    ok: true,
+    devtoolsCapture: buildDevtoolsCaptureStatus(state),
+    state: await getPanelState()
+  };
+}
+
+async function stopDevtoolsCapture(reason) {
+  const state = await readDevtoolsCaptureState();
+  clearDevtoolsCaptureTimeout();
+  const tabId = devtoolsCaptureTabId || state.tabId;
+  devtoolsCaptureTabId = null;
+
+  if (state.active && typeof tabId === "number") {
+    await safeDetachDebuggee({ tabId });
+  }
+
+  const stoppedState = stopDevtoolsCaptureState(state, reason || "stopped");
+  await writeDevtoolsCaptureState(stoppedState);
+  return {
+    ok: true,
+    devtoolsCapture: buildDevtoolsCaptureStatus(stoppedState),
+    state: await getPanelState()
+  };
+}
+
+async function stopDevtoolsCaptureIfActive(reason) {
+  const state = await readDevtoolsCaptureState();
+  if (!state.active) {
+    return { stopped: false, reason: "" };
+  }
+  const result = await stopDevtoolsCapture(reason);
+  return {
+    stopped: true,
+    reason,
+    devtoolsCapture: result.devtoolsCapture
+  };
+}
+
+async function getDevtoolsCaptureStatus() {
+  const state = await readDevtoolsCaptureState();
+  if (state.active && isDevtoolsCaptureExpired(state)) {
+    return stopDevtoolsCapture("timeout");
+  }
+  if (state.active && typeof state.tabId === "number" && !devtoolsCaptureTimer) {
+    devtoolsCaptureTabId = state.tabId;
+    scheduleDevtoolsCaptureTimeout(state.tabId, state.expiresAtIso);
+  }
+  return {
+    ok: true,
+    devtoolsCapture: buildDevtoolsCaptureStatus(state)
+  };
+}
+
+async function handleDebuggerEvent(source, method, params) {
+  const state = await readDevtoolsCaptureState();
+  if (!state.active || !source || source.tabId !== state.tabId) {
+    return;
+  }
+  if (isDevtoolsCaptureExpired(state)) {
+    await stopDevtoolsCapture("timeout");
+    return;
+  }
+
+  if (DEVTOOLS_CONSOLE_EVENT_METHODS.has(method)) {
+    await writeDevtoolsCaptureState(appendConsoleEvent(state, method, params));
+    return;
+  }
+
+  if (DEVTOOLS_NETWORK_EVENT_METHODS.has(method)) {
+    await writeDevtoolsCaptureState(upsertNetworkEvent(state, method, params));
+  }
+}
+
+async function handleDebuggerDetach(source, reason) {
+  const state = await readDevtoolsCaptureState();
+  if (!state.active || !source || source.tabId !== state.tabId) {
+    return;
+  }
+  clearDevtoolsCaptureTimeout();
+  devtoolsCaptureTabId = null;
+  const stoppedState = stopDevtoolsCaptureState(state, reason || "detached");
+  await writeDevtoolsCaptureState(stoppedState);
+}
+
+async function readDevtoolsCaptureState() {
+  const stored = await chrome.storage.local.get(STORAGE_KEYS.devtoolsCapture);
+  return normalizeDevtoolsCaptureState(
+    stored[STORAGE_KEYS.devtoolsCapture] || emptyDevtoolsCaptureState()
+  );
+}
+
+async function writeDevtoolsCaptureState(state) {
+  const nextState = normalizeDevtoolsCaptureState(state);
+  await chrome.storage.local.set({
+    [STORAGE_KEYS.devtoolsCapture]: nextState
+  });
+  return nextState;
+}
+
+function scheduleDevtoolsCaptureTimeout(tabId, expiresAtIso) {
+  clearDevtoolsCaptureTimeout();
+  const delayMs = Math.max(0, Date.parse(expiresAtIso) - Date.now());
+  devtoolsCaptureTimer = setTimeout(() => {
+    if (devtoolsCaptureTabId !== tabId) {
+      return;
+    }
+    stopDevtoolsCapture("timeout").catch((error) => {
+      console.warn("Unable to stop timed-out DevTools capture.", error);
+    });
+  }, Math.min(delayMs || DEVTOOLS_CAPTURE_TIMEOUT_MS, DEVTOOLS_CAPTURE_TIMEOUT_MS));
+}
+
+function clearDevtoolsCaptureTimeout() {
+  if (devtoolsCaptureTimer) {
+    clearTimeout(devtoolsCaptureTimer);
+    devtoolsCaptureTimer = null;
+  }
+}
+
+function isDevtoolsCaptureExpired(state) {
+  const expiresAtMs = Date.parse(state.expiresAtIso);
+  return Number.isFinite(expiresAtMs) && expiresAtMs <= Date.now();
+}
+
+async function safeDetachDebuggee(debuggee) {
+  if (!chrome.debugger || !chrome.debugger.detach) {
+    return;
+  }
+  try {
+    await chrome.debugger.detach(debuggee);
+  } catch (error) {
+    console.warn("Unable to detach debugger target.", error);
+  }
+}
+
+function assertDebuggerApiAvailable() {
+  if (!chrome.debugger || !chrome.debugger.attach || !chrome.debugger.sendCommand) {
+    throw new Error(
+      "DevTools capture requires the chrome.debugger permission in the extension manifest."
+    );
+  }
 }
 
 async function captureSelectedElementPreviewSafely(context, sender) {

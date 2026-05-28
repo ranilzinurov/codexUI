@@ -138,4 +138,56 @@ const blankNoteBatch = BrowserAnnotationQueue.buildAnnotationBatchPayload(
 );
 assert.equal(blankNoteBatch.items[0].noteText, "");
 
+const devtoolsBatch = BrowserAnnotationQueue.buildAnnotationBatchPayload(
+  [
+    {
+      ...stageQueue[0],
+      createdAtIso: "2026-05-28T10:03:00.000Z"
+    }
+  ],
+  {
+    batchId: "annotation-batch-devtools",
+    createdAtIso: "2026-05-28T10:03:01.000Z",
+    devtoolsCapture: {
+      active: true,
+      startedAtIso: "2026-05-28T10:02:00.000Z",
+      consoleRows: [
+        {
+          id: "console-smoke",
+          level: "warn",
+          text: "codex-devtools-smoke:warning",
+          timestampIso: "2026-05-28T10:02:58.000Z",
+          source: "Runtime.consoleAPICalled",
+          url: "https://app.example.test/settings",
+          lineNumber: 12,
+          columnNumber: 4
+        }
+      ],
+      networkRows: [
+        {
+          id: "network-smoke",
+          requestId: "request-smoke",
+          startedAtIso: "2026-05-28T10:02:57.000Z",
+          finishedAtIso: "2026-05-28T10:02:59.000Z",
+          method: "GET",
+          url: "https://app.example.test/api/smoke?token=[redacted]",
+          status: 404,
+          statusText: "Not Found",
+          resourceType: "fetch",
+          failureReason: ""
+        }
+      ]
+    }
+  }
+);
+assert.equal(devtoolsBatch.devTools.attachMode, "explicit-user-enabled");
+assert.equal(devtoolsBatch.devTools.console[0].level, "warning");
+assert.equal(devtoolsBatch.devTools.network[0].requestHeaders.length, 0);
+assert.equal(devtoolsBatch.devTools.summary.consoleCount, 1);
+assert.equal(devtoolsBatch.devTools.summary.networkCount, 1);
+assert.equal(devtoolsBatch.devTools.summary.errorCount, 1);
+assert.deepEqual(devtoolsBatch.items[0].devToolsContext.consoleEntryIds, ["console-smoke"]);
+assert.deepEqual(devtoolsBatch.items[0].devToolsContext.requestIds, ["network-smoke"]);
+assert.ok(!JSON.stringify(devtoolsBatch).includes("request-smoke"));
+
 console.log("Extension annotation queue smoke passed.");

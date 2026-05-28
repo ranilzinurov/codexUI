@@ -179,6 +179,7 @@ Use these gates unless a phase explicitly narrows or expands them.
 | 2026-05-28 | Phase 2 | Stage 2.4 | Completed | Added visible-tab screenshot capture and cropped previews for selected elements. After a selection, the service worker calls `chrome.tabs.captureVisibleTab`, crops the selected rect with `devicePixelRatio`, stores only the cropped preview in the local annotation queue, and renders previews in the side panel. Reviewer found queue previews could exceed Chrome `storage.local` quota; fixed with a 250k data URL per-preview cap and aggregate queue trimming under a 5.5 MB JSON budget via `shared/annotation-queue.js`. Verification: `node --check` passed for all extension JS/MJS files; validator, pairing, selection, annotation-queue, and screenshot-crop smokes passed; `git diff --check -- extension/browser-annotation` passed. Performance audit: no polling, full screenshot is transient, preview queue is count- and byte-bounded. |
 | 2026-05-28 | Phase 2 | Stage 2.5 | Completed | Added multi-annotation queue UX: per-annotation notes, edit/delete/reorder controls, page-level batch metadata, and one-click batch send to `/codex-api/extension/annotation-batch` with the stored bearer token. Queue payload builder maps selected element context into `AnnotationBatch` items, includes `sessionId` and `threadId` query selectors, omits local preview data URLs, caps the send body, and clears the queue after success. Reviewer found stale side-panel queue state could keep Send disabled and blank notes omitted `noteText`; fixed both and added smoke assertions. Verification: all extension JS/MJS `node --check` passed; validator, pairing, selection, annotation-queue, and screenshot-crop smokes passed; `pnpm exec vitest run src/server/browserAnnotationBatch.test.ts --reporter=verbose` passed 8 tests; `git diff --check -- extension/browser-annotation` passed. Performance audit: no polling, user-triggered queue mutations only, one status validation plus one bounded POST on send. |
 | 2026-05-28 | Phase 2 | Full regression | Completed | Extension static gate passed: `node --check` for all extension JS/MJS files plus validator, pairing, selection, annotation-queue, and screenshot-crop smokes. Server batch gate passed: `pnpm exec vitest run src/server/browserAnnotationBatch.test.ts --reporter=verbose` passed 8 tests and `pnpm run test:browser-annotation` passed 6 files / 52 tests. Repo gates passed: `pnpm run test:unit` passed 23 files / 178 tests, `pnpm run build` passed, `pnpm exec vue-tsc --noEmit` passed, and `pnpm run test:coverage` passed with Statements 21.14%, Branches 17.8%, Functions 23.47%, Lines 22.02%. Performance profile passed with `PROFILE_BASE_URL=http://127.0.0.1:4173 PROFILE_WAIT_MS=7000 pnpm run profile:browser`; report `output/playwright/browser-runtime-profile-home-2026-05-28T10-05-35-117Z.json`, warnings `[]`, duplicateCounts threadList/skills/rateLimits/providerModels all 1, totalApiKB 212.4. Xvfb load-unpacked smoke loaded the extension service worker and overlay; real Chrome toolbar-action manual test then passed via `http://46.62.215.111/browser-annotation-test.html` through Nginx, pairing with public `Server URL: http://46.62.215.111`, selecting three elements, queueing them despite best-effort preview capture, and sending all 3 annotations to Codex UI. The backend queue drained the submitted `Browser annotation batch` into thread `019e6d66-d035-7641-912b-463c22c7e921`. |
+| 2026-05-28 | Phase 3 | Stages 3.1-3.3 | Completed | Added explicit DevTools capture mode to the extension. The manifest now requests `debugger`; the side panel shows enable/disable controls and active/error counts; the service worker attaches to the active tab on user request, enables Runtime/Log/Network domains, captures bounded console and network metadata, and detaches on stop, send, tab close, timeout, or debugger detach. Added `shared/devtools-capture.js`, DevTools fixture server/smokes, and batch payload wiring so captured rows are included as `devTools` with per-annotation `devToolsContext`. Verification: all extension JS/MJS `node --check` passed; validator, pairing, selection, annotation-queue, screenshot-crop, DevTools capture, and DevTools fixture smokes passed; `pnpm exec vitest run src/server/browserAnnotationBatch.test.ts --reporter=verbose` passed 8 tests. Performance audit: capture is explicit, no polling or body storage, console/network rows and serialized storage are bounded; storage writes happen per captured event and may be batched later if real pages produce high event volume. |
 
 ## Phase 0: Foundations, Secrets, And Deployment Discovery
 
@@ -331,23 +332,23 @@ Objective: add the killer feature: explicit DevTools capture through `chrome.deb
 
 Checklist:
 
-- [ ] Stage 3.1: Debugger permission and attach lifecycle
-  - [ ] Add `debugger` permission with clear UI copy.
-  - [ ] Attach on explicit DevTools mode enable.
-  - [ ] Detach on stop, tab close, send, or timeout.
-  - [ ] Show active debugger warning/state in extension UI.
+- [x] Stage 3.1: Debugger permission and attach lifecycle
+  - [x] Add `debugger` permission with clear UI copy.
+  - [x] Attach on explicit DevTools mode enable.
+  - [x] Detach on stop, tab close, send, or timeout.
+  - [x] Show active debugger warning/state in extension UI.
   - Smoke test: attach/detach succeeds and tab is released after mode stops.
 
-- [ ] Stage 3.2: Console capture
-  - [ ] Subscribe to `Runtime`, `Log`, and console events supported by `chrome.debugger`.
-  - [ ] Capture level, text, stack trace, URL, line/column, timestamp.
-  - [ ] Filter noise and cap stored messages.
+- [x] Stage 3.2: Console capture
+  - [x] Subscribe to `Runtime`, `Log`, and console events supported by `chrome.debugger`.
+  - [x] Capture level, text, stack trace, URL, line/column, timestamp.
+  - [x] Filter noise and cap stored messages.
   - Smoke test: local page logs info/warn/error and extension captures them.
 
-- [ ] Stage 3.3: Network capture
-  - [ ] Subscribe to `Network.requestWillBeSent`, `responseReceived`, `loadingFinished`, `loadingFailed`.
-  - [ ] Capture URL, method, status, resource type, timings, initiator, failure reason.
-  - [ ] Mark failed/slow requests.
+- [x] Stage 3.3: Network capture
+  - [x] Subscribe to `Network.requestWillBeSent`, `responseReceived`, `loadingFinished`, `loadingFailed`.
+  - [x] Capture URL, method, status, resource type, timings, initiator, failure reason.
+  - [x] Mark failed/slow requests.
   - Smoke test: local page issues success, 404, failed, and slow requests.
 
 - [ ] Stage 3.4: Safe body/header capture

@@ -13,6 +13,10 @@
     injectOverlay: document.getElementById("injectOverlay"),
     tabStatus: document.getElementById("tabStatus"),
     tabDetail: document.getElementById("tabDetail"),
+    devtoolsStatus: document.getElementById("devtoolsStatus"),
+    devtoolsDetail: document.getElementById("devtoolsDetail"),
+    enableDevtools: document.getElementById("enableDevtools"),
+    disableDevtools: document.getElementById("disableDevtools"),
     queueStatus: document.getElementById("queueStatus"),
     queueDetail: document.getElementById("queueDetail"),
     batchMeta: document.getElementById("batchMeta"),
@@ -21,9 +25,15 @@
     message: document.getElementById("message")
   };
   let lastState = null;
+  let lastDevtoolsStatus = {
+    status: "inactive",
+    detail: "DevTools capture is off."
+  };
 
   elements.saveSettings.addEventListener("click", saveSettings);
   elements.injectOverlay.addEventListener("click", injectOverlay);
+  elements.enableDevtools.addEventListener("click", enableDevtoolsCapture);
+  elements.disableDevtools.addEventListener("click", disableDevtoolsCapture);
   elements.sendBatch.addEventListener("click", sendBatch);
   elements.queueList.addEventListener("click", handleQueueClick);
   elements.queueList.addEventListener("change", handleQueueChange);
@@ -53,6 +63,7 @@
     try {
       const response = await sendRuntimeMessage({ type: MESSAGE_TYPES.GET_STATE });
       renderState(response.state);
+      await refreshDevtoolsStatus();
       setMessage("", "neutral");
     } catch (error) {
       setMessage(error.message, "error");
@@ -100,6 +111,64 @@
     }
   }
 
+  async function refreshDevtoolsStatus() {
+    try {
+      const response = await sendRuntimeMessage({ type: MESSAGE_TYPES.GET_DEVTOOLS_CAPTURE_STATUS });
+      renderDevtoolsStatus(readDevtoolsStatus(response));
+    } catch (error) {
+      renderDevtoolsStatus({
+        status: "error",
+        detail: error.message
+      });
+    }
+  }
+
+  async function enableDevtoolsCapture() {
+    setBusy(true);
+    renderDevtoolsStatus({
+      status: "pending",
+      detail: "Requesting debugger attachment for the active tab..."
+    });
+    try {
+      const response = await sendRuntimeMessage({ type: MESSAGE_TYPES.START_DEVTOOLS_CAPTURE });
+      renderDevtoolsStatus(readDevtoolsStatus(response, "active"));
+      setMessage("DevTools capture mode enabled for the active tab.", "ok");
+    } catch (error) {
+      renderDevtoolsStatus({
+        status: "error",
+        detail: error.message
+      });
+      setMessage(error.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function disableDevtoolsCapture(options = {}) {
+    setBusy(true);
+    renderDevtoolsStatus({
+      status: "pending",
+      detail: "Stopping DevTools capture mode..."
+    });
+    try {
+      const response = await sendRuntimeMessage({ type: MESSAGE_TYPES.STOP_DEVTOOLS_CAPTURE });
+      renderDevtoolsStatus(readDevtoolsStatus(response, "inactive"));
+      if (!options.silent) {
+        setMessage("DevTools capture mode disabled.", "ok");
+      }
+    } catch (error) {
+      renderDevtoolsStatus({
+        status: "error",
+        detail: error.message
+      });
+      if (!options.silent) {
+        setMessage(error.message, "error");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function sendRuntimeMessage(message) {
     const response = await chrome.runtime.sendMessage(message);
     if (!response || response.ok !== true) {
@@ -126,6 +195,7 @@
     elements.connectionStatus.textContent = connectionLabel(state.connection.status);
     elements.connectionDetail.textContent = connectionDetail(state.connection);
     renderQueue(state.queue);
+    renderDevtoolsStatus(state.devtoolsCapture || lastDevtoolsStatus);
     updateSendButton(false);
 
     if (!state.activeTab) {
@@ -146,6 +216,7 @@
     elements.saveSettings.disabled = isBusy;
     elements.injectOverlay.disabled =
       isBusy || !lastState || !lastState.activeTab || lastState.activeTab.restricted;
+    updateDevtoolsButtons(isBusy);
     updateSendButton(isBusy);
   }
 
@@ -357,6 +428,7 @@
       const response = await sendRuntimeMessage({
         type: MESSAGE_TYPES.SEND_ANNOTATION_BATCH
       });
+      await disableDevtoolsCapture({ silent: true });
       renderState(response.state);
       const count = response.result && response.result.annotationCount
         ? response.result.annotationCount
@@ -387,6 +459,77 @@
       };
       renderQueue(response.queue);
     }
+  }
+
+  function readDevtoolsStatus(response, fallbackStatus) {
+    if (response && response.state && response.state.devtoolsCapture) {
+      return response.state.devtoolsCapture;
+    }
+    if (response && response.devtoolsCapture) {
+      return response.devtoolsCapture;
+    }
+    return {
+      status: fallbackStatus || "inactive",
+      detail: fallbackStatus === "active"
+        ? "DevTools capture is active for the current tab."
+        : "DevTools capture is off."
+    };
+  }
+
+  function renderDevtoolsStatus(devtools) {
+    const normalized = normalizeDevtoolsStatus(devtools);
+    lastDevtoolsStatus = normalized;
+    elements.devtoolsStatus.textContent = devtoolsStatusLabel(normalized.status);
+    elements.devtoolsStatus.classList.toggle("status-active", normalized.status === "active");
+    elements.devtoolsStatus.classList.toggle("status-error", normalized.status === "error");
+    elements.devtoolsStatus.classList.toggle("status-pending", normalized.status === "pending");
+    elements.devtoolsDetail.textContent = normalized.detail;
+    updateDevtoolsButtons(false);
+  }
+
+  function normalizeDevtoolsStatus(devtools) {
+    const status = devtools && typeof devtools.status === "string"
+      ? devtools.status
+      : "inactive";
+    const activeTabId = devtools && typeof devtools.tabId === "number"
+      ? ` Attached to tab ${devtools.tabId}.`
+      : "";
+    if (status === "active") {
+      return {
+        status,
+        detail: (devtools.detail || "DevTools capture is active for the current tab.") + activeTabId
+      };
+    }
+    if (status === "pending" || status === "error") {
+      return {
+        status,
+        detail: devtools.detail || (status === "pending" ? "Updating DevTools capture mode..." : "DevTools capture status is unavailable.")
+      };
+    }
+    return {
+      status: "inactive",
+      detail: devtools && devtools.detail ? devtools.detail : "DevTools capture is off."
+    };
+  }
+
+  function devtoolsStatusLabel(status) {
+    if (status === "active") {
+      return "Active";
+    }
+    if (status === "pending") {
+      return "Updating";
+    }
+    if (status === "error") {
+      return "Error";
+    }
+    return "Inactive";
+  }
+
+  function updateDevtoolsButtons(isBusy) {
+    const state = lastDevtoolsStatus ? lastDevtoolsStatus.status : "inactive";
+    const activeTabUnavailable = !lastState || !lastState.activeTab || lastState.activeTab.restricted;
+    elements.enableDevtools.disabled = isBusy || activeTabUnavailable || state === "active" || state === "pending";
+    elements.disableDevtools.disabled = isBusy || state !== "active";
   }
 
   function readQueueItemPage(item) {

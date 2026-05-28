@@ -19,6 +19,30 @@ This file tracks manual regression and feature verification steps.
 #### Rollback/Cleanup
 - <cleanup action, if any>
 
+### Feature: Browser annotation DevTools smoke fixture
+
+#### Prerequisites
+- Chrome extension Phase 3 DevTools mode is being implemented or reviewed.
+- Run `node extension/browser-annotation/dev/devtools-fixture-server.mjs` from the repository root.
+- Load the browser annotation extension unpacked in Chrome.
+
+#### Steps
+1. Open `http://127.0.0.1:8899/`.
+2. Enable the extension's explicit DevTools capture mode for the tab.
+3. Click `Console info`, `Console warn`, `Console error`, and `Console burst`.
+4. Click `Network success`, `Network 404`, `Network slow`, `Network fail`, and `Network burst`.
+5. Make an annotation on the page after the trigger clicks.
+6. Repeat the page check with the browser or operating system in light and dark color scheme.
+
+#### Expected Results
+- Console capture records info, warn, and error entries prefixed with `codex-devtools-smoke:`.
+- Network capture records a 200 JSON request, a 404 JSON request, a delayed 200 JSON request, and a failed request.
+- The annotation made after the trigger clicks can be correlated with the recent console and network fixture events.
+- The fixture page remains readable in light and dark color schemes.
+
+#### Rollback/Cleanup
+- Stop the fixture server with `Ctrl+C`.
+
 ### Feature: Project recency sort, pins, and mobile move mode
 
 #### Prerequisites

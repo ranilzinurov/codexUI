@@ -8,6 +8,7 @@ const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
 
 const requiredPermissions = [
   "activeTab",
+  "debugger",
   "scripting",
   "tabs",
   "sidePanel",
@@ -27,6 +28,7 @@ const requiredFiles = [
   "shared/pairing-client.js",
   "shared/selection-context.js",
   "shared/annotation-queue.js",
+  "shared/devtools-capture.js",
   "shared/screenshot-crop.js",
   "content/content-script.js"
 ];
