@@ -6412,6 +6412,36 @@ Document the browser annotation MCP/plugin path as a future agent-driven archite
 
 ---
 
+### Browser Annotation Troubleshooting Guide
+
+#### Feature/Change Name
+Document troubleshooting for pairing, DNS/nginx/HTTPS, active-tab permissions, queue previews, DevTools capture, and voice transcription.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Read `docs/browser-annotation-troubleshooting.md`.
+3. Optionally keep Chrome with the unpacked extension available for spot checks.
+
+#### Steps
+1. Confirm the guide lists local, temporary public HTTP, and production HTTPS server URL options.
+2. Confirm the pairing section explains expired/revoked tokens and wrong server URLs.
+3. Confirm the blank page / `403` / `404` section covers DNS wildcard, Vite `allowedHosts`, and nginx default-server issues.
+4. Confirm the selected-element queueing section explains the `activeTab` user gesture and restricted page limitations.
+5. Confirm the DevTools section documents debugger warnings, detach causes, and body-capture opt-in.
+6. Confirm the voice section documents microphone permission, busy send state, failed transcription behavior, and raw-audio exclusion.
+7. Confirm the public HTTPS section references the YC zone, explicit A record, nginx template, Let's Encrypt path, and root-required deployment actions.
+8. Open `extension/browser-annotation/README.md` and confirm it links to the troubleshooting guide.
+
+#### Expected Results
+- A user can map common observed failures to a concrete check or fix.
+- No runtime code changes are required for this documentation-only stage.
+- No UI styling changed; light/dark verification is not applicable to this documentation-only stage.
+
+#### Rollback/Cleanup
+- Revise or remove the guide if the deployment or extension architecture changes.
+
+---
+
 ### Browser Annotation DevTools Persistence Serialization
 
 #### Feature/Change Name

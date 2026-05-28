@@ -186,6 +186,7 @@ Use these gates unless a phase explicitly narrows or expands them.
 | 2026-05-28 | Phase 5 | DNS and repo deployment prep | Partial | Added explicit YC DNS record `annotate.todo-tg-app.ru. 300 A 46.62.215.111` in zone `todo-tg-app-ru`; public resolvers `8.8.8.8` and `1.1.1.1` returned `46.62.215.111`. Added `ops/nginx/annotate.todo-tg-app.ru.conf` narrow HTTPS ingress template for `/browser-annotation-test.html` and `/codex-api/extension/`, added production extension packaging via `pnpm run pack:browser-annotation`, tightened production artifact validation to require only `https://annotate.todo-tg-app.ru/*`, and allowed `annotate.todo-tg-app.ru` in Vite dev-server `allowedHosts`. Verification: `pnpm run pack:browser-annotation` produced `dist/browser-annotation-extension/codex-ui-browser-annotation-0.1.0.zip` with prod-only host permissions, `pnpm exec vue-tsc --noEmit` passed, `pnpm run test:browser-annotation` passed 6 files / 52 tests, `http://46.62.215.111/browser-annotation-test.html` returned `200` with the test-page heading, and check-host returned `200` from 6/6 nodes for `http://annotate.todo-tg-app.ru/browser-annotation-test.html`. Performance profile `output/playwright/browser-runtime-profile-home-2026-05-28T14-50-57-150Z.json` reported warnings `[]`, duplicateCounts threadList/skills/rateLimits/providerModels all 1, totalApiKB 214.3. HTTPS certbot/live nginx deployment and manual public-domain extension smoke remain blocked on root access to write `/etc/nginx`/issue certificate. |
 | 2026-05-28 | Phase 6 | Stage 6.1 prompt composer tuning | Completed | Added an explicit `## Request for Codex` section to browser annotation batch prompts. The request tells Codex to correlate DOM target, selector, note, voice transcript, attached screenshot image, and DevTools console/network evidence, then implement the appropriate repository fix and run focused verification. Verification: `pnpm exec vitest run src/server/browserAnnotationBatch.test.ts --reporter=verbose` passed 8 tests and now asserts the action request text is present. Manual rendered-message light/dark review remains part of Phase 6 UI/full workflow checks. |
 | 2026-05-28 | Phase 6 | Stage 6.3 MCP/plugin design spike | Completed | Documented the MCP/plugin path in `docs/browser-annotation-mcp-plugin-design.md`. Decision: do not create a separate browser annotation MCP server/plugin for the MVP; keep capture extension-driven through `/codex-api/extension/*` and reserve future MCP tools (`snapshot_dom`, `screenshot`, `inspect_console`, `inspect_network`, `select_element`) for agent-driven browser inspection after a dedicated security review. Runtime test not required for this design-only stage; `tests.md` contains a review checklist. |
+| 2026-05-28 | Phase 6 | Stage 6.4 troubleshooting documentation | Completed | Added `docs/browser-annotation-troubleshooting.md` and linked it from the extension README. The guide covers pairing tokens, server URL choices, DNS wildcard/propagation, nginx/default-server and Vite `allowedHosts` failures, active-tab permission errors, empty queue/missing preview behavior, DevTools debugger/body-capture issues, voice/microphone/transcription states, and public HTTPS deployment checks. Runtime test not required for this documentation-only stage; `tests.md` contains a review checklist. |
 
 ## Phase 0: Foundations, Secrets, And Deployment Discovery
 
@@ -485,11 +486,11 @@ Checklist:
   - [x] Decide what remains extension-driven versus agent-driven.
   - Smoke test: no runtime test required; design review and acceptance checklist.
 
-- [ ] Stage 6.4: Documentation
-  - [ ] User setup guide for extension.
-  - [ ] Server deployment guide.
-  - [ ] Troubleshooting guide for debugger permission, pairing, audio, and DNS/cert issues.
-  - [ ] Update [tests.md](../tests.md).
+- [x] Stage 6.4: Documentation
+  - [x] User setup guide for extension.
+  - [x] Server deployment guide.
+  - [x] Troubleshooting guide for debugger permission, pairing, audio, and DNS/cert issues.
+  - [x] Update [tests.md](../tests.md).
   - Smoke test: follow setup guide from clean browser profile.
 
 Phase 6 full regression:
