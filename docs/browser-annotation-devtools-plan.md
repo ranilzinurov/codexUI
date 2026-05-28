@@ -164,7 +164,7 @@ Use these gates unless a phase explicitly narrows or expands them.
 | 2026-05-28 | Planning | External security prerequisite | Completed | Recorded that safe prep may continue, but real transcription/deploy/final acceptance remain blocked until the pasted OpenAI key is externally revoked/replaced. |
 | 2026-05-28 | Phase 0 | Stage 0.1 review | Partial | Reviewer found no code/security findings for commit `a41c264`; `node scripts/test-codexui-annotation-transcription-env.mjs` and `pnpm exec vue-tsc --noEmit --pretty false` passed. External key revocation remains unconfirmed. |
 | 2026-05-28 | Phase 0 | Stage 0.2 | Partial | Read-only discovery only. YC CLI reads found cloud `b1g2shga5sgnm7655pla`, folder `b1g9u1oitf2qnll9c2sa`, default zone `ru-central1-a`, DNS zone `dnsdvkis94l119fqhagt` / `todo-tg-app-ru` / `todo-tg-app.ru.`. `annotate.todo-tg-app.ru` resolves via wildcard `*.todo-tg-app.ru -> 45.155.204.47`, has no explicit DNS record, no valid TLS SAN/cert, and no repo nginx vhost. Existing repo nginx example uses filesystem Let's Encrypt paths for `codex.todo-tg-app.ru`; YC Certificate Manager has no `annotate` cert. `nginx -t` was inconclusive as non-root due cert file permissions. |
-| 2026-05-28 | Phase 0 | Stage 0.3 | Partial | Quality baseline recorded. `pnpm run build` passed. `pnpm run test:unit` failed on pre-existing `src/server/codexAppServerBridge.inlinePayload.test.ts` afterEach timeout. No `lint` script or coverage threshold is configured; build typecheck and `pnpm exec tsc --noEmit -p tsconfig.server.json` passed as lint substitutes. |
+| 2026-05-28 | Phase 0 | Stage 0.3 | Completed | Fixed the fake-timer queue scheduling test timeout by stubbing constructor queue recovery inside the scheduler test and cleaning fake timers in `finally`. Added `test:coverage` with Vitest Istanbul coverage over TypeScript files, zero baseline thresholds, and explicit optional Tailwind Oxide Linux binding for reliable local builds. `pnpm run test:unit` passed 19 files / 142 tests; `pnpm run build` passed; `pnpm run test:coverage` passed with baseline Statements 18.34%, Branches 15.46%, Functions 21.23%, Lines 19.12%. |
 | 2026-05-28 | Phase 0 | Stage 0.4 | Completed | Added `src/api/browserAnnotationContracts.ts` with `AnnotationBatch`, `AnnotationItem`, `DevToolsSnapshot`, `VoiceNote`, uploaded asset records, privacy redaction/body cap helpers, and representative examples. Focused Vitest passed 11 tests; reviewer accepted after privacy fixes for raw redacted/not-captured text, sensitive body fields, UTF-8 caps, and malformed arrays. |
 
 ## Phase 0: Foundations, Secrets, And Deployment Discovery
@@ -185,11 +185,11 @@ Checklist:
   - [ ] Decide whether `annotate.todo-tg-app.ru` points to the existing Codex UI service or a narrow annotation ingress route.
   - Smoke test: read-only `yc` checks passed; nginx config check remains inconclusive as non-root due certificate file permissions.
 
-- [ ] Stage 0.3: Quality gates baseline
+- [x] Stage 0.3: Quality gates baseline
   - [x] Run `pnpm run test:unit`.
   - [x] Run `pnpm run build`.
   - [x] Establish lint substitute or add a lint script.
-  - [ ] Establish coverage command and threshold.
+  - [x] Establish coverage command and threshold.
   - [x] Record baseline results in this work log.
 
 - [x] Stage 0.4: Data contract draft

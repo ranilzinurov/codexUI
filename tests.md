@@ -5780,6 +5780,35 @@ Browser annotation batch contract, examples, and privacy validation.
 
 ---
 
+### Browser Annotation Phase 0 Quality Gates
+
+#### Feature/Change Name
+Phase 0 unit, build, lint-substitute, and coverage baseline gates.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Dependencies are installed with `pnpm install`.
+
+#### Steps
+1. Run `pnpm run test:unit`.
+2. Run `pnpm run build`.
+3. Run `pnpm exec tsc --noEmit -p tsconfig.server.json` as the server typecheck/lint substitute.
+4. Run `pnpm run test:coverage`.
+5. Inspect the coverage summary and record the current baseline.
+6. Light and dark theme verification is not applicable because this change has no UI surface.
+
+#### Expected Results
+- `pnpm run test:unit` passes all unit tests.
+- `pnpm run build` passes frontend and CLI builds.
+- The server typecheck/lint substitute passes.
+- `pnpm run test:coverage` passes and reports the TypeScript coverage baseline.
+- Current baseline: statements 18.34%, branches 15.46%, functions 21.23%, lines 19.12%.
+
+#### Rollback/Cleanup
+- Remove generated `coverage/` output if it is not needed locally.
+
+---
+
 ### Previous Response Error Diagnostics
 
 #### Feature/Change Name

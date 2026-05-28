@@ -53,6 +53,7 @@
     "postinstall": "node scripts/fix-pty-native-build.cjs",
     "test": "pnpm run build && node scripts/test-thread-auto-title.mjs && node scripts/test-web-push-notifications.mjs && node scripts/test-codexui-runtime-config.mjs && node scripts/test-codexui-transcription-override.mjs && node scripts/test-codexui-auth-shell-cache.mjs && node scripts/test-codexui-browser-startup-hardening.mjs",
     "test:unit": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "preview": "vite preview",
     "prepublishOnly": "pnpm run build",
     "profile:browser": "node scripts/profile-browser-runtime.cjs",
@@ -72,6 +73,7 @@
     "ws": "^8.18.3"
   },
   "optionalDependencies": {
+    "@tailwindcss/oxide-linux-x64-gnu": "4.2.4",
     "node-pty": "^1.1.0"
   },
   "devDependencies": {
@@ -84,12 +86,13 @@
     "@types/qrcode-terminal": "^0.12.2",
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-vue": "^5.2.1",
+    "@vitest/coverage-istanbul": "4.1.6",
     "playwright": "^1.59.1",
     "tailwindcss": "^4.1.18",
     "tsup": "^8.4.0",
     "typescript": "^5.7.3",
     "vite": "^6.1.0",
-    "vitest": "^4.1.5",
+    "vitest": "4.1.6",
     "vue": "^3.5.13",
     "vue-router": "^4.6.4",
     "vue-tsc": "^2.2.0"
