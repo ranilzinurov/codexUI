@@ -14,6 +14,48 @@ Goal: implement all phases for a Chrome extension and Codex UI integration that 
 - Update [tests.md](../tests.md) after every implemented feature or changed UI.
 - Follow repository instructions in [AGENTS.md](../AGENTS.md), especially performance audits, dark-theme verification, Playwright evidence when requested, and post-task commits.
 
+## Sub-Agent Execution Protocol
+
+Every implementation stage in this plan must use a worker-then-reviewer loop before the stage can be marked complete.
+
+Required sequence for each stage:
+
+1. Main agent selects exactly one unchecked stage from the current phase.
+2. Main agent spawns one worker sub-agent for that stage.
+3. Worker owns the stage implementation and must:
+   - inspect the current worktree before editing;
+   - avoid reverting unrelated changes;
+   - make only stage-scoped edits;
+   - run the stage smoke test when feasible;
+   - update this plan's Work Log and the stage checklist items it completed;
+   - report changed files, commands run, test results, and any unresolved risks back in chat.
+4. Main agent waits for the worker result and reviews the worker's changed files.
+5. Main agent spawns a separate reviewer sub-agent for the same stage.
+6. Reviewer must:
+   - inspect the worker changes from a review stance;
+   - verify the stage checklist and smoke-test evidence;
+   - look for correctness, security, performance, regression, and missing-test risks;
+   - report findings in chat with file/line references where applicable;
+   - not make unrelated edits.
+7. If reviewer finds issues, main agent sends fixes to the worker or applies a narrowly scoped fix, then repeats review as needed.
+8. When review passes, main agent closes both worker and reviewer sub-agents.
+9. Main agent updates this plan if the worker did not already do so, then commits that completed stage.
+10. Move to the next stage only after the prior stage is reviewed, checked off, and committed.
+
+Required sequence for each phase:
+
+1. After all stages in a phase are complete, main agent runs the phase full regression, linter gate, coverage gate, and performance audit listed for that phase.
+2. Main agent records all results in the Work Log.
+3. Main agent spawns a reviewer sub-agent for the whole phase before marking the phase complete.
+4. If phase review passes, main agent closes the reviewer, checks off the phase regression items, and commits the phase completion/doc updates.
+
+Sub-agent lifecycle rule:
+
+- Do not leave worker or reviewer agents open after their stage or phase review is complete.
+- Do not run multiple implementation workers on the same stage at the same time.
+- Parallel workers are allowed only for independent stages with disjoint write scopes, but the default flow is strictly sequential by stage.
+- If a worker is blocked, record the blocker in the Work Log and do not advance that stage until the blocker is resolved or the plan is intentionally revised.
+
 ## Reference Instructions
 
 - Repository workflow and verification rules: [AGENTS.md](../AGENTS.md)
@@ -58,6 +100,7 @@ Use these gates unless a phase explicitly narrows or expands them.
 | Date | Phase | Stage | Status | Notes |
 | --- | --- | --- | --- | --- |
 | 2026-05-28 | Planning | Plan document | Completed | Initial implementation plan created. |
+| 2026-05-28 | Planning | Sub-agent protocol | Completed | Added mandatory worker-then-reviewer loop for every stage and phase. |
 
 ## Phase 0: Foundations, Secrets, And Deployment Discovery
 
