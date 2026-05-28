@@ -5965,3 +5965,36 @@ Server-only paired extension audio transcription API.
 
 #### Rollback/Cleanup
 - None for mocked tests. If a manual real-provider test is later run with a rotated key, unset temporary env vars after testing.
+
+---
+
+### Browser Annotation Batch Queueing Endpoint
+
+#### Feature/Change Name
+Paired extension annotation batch to Codex thread queue.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Dependencies are installed.
+3. No browser or extension is required for the focused endpoint tests.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/browserAnnotationBatch.test.ts src/server/browserAnnotationAssets.test.ts src/server/codexAppServerBridge.inlinePayload.test.ts --reporter=verbose`.
+2. Confirm a valid two-annotation batch returns `status: queued` and schedules immediate backend queue drain.
+3. Confirm note text, selected element details, voice transcript text, and DevTools console/network summaries are included in the queued prompt.
+4. Confirm sensitive URL query params are redacted and redacted/not-captured body states do not expose raw body text.
+5. Confirm uploaded screenshot refs become queue `imageUrls` only when the ref was issued by the upload endpoint for the same session/thread.
+6. Confirm arbitrary local image paths and upload-root refs from another session are rejected from queue image attachments.
+7. Confirm missing/wrong bearer tokens, missing selector, malformed JSON, and invalid batch payloads do not queue messages.
+8. Run `pnpm exec vue-tsc --noEmit`.
+9. Light and dark theme verification is not applicable because this stage adds a server endpoint only and no UI surface.
+
+#### Expected Results
+- Focused endpoint and queue integration tests pass.
+- Server typecheck passes.
+- Annotation batches are queued through the existing backend queue path and scheduled for draining.
+- The response includes batch/thread/count metadata and queued message id.
+- Image attachments cannot point to arbitrary local files.
+
+#### Rollback/Cleanup
+- Remove any manual queued test messages from the thread queue state if you exercise the endpoint outside the focused tests.

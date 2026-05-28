@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdir, mkdtemp, stat, writeFile } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
-import { extname, join } from 'node:path'
+import { extname, join, resolve } from 'node:path'
 import {
   BrowserAnnotationListenStore,
   readBrowserAnnotationBearerToken,
@@ -58,6 +58,15 @@ type MultipartForm = {
 type BodyReadResult =
   | { ok: true; body: Buffer }
   | { ok: false; statusCode: 413; error: string }
+
+type BrowserAnnotationUploadedAssetRegistryRecord = {
+  sessionId: string
+  threadId: string
+  absolutePath: string
+  localImageUrl: string
+}
+
+const uploadedImageAssetsByLocalImageUrl = new Map<string, BrowserAnnotationUploadedAssetRegistryRecord>()
 
 export async function handleBrowserAnnotationAssetUploadRoute(
   req: IncomingMessage,
@@ -144,11 +153,34 @@ export async function handleBrowserAnnotationAssetUploadRoute(
       sessionId: session.sessionId,
       threadId: session.threadId,
     })
+    registerBrowserAnnotationUploadedAsset(asset)
     setJson(res, 200, { ok: true, asset })
   } catch (error) {
     setJson(res, 500, { error: getErrorMessage(error, 'Browser annotation asset upload failed') })
   }
   return true
+}
+
+export function registerBrowserAnnotationUploadedAsset(asset: BrowserAnnotationUploadedAsset): void {
+  if (!asset.localImageUrl) return
+  const normalizedUrl = normalizeLocalImageUrl(asset.localImageUrl)
+  if (!normalizedUrl) return
+  uploadedImageAssetsByLocalImageUrl.set(normalizedUrl, {
+    sessionId: asset.sessionId,
+    threadId: asset.threadId,
+    absolutePath: resolve(asset.absolutePath),
+    localImageUrl: normalizedUrl,
+  })
+}
+
+export function isBrowserAnnotationUploadedImageRefForSession(
+  localImageUrl: string,
+  selector: { sessionId: string; threadId: string },
+): boolean {
+  const normalizedUrl = normalizeLocalImageUrl(localImageUrl)
+  if (!normalizedUrl) return false
+  const record = uploadedImageAssetsByLocalImageUrl.get(normalizedUrl)
+  return Boolean(record && record.sessionId === selector.sessionId && record.threadId === selector.threadId)
 }
 
 async function persistUploadedAsset(input: {
@@ -275,6 +307,19 @@ function truncateFileName(fileName: string, preferredExt: string): string {
   const maxBaseLength = Math.max(1, BROWSER_ANNOTATION_MAX_FILE_NAME_LENGTH - extLength)
   const base = extname(fileName) ? fileName.slice(0, -extLength) : fileName
   return `${base.slice(0, maxBaseLength)}${ext}`
+}
+
+function normalizeLocalImageUrl(value: string): string | null {
+  let parsed: URL
+  try {
+    parsed = new URL(value, 'http://localhost')
+  } catch {
+    return null
+  }
+  if (parsed.pathname !== '/codex-local-image') return null
+  const rawPath = parsed.searchParams.get('path')?.trim() ?? ''
+  if (!rawPath) return null
+  return `/codex-local-image?path=${encodeURIComponent(resolve(rawPath))}`
 }
 
 function normalizeMimeType(value: string): string {

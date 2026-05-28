@@ -45,6 +45,7 @@ import { ThreadAutoTitleManager } from './threadAutoTitle.js'
 import { handleBrowserAnnotationListenRoutes } from './browserAnnotationListen.js'
 import { handleBrowserAnnotationAssetUploadRoute } from './browserAnnotationAssets.js'
 import { handleBrowserAnnotationTranscribeRoute } from './browserAnnotationTranscribe.js'
+import { handleBrowserAnnotationBatchRoute } from './browserAnnotationBatch.js'
 import { getSpawnInvocation } from '../utils/commandInvocation.js'
 import {
   getNpmGlobalBinDir,
@@ -4685,7 +4686,7 @@ async function writeThreadReadState(readAtByThreadId: Record<string, string>): P
 const FIRST_LAUNCH_PLUGINS_CARD_DISMISSED_KEY = 'first-launch-plugins-card-dismissed'
 const THREAD_QUEUE_STATE_KEY = 'thread-queue-state'
 
-type StoredQueuedMessage = {
+export type StoredQueuedMessage = {
   id: string
   text: string
   imageUrls: string[]
@@ -4821,7 +4822,7 @@ async function writeThreadQueueState(nextState: ThreadQueueState): Promise<void>
   }))
 }
 
-async function appendThreadQueuedMessage(threadId: string, message: StoredQueuedMessage): Promise<void> {
+export async function appendThreadQueuedMessage(threadId: string, message: StoredQueuedMessage): Promise<void> {
   const normalizedThreadId = threadId.trim()
   if (!normalizedThreadId) throw new Error('threadId is required')
   await withThreadQueueStateUpdate((state) => ({
@@ -6799,6 +6800,13 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
       }
 
       if (await handleBrowserAnnotationTranscribeRoute(req, res, url)) {
+        return
+      }
+
+      if (await handleBrowserAnnotationBatchRoute(req, res, url, {
+        appendQueuedMessage: appendThreadQueuedMessage,
+        scheduleThreadQueueDrain: (threadId, delayMs) => backendQueueProcessor.scheduleThreadQueueDrain(threadId, delayMs),
+      })) {
         return
       }
 

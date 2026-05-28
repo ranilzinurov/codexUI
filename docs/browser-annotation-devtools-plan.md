@@ -171,6 +171,7 @@ Use these gates unless a phase explicitly narrows or expands them.
 | 2026-05-28 | Phase 1 | Stage 1.1 | Completed | Added compact active-thread listener UI, typed gateway helpers, copyable server URL/token, expiry/status display, stop/revoke, active-only token handling, and lifecycle guards for thread changes/unmount during in-flight requests. Codex.app parity pre-check was blocked because `/Applications/Codex.app` is unavailable and no CDP endpoint was exposed in this Linux environment; UI followed local composer/pending-panel patterns. Verification: `pnpm vitest run src/api/codexGateway.test.ts --reporter=verbose` passed 7 tests; `pnpm exec vue-tsc --noEmit` passed. Reviewer race findings were fixed and final re-review found no remaining issues. Performance audit: no startup requests; one start request on click and one 15s status poll only while active. |
 | 2026-05-28 | Phase 1 | Stage 1.3 | Completed | Added `POST /codex-api/extension/assets/upload` for paired extension screenshot/crop/audio multipart uploads. Uploads require query `sessionId`/`threadId` plus bearer token and authorize before body buffering, cap request bodies at 15 MiB, allow PNG/WebP/JPEG and WebM/WAV/MP4/MPEG, sanitize/cap filenames, persist under `tmpdir()/codex-web-uploads`, and return local image URLs for image assets. Reviewer findings around early auth and filename length were fixed. Verification: `pnpm vitest run src/server/browserAnnotationAssets.test.ts src/server/browserAnnotationListen.test.ts --reporter=verbose` passed 18 tests; `pnpm exec vue-tsc --noEmit` passed. Performance audit: code-path analysis; one bounded multipart parse and temp-file write per accepted upload, no token/body logging. |
 | 2026-05-28 | Phase 1 | Stage 1.4 | Completed | Added server-only `/codex-api/extension/transcribe` endpoint for paired extension audio transcription. The route authorizes the extension bearer/session selector before buffering, validates/caps multipart audio, reads only server env config, calls OpenAI `/v1/audio/transcriptions` with primary model and retryable fallback model, and returns sanitized UI-facing provider errors without exposing keys or provider details. OpenAI docs were checked via Context7 official API reference before implementation. Verification: `pnpm exec vitest run src/server/browserAnnotationTranscribe.test.ts src/server/browserAnnotationListen.test.ts src/server/browserAnnotationAssets.test.ts --reporter=verbose` passed 26 tests; `pnpm exec vue-tsc --noEmit` passed. Reviewer privacy finding was fixed and final re-review found no remaining issues. Performance audit: code-path analysis; at most two sequential provider calls, no disk writes, no browser/startup/thread path changed. |
+| 2026-05-28 | Phase 1 | Stage 1.5 | Completed | Added `POST /codex-api/extension/annotation-batch` to validate an `AnnotationBatch`, build one structured prompt with page, annotation, voice, and DevTools context, append it to the existing backend queue, and schedule immediate drain. The route authorizes before JSON body reads, caps batch payloads at 1 MiB, bounds prompt assembly, redacts sensitive URL query values, omits body text for redacted/not-captured states, and accepts image refs only when they were issued by the upload endpoint for the same session/thread. Reviewer found an arbitrary-local-image risk; fixed with session-bound uploaded-image registry. Verification: `pnpm exec vitest run src/server/browserAnnotationBatch.test.ts src/server/browserAnnotationAssets.test.ts src/server/codexAppServerBridge.inlinePayload.test.ts --reporter=verbose` passed 30 tests; `pnpm exec vue-tsc --noEmit` passed. Performance audit: one bounded validation/prompt/queue append path and no direct browser/startup load. |
 
 ## Phase 0: Foundations, Secrets, And Deployment Discovery
 
@@ -249,12 +250,12 @@ Checklist:
   - [x] Include retry/error messages suitable for UI.
   - Smoke test: mocked OpenAI success/fallback/config/auth/mime/oversize/malformed/expired/error-sanitization coverage; no real call made because key rotation remains externally unconfirmed.
 
-- [ ] Stage 1.5: Batch-to-thread queueing
-  - [ ] Add `POST /codex-api/extension/annotation-batch`.
-  - [ ] Build a single structured prompt from all annotations.
-  - [ ] Include uploaded screenshots as `localImage` inputs.
-  - [ ] If thread is busy, use existing backend queue; otherwise start `turn/start`.
-  - Smoke test: send two annotations into a test thread and verify queued/started result.
+- [x] Stage 1.5: Batch-to-thread queueing
+  - [x] Add `POST /codex-api/extension/annotation-batch`.
+  - [x] Build a single structured prompt from all annotations.
+  - [x] Include uploaded screenshots as `localImage` inputs.
+  - [x] If thread is busy, use existing backend queue; otherwise start `turn/start`.
+  - Smoke test: focused endpoint tests send two annotations into a test thread queue and verify queued result/scheduled drain. Direct start is delegated to the existing backend queue processor.
 
 Phase 1 full regression:
 
