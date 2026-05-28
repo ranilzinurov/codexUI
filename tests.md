@@ -5866,3 +5866,36 @@ Browser annotation short-lived listen session API.
 
 #### Rollback/Cleanup
 - None. Sessions are in-memory and expire or disappear when the server process exits.
+
+---
+
+### Browser Annotation Listening Session UI
+
+#### Feature/Change Name
+Active-thread `Listen for browser annotations` panel.
+
+#### Prerequisites/Setup
+1. Run the app locally and open an existing thread.
+2. Keep DevTools Network open if you want to inspect endpoint calls.
+3. No Chrome extension is required for this UI smoke check.
+
+#### Steps
+1. In light theme, open a thread and confirm the compact listener panel appears above the composer.
+2. Click `Listen`.
+3. Confirm the panel shows active status, the selected thread title, expiry time, copyable server URL, and a pairing token.
+4. Click `Copy` for the server URL and pairing token and confirm the copied-state label appears briefly.
+5. Click `Stop` and confirm the token disappears and status changes away from active.
+6. Start listening again, switch to a different thread before the request completes if possible, and confirm the old thread token is not shown on the new thread.
+7. Repeat steps 1-5 in dark theme and confirm surfaces, text, inputs, and buttons use dark colors without light-theme panels.
+8. Run `pnpm vitest run src/api/codexGateway.test.ts --reporter=verbose`.
+9. Run `pnpm exec vue-tsc --noEmit`.
+
+#### Expected Results
+- The panel is idle until the user clicks `Listen`; no startup request is made.
+- A start request creates one short-lived session for the active thread.
+- While active, status polling runs at a 15-second cadence and includes `sessionId` and `threadId`.
+- Pairing token is visible only while the listener is active and is cleared on stop, expiry/status failure, thread change, and unmount.
+- Light and dark theme panels are readable and visually consistent with the composer area.
+
+#### Rollback/Cleanup
+- Click `Stop` for any active listener session. Sessions also expire automatically or disappear when the server process exits.

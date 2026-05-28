@@ -222,6 +222,24 @@ export type DirectoryComposioLinkResult = {
   projectType: string
 }
 
+export type BrowserAnnotationListenStatus = 'active' | 'expired' | 'revoked'
+
+export type BrowserAnnotationListenSession = {
+  sessionId: string
+  threadId: string
+  serverUrl: string | null
+  serverPath: string
+  expiresAtIso: string
+  createdAtIso: string
+  status: BrowserAnnotationListenStatus
+  pairingToken?: string
+}
+
+export type BrowserAnnotationListenSelector = {
+  sessionId?: string
+  threadId?: string
+}
+
 export type DirectoryComposioLoginResult = {
   status: string
   message: string
@@ -3679,6 +3697,67 @@ export async function removeComposerPrompt(path: string): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+const BROWSER_ANNOTATION_LISTEN_BASE_PATH = '/codex-api/extension/listen'
+
+type BrowserAnnotationListenResponse = {
+  ok?: boolean
+  session?: BrowserAnnotationListenSession
+  error?: string
+}
+
+function buildBrowserAnnotationListenSelectorQuery(selector?: BrowserAnnotationListenSelector): string {
+  const params = new URLSearchParams()
+  if (selector?.sessionId) params.set('sessionId', selector.sessionId)
+  if (selector?.threadId) params.set('threadId', selector.threadId)
+  const query = params.toString()
+  return query ? `?${query}` : ''
+}
+
+async function parseBrowserAnnotationListenResponse(response: Response, fallbackMessage: string): Promise<BrowserAnnotationListenSession> {
+  const payload = await response.json().catch(() => null) as BrowserAnnotationListenResponse | null
+  if (!response.ok) {
+    throw new Error(payload?.error || `${fallbackMessage} (${response.status})`)
+  }
+  if (!payload?.session) {
+    throw new Error(fallbackMessage)
+  }
+  return payload.session
+}
+
+export async function startBrowserAnnotationListenSession(threadId: string): Promise<BrowserAnnotationListenSession> {
+  const response = await fetch(`${BROWSER_ANNOTATION_LISTEN_BASE_PATH}/start`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ threadId }),
+  })
+  return parseBrowserAnnotationListenResponse(response, 'Failed to start browser annotation listener')
+}
+
+export async function getBrowserAnnotationListenStatus(
+  pairingToken: string,
+  selector?: BrowserAnnotationListenSelector,
+): Promise<BrowserAnnotationListenSession> {
+  const response = await fetch(`${BROWSER_ANNOTATION_LISTEN_BASE_PATH}/status${buildBrowserAnnotationListenSelectorQuery(selector)}`, {
+    headers: { Authorization: `Bearer ${pairingToken}` },
+  })
+  return parseBrowserAnnotationListenResponse(response, 'Failed to load browser annotation listener status')
+}
+
+export async function stopBrowserAnnotationListenSession(
+  pairingToken: string,
+  selector?: BrowserAnnotationListenSelector,
+): Promise<BrowserAnnotationListenSession> {
+  const response = await fetch(`${BROWSER_ANNOTATION_LISTEN_BASE_PATH}/stop`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${pairingToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(selector ?? {}),
+  })
+  return parseBrowserAnnotationListenResponse(response, 'Failed to stop browser annotation listener')
 }
 
 const FILE_UPLOAD_TIMEOUT_MS = 60_000

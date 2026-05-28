@@ -1079,6 +1079,11 @@
                     @hide="onHideSelectedThreadTerminal"
                     @terminal-focus-change="onTerminalFocusChange"
                   />
+                  <BrowserAnnotationListenerPanel
+                    v-if="selectedThreadId"
+                    :thread-id="selectedThreadId"
+                    :thread-title="selectedThreadListenTitle"
+                  />
                   <ThreadPendingRequestPanel
                     v-if="selectedThreadPendingRequest"
                     :request="selectedThreadPendingRequest"
@@ -1221,6 +1226,7 @@ import SidebarThreadTree from './components/sidebar/SidebarThreadTree.vue'
 import ContentHeader from './components/content/ContentHeader.vue'
 import ThreadComposer from './components/content/ThreadComposer.vue'
 import ThreadPendingRequestPanel from './components/content/ThreadPendingRequestPanel.vue'
+import BrowserAnnotationListenerPanel from './components/content/BrowserAnnotationListenerPanel.vue'
 import QueuedMessages from './components/content/QueuedMessages.vue'
 import RateLimitStatus from './components/content/RateLimitStatus.vue'
 import TaskNotificationsSetting from './components/content/TaskNotificationsSetting.vue'
@@ -1854,6 +1860,7 @@ const selectedThreadPendingRequest = computed<UiServerRequest | null>(() => {
   const rows = selectedThreadServerRequests.value
   return rows.length > 0 ? rows[rows.length - 1] : null
 })
+const selectedThreadListenTitle = computed(() => selectedThread.value?.title?.trim() || t('Untitled thread'))
 const composerCwd = computed(() => {
   if (isHomeRoute.value) return newThreadCwd.value.trim()
   return selectedThread.value?.cwd?.trim() ?? ''

@@ -168,6 +168,7 @@ Use these gates unless a phase explicitly narrows or expands them.
 | 2026-05-28 | Phase 0 | Stage 0.4 | Completed | Added `src/api/browserAnnotationContracts.ts` with `AnnotationBatch`, `AnnotationItem`, `DevToolsSnapshot`, `VoiceNote`, uploaded asset records, privacy redaction/body cap helpers, and representative examples. Focused Vitest passed 11 tests; reviewer accepted after privacy fixes for raw redacted/not-captured text, sensitive body fields, UTF-8 caps, and malformed arrays. |
 | 2026-05-28 | Phase 0 | Stage 0.2 decision | Completed | Repo-side routing decision recorded: `annotate.todo-tg-app.ru` should be a narrow annotation ingress to the existing Codex UI backend, not a full alternate UI mirror. Public DNS, certificate, and nginx deployment remain Phase 5 tasks because the current hostname resolves via wildcard and lacks a valid TLS SAN. |
 | 2026-05-28 | Phase 1 | Stage 1.2 | Completed | Added server pairing endpoints under `/codex-api/extension/listen` with TTL-bound in-memory sessions, SHA-256 token hashes, same-thread replacement, global session cap, route-local malformed JSON handling, and a 16 KiB request body limit. Worker smoke tests passed, reviewer findings were fixed, and re-review found no remaining issues. Verification: `pnpm vitest run src/server/browserAnnotationListen.test.ts --reporter=verbose` passed 8 tests; `pnpm exec vue-tsc --noEmit` passed. Performance audit: code-path analysis only; status/stop are direct lookup when `sessionId` is supplied, token-only fallback scans at most 100 retained sessions. |
+| 2026-05-28 | Phase 1 | Stage 1.1 | Completed | Added compact active-thread listener UI, typed gateway helpers, copyable server URL/token, expiry/status display, stop/revoke, active-only token handling, and lifecycle guards for thread changes/unmount during in-flight requests. Codex.app parity pre-check was blocked because `/Applications/Codex.app` is unavailable and no CDP endpoint was exposed in this Linux environment; UI followed local composer/pending-panel patterns. Verification: `pnpm vitest run src/api/codexGateway.test.ts --reporter=verbose` passed 7 tests; `pnpm exec vue-tsc --noEmit` passed. Reviewer race findings were fixed and final re-review found no remaining issues. Performance audit: no startup requests; one start request on click and one 15s status poll only while active. |
 
 ## Phase 0: Foundations, Secrets, And Deployment Discovery
 
@@ -216,12 +217,12 @@ Objective: add server and UI plumbing so an authenticated extension can pair wit
 
 Checklist:
 
-- [ ] Stage 1.1: Listening session UI
-  - [ ] Add a `Listen for browser annotations` control on the active thread surface.
-  - [ ] Generate a short-lived pairing token/session bound to `threadId`.
-  - [ ] Show listener status, target thread title, expiry, and copyable server URL.
-  - [ ] Add revoke/stop listening.
-  - Smoke test: create/revoke session in light and dark themes.
+- [x] Stage 1.1: Listening session UI
+  - [x] Add a `Listen for browser annotations` control on the active thread surface.
+  - [x] Generate a short-lived pairing token/session bound to `threadId`.
+  - [x] Show listener status, target thread title, expiry, and copyable server URL.
+  - [x] Add revoke/stop listening.
+  - Smoke test: API helper test/typecheck passed; light/dark manual UI verification documented in [tests.md](../tests.md) and remains part of Phase 1 regression.
 
 - [x] Stage 1.2: Server pairing endpoints
   - [x] Add `POST /codex-api/extension/listen/start`.
