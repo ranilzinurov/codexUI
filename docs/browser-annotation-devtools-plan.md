@@ -172,6 +172,7 @@ Use these gates unless a phase explicitly narrows or expands them.
 | 2026-05-28 | Phase 1 | Stage 1.3 | Completed | Added `POST /codex-api/extension/assets/upload` for paired extension screenshot/crop/audio multipart uploads. Uploads require query `sessionId`/`threadId` plus bearer token and authorize before body buffering, cap request bodies at 15 MiB, allow PNG/WebP/JPEG and WebM/WAV/MP4/MPEG, sanitize/cap filenames, persist under `tmpdir()/codex-web-uploads`, and return local image URLs for image assets. Reviewer findings around early auth and filename length were fixed. Verification: `pnpm vitest run src/server/browserAnnotationAssets.test.ts src/server/browserAnnotationListen.test.ts --reporter=verbose` passed 18 tests; `pnpm exec vue-tsc --noEmit` passed. Performance audit: code-path analysis; one bounded multipart parse and temp-file write per accepted upload, no token/body logging. |
 | 2026-05-28 | Phase 1 | Stage 1.4 | Completed | Added server-only `/codex-api/extension/transcribe` endpoint for paired extension audio transcription. The route authorizes the extension bearer/session selector before buffering, validates/caps multipart audio, reads only server env config, calls OpenAI `/v1/audio/transcriptions` with primary model and retryable fallback model, and returns sanitized UI-facing provider errors without exposing keys or provider details. OpenAI docs were checked via Context7 official API reference before implementation. Verification: `pnpm exec vitest run src/server/browserAnnotationTranscribe.test.ts src/server/browserAnnotationListen.test.ts src/server/browserAnnotationAssets.test.ts --reporter=verbose` passed 26 tests; `pnpm exec vue-tsc --noEmit` passed. Reviewer privacy finding was fixed and final re-review found no remaining issues. Performance audit: code-path analysis; at most two sequential provider calls, no disk writes, no browser/startup/thread path changed. |
 | 2026-05-28 | Phase 1 | Stage 1.5 | Completed | Added `POST /codex-api/extension/annotation-batch` to validate an `AnnotationBatch`, build one structured prompt with page, annotation, voice, and DevTools context, append it to the existing backend queue, and schedule immediate drain. The route authorizes before JSON body reads, caps batch payloads at 1 MiB, bounds prompt assembly, redacts sensitive URL query values, omits body text for redacted/not-captured states, and accepts image refs only when they were issued by the upload endpoint for the same session/thread. Reviewer found an arbitrary-local-image risk; fixed with session-bound uploaded-image registry. Verification: `pnpm exec vitest run src/server/browserAnnotationBatch.test.ts src/server/browserAnnotationAssets.test.ts src/server/codexAppServerBridge.inlinePayload.test.ts --reporter=verbose` passed 30 tests; `pnpm exec vue-tsc --noEmit` passed. Performance audit: one bounded validation/prompt/queue append path and no direct browser/startup load. |
+| 2026-05-28 | Phase 1 | Full regression | Completed | `pnpm run test:unit` passed 23 files / 178 tests. `pnpm run build` passed after fixing the listener panel scoped CSS and dark selector. `pnpm exec vue-tsc --noEmit` passed. `pnpm run test:coverage` passed with Statements 21.14%, Branches 17.8%, Functions 23.47%, Lines 22.02%. Added and ran `pnpm run test:browser-annotation`, passing 6 files / 52 tests. Light/dark listener verification passed on `http://127.0.0.1:4173/` with screenshots `output/playwright/browser-annotation-listener-light.png` and `output/playwright/browser-annotation-listener-dark.png`; dark shell rendered `rgb(24, 24, 27)` and token was hidden after Stop. Performance profile passed with `PROFILE_BASE_URL=http://127.0.0.1:4173 PROFILE_WAIT_MS=7000 pnpm run profile:browser`; report `output/playwright/browser-runtime-profile-home-2026-05-28T08-54-33-849Z.json`, warnings `[]`, duplicateCounts threadList/skills/rateLimits/providerModels all 1, totalApiKB 215. Phase reviewer findings were addressed. |
 
 ## Phase 0: Foundations, Secrets, And Deployment Discovery
 
@@ -259,15 +260,15 @@ Checklist:
 
 Phase 1 full regression:
 
-- [ ] `pnpm run test:unit`
-- [ ] `pnpm run build`
-- [ ] Linter gate
-- [ ] Coverage gate
-- [ ] CJS endpoint smoke suite
-- [ ] Manual UI check in light and dark themes
-- [ ] Performance audit for new endpoints and thread queue path
-- [ ] Update [tests.md](../tests.md)
-- [ ] Commit Phase 1 changes
+- [x] `pnpm run test:unit`
+- [x] `pnpm run build`
+- [x] Linter gate
+- [x] Coverage gate
+- [x] CJS endpoint smoke suite
+- [x] Manual UI check in light and dark themes
+- [x] Performance audit for new endpoints and thread queue path
+- [x] Update [tests.md](../tests.md)
+- [x] Commit Phase 1 changes
 
 ## Phase 2: Chrome Extension MVP Shell And Annotation Queue
 

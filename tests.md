@@ -5896,6 +5896,7 @@ Active-thread `Listen for browser annotations` panel.
 - While active, status polling runs at a 15-second cadence and includes `sessionId` and `threadId`.
 - Pairing token is visible only while the listener is active and is cleared on stop, expiry/status failure, thread change, and unmount.
 - Light and dark theme panels are readable and visually consistent with the composer area.
+- Phase 1 verification captured `output/playwright/browser-annotation-listener-light.png` and `output/playwright/browser-annotation-listener-dark.png`; dark mode shell background was `rgb(24, 24, 27)` and the token disappeared after Stop.
 
 #### Rollback/Cleanup
 - Click `Stop` for any active listener session. Sessions also expire automatically or disappear when the server process exits.

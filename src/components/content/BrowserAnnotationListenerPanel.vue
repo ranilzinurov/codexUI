@@ -294,7 +294,7 @@ function formatDateTime(value: string): string {
   --annotation-listener-error: #e11d48;
 }
 
-:global(:root.dark) .browser-annotation-listener {
+:global(:root.dark .browser-annotation-listener) {
   --annotation-listener-bg: #18181b;
   --annotation-listener-border: #3f3f46;
   --annotation-listener-text: #fafafa;
