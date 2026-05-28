@@ -278,32 +278,34 @@ function formatDateTime(value: string): string {
 </script>
 
 <style scoped>
+@reference "../../style.css";
+
 .browser-annotation-listener {
-  --annotation-listener-bg: theme(colors.white);
-  --annotation-listener-border: theme(colors.zinc.200);
-  --annotation-listener-text: theme(colors.zinc.950);
-  --annotation-listener-subtle: theme(colors.zinc.500);
-  --annotation-listener-panel-bg: theme(colors.zinc.50);
-  --annotation-listener-control-bg: theme(colors.white);
-  --annotation-listener-control-border: theme(colors.zinc.200);
-  --annotation-listener-hover-bg: theme(colors.zinc.100);
-  --annotation-listener-primary-bg: theme(colors.zinc.900);
-  --annotation-listener-primary-text: theme(colors.white);
-  --annotation-listener-error: theme(colors.rose.600);
+  --annotation-listener-bg: #fff;
+  --annotation-listener-border: #e4e4e7;
+  --annotation-listener-text: #09090b;
+  --annotation-listener-subtle: #71717a;
+  --annotation-listener-panel-bg: #fafafa;
+  --annotation-listener-control-bg: #fff;
+  --annotation-listener-control-border: #e4e4e7;
+  --annotation-listener-hover-bg: #f4f4f5;
+  --annotation-listener-primary-bg: #18181b;
+  --annotation-listener-primary-text: #fff;
+  --annotation-listener-error: #e11d48;
 }
 
 :global(:root.dark) .browser-annotation-listener {
-  --annotation-listener-bg: theme(colors.zinc.900);
-  --annotation-listener-border: theme(colors.zinc.700);
-  --annotation-listener-text: theme(colors.zinc.50);
-  --annotation-listener-subtle: theme(colors.zinc.400);
-  --annotation-listener-panel-bg: theme(colors.zinc.950);
-  --annotation-listener-control-bg: theme(colors.zinc.950);
-  --annotation-listener-control-border: theme(colors.zinc.700);
-  --annotation-listener-hover-bg: theme(colors.zinc.800);
-  --annotation-listener-primary-bg: theme(colors.zinc.100);
-  --annotation-listener-primary-text: theme(colors.zinc.950);
-  --annotation-listener-error: theme(colors.rose.300);
+  --annotation-listener-bg: #18181b;
+  --annotation-listener-border: #3f3f46;
+  --annotation-listener-text: #fafafa;
+  --annotation-listener-subtle: #a1a1aa;
+  --annotation-listener-panel-bg: #09090b;
+  --annotation-listener-control-bg: #09090b;
+  --annotation-listener-control-border: #3f3f46;
+  --annotation-listener-hover-bg: #27272a;
+  --annotation-listener-primary-bg: #f4f4f5;
+  --annotation-listener-primary-text: #09090b;
+  --annotation-listener-error: #fda4af;
 }
 
 .browser-annotation-listener-shell {
