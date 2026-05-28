@@ -166,6 +166,7 @@ Use these gates unless a phase explicitly narrows or expands them.
 | 2026-05-28 | Phase 0 | Stage 0.2 | Partial | Read-only discovery only. YC CLI reads found cloud `b1g2shga5sgnm7655pla`, folder `b1g9u1oitf2qnll9c2sa`, default zone `ru-central1-a`, DNS zone `dnsdvkis94l119fqhagt` / `todo-tg-app-ru` / `todo-tg-app.ru.`. `annotate.todo-tg-app.ru` resolves via wildcard `*.todo-tg-app.ru -> 45.155.204.47`, has no explicit DNS record, no valid TLS SAN/cert, and no repo nginx vhost. Existing repo nginx example uses filesystem Let's Encrypt paths for `codex.todo-tg-app.ru`; YC Certificate Manager has no `annotate` cert. `nginx -t` was inconclusive as non-root due cert file permissions. |
 | 2026-05-28 | Phase 0 | Stage 0.3 | Completed | Fixed the fake-timer queue scheduling test timeout by stubbing constructor queue recovery inside the scheduler test and cleaning fake timers in `finally`. Added `test:coverage` with Vitest Istanbul coverage over TypeScript files, zero baseline thresholds, and explicit optional Tailwind Oxide Linux binding for reliable local builds. `pnpm run test:unit` passed 19 files / 142 tests; `pnpm run build` passed; `pnpm run test:coverage` passed with baseline Statements 18.34%, Branches 15.46%, Functions 21.23%, Lines 19.12%. |
 | 2026-05-28 | Phase 0 | Stage 0.4 | Completed | Added `src/api/browserAnnotationContracts.ts` with `AnnotationBatch`, `AnnotationItem`, `DevToolsSnapshot`, `VoiceNote`, uploaded asset records, privacy redaction/body cap helpers, and representative examples. Focused Vitest passed 11 tests; reviewer accepted after privacy fixes for raw redacted/not-captured text, sensitive body fields, UTF-8 caps, and malformed arrays. |
+| 2026-05-28 | Phase 0 | Stage 0.2 decision | Completed | Repo-side routing decision recorded: `annotate.todo-tg-app.ru` should be a narrow annotation ingress to the existing Codex UI backend, not a full alternate UI mirror. Public DNS, certificate, and nginx deployment remain Phase 5 tasks because the current hostname resolves via wildcard and lacks a valid TLS SAN. |
 
 ## Phase 0: Foundations, Secrets, And Deployment Discovery
 
@@ -179,10 +180,10 @@ Checklist:
   - [x] Add server-side config reads with no client exposure.
   - [x] Smoke test: run a local env validation script that reports key presence without printing the key.
 
-- [ ] Stage 0.2: Existing deployment discovery
+- [x] Stage 0.2: Existing deployment discovery
   - [x] Inspect existing `ops/nginx/`, YC CLI config, certificate manager usage, and current todo-tg-app subdomains.
   - [x] Record the exact DNS zone, folder/cloud IDs, and certificate strategy in this file without secrets.
-  - [ ] Decide whether `annotate.todo-tg-app.ru` points to the existing Codex UI service or a narrow annotation ingress route.
+  - [x] Decide whether `annotate.todo-tg-app.ru` points to the existing Codex UI service or a narrow annotation ingress route.
   - Smoke test: read-only `yc` checks passed; nginx config check remains inconclusive as non-root due certificate file permissions.
 
 - [x] Stage 0.3: Quality gates baseline
