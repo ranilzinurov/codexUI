@@ -34,6 +34,11 @@ import {
 import { handleOpenRouterProxyRequest } from './openRouterProxy.js'
 import { handleZenProxyRequest } from './zenProxy.js'
 import { handleCustomEndpointProxyRequest } from './customEndpointProxy.js'
+import {
+  isPreviousResponseNotFoundLike,
+  summarizePreviousResponseError,
+  writePreviousResponseDiagnostic,
+} from './previousResponseDiagnostics.js'
 import { ThreadTerminalManager } from './terminalManager.js'
 import { WebPushNotifications } from './webPushNotifications.js'
 import { ThreadAutoTitleManager } from './threadAutoTitle.js'
@@ -69,6 +74,13 @@ type JsonRpcResponse = {
 type RpcProxyRequest = {
   method: string
   params?: unknown
+}
+
+type PendingRpcRequest = {
+  method: string
+  params: unknown
+  resolve: (value: unknown) => void
+  reject: (reason?: unknown) => void
 }
 
 type RpcExecutor = {
@@ -526,6 +538,43 @@ function parseBooleanEnvFlag(value: string | null | undefined): boolean | null {
   if (['1', 'true', 'yes', 'on'].includes(normalized)) return true
   if (['0', 'false', 'no', 'off'].includes(normalized)) return false
   return null
+}
+
+function extractDiagnosticThreadId(value: unknown): string {
+  const record = asRecord(value)
+  if (!record) return ''
+  const direct =
+    readNonEmptyString(record.threadId)
+    || readNonEmptyString(record.thread_id)
+    || readNonEmptyString(record.conversationId)
+    || readNonEmptyString(record.conversation_id)
+  if (direct) return direct
+
+  const thread = asRecord(record.thread)
+  const threadId = readNonEmptyString(thread?.id)
+  if (threadId) return threadId
+
+  const turn = asRecord(record.turn)
+  return readNonEmptyString(turn?.threadId) || readNonEmptyString(turn?.thread_id)
+}
+
+function logAppServerPreviousResponseDiagnostic(input: {
+  phase: string
+  method: string
+  params: unknown
+  error?: unknown
+  notification?: unknown
+}): void {
+  const candidate = input.error ?? input.notification
+  if (!isPreviousResponseNotFoundLike(candidate)) return
+
+  writePreviousResponseDiagnostic({
+    source: 'codex-app-server',
+    phase: input.phase,
+    method: input.method,
+    threadId: extractDiagnosticThreadId(input.params) || extractDiagnosticThreadId(input.notification),
+    error: summarizePreviousResponseError(candidate),
+  })
 }
 
 function resolveApiPerfLoggingEnabled(): boolean {
@@ -5579,7 +5628,7 @@ class AppServerProcess {
   private readBuffer = ''
   private nextId = 1
   private stopping = false
-  private readonly pending = new Map<number, { resolve: (value: unknown) => void; reject: (reason?: unknown) => void }>()
+  private readonly pending = new Map<number, PendingRpcRequest>()
   private readonly notificationListeners = new Set<(value: { method: string; params: unknown }) => void>()
   private readonly pendingServerRequests = new Map<number, PendingServerRequest>()
   private readonly appServerArgs = buildAppServerArgs()
@@ -5694,6 +5743,12 @@ class AppServerProcess {
       if (!pendingRequest) return
 
       if (message.error) {
+        logAppServerPreviousResponseDiagnostic({
+          phase: 'json-rpc-error',
+          method: pendingRequest.method,
+          params: pendingRequest.params,
+          error: message.error,
+        })
         pendingRequest.reject(new Error(sanitizeCodexErrorMessage(message.error.message)))
       } else {
         pendingRequest.resolve(message.result)
@@ -5702,6 +5757,12 @@ class AppServerProcess {
     }
 
     if (typeof message.method === 'string' && typeof message.id !== 'number') {
+      logAppServerPreviousResponseDiagnostic({
+        phase: 'notification',
+        method: message.method,
+        params: message.params ?? null,
+        notification: message,
+      })
       this.emitNotification({
         method: message.method,
         params: message.params ?? null,
@@ -6018,7 +6079,7 @@ class AppServerProcess {
     const id = this.nextId++
 
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject })
+      this.pending.set(id, { method, params, resolve, reject })
 
       this.sendLine({
         jsonrpc: '2.0',

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { createServer, type IncomingMessage } from 'node:http'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   chatCompletionToResponsesFormat,
   handleUnifiedResponsesProxyRequest,
@@ -39,6 +42,24 @@ function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
       }
     })
   })
+}
+
+async function readJsonlWhenReady(path: string, expectedRows: number): Promise<Record<string, unknown>[]> {
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < 2000) {
+    try {
+      const raw = await readFile(path, 'utf8')
+      const rows = raw
+        .split('\n')
+        .filter((line) => line.trim().length > 0)
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+      if (rows.length >= expectedRows) return rows
+    } catch {
+      // The diagnostic writer creates the file asynchronously.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  return []
 }
 
 describe('unified responses proxy reasoning_content translation', () => {
@@ -190,6 +211,10 @@ describe('unified responses proxy reasoning_content translation', () => {
 
   it('retries raw Responses once without previous_response_id when upstream reports it missing', async () => {
     const upstreamRequests: Record<string, unknown>[] = []
+    const previousLogPath = process.env.CODEXUI_PREVIOUS_RESPONSE_ERROR_LOG
+    const tempDir = await mkdtemp(join(tmpdir(), 'codexui-prev-response-'))
+    const diagnosticLogPath = join(tempDir, 'diagnostics.jsonl')
+    process.env.CODEXUI_PREVIOUS_RESPONSE_ERROR_LOG = diagnosticLogPath
     const input = [
       {
         type: 'message',
@@ -266,7 +291,30 @@ describe('unified responses proxy reasoning_content translation', () => {
         model: 'big-pickle',
         input,
       })
+      const diagnosticRows = await readJsonlWhenReady(diagnosticLogPath, 2)
+      expect(diagnosticRows).toHaveLength(2)
+      expect(diagnosticRows[0]).toMatchObject({
+        source: 'unified-responses-proxy',
+        phase: 'retry-started',
+        status: 404,
+        model: 'big-pickle',
+        wireApi: 'responses',
+        hasPreviousResponseId: true,
+        previousResponseId: 'resp_missing',
+      })
+      expect(diagnosticRows[1]).toMatchObject({
+        source: 'unified-responses-proxy',
+        phase: 'retry-finished',
+        status: 404,
+        retryStatus: 200,
+      })
     } finally {
+      if (previousLogPath === undefined) {
+        delete process.env.CODEXUI_PREVIOUS_RESPONSE_ERROR_LOG
+      } else {
+        process.env.CODEXUI_PREVIOUS_RESPONSE_ERROR_LOG = previousLogPath
+      }
+      await rm(tempDir, { recursive: true, force: true })
       await close(proxy)
       await close(upstream)
     }

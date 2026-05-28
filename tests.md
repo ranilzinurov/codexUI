@@ -5777,3 +5777,32 @@ Browser annotation batch contract, examples, and privacy validation.
 
 #### Rollback/Cleanup
 - None.
+
+---
+
+### Previous Response Error Diagnostics
+
+#### Feature/Change Name
+`previous_response_id` / `previous_response_not_found` diagnostic JSONL logging.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Dependencies are installed.
+3. Optional: set `CODEXUI_PREVIOUS_RESPONSE_ERROR_LOG=/tmp/codexui-previous-response-errors.jsonl` to choose a custom log path. By default the log is written to `output/previous-response-errors.jsonl`.
+
+#### Steps
+1. Run `pnpm vitest run src/server/unifiedResponsesProxy.test.ts`.
+2. Run `pnpm exec tsc --noEmit -p tsconfig.server.json`.
+3. During normal app usage, leave the app running and wait for any error containing `previous_response_not_found`, `previous_response_id`, or `Previous response ... not found`.
+4. Inspect the JSONL log path and confirm each row contains diagnostic metadata such as `source`, `phase`, `method` or `requestPath`, `threadId` when known, `model`, `wireApi`, `status`, `previousResponseId`, and summarized error text.
+5. Confirm log rows do not include bearer tokens, authorization headers, or full prompt/input payloads.
+6. Light and dark theme verification is not applicable because this change has no UI surface.
+
+#### Expected Results
+- The focused Vitest file passes and verifies retry diagnostics are written for stale previous-response recovery.
+- The server typecheck passes.
+- Runtime failures of this specific class are captured in JSONL without requiring auto-continue behavior.
+- Normal UI rendering is unchanged in both light and dark themes.
+
+#### Rollback/Cleanup
+- Delete any temporary diagnostic log used for testing, or unset `CODEXUI_PREVIOUS_RESPONSE_ERROR_LOG` to return to the default path.

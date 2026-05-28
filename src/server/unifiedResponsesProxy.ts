@@ -1,6 +1,12 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
+import {
+  isPreviousResponseNotFoundLike,
+  redactDiagnosticUrl,
+  summarizePreviousResponseError,
+  writePreviousResponseDiagnostic,
+} from './previousResponseDiagnostics.js'
 
 type ResponsesApiInput = {
   id?: string
@@ -499,6 +505,41 @@ function isPreviousResponseNotFoundError(status: number, rawResponseBody: string
   return errorRecord.param === 'previous_response_id' && messageLooksLikeMissingPreviousResponse
 }
 
+function buildPreviousResponseDiagnosticContext(input: {
+  req: IncomingMessage
+  options: UnifiedProxyOptions
+  upstreamUrl: URL
+  parsedBody: ResponsesApiRequest
+  rawResponsesPayload: Record<string, unknown> | null
+  useChatPayload: boolean
+  hasTools: boolean
+  hasToolOutputs: boolean
+  effectiveStreaming: boolean
+}): Record<string, unknown> {
+  const previousResponseId = typeof input.rawResponsesPayload?.previous_response_id === 'string'
+    ? input.rawResponsesPayload.previous_response_id
+    : typeof (input.parsedBody as Record<string, unknown>).previous_response_id === 'string'
+      ? String((input.parsedBody as Record<string, unknown>).previous_response_id)
+      : null
+
+  return {
+    source: 'unified-responses-proxy',
+    requestPath: input.req.url ?? '',
+    method: input.req.method ?? '',
+    model: input.parsedBody.model,
+    wireApi: input.options.wireApi,
+    responsesPayloadFormat: input.options.responsesPayloadFormat ?? 'raw',
+    useChatPayload: input.useChatPayload,
+    stream: input.parsedBody.stream === true,
+    effectiveStreaming: input.effectiveStreaming,
+    hasTools: input.hasTools,
+    hasToolOutputs: input.hasToolOutputs,
+    hasPreviousResponseId: Boolean(previousResponseId),
+    previousResponseId,
+    upstreamUrl: redactDiagnosticUrl(input.upstreamUrl.toString()),
+  }
+}
+
 function shouldRecoverWithoutPreviousResponseId(
   status: number,
   rawResponseBody: string,
@@ -641,26 +682,71 @@ export function handleUnifiedResponsesProxyRequest(
         upstreamRes.on('end', () => {
           const rawResponseBody = Buffer.concat(chunks).toString()
           if (!useChatPayload) {
+            const diagnosticContext = buildPreviousResponseDiagnosticContext({
+              req,
+              options,
+              upstreamUrl,
+              parsedBody,
+              rawResponsesPayload,
+              useChatPayload,
+              hasTools,
+              hasToolOutputs,
+              effectiveStreaming,
+            })
             if (
               !res.headersSent
               && !res.writableEnded
               && shouldRecoverWithoutPreviousResponseId(status, rawResponseBody, rawResponsesPayload)
             ) {
+              writePreviousResponseDiagnostic({
+                ...diagnosticContext,
+                phase: 'retry-started',
+                status,
+                error: summarizePreviousResponseError(parseJsonObject(rawResponseBody) ?? rawResponseBody),
+              })
               postJsonBuffered(
                 upstreamUrl,
                 payloadWithoutPreviousResponseId(rawResponsesPayload),
                 options.bearerToken,
               ).then((retryResponse) => {
                 if (res.headersSent || res.writableEnded) return
+                writePreviousResponseDiagnostic({
+                  ...diagnosticContext,
+                  phase: 'retry-finished',
+                  status,
+                  retryStatus: retryResponse.status,
+                  retryError: retryResponse.status >= 400
+                    ? summarizePreviousResponseError(parseJsonObject(retryResponse.body) ?? retryResponse.body)
+                    : null,
+                })
                 res.writeHead(retryResponse.status, copyProxyHeaders(retryResponse.headers))
                 res.end(retryResponse.body)
               }).catch((error: Error) => {
+                writePreviousResponseDiagnostic({
+                  ...diagnosticContext,
+                  phase: 'retry-error',
+                  status,
+                  retryError: error.message,
+                })
                 if (!res.headersSent && !res.writableEnded) {
                   res.writeHead(502, { 'Content-Type': 'application/json' })
                   res.end(JSON.stringify({ error: { message: `Proxy error: ${error.message}` } }))
                 }
               })
               return
+            }
+            if (isPreviousResponseNotFoundLike(rawResponseBody)) {
+              writePreviousResponseDiagnostic({
+                ...diagnosticContext,
+                phase: 'forwarded-without-retry',
+                status,
+                canRecoverWithoutPreviousResponseId: shouldRecoverWithoutPreviousResponseId(
+                  status,
+                  rawResponseBody,
+                  rawResponsesPayload,
+                ),
+                error: summarizePreviousResponseError(parseJsonObject(rawResponseBody) ?? rawResponseBody),
+              })
             }
             res.writeHead(status, copyProxyHeaders(upstreamRes.headers))
             res.end(rawResponseBody)
@@ -670,6 +756,24 @@ export function handleUnifiedResponsesProxyRequest(
           try {
             const upstreamPayload = JSON.parse(rawResponseBody) as Record<string, unknown>
             if (upstreamPayload.error || status >= 400) {
+              if (isPreviousResponseNotFoundLike(upstreamPayload)) {
+                writePreviousResponseDiagnostic({
+                  ...buildPreviousResponseDiagnosticContext({
+                    req,
+                    options,
+                    upstreamUrl,
+                    parsedBody,
+                    rawResponsesPayload,
+                    useChatPayload,
+                    hasTools,
+                    hasToolOutputs,
+                    effectiveStreaming,
+                  }),
+                  phase: 'chat-payload-error',
+                  status,
+                  error: summarizePreviousResponseError(upstreamPayload),
+                })
+              }
               if (process.env.CODEXUI_PROXY_DEBUG === '1') {
                 console.warn('[unified-responses-proxy]', JSON.stringify({
                   status,
