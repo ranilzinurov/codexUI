@@ -5,7 +5,7 @@
 1. Confirm the extension is loaded from `extension/browser-annotation` or from the production artifact under `dist/browser-annotation-extension/`.
 2. Confirm the side panel server URL matches the deployment:
    - local/dev: `http://127.0.0.1:4173`
-   - temporary public HTTP smoke: `http://46.62.215.111`
+   - temporary public HTTP smoke: `http://46.62.215.111` for page reachability only; do not pair or send tokens over non-local HTTP
    - production target: `https://annotate.todo-tg-app.ru`
 3. Confirm the pairing token is fresh and belongs to the thread you want to receive annotations.
 4. Open a normal `http(s)` page. Chrome blocks extension injection on `chrome://`, `chrome-extension://`, `file://`, `devtools://`, `about:`, and Chrome Web Store pages.
@@ -37,7 +37,7 @@ Try:
 3. Test on a normal `http(s)` page, not a restricted Chrome/internal page.
 4. Reload the extension from `chrome://extensions` if permissions changed after installing a new build.
 
-The production artifact intentionally keeps only `https://annotate.todo-tg-app.ru/*` as a host permission for server calls. Page access should come from `activeTab` after the user clicks the extension.
+The production artifact intentionally keeps only `https://annotate.todo-tg-app.ru/*` as a host permission for server calls. Page access should come from `activeTab` after the user clicks the extension. Non-local `http://` server URLs are rejected; use HTTPS for public ingress or `http://127.0.0.1` / `http://localhost` for local development only.
 
 ## Queue Is Empty Or Preview Is Missing
 

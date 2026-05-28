@@ -9,6 +9,11 @@
     return new URL(constants.LISTEN_STATUS_PATH, `${normalizedServerUrl}/`).toString();
   }
 
+  function buildListenStopUrl(serverUrl) {
+    const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
+    return new URL(constants.LISTEN_STOP_PATH, `${normalizedServerUrl}/`).toString();
+  }
+
   function buildAnnotationBatchUrl(serverUrl, session) {
     const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
     const url = new URL(constants.ANNOTATION_BATCH_PATH, `${normalizedServerUrl}/`);
@@ -98,6 +103,7 @@
   globalScope.BrowserAnnotationPairingClient = {
     buildAnnotationBatchUrl,
     buildAssetUploadUrl,
+    buildListenStopUrl,
     buildListenStatusUrl,
     buildTranscribeUrl,
     readJsonSafely,

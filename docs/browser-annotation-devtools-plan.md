@@ -190,6 +190,7 @@ Use these gates unless a phase explicitly narrows or expands them.
 | 2026-05-28 | Phase 6 | Stage 6.3 MCP/plugin design spike | Completed | Documented the MCP/plugin path in `docs/browser-annotation-mcp-plugin-design.md`. Decision: do not create a separate browser annotation MCP server/plugin for the MVP; keep capture extension-driven through `/codex-api/extension/*` and reserve future MCP tools (`snapshot_dom`, `screenshot`, `inspect_console`, `inspect_network`, `select_element`) for agent-driven browser inspection after a dedicated security review. Runtime test not required for this design-only stage; `tests.md` contains a review checklist. |
 | 2026-05-28 | Phase 6 | Stage 6.4 troubleshooting documentation | Completed | Added `docs/browser-annotation-troubleshooting.md` and linked it from the extension README. The guide covers pairing tokens, server URL choices, DNS wildcard/propagation, nginx/default-server and Vite `allowedHosts` failures, active-tab permission errors, empty queue/missing preview behavior, DevTools debugger/body-capture issues, voice/microphone/transcription states, and public HTTPS deployment checks. Runtime test not required for this documentation-only stage; `tests.md` contains a review checklist. |
 | 2026-05-28 | Phase 6 | Full regression | Partial | Automated regression passed: `pnpm run test:unit` passed 24 files / 180 tests, `pnpm run build` passed, `pnpm run test:coverage` passed with Statements 21.33%, Branches 17.92%, Functions 23.71%, Lines 22.21%, and `PROFILE_BASE_URL=http://127.0.0.1:4173 PROFILE_WAIT_MS=7000 pnpm run profile:browser` produced `output/playwright/browser-runtime-profile-home-2026-05-28T15-41-57-765Z.json` with warnings `[]`, duplicateCounts threadList/skills/rateLimits/providerModels all 1, totalApiKB 217. Light/dark compact renderer verification passed via Playwright route-interception smoke. Full real Chrome workflow with pairing, multiple annotations, DevTools capture, voice recording, and send remains a manual acceptance item because it requires user/browser interaction and should run on a disposable or user-approved thread. |
+| 2026-05-28 | Phase 7 | Stage 7.1 security hardening | Partial | Hardened public ingress and extension/server data handling after security review. The public nginx template now blocks `/codex-api/extension/listen/start`; the production extension rejects non-local `http://` server URLs and removes the temporary public-IP host permission; pairing tokens move from `chrome.storage.local` to session storage, the listen session is revoked after successful send, and the local token is cleared; uploads now sniff declared MIME content before writing; uploaded image refs expire from the in-memory registry; docs now point production pairing at `https://annotate.todo-tg-app.ru`. Verification: extension static/smoke scripts passed, `pnpm run pack:browser-annotation` produced a prod artifact with only `https://annotate.todo-tg-app.ru/*`, `pnpm run test:browser-annotation` passed 6 files / 53 tests, and `pnpm exec vue-tsc --noEmit` passed. External browser-network-log and screenshot secret review remains part of final manual acceptance. |
 
 ## Phase 0: Foundations, Secrets, And Deployment Discovery
 
@@ -516,9 +517,9 @@ Checklist:
 
 - [ ] Stage 7.1: Security review
   - [ ] Verify no secrets in repo, browser storage, network logs, screenshots, or generated docs.
-  - [ ] Review token TTL/revocation.
-  - [ ] Review CORS, auth, upload limits, mime validation, and path handling.
-  - [ ] Review DevTools capture redaction.
+  - [x] Review token TTL/revocation.
+  - [x] Review CORS, auth, upload limits, mime validation, and path handling.
+  - [x] Review DevTools capture redaction.
   - Smoke test: attempt invalid token, CORS abuse, oversize upload, unsupported mime.
 
 - [ ] Stage 7.2: Reliability review

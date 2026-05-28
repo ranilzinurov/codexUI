@@ -251,13 +251,13 @@ Give the user:
 
 ```text
 Test page: http://46.62.215.111/browser-annotation-test.html
-Server URL: http://46.62.215.111
+Server URL: https://annotate.todo-tg-app.ru
 Pairing token: <pairingToken from response>
 ```
 
 ## Notes
 
-- The extension manifest already includes host permission for `http://46.62.215.111/*`.
+- The extension rejects non-local `http://` server URLs so pairing tokens are not sent in cleartext. Use the IP URL only to verify public page reachability, not as the extension server URL.
 - If the user installed an older zip, they may need to reload or reinstall the unpacked extension.
 - The current server shell lacks passwordless sudo, so previous automated Nginx config attempt failed with:
 

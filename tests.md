@@ -6126,9 +6126,9 @@ Extension server URL and pairing-token validation.
 
 #### Expected Results
 - All static Node checks pass.
-- The validator confirms the extension host permissions are limited to `https://annotate.todo-tg-app.ru/*`, `http://46.62.215.111/*`, `http://127.0.0.1/*`, and `http://localhost/*`.
+- The validator confirms the extension host permissions are limited to `https://annotate.todo-tg-app.ru/*`, `http://127.0.0.1/*`, and `http://localhost/*`.
 - The pairing client smoke confirms status URL construction, malformed JSON handling, error parsing, and omission of any returned `pairingToken`.
-- Extension local storage contains only the user-configured server URL and pasted pairing token; no provider API key is present.
+- Extension local storage contains only the user-configured server URL; the pasted pairing token is kept in extension session storage while needed and no provider API key is present.
 - Status validation sends the token only as `Authorization: Bearer <token>` to `/codex-api/extension/listen/status`.
 - Light and dark side panel states are readable for disconnected, error, and connected states.
 
@@ -6606,3 +6606,46 @@ DevTools response body capture is limited to small textual failures and timeout 
 - Stop DevTools capture.
 - Remove the unpacked extension from `chrome://extensions` if it was loaded only for this test.
 - Revert any temporary local timeout constant used for the manual alarm smoke test.
+
+---
+
+### Browser Annotation Security Hardening
+
+#### Feature/Change Name
+Harden public browser annotation ingress, pairing-token storage, extension URL policy, and uploaded asset validation.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Use the checked-in extension source or the packaged artifact from `pnpm run pack:browser-annotation`.
+3. For manual Chrome checks, load the unpacked extension from `extension/browser-annotation` or the generated production artifact.
+
+#### Steps
+1. Run `node --check extension/browser-annotation/service-worker/service-worker.js`.
+2. Run `node --check extension/browser-annotation/sidepanel/sidepanel.js`.
+3. Run `node extension/browser-annotation/dev/validate-extension.mjs`.
+4. Run `node extension/browser-annotation/dev/pairing-client-smoke.mjs`.
+5. Run `node extension/browser-annotation/dev/annotation-queue-smoke.mjs`.
+6. Run `node extension/browser-annotation/dev/devtools-capture-smoke.mjs`.
+7. Run `pnpm exec vitest run src/server/browserAnnotationAssets.test.ts --reporter=verbose`.
+8. Run `pnpm run test:browser-annotation`.
+9. Run `pnpm run pack:browser-annotation`.
+10. Inspect `dist/browser-annotation-extension/unpacked/manifest.json` and confirm `host_permissions` contains only `https://annotate.todo-tg-app.ru/*`.
+11. Confirm the side panel rejects `http://46.62.215.111` and other non-local `http://` server URLs.
+12. Pair with a fresh token, send a queued annotation batch, and confirm the pairing token is no longer present in `chrome.storage.local` after save/send.
+13. Reuse the same token against `/codex-api/extension/listen/status` after send and confirm the server rejects it.
+14. Repeat the side-panel connection and queue readability checks in light and dark OS/browser color schemes.
+15. On a deployed public nginx host, request `/codex-api/extension/listen/start` through the public annotation ingress and confirm it is not exposed.
+
+#### Expected Results
+- Static checks, extension smoke tests, focused asset tests, and the browser annotation suite pass.
+- The production package does not include temporary public-IP host permissions.
+- Non-local plain HTTP server URLs are rejected by the extension.
+- Pairing tokens are stored only in extension session storage while needed, the server listen session is revoked after a successful send, and the local token is cleared.
+- Uploads whose bytes do not match the declared image/audio MIME type are rejected with `415`.
+- Public ingress does not allow anonymous pairing-token minting.
+- Light and dark side-panel states remain readable.
+
+#### Rollback/Cleanup
+- Remove the unpacked extension from `chrome://extensions` if it was loaded only for this test.
+- Clear extension storage and revoke/expire any listener token used for manual checks.
+- Remove generated `dist/browser-annotation-extension/` artifacts if they are not needed locally.

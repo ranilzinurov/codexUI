@@ -29,12 +29,33 @@ assert.equal(
   "https://annotate.todo-tg-app.ru/codex-api/extension/listen/status"
 );
 
+const defaultStopUrl = BrowserAnnotationPairingClient.buildListenStopUrl(
+  "https://annotate.todo-tg-app.ru/"
+);
+assert.equal(
+  defaultStopUrl,
+  "https://annotate.todo-tg-app.ru/codex-api/extension/listen/stop"
+);
+
 const localStatusUrl = BrowserAnnotationPairingClient.buildListenStatusUrl(
   "http://127.0.0.1:4173/local/path?ignored=true#hash"
 );
 assert.equal(
   localStatusUrl,
   "http://127.0.0.1:4173/codex-api/extension/listen/status"
+);
+
+const localIpv6StatusUrl = BrowserAnnotationPairingClient.buildListenStatusUrl(
+  "http://[::1]:4173/local/path?ignored=true#hash"
+);
+assert.equal(
+  localIpv6StatusUrl,
+  "http://[::1]:4173/codex-api/extension/listen/status"
+);
+
+assert.throws(
+  () => BrowserAnnotationPairingClient.buildListenStatusUrl("http://46.62.215.111"),
+  /must use HTTPS unless it is localhost, 127\.0\.0\.1, or ::1/u
 );
 
 const uploadUrl = BrowserAnnotationPairingClient.buildAssetUploadUrl(

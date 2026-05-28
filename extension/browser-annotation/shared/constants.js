@@ -6,7 +6,7 @@
    *
    * @typedef {Object} BrowserAnnotationSettings
    * @property {string} serverUrl Pairing server base URL.
-   * @property {string} pairingToken Thread listener token pasted from Codex UI.
+   * @property {string} pairingToken Ephemeral thread listener token pasted from Codex UI.
    *
    * @typedef {Object} BrowserAnnotationRuntimeMessage
    * @property {string} type One of MESSAGE_TYPES.
@@ -34,6 +34,7 @@
       pairingToken: ""
     }),
     LISTEN_STATUS_PATH: "/codex-api/extension/listen/status",
+    LISTEN_STOP_PATH: "/codex-api/extension/listen/stop",
     ANNOTATION_BATCH_PATH: "/codex-api/extension/annotation-batch",
     ASSET_UPLOAD_PATH: "/codex-api/extension/assets/upload",
     TRANSCRIBE_PATH: "/codex-api/extension/transcribe",
@@ -44,6 +45,7 @@
     ]),
     STORAGE_KEYS: Object.freeze({
       settings: "browserAnnotation.settings",
+      pairingToken: "browserAnnotation.pairingToken",
       annotationQueue: "browserAnnotation.annotationQueue",
       devtoolsCapture: "browserAnnotation.devtoolsCapture"
     }),

@@ -20,6 +20,10 @@
       throw new Error("Server URL must use http or https.");
     }
 
+    if (parsed.protocol === "http:" && !isLocalDevelopmentHost(parsed.hostname)) {
+      throw new Error("Server URL must use HTTPS unless it is localhost, 127.0.0.1, or ::1.");
+    }
+
     parsed.hash = "";
     parsed.search = "";
     return parsed.toString().replace(/\/$/, "");
@@ -68,6 +72,11 @@
     } catch (_error) {
       return null;
     }
+  }
+
+  function isLocalDevelopmentHost(hostname) {
+    const normalized = String(hostname || "").toLowerCase();
+    return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1" || normalized === "[::1]";
   }
 
   globalScope.BrowserAnnotationUrlUtils = {

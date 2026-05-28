@@ -189,6 +189,21 @@ describe('browser annotation asset upload endpoint', () => {
     expect(response.body.error).toBe('Unsupported browser annotation asset type')
   })
 
+  it('rejects uploads whose bytes do not match the declared mime type', async () => {
+    const store = new BrowserAnnotationListenStore({ nowMs: () => Date.UTC(2026, 0, 1), ttlMs: 60_000 })
+    const { baseUrl } = await listenWithStore(store)
+    const session = await startSession(baseUrl)
+
+    const response = await uploadAsset(baseUrl, session, {
+      fileName: 'screen.png',
+      mimeType: 'image/png',
+      bytes: Buffer.from('not actually a png'),
+    })
+
+    expect(response.status).toBe(415)
+    expect(response.body.error).toBe('Uploaded asset content does not match declared mime type')
+  })
+
   it('rejects oversized upload bodies before persisting the asset', async () => {
     const store = new BrowserAnnotationListenStore({ nowMs: () => Date.UTC(2026, 0, 1), ttlMs: 60_000 })
     const { baseUrl } = await listenWithStore(store, { maxBytes: 64 })

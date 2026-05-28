@@ -25,7 +25,6 @@ const productionHostPermissions = [
 ];
 const developmentHostPermissions = [
   ...productionHostPermissions,
-  "http://46.62.215.111/*",
   "http://127.0.0.1/*",
   "http://localhost/*"
 ];

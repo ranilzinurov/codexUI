@@ -64,6 +64,7 @@ type BrowserAnnotationUploadedAssetRegistryRecord = {
   threadId: string
   absolutePath: string
   localImageUrl: string
+  expiresAtMs: number
 }
 
 const uploadedImageAssetsByLocalImageUrl = new Map<string, BrowserAnnotationUploadedAssetRegistryRecord>()
@@ -133,6 +134,10 @@ export async function handleBrowserAnnotationAssetUploadRoute(
     setJson(res, 413, { error: 'Browser annotation asset upload is too large' })
     return true
   }
+  if (!isMimeContentCompatible(mimeType, parsed.fileData)) {
+    setJson(res, 415, { error: 'Uploaded asset content does not match declared mime type' })
+    return true
+  }
 
   const kind = normalizeAssetKind(parsed.fields.kind, mimeType)
   if (kind === 'audio' && !AUDIO_MIME_TYPES.has(mimeType)) {
@@ -165,11 +170,13 @@ export function registerBrowserAnnotationUploadedAsset(asset: BrowserAnnotationU
   if (!asset.localImageUrl) return
   const normalizedUrl = normalizeLocalImageUrl(asset.localImageUrl)
   if (!normalizedUrl) return
+  pruneUploadedImageRegistry()
   uploadedImageAssetsByLocalImageUrl.set(normalizedUrl, {
     sessionId: asset.sessionId,
     threadId: asset.threadId,
     absolutePath: resolve(asset.absolutePath),
     localImageUrl: normalizedUrl,
+    expiresAtMs: Date.now() + 60 * 60 * 1000,
   })
 }
 
@@ -177,10 +184,19 @@ export function isBrowserAnnotationUploadedImageRefForSession(
   localImageUrl: string,
   selector: { sessionId: string; threadId: string },
 ): boolean {
+  pruneUploadedImageRegistry()
   const normalizedUrl = normalizeLocalImageUrl(localImageUrl)
   if (!normalizedUrl) return false
   const record = uploadedImageAssetsByLocalImageUrl.get(normalizedUrl)
   return Boolean(record && record.sessionId === selector.sessionId && record.threadId === selector.threadId)
+}
+
+function pruneUploadedImageRegistry(nowMs = Date.now()): void {
+  for (const [localImageUrl, record] of uploadedImageAssetsByLocalImageUrl.entries()) {
+    if (record.expiresAtMs <= nowMs) {
+      uploadedImageAssetsByLocalImageUrl.delete(localImageUrl)
+    }
+  }
 }
 
 async function persistUploadedAsset(input: {
@@ -328,6 +344,26 @@ function normalizeMimeType(value: string): string {
 
 function isAllowedMimeType(value: string): boolean {
   return IMAGE_MIME_TYPES.has(value) || AUDIO_MIME_TYPES.has(value)
+}
+
+function isMimeContentCompatible(mimeType: string, data: Buffer): boolean {
+  if (mimeType === 'image/png') return hasPrefix(data, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+  if (mimeType === 'image/jpeg') return hasPrefix(data, [0xff, 0xd8, 0xff])
+  if (mimeType === 'image/webp') return hasAsciiAt(data, 0, 'RIFF') && hasAsciiAt(data, 8, 'WEBP')
+  if (mimeType === 'audio/webm') return hasPrefix(data, [0x1a, 0x45, 0xdf, 0xa3])
+  if (mimeType === 'audio/wav' || mimeType === 'audio/x-wav') return hasAsciiAt(data, 0, 'RIFF') && hasAsciiAt(data, 8, 'WAVE')
+  if (mimeType === 'audio/mp4') return hasAsciiAt(data, 4, 'ftyp')
+  if (mimeType === 'audio/mpeg') return hasAsciiAt(data, 0, 'ID3') || (data[0] === 0xff && typeof data[1] === 'number' && (data[1] & 0xe0) === 0xe0)
+  return false
+}
+
+function hasPrefix(data: Buffer, bytes: number[]): boolean {
+  if (data.length < bytes.length) return false
+  return bytes.every((byte, index) => data[index] === byte)
+}
+
+function hasAsciiAt(data: Buffer, offset: number, value: string): boolean {
+  return data.length >= offset + value.length && data.subarray(offset, offset + value.length).toString('ascii') === value
 }
 
 function normalizeAssetKind(value: string | undefined, mimeType: string): BrowserAnnotationAssetKind {

@@ -24,6 +24,7 @@ const {
 const {
   buildAnnotationBatchUrl,
   buildListenStatusUrl,
+  buildListenStopUrl,
   readJsonSafely,
   readStatusError,
   readSessionFromStatusPayload
@@ -146,7 +147,8 @@ async function handleMessage(message, sender) {
 
   if (message.type === MESSAGE_TYPES.SAVE_SETTINGS) {
     const settings = sanitizeSettings(message.settings || {});
-    await chrome.storage.local.set({ [STORAGE_KEYS.settings]: settings });
+    await chrome.storage.local.set({ [STORAGE_KEYS.settings]: { serverUrl: settings.serverUrl } });
+    await writePairingToken(settings.pairingToken);
     return { ok: true, state: await getPanelState() };
   }
 
@@ -236,11 +238,44 @@ function enableActionSidePanelBehavior() {
 }
 
 async function readSettings() {
-  const stored = await chrome.storage.local.get(STORAGE_KEYS.settings);
+  const [stored, pairingToken] = await Promise.all([
+    chrome.storage.local.get(STORAGE_KEYS.settings),
+    readPairingToken()
+  ]);
+  const storedSettings = stored[STORAGE_KEYS.settings] || {};
+  const { pairingToken: legacyPairingToken, ...safeStoredSettings } = storedSettings;
+  if (legacyPairingToken !== undefined) {
+    await chrome.storage.local.set({ [STORAGE_KEYS.settings]: safeStoredSettings });
+  }
   return {
     ...DEFAULT_SETTINGS,
-    ...(stored[STORAGE_KEYS.settings] || {})
+    ...safeStoredSettings,
+    pairingToken
   };
+}
+
+async function readPairingToken() {
+  if (!chrome.storage.session) {
+    return "";
+  }
+  const stored = await chrome.storage.session.get(STORAGE_KEYS.pairingToken);
+  return String(stored[STORAGE_KEYS.pairingToken] || "").trim();
+}
+
+async function writePairingToken(pairingToken) {
+  if (!chrome.storage.session) {
+    return;
+  }
+  const token = String(pairingToken || "").trim();
+  if (token) {
+    await chrome.storage.session.set({ [STORAGE_KEYS.pairingToken]: token });
+  } else {
+    await chrome.storage.session.remove(STORAGE_KEYS.pairingToken);
+  }
+}
+
+async function clearPairingToken() {
+  await writePairingToken("");
 }
 
 function sanitizeSettings(settings) {
@@ -464,16 +499,53 @@ async function sendAnnotationBatch() {
     throw new Error(readStatusError(payload, `Annotation batch send failed (${response.status}).`));
   }
 
+  const revokeResult = await revokeListenSessionAfterSuccessfulSend(settings, connection.session);
   await writeAnnotationQueue([]);
+  await clearPairingToken();
   const devtoolsStop = await stopDevtoolsCaptureIfActive("send-complete");
   const activeTab = await getActiveTab();
   const stoppedDevtoolsCapture = await readDevtoolsCaptureState();
+  const disconnected = {
+    status: "disconnected",
+    checkedAtIso: null,
+    session: null,
+    detail: revokeResult.ok
+      ? "Annotation batch sent and pairing token revoked. Paste a fresh pairing token to connect again."
+      : "Annotation batch sent. Pairing token was cleared locally and will expire on the server."
+  };
   return {
     ok: true,
     result: payload && payload.result ? payload.result : null,
     devtoolsStop,
-    state: buildPanelState(settings, connection, activeTab, [], stoppedDevtoolsCapture)
+    state: buildPanelState({ ...settings, pairingToken: "" }, disconnected, activeTab, [], stoppedDevtoolsCapture)
   };
+}
+
+async function revokeListenSessionAfterSuccessfulSend(settings, session) {
+  try {
+    const response = await fetch(buildListenStopUrl(settings.serverUrl), {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${settings.pairingToken}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        sessionId: session.sessionId,
+        threadId: session.threadId
+      }),
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      const payload = await readJsonSafely(response);
+      console.warn("Browser annotation listen session revoke failed.", readStatusError(payload, `HTTP ${response.status}`));
+      return { ok: false };
+    }
+    return { ok: true };
+  } catch (error) {
+    console.warn("Browser annotation listen session revoke failed.", error);
+    return { ok: false };
+  }
 }
 
 async function startDevtoolsCapture(options = {}) {
