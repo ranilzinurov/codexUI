@@ -34,7 +34,7 @@ This file tracks manual regression and feature verification steps.
 - The first run reports `"openAiApiKeyPresent": false`.
 - The second run reports `"openAiApiKeyPresent": true`.
 - Neither run prints the OpenAI key value.
-- Model fields reflect configured values or server defaults (`gpt-audio-mini-2025-12-15` primary, `whisper-1` fallback).
+- Model fields reflect configured values or server defaults.
 
 #### Rollback/Cleanup
 - Unset any temporary shell env values used for the smoke test.

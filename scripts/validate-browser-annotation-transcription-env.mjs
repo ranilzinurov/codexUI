@@ -7,7 +7,7 @@ const envNames = {
 }
 
 const defaults = {
-  primaryModel: 'gpt-audio-mini-2025-12-15',
+  primaryModel: 'gpt-4o-mini-transcribe',
   fallbackModel: 'whisper-1',
 }
 

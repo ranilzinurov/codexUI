@@ -4,7 +4,7 @@ export const BROWSER_ANNOTATION_TRANSCRIPTION_ENV = {
   fallbackModel: 'CODEXUI_ANNOTATION_TRANSCRIBE_FALLBACK_MODEL',
 } as const
 
-export const DEFAULT_BROWSER_ANNOTATION_TRANSCRIBE_MODEL = 'gpt-audio-mini-2025-12-15'
+export const DEFAULT_BROWSER_ANNOTATION_TRANSCRIBE_MODEL = 'gpt-4o-mini-transcribe'
 export const DEFAULT_BROWSER_ANNOTATION_TRANSCRIBE_FALLBACK_MODEL = 'whisper-1'
 
 export type BrowserAnnotationTranscriptionConfig = {
