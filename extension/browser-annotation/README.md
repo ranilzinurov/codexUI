@@ -62,7 +62,7 @@ node extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.
 4. Open any normal `http(s)` page. For the included test page, serve the repository locally first, for example `python3 -m http.server 8899`, then open `http://127.0.0.1:8899/extension/browser-annotation/dev/test-page.html`.
 5. Click the extension action, or press `Ctrl+Shift+Y`, to open the side panel and start annotation mode on the active page.
 6. Keep the default server URL (`https://annotate.todo-tg-app.ru`) or enter `http://127.0.0.1:<port>` / `http://localhost:<port>` for local testing. Non-local `http://` server URLs are rejected so bearer tokens are not sent in cleartext.
-7. Paste a Codex UI browser annotation pairing token. The token stays in extension local storage and is only sent as `Authorization: Bearer <token>` to `/codex-api/extension/listen/status`.
+7. Paste a Codex UI browser annotation pairing token. The token is kept in extension session storage while needed, is removed from extension local storage if an older build stored it there, and is only sent as `Authorization: Bearer <token>` to browser annotation endpoints.
 8. Click **Save and validate**.
 9. Confirm the side panel shows **Connected** for an active token, **Disconnected** when no token is stored, and **Error** for invalid, expired, unreachable, or malformed status responses.
 10. If annotation mode is not already active, click **Inject overlay**.
@@ -77,6 +77,14 @@ node extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.
 19. Click **Send queued annotations** with a valid connected pairing token and confirm the queue clears after the server accepts the batch. The batch request should be a POST to `/codex-api/extension/annotation-batch` with the pairing token as `Authorization: Bearer <token>`.
 20. Inspect the annotation-batch request body if available. Confirm it contains one top-level `page`, queued `items`, each item note, selector/rect/viewport context, `assets: []`, no `preview.dataUrl` or other screenshot data URL, and `devTools` only when DevTools capture mode was explicitly enabled.
 21. Press Esc and confirm hover tracking stops until **Inject overlay** is clicked again.
+
+## Packaging And Release Notes
+
+- Development install: use Chrome **Load unpacked** with `extension/browser-annotation/`.
+- Production artifact: run `pnpm run pack:browser-annotation` and distribute `dist/browser-annotation-extension/codex-ui-browser-annotation-0.1.0.zip`.
+- Production server URL: `https://annotate.todo-tg-app.ru`.
+- Public ingress: deploy `ops/nginx/annotate.todo-tg-app.ru.conf`, issue a TLS certificate for `annotate.todo-tg-app.ru`, and keep `/codex-api/extension/listen/start` blocked on the public annotation-only vhost.
+- Future Chrome Web Store path: keep the production manifest limited to the HTTPS annotation origin, prepare store screenshots/privacy disclosure for the `debugger`, `activeTab`, `tabs`, `scripting`, `sidePanel`, `storage`, and `alarms` permissions, and publish the zip contents after final manual acceptance.
 
 Restricted pages such as `chrome://extensions`, `chrome-extension://...`, `file://...`, `devtools://...`, and `about:` pages should show a clear side-panel error instead of attempting injection.
 

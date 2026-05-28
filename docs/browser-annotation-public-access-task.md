@@ -61,18 +61,20 @@ Conclusion: the app works locally, but external access to non-standard ports is 
 
 ## Desired Public URLs
 
-Make these work from the user's local computer:
+Make these work from the user's local computer after HTTPS deployment:
 
 ```text
-http://46.62.215.111/browser-annotation-test.html
-http://46.62.215.111/codex-api/extension/listen/start
+https://annotate.todo-tg-app.ru/browser-annotation-test.html
+https://annotate.todo-tg-app.ru/codex-api/extension/listen/status
 ```
 
 The extension side panel should use:
 
 ```text
-Server URL: http://46.62.215.111
+Server URL: https://annotate.todo-tg-app.ru
 ```
+
+`/codex-api/extension/listen/start` must remain blocked on the public annotation-only ingress; pairing tokens are minted from authenticated Codex UI, then pasted into the extension.
 
 The test page should display the heading:
 
@@ -82,7 +84,7 @@ Codex annotation extension test page
 
 ## Preferred Fix: Nginx Reverse Proxy On Port 80
 
-Create an Nginx config that proxies only the manual test page and extension API to the existing Vite server on `127.0.0.1:4173`.
+Create an Nginx config that proxies only the manual test page and extension API to the existing Vite server on `127.0.0.1:4173`. For production-style pairing, use the checked-in HTTPS template at `ops/nginx/annotate.todo-tg-app.ru.conf`; the plain HTTP snippet below is only a temporary reachability diagnostic and must not be used for sending pairing tokens.
 
 Suggested config:
 
