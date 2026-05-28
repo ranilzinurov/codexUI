@@ -9,7 +9,9 @@
     readStatusError
   } = globalThis.BrowserAnnotationPairingClient;
   const {
-    getTabOriginPattern
+    describeRestrictedUrl,
+    getTabOriginPattern,
+    isRestrictedTabUrl
   } = globalThis.BrowserAnnotationUrlUtils;
 
   const VOICE_UPLOAD_TIMEOUT_MS = 60000;
@@ -235,13 +237,18 @@
   }
 
   async function requestActiveTabHostPermission() {
-    const activeTab = lastState && lastState.activeTab ? lastState.activeTab : null;
-    if (!activeTab || activeTab.restricted) {
+    const freshTab = await getFreshActiveTab();
+    const activeTab = freshTab || (lastState && lastState.activeTab ? lastState.activeTab : null);
+    const tabUrl = activeTab && activeTab.url ? activeTab.url : "";
+    if (!activeTab) {
       return;
     }
+    if (isRestrictedTabUrl(tabUrl)) {
+      throw new Error(describeRestrictedUrl(tabUrl));
+    }
 
-    const originPattern = activeTab.hostPermissionPattern || getTabOriginPattern(activeTab.url);
-    if (!originPattern || activeTab.hasHostAccess === true) {
+    const originPattern = getTabOriginPattern(tabUrl) || activeTab.hostPermissionPattern || "";
+    if (!originPattern) {
       return;
     }
 
@@ -249,10 +256,25 @@
       throw new Error("Chrome host permissions API is unavailable; cannot inject the annotation overlay.");
     }
 
+    const hasAccess = chrome.permissions.contains
+      ? await chrome.permissions.contains({ origins: [originPattern] })
+      : activeTab.hasHostAccess === true;
+    if (hasAccess) {
+      return;
+    }
+
     const granted = await chrome.permissions.request({ origins: [originPattern] });
     if (!granted) {
       throw new Error(`Permission denied. Allow Codex UI Browser Annotation to access ${originPattern} before injecting the overlay.`);
     }
+  }
+
+  async function getFreshActiveTab() {
+    if (!chrome.tabs || !chrome.tabs.query) {
+      return null;
+    }
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    return tabs[0] || null;
   }
 
   function activeTabDetail(activeTab) {

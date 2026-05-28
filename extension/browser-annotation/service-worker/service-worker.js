@@ -90,9 +90,10 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 chrome.action.onClicked.addListener((tab) => {
-  injectOverlayIntoTab(tab).catch((error) => {
-    console.warn("Unable to start browser annotation from the extension action.", error);
-  });
+  enableActionSidePanelBehavior();
+  if (tab && tab.url && isRestrictedTabUrl(tab.url)) {
+    console.warn("Browser annotation side panel opened on a restricted page.", describeRestrictedUrl(tab.url));
+  }
 });
 
 if (chrome.debugger && chrome.debugger.onEvent && chrome.debugger.onDetach) {
@@ -429,6 +430,8 @@ async function injectOverlayIntoTab(tab) {
     throw new Error(describeRestrictedUrl(tab.url));
   }
 
+  await ensureTabHostAccess(tab);
+
   await chrome.scripting.executeScript({
     target: { tabId: tab.id },
     files: [
@@ -447,6 +450,21 @@ async function injectOverlayIntoTab(tab) {
     injected: Boolean(response && response.ok),
     state: await getPanelState()
   };
+}
+
+async function ensureTabHostAccess(tab) {
+  const originPattern = getTabOriginPattern(tab && tab.url);
+  if (!originPattern) {
+    throw new Error("The active tab has no accessible http(s) origin for annotation.");
+  }
+
+  if (await hasHostPermission(originPattern)) {
+    return;
+  }
+
+  throw new Error(
+    `Grant site access for ${originPattern} before injecting the annotation overlay. Open the extension side panel on that tab, click Inject overlay, and approve Chrome's access prompt.`
+  );
 }
 
 async function hasHostPermission(originPattern) {

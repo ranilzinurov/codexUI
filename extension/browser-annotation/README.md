@@ -44,6 +44,8 @@ node --check extension/browser-annotation/dev/screenshot-crop-smoke.mjs
 node --check extension/browser-annotation/dev/devtools-capture-smoke.mjs
 node --check extension/browser-annotation/dev/devtools-fixture-smoke.mjs
 node --check extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.mjs
+node --check extension/browser-annotation/dev/sidepanel-host-permission-smoke.cjs
+node --check extension/browser-annotation/dev/content-overlay-cancel-smoke.cjs
 node extension/browser-annotation/dev/validate-extension.mjs
 node extension/browser-annotation/dev/pairing-client-smoke.mjs
 node extension/browser-annotation/dev/selection-context-smoke.mjs
@@ -52,6 +54,8 @@ node extension/browser-annotation/dev/screenshot-crop-smoke.mjs
 node extension/browser-annotation/dev/devtools-capture-smoke.mjs
 node extension/browser-annotation/dev/devtools-fixture-smoke.mjs
 node extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.mjs
+node extension/browser-annotation/dev/sidepanel-host-permission-smoke.cjs
+node extension/browser-annotation/dev/content-overlay-cancel-smoke.cjs
 ```
 
 ## Manual Load-Unpacked Smoke Test
@@ -68,7 +72,7 @@ node extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.
 10. If annotation mode is not already active, click **Inject overlay** and approve Chrome's host access prompt for the current site when it appears.
 11. Confirm the page shows the "Codex annotation mode" panel and a blue hover box follows the button, input, and sample card.
 12. Click the sample button, sample input, and sample card.
-13. Confirm the selected element gets a green box, the overlay reports that the element was queued, and the side panel queue count/list updates.
+13. Confirm the selected element gets a green box with a visible `×` cancel button, the overlay reports that the element was queued, and the side panel queue count/list updates.
 14. Confirm each queue row includes a visible preview cropped to the selected element when Chrome grants visible-tab capture. On a DPR 2 display, a 120 CSS-pixel wide selected element should produce a 240 pixel wide stored preview unless it exceeds the preview cap.
 15. If Chrome denies visible-tab capture, confirm the element still queues and the row shows `No preview` instead of failing the selection.
 16. Open the extension service worker console and inspect `chrome.storage.local.get("browserAnnotation.annotationQueue")`. Confirm queued items either store `preview.dataUrl`, `preview.cropRect`, and `preview.devicePixelRatio`, or store a short `previewError`; no full-tab screenshot is stored.
@@ -76,12 +80,13 @@ node extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.
 18. Optional DevTools smoke: run `node extension/browser-annotation/dev/devtools-fixture-server.mjs`, open `http://127.0.0.1:8899/`, enable **DevTools capture mode**, click console/network fixture buttons, and make an annotation.
 19. Click **Send queued annotations** with a valid connected pairing token and confirm the queue clears after the server accepts the batch. The batch request should be a POST to `/codex-api/extension/annotation-batch` with the pairing token as `Authorization: Bearer <token>`.
 20. Inspect the annotation-batch request body if available. Confirm it contains one top-level `page`, queued `items`, each item note, selector/rect/viewport context, `assets: []`, no `preview.dataUrl` or other screenshot data URL, and `devTools` only when DevTools capture mode was explicitly enabled.
-21. Press Esc and confirm hover tracking stops until **Inject overlay** is clicked again.
+21. Click the selected element `×` and confirm the selected box disappears, the queued item is removed, and annotation mode remains ready for another selection.
+22. Select another element, press Esc, and confirm the selected annotation is removed and hover tracking stops until **Inject overlay** is clicked again.
 
 ## Packaging And Release Notes
 
 - Development install: use Chrome **Load unpacked** with `extension/browser-annotation/`.
-- Production artifact: run `pnpm run pack:browser-annotation` and distribute `dist/browser-annotation-extension/codex-ui-browser-annotation-0.1.0.zip`.
+- Production artifact: run `pnpm run pack:browser-annotation` and distribute `dist/browser-annotation-extension/codex-ui-browser-annotation-0.1.1.zip`.
 - Production server URL: `https://codex-ui.todo-tg-app.ru`.
 - Public ingress: deploy `ops/nginx/annotate.todo-tg-app.ru.conf`, issue a TLS certificate for `annotate.todo-tg-app.ru`, and keep `/codex-api/extension/listen/start` blocked on the public annotation-only vhost.
 - Future Chrome Web Store path: keep permanent production host permissions limited to Codex UI/annotation server origins, disclose runtime site access requests plus the `debugger`, `activeTab`, `tabs`, `scripting`, `sidePanel`, `storage`, and `alarms` permissions, and publish the zip contents after final manual acceptance.

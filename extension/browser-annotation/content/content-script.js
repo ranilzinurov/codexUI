@@ -19,6 +19,9 @@
   let active = false;
   let hoveredElement = null;
   let selectedElement = null;
+  let selectedQueueItemId = "";
+  let currentSelectionToken = 0;
+  const canceledSelectionTokens = new Set();
   let pendingHoverRect = false;
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -94,6 +97,18 @@
     const selectedBox = document.createElement("div");
     selectedBox.className = "box box-selected";
     selectedBox.hidden = true;
+    const cancelButton = document.createElement("button");
+    cancelButton.className = "selection-cancel";
+    cancelButton.type = "button";
+    cancelButton.title = "Cancel selected annotation";
+    cancelButton.setAttribute("aria-label", "Cancel selected annotation");
+    cancelButton.textContent = "×";
+    cancelButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      cancelSelectedAnnotation({ pause: false });
+    });
+    selectedBox.append(cancelButton);
     const panel = createPanel();
     shadow.append(style, hoverBox, selectedBox, panel.container);
 
@@ -101,6 +116,7 @@
       host,
       hoverBox,
       selectedBox,
+      cancelButton,
       panel: panel.container,
       status: panel.status,
       detail: panel.detail
@@ -129,6 +145,10 @@
     event.stopPropagation();
 
     selectedElement = target;
+    selectedQueueItemId = "";
+    const selectionToken = currentSelectionToken + 1;
+    currentSelectionToken = selectionToken;
+    canceledSelectionTokens.delete(selectionToken);
     hoveredElement = target;
     updateBox(overlay.selectedBox, target);
     overlay.selectedBox.hidden = false;
@@ -153,6 +173,15 @@
               : "Selection was not accepted by the extension."
           );
         }
+        const queuedItemId = response.item && response.item.id ? String(response.item.id) : "";
+        if (selectionToken !== currentSelectionToken || canceledSelectionTokens.has(selectionToken)) {
+          if (queuedItemId) {
+            void deleteQueuedAnnotation(queuedItemId);
+          }
+          canceledSelectionTokens.delete(selectionToken);
+          return;
+        }
+        selectedQueueItemId = queuedItemId;
         const count = response.queueCount || 1;
         overlay.status.textContent = "Element queued.";
         overlay.detail.textContent = `${describeElement(target)} saved. Queue contains ${count} item${count === 1 ? "" : "s"}.`;
@@ -168,13 +197,63 @@
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
+      if (selectedElement || selectedQueueItemId) {
+        cancelSelectedAnnotation({ pause: true });
+      } else {
+        stopAnnotationMode();
+      }
+    }
+  }
+
+  function cancelSelectedAnnotation(options = {}) {
+    const shouldPause = options.pause === true;
+    const canceledToken = currentSelectionToken;
+    if (canceledToken > 0) {
+      canceledSelectionTokens.add(canceledToken);
+    }
+
+    const queuedItemId = selectedQueueItemId;
+    selectedQueueItemId = "";
+    selectedElement = null;
+    if (overlay) {
+      overlay.selectedBox.hidden = true;
+      overlay.status.textContent = shouldPause
+        ? "Selected annotation canceled. Annotation mode paused."
+        : "Selected annotation canceled. Click another element to queue it.";
+      overlay.detail.textContent = shouldPause
+        ? "Inject again to select another element."
+        : "Choose a page element, or press Esc to exit.";
+    }
+    if (queuedItemId) {
+      void deleteQueuedAnnotation(queuedItemId);
+      canceledSelectionTokens.delete(canceledToken);
+    }
+    if (shouldPause) {
       stopAnnotationMode();
+    }
+  }
+
+  async function deleteQueuedAnnotation(id) {
+    try {
+      await chrome.runtime.sendMessage({
+        type: MESSAGE_TYPES.DELETE_ANNOTATION_QUEUE_ITEM,
+        id
+      });
+    } catch (error) {
+      if (overlay) {
+        overlay.detail.textContent = error instanceof Error
+          ? error.message
+          : String(error);
+      }
     }
   }
 
   function selectableTargetFromEvent(event) {
     const path = typeof event.composedPath === "function" ? event.composedPath() : [];
     const target = path[0] || event.target;
+    if (overlay && path.includes(overlay.host)) {
+      return null;
+    }
     if (!target || target.nodeType !== 1) {
       return null;
     }
@@ -259,6 +338,33 @@
         border: 2px solid #22c55e;
         background: rgba(34, 197, 94, 0.16);
         box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.28);
+      }
+
+      .selection-cancel {
+        position: absolute;
+        top: -14px;
+        right: -14px;
+        display: grid;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        color: #f8fafc;
+        background: #111827;
+        border: 1px solid rgba(248, 250, 252, 0.75);
+        border-radius: 999px;
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.35);
+        cursor: pointer;
+        font: 700 18px/1 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        pointer-events: auto;
+      }
+
+      .selection-cancel:hover {
+        background: #1f2937;
+      }
+
+      .selection-cancel:focus-visible {
+        outline: 2px solid #93c5fd;
+        outline-offset: 2px;
       }
 
       .title {

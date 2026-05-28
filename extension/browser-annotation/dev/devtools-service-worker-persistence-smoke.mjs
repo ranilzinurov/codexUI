@@ -278,14 +278,21 @@ assert.equal(stateBeforePermission.activeTab.hasHostAccess, false);
 assert.equal(stateBeforePermission.activeTab.needsHostPermission, true);
 assert.equal(stateBeforePermission.activeTab.hostAccessStatus, "needs_permission");
 
+await assert.rejects(
+  () => context.injectOverlayIntoActiveTab(),
+  /Grant site access for https:\/\/arbitrary\.example\.test\/\*/
+);
+assert.equal(executedScripts.length, 0);
+
+context.chrome.permissions.grantTestOrigin("https://arbitrary.example.test/*");
 const injectResult = await context.injectOverlayIntoActiveTab();
 assert.equal(injectResult.ok, true);
 assert.equal(injectResult.injected, true);
 assert.equal(executedScripts.length, 1);
 const stateAfterPermission = await context.getPanelState();
-assert.equal(stateAfterPermission.activeTab.hasHostAccess, false);
-assert.equal(stateAfterPermission.activeTab.needsHostPermission, true);
-assert.equal(stateAfterPermission.activeTab.hostAccessStatus, "needs_permission");
+assert.equal(stateAfterPermission.activeTab.hasHostAccess, true);
+assert.equal(stateAfterPermission.activeTab.needsHostPermission, false);
+assert.equal(stateAfterPermission.activeTab.hostAccessStatus, "granted");
 
 storage.set(BrowserAnnotationConstants.STORAGE_KEYS.pairingToken, "revoked-token");
 context.fetch = async () => new Response(JSON.stringify({
@@ -355,6 +362,9 @@ function createChromeStub(
       contains: async (request) => {
         const origins = Array.isArray(request?.origins) ? request.origins : [];
         return origins.every((origin) => grantedOrigins.has(origin));
+      },
+      grantTestOrigin: (origin) => {
+        grantedOrigins.add(origin);
       },
       request: async () => {
         throw new Error("service worker must not request optional host permissions");

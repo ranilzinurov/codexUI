@@ -13,7 +13,12 @@ import { WebSocketServer, type WebSocket } from 'ws'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const distDir = join(__dirname, '..', 'dist')
 const spaEntryFile = join(distDir, 'index.html')
-const browserAnnotationZipFile = join(distDir, 'browser-annotation-extension', 'codex-ui-browser-annotation-0.1.0.zip')
+const browserAnnotationExtensionVersion = '0.1.1'
+const browserAnnotationZipFile = join(
+  distDir,
+  'browser-annotation-extension',
+  `codex-ui-browser-annotation-${browserAnnotationExtensionVersion}.zip`,
+)
 const browserAnnotationTestPageFile = join(__dirname, '..', 'public', 'browser-annotation-test.html')
 
 export type ServerOptions = {
@@ -88,7 +93,10 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
 
   app.use(createMobileShellCorsMiddleware())
 
-  app.get('/codex-ui-browser-annotation-0.1.0.zip', (_req, res) => {
+  app.get([
+    '/codex-ui-browser-annotation.zip',
+    `/codex-ui-browser-annotation-${browserAnnotationExtensionVersion}.zip`,
+  ], (_req, res) => {
     if (!existsSync(browserAnnotationZipFile)) {
       res.status(404).json({ error: 'Browser annotation extension artifact is not available. Run pnpm run pack:browser-annotation.' })
       return

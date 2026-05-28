@@ -6691,10 +6691,10 @@ Harden extension queue/lifecycle behavior and reject stale in-flight server requ
 
 ---
 
-### Browser Annotation Any-Site Injection And Compact Listener
+### Browser Annotation Any-Site Injection, Cancel, And Compact Listener
 
 #### Feature/Change Name
-Allow the browser annotation extension to request access for normal `http(s)` sites at runtime and keep the Codex UI listener compact.
+Allow the browser annotation extension to request access for normal `http(s)` sites at runtime, cancel selected annotations from the overlay, and keep the Codex UI listener compact.
 
 #### Prerequisites/Setup
 1. Run from the repository root on `browser-annotation-devtools`.
@@ -6706,20 +6706,27 @@ Allow the browser annotation extension to request access for normal `http(s)` si
 1. Run `node extension/browser-annotation/dev/validate-extension.mjs`.
 2. Run `node extension/browser-annotation/dev/pairing-client-smoke.mjs`.
 3. Run `node extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.mjs`.
-4. Run `pnpm exec vitest run src/server/browserAnnotationListen.test.ts --reporter=verbose`.
-5. Run `pnpm exec vue-tsc --noEmit`.
-6. Run `pnpm run pack:browser-annotation`.
-7. Inspect `dist/browser-annotation-extension/unpacked/manifest.json` and confirm `optional_host_permissions` contains `http://*/*` and `https://*/*`.
-8. In Chrome, open a normal page outside the pairing host, for example `http://46.62.215.111/browser-annotation-test.html` or `https://example.com`.
-9. Click `Inject overlay` in the extension side panel and approve the host access prompt.
-10. Select at least one element and confirm it appears in the annotation queue.
-11. Send the queued annotations and wait for the Codex UI listener status to update.
-12. Repeat the compact listener visual check in light and dark themes: idle, active with setup collapsed, setup expanded, and stopped/revoked after send.
+4. Run `node extension/browser-annotation/dev/sidepanel-host-permission-smoke.cjs`.
+5. Run `node extension/browser-annotation/dev/content-overlay-cancel-smoke.cjs`.
+6. Run `pnpm exec vitest run src/server/browserAnnotationListen.test.ts --reporter=verbose`.
+7. Run `pnpm exec vue-tsc --noEmit`.
+8. Run `pnpm run pack:browser-annotation`.
+9. Inspect `dist/browser-annotation-extension/unpacked/manifest.json` and confirm `host_permissions` is limited to the Codex UI/annotation origins while `optional_host_permissions` contains `http://*/*` and `https://*/*`.
+10. In Chrome, open a normal page outside the pairing host, for example `http://46.62.215.111/browser-annotation-test.html`, `https://crm-dev.todo-tg-app.ru/admin/crm?section=pricing`, or `https://example.com`.
+11. Click `Inject overlay` in the extension side panel and approve the host access prompt.
+12. Select at least one element and confirm it appears in the annotation queue.
+13. Click the selected overlay `×` and confirm the highlighted selection disappears and the queued item is removed while annotation mode stays ready for another selection.
+14. Select another element, press Esc, and confirm the selected annotation is removed and annotation mode pauses until `Inject overlay` is clicked again.
+15. Send the queued annotations and wait for the Codex UI listener status to update.
+16. Repeat the side panel, overlay cancel button, and compact listener visual checks in light and dark themes: idle, active with setup collapsed, setup expanded, selected, canceled, and stopped/revoked after send.
 
 #### Expected Results
 - Static extension validation and focused listen tests pass.
+- The side panel requests host permission for the fresh active tab, not a stale Codex UI tab, before sending the inject message.
 - The production package keeps narrow permanent pairing host permissions while allowing runtime access requests for normal `http(s)` sites.
 - Chrome asks for access to the current site once; after approval, overlay injection works without adding that host to the manifest or rebuilding the extension.
+- The selected overlay includes a visible cancel `×`; clicking it removes the current queued annotation and leaves annotation mode active.
+- Pressing Esc removes the current queued annotation and pauses annotation mode.
 - Restricted pages such as `chrome://`, `chrome-extension://`, Chrome Web Store, `about:`, `view-source:`, and `devtools://` remain blocked.
 - The Codex UI listener is a compact row by default, with server URL and pairing token hidden behind setup details.
 - After the extension sends a batch and revokes the listen session, Codex UI can observe `status: revoked` for that session and stop showing an active listener.
