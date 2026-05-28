@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import * as codexGateway from './codexGateway'
 import {
   getBrowserAnnotationListenStatus,
   listDirectoryApps,
@@ -7,6 +8,22 @@ import {
   startThreadTurn,
   stopBrowserAnnotationListenSession,
 } from './codexGateway'
+
+type RpcRequest = { method: string, params: Record<string, unknown> }
+
+type MockRpcResponse = {
+  result?: unknown
+  status?: number
+  error?: unknown
+}
+
+type SideThreadGatewayContract = typeof codexGateway & {
+  forkSideThread(threadId: string): Promise<{ threadId: string, cwd: string, model: string }>
+  startSideThread(threadId: string, options?: { initialPrompt?: string }): Promise<{ threadId: string, cwd: string, model: string }>
+  startSideThreadTurn?: typeof startThreadTurn
+}
+
+const sideThreadGateway = codexGateway as SideThreadGatewayContract
 
 function mockRpcFetch(): { requests: Array<{ method: string, params: Record<string, unknown> }> } {
   const requests: Array<{ method: string, params: Record<string, unknown> }> = []
@@ -34,6 +51,134 @@ function mockRpcFetch(): { requests: Array<{ method: string, params: Record<stri
 
   return { requests }
 }
+
+function mockRpcFetchWith(handler: (request: RpcRequest, index: number) => MockRpcResponse): { requests: RpcRequest[] } {
+  const requests: RpcRequest[] = []
+
+  vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const body = typeof init?.body === 'string'
+      ? JSON.parse(init.body) as RpcRequest
+      : { method: '', params: {} }
+    requests.push(body)
+
+    const response = handler(body, requests.length - 1)
+    const status = response.status ?? 200
+    const payload = status >= 400
+      ? { error: response.error ?? { message: 'RPC request failed' } }
+      : { result: response.result ?? {} }
+
+    return new Response(JSON.stringify(payload), {
+      status,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    })
+  }))
+
+  return { requests }
+}
+
+describe('side thread gateway API', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('forks a side thread with ephemeral extended-history RPC flags', async () => {
+    const { requests } = mockRpcFetchWith(() => ({
+      result: {
+        thread: {
+          id: 'side-thread-1',
+          cwd: '/workspace/project',
+        },
+        model: 'gpt-5.4',
+      },
+    }))
+
+    await sideThreadGateway.forkSideThread('thread-parent')
+
+    expect(requests).toEqual([
+      {
+        method: 'thread/fork',
+        params: {
+          threadId: 'thread-parent',
+          ephemeral: true,
+          persistExtendedHistory: true,
+        },
+      },
+    ])
+  })
+
+  it('starts a side thread and returns the side thread id plus model and cwd when present', async () => {
+    const { requests } = mockRpcFetchWith(() => ({
+      result: {
+        thread: {
+          id: 'side-thread-2',
+          cwd: '/workspace/project',
+        },
+        model: 'gpt-5.4',
+      },
+    }))
+
+    const sideThread = await sideThreadGateway.startSideThread('thread-parent')
+
+    expect(requests[0]).toEqual({
+      method: 'thread/fork',
+      params: {
+        threadId: 'thread-parent',
+        ephemeral: true,
+        persistExtendedHistory: true,
+      },
+    })
+    expect(sideThread).toEqual({
+      threadId: 'side-thread-2',
+      cwd: '/workspace/project',
+      model: 'gpt-5.4',
+    })
+  })
+
+  it('does not fall back to turn/start when ephemeral side-thread forks are unsupported', async () => {
+    const { requests } = mockRpcFetchWith(() => ({
+      status: 400,
+      error: {
+        message: 'ephemeral threads are not supported by this app-server',
+      },
+    }))
+
+    let error: unknown
+    try {
+      await sideThreadGateway.startSideThread('thread-parent', { initialPrompt: 'open a side chat' })
+    } catch (caught) {
+      error = caught
+    }
+
+    expect(requests.map((request) => request.method)).toEqual(['thread/fork'])
+    expect(error).toBeInstanceOf(Error)
+    expect(error).toMatchObject({
+      name: 'CodexApiError',
+      code: 'http_error',
+      method: 'thread/fork',
+      status: 400,
+    })
+    expect((error as Error).message).toBe('RPC thread/fork failed with HTTP 400: ephemeral threads are not supported by this app-server')
+  })
+
+  it('starts turns against the side thread id', async () => {
+    const { requests } = mockRpcFetchWith(() => ({
+      result: {
+        turn: {
+          id: 'turn-side-1',
+        },
+      },
+    }))
+    const startSideTurn = sideThreadGateway.startSideThreadTurn ?? startThreadTurn
+
+    const turnId = await startSideTurn('side-thread-3', 'continue here', [], 'gpt-5.4', 'medium')
+
+    expect(turnId).toBe('turn-side-1')
+    expect(requests[0].method).toBe('turn/start')
+    expect(requests[0].params.threadId).toBe('side-thread-3')
+  })
+})
 
 describe('startThreadTurn collaboration mode payloads', () => {
   afterEach(() => {
