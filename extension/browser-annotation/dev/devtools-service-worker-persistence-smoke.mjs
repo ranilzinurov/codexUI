@@ -7,9 +7,12 @@ import vm from "node:vm";
 const extensionRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const storage = new Map();
 const detachedTabs = [];
+const tabRemovedListeners = [];
+const tabUpdatedListeners = [];
 let pendingBodyResponse = null;
 
 const context = vm.createContext({
+  AbortController,
   Date,
   Math,
   Promise,
@@ -202,6 +205,58 @@ assert.equal(restartedState.active, true);
 assert.equal(restartedState.startedAtIso, secondCapture.startedAtIso);
 assert.equal(restartedState.networkRows.some((row) => row.requestId === "stale-body-request"), false);
 
+storage.set(storageKey, BrowserAnnotationDevtoolsCapture.createDevtoolsCaptureState(
+  {
+    id: 42,
+    title: "Closed after restart",
+    url: "https://app.example.test/closed"
+  },
+  {
+    nowMs: nowMs + 6000,
+    timeoutMs: 60000
+  }
+));
+context.devtoolsCaptureTabId = null;
+tabRemovedListeners[0](42);
+await delay(10);
+const closedState = storage.get(storageKey);
+assert.equal(closedState.active, false);
+assert.equal(closedState.detachReason, "tab-closed");
+
+storage.set(storageKey, BrowserAnnotationDevtoolsCapture.createDevtoolsCaptureState(
+  {
+    id: 42,
+    title: "Navigated after restart",
+    url: "https://app.example.test/before-navigation"
+  },
+  {
+    nowMs: nowMs + 7000,
+    timeoutMs: 60000
+  }
+));
+context.devtoolsCaptureTabId = null;
+tabUpdatedListeners[0](42, { status: "loading", url: "https://app.example.test/after-navigation" });
+await delay(10);
+const navigatedState = storage.get(storageKey);
+assert.equal(navigatedState.active, false);
+assert.equal(navigatedState.detachReason, "tab-navigated");
+
+const annotationQueueKey = BrowserAnnotationConstants.STORAGE_KEYS.annotationQueue;
+storage.set(annotationQueueKey, []);
+await Promise.all([
+  context.saveSelectedElementContext(
+    { selector: "#alpha", text: "alpha", rect: { x: 0, y: 0, width: 10, height: 10 }, viewport: { width: 100, height: 100, devicePixelRatio: 1 } },
+    { tab: { id: 42, windowId: 7, title: "Queue race", url: "https://app.example.test/queue" } }
+  ),
+  context.saveSelectedElementContext(
+    { selector: "#bravo", text: "bravo", rect: { x: 10, y: 10, width: 10, height: 10 }, viewport: { width: 100, height: 100, devicePixelRatio: 1 } },
+    { tab: { id: 42, windowId: 7, title: "Queue race", url: "https://app.example.test/queue" } }
+  )
+]);
+const concurrentQueue = storage.get(annotationQueueKey);
+assert.equal(concurrentQueue.length, 2);
+assert.deepEqual(concurrentQueue.map((item) => item.context.selector).sort(), ["#alpha", "#bravo"]);
+
 console.log("Extension DevTools service worker persistence smoke passed.");
 
 function createChromeStub(localStorage, detachLog, getPendingBodyResponse) {
@@ -259,7 +314,9 @@ function createChromeStub(localStorage, detachLog, getPendingBodyResponse) {
     },
     tabs: {
       captureVisibleTab: async () => "",
-      onRemoved: { addListener },
+      get: async () => ({ active: true }),
+      onRemoved: { addListener: (listener) => tabRemovedListeners.push(listener) },
+      onUpdated: { addListener: (listener) => tabUpdatedListeners.push(listener) },
       query: async () => []
     }
   };

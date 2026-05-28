@@ -101,6 +101,46 @@ function assetFrom(body: Record<string, unknown>): BrowserAnnotationUploadedAsse
   return parsed
 }
 
+function delayedBufferStream(body: Buffer, release: Promise<void>): ReadableStream<Uint8Array> {
+  const midpoint = Math.max(1, Math.floor(body.length / 2))
+  return new ReadableStream<Uint8Array>({
+    async start(controller) {
+      controller.enqueue(body.subarray(0, midpoint))
+      await release
+      controller.enqueue(body.subarray(midpoint))
+      controller.close()
+    },
+  })
+}
+
+function buildMultipartUploadBody(input: { boundary: string; fileName: string; mimeType: string; bytes: Buffer; kind?: string }): Buffer {
+  const fields = input.kind
+    ? `--${input.boundary}\r\nContent-Disposition: form-data; name="kind"\r\n\r\n${input.kind}\r\n`
+    : ''
+  const head = Buffer.from(
+    `${fields}--${input.boundary}\r\n` +
+      `Content-Disposition: form-data; name="file"; filename="${input.fileName}"\r\n` +
+      `Content-Type: ${input.mimeType}\r\n\r\n`,
+    'utf8',
+  )
+  const tail = Buffer.from(`\r\n--${input.boundary}--\r\n`, 'utf8')
+  return Buffer.concat([head, input.bytes, tail])
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolveDelay) => setTimeout(resolveDelay, ms))
+}
+
+function deferred<T = void>(): { promise: Promise<T>; resolve: (value: T | PromiseLike<T>) => void; reject: (reason?: unknown) => void } {
+  let resolveDeferred!: (value: T | PromiseLike<T>) => void
+  let rejectDeferred!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolve, reject) => {
+    resolveDeferred = resolve
+    rejectDeferred = reject
+  })
+  return { promise, resolve: resolveDeferred, reject: rejectDeferred }
+}
+
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => {
     server.close(() => resolve())
@@ -276,6 +316,45 @@ describe('browser annotation asset upload endpoint', () => {
 
     expect(response.status).toBe(401)
     expect(response.body.error).toBe('Invalid or expired extension bearer token')
+  })
+
+  it('rejects uploads if the listen session is revoked while the body is in flight', async () => {
+    const store = new BrowserAnnotationListenStore({ nowMs: () => Date.UTC(2026, 0, 1), ttlMs: 60_000 })
+    const { baseUrl } = await listenWithStore(store)
+    const session = await startSession(baseUrl)
+    const releaseBody = deferred()
+    const boundary = 'revoked-in-flight-upload'
+    const body = buildMultipartUploadBody({
+      boundary,
+      fileName: 'screen.png',
+      mimeType: 'image/png',
+      bytes: pngBytes,
+      kind: 'screenshot',
+    })
+
+    const responsePromise = fetch(`${baseUrl}${BROWSER_ANNOTATION_ASSET_UPLOAD_PATH}?sessionId=${encodeURIComponent(session.sessionId)}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${session.pairingToken}`,
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      },
+      body: delayedBufferStream(body, releaseBody.promise),
+      duplex: 'half',
+    } as RequestInit & { duplex: 'half' })
+
+    await delay(20)
+    await requestJson(baseUrl, '/codex-api/extension/listen/stop', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.pairingToken}` },
+      body: JSON.stringify({ sessionId: session.sessionId }),
+    })
+    releaseBody.resolve()
+
+    const response = await responsePromise
+    const payload = await response.json() as Record<string, unknown>
+    expect(response.status).toBe(401)
+    expect(payload.error).toBe('Invalid, expired, or revoked extension bearer token')
+    expect(payload.asset).toBeUndefined()
   })
 
   it('returns a 400 for malformed multipart uploads', async () => {

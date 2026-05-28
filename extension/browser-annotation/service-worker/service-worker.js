@@ -65,10 +65,14 @@ const DEVTOOLS_NETWORK_EVENT_METHODS = new Set([
   "Network.loadingFailed"
 ]);
 const DEVTOOLS_CAPTURE_TIMEOUT_ALARM = "browserAnnotation.devtoolsCaptureTimeout";
+const STATUS_FETCH_TIMEOUT_MS = 8000;
+const BATCH_SEND_TIMEOUT_MS = 30000;
+const REVOKE_FETCH_TIMEOUT_MS = 8000;
 
 let devtoolsCaptureTimer = null;
 let devtoolsCaptureTabId = null;
 let devtoolsCapturePersistenceQueue = Promise.resolve();
+let annotationQueueMutationQueue = Promise.resolve();
 const DEVTOOLS_CAPTURE_NO_WRITE = Symbol("devtoolsCaptureNoWrite");
 
 enableActionSidePanelBehavior();
@@ -116,12 +120,44 @@ if (chrome.alarms && chrome.alarms.onAlarm) {
 }
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  if (devtoolsCaptureTabId === tabId) {
-    stopDevtoolsCapture("tab-closed").catch((error) => {
-      console.warn("Unable to stop DevTools capture after tab close.", error);
-    });
-  }
+  stopDevtoolsCaptureForClosedTab(tabId).catch((error) => {
+    console.warn("Unable to stop DevTools capture after tab close.", error);
+  });
 });
+
+if (chrome.tabs.onUpdated) {
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+    stopDevtoolsCaptureForNavigation(tabId, changeInfo).catch((error) => {
+      console.warn("Unable to stop DevTools capture after tab navigation.", error);
+    });
+  });
+}
+
+async function stopDevtoolsCaptureForClosedTab(tabId) {
+  if (devtoolsCaptureTabId === tabId) {
+    await stopDevtoolsCapture("tab-closed");
+    return;
+  }
+  const state = await readDevtoolsCaptureState();
+  if (state.active && state.tabId === tabId) {
+    await stopDevtoolsCapture("tab-closed");
+  }
+}
+
+async function stopDevtoolsCaptureForNavigation(tabId, changeInfo) {
+  const isNavigation = Boolean(changeInfo && (changeInfo.url || changeInfo.status === "loading"));
+  if (!isNavigation) {
+    return;
+  }
+  if (devtoolsCaptureTabId === tabId) {
+    await stopDevtoolsCapture("tab-navigated");
+    return;
+  }
+  const state = await readDevtoolsCaptureState();
+  if (state.active && state.tabId === tabId) {
+    await stopDevtoolsCapture("tab-navigated");
+  }
+}
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   handleMessage(message, _sender)
@@ -309,14 +345,14 @@ async function validateConnection(settings) {
   }
 
   try {
-    const response = await fetch(statusUrl, {
+    const response = await fetchWithTimeout(statusUrl, {
       method: "GET",
       headers: {
         Accept: "application/json",
         Authorization: `Bearer ${settings.pairingToken}`
       },
       cache: "no-store"
-    });
+    }, STATUS_FETCH_TIMEOUT_MS);
     const payload = await readJsonSafely(response);
     if (!response.ok) {
       throw new Error(
@@ -390,29 +426,30 @@ async function saveSelectedElementContext(context, sender) {
   }
 
   const previewResult = await captureSelectedElementPreviewSafely(context, sender);
-  const queue = await readAnnotationQueue();
-  const item = {
-    id: `annotation-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-    kind: "element-selection",
-    createdAtIso: new Date().toISOString(),
-    tab: sender && sender.tab
-      ? {
-          id: sender.tab.id,
-          title: sender.tab.title || "",
-          url: sender.tab.url || ""
-        }
-      : null,
-    context,
-    preview: previewResult.preview,
-    previewError: previewResult.error
-  };
-  const nextQueue = trimAnnotationQueue([...queue, item]);
-  await writeAnnotationQueue(nextQueue);
-  return {
-    ok: true,
-    queueCount: nextQueue.length,
-    item
-  };
+  return enqueueAnnotationQueueMutation(async () => {
+    const queue = await readAnnotationQueue();
+    const item = {
+      id: `annotation-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      kind: "element-selection",
+      createdAtIso: new Date().toISOString(),
+      tab: sender && sender.tab
+        ? {
+            id: sender.tab.id,
+            title: sender.tab.title || "",
+            url: sender.tab.url || ""
+          }
+        : null,
+      context,
+      preview: previewResult.preview,
+      previewError: previewResult.error
+    };
+    const nextQueue = await writeAnnotationQueue([...queue, item]);
+    return {
+      ok: true,
+      queueCount: nextQueue.length,
+      item
+    };
+  });
 }
 
 async function readAnnotationQueue() {
@@ -430,33 +467,39 @@ async function writeAnnotationQueue(queue) {
 }
 
 async function updateQueuedAnnotation(id, patch) {
-  const queue = await readAnnotationQueue();
-  const nextQueue = await writeAnnotationQueue(updateAnnotationQueueItem(queue, id, patch));
-  return {
-    ok: true,
-    queue: nextQueue,
-    queueCount: nextQueue.length
-  };
+  return enqueueAnnotationQueueMutation(async () => {
+    const queue = await readAnnotationQueue();
+    const nextQueue = await writeAnnotationQueue(updateAnnotationQueueItem(queue, id, patch));
+    return {
+      ok: true,
+      queue: nextQueue,
+      queueCount: nextQueue.length
+    };
+  });
 }
 
 async function deleteQueuedAnnotation(id) {
-  const queue = await readAnnotationQueue();
-  const nextQueue = await writeAnnotationQueue(deleteAnnotationQueueItem(queue, id));
-  return {
-    ok: true,
-    queue: nextQueue,
-    queueCount: nextQueue.length
-  };
+  return enqueueAnnotationQueueMutation(async () => {
+    const queue = await readAnnotationQueue();
+    const nextQueue = await writeAnnotationQueue(deleteAnnotationQueueItem(queue, id));
+    return {
+      ok: true,
+      queue: nextQueue,
+      queueCount: nextQueue.length
+    };
+  });
 }
 
 async function moveQueuedAnnotation(id, direction) {
-  const queue = await readAnnotationQueue();
-  const nextQueue = await writeAnnotationQueue(moveAnnotationQueueItem(queue, id, direction));
-  return {
-    ok: true,
-    queue: nextQueue,
-    queueCount: nextQueue.length
-  };
+  return enqueueAnnotationQueueMutation(async () => {
+    const queue = await readAnnotationQueue();
+    const nextQueue = await writeAnnotationQueue(moveAnnotationQueueItem(queue, id, direction));
+    return {
+      ok: true,
+      queue: nextQueue,
+      queueCount: nextQueue.length
+    };
+  });
 }
 
 async function sendAnnotationBatch() {
@@ -466,10 +509,11 @@ async function sendAnnotationBatch() {
     throw new Error(connection.detail || "Connect the extension before sending annotations.");
   }
 
-  const queue = await readAnnotationQueue();
+  const queue = await readSettledAnnotationQueue();
   if (queue.length === 0) {
     throw new Error("Annotation queue is empty.");
   }
+  const sentQueueItemIds = new Set(queue.map((item) => item && item.id).filter(Boolean));
 
   const devtoolsCapture = await readDevtoolsCaptureState();
   const manifest = chrome.runtime.getManifest ? chrome.runtime.getManifest() : {};
@@ -484,7 +528,7 @@ async function sendAnnotationBatch() {
     throw new Error("Annotation batch is too large to send. Delete a few annotations and try again.");
   }
 
-  const response = await fetch(buildAnnotationBatchUrl(settings.serverUrl, connection.session), {
+  const response = await fetchWithTimeout(buildAnnotationBatchUrl(settings.serverUrl, connection.session), {
     method: "POST",
     headers: {
       Accept: "application/json",
@@ -493,14 +537,14 @@ async function sendAnnotationBatch() {
     },
     body: JSON.stringify(batch),
     cache: "no-store"
-  });
+  }, BATCH_SEND_TIMEOUT_MS);
   const payload = await readJsonSafely(response);
   if (!response.ok) {
     throw new Error(readStatusError(payload, `Annotation batch send failed (${response.status}).`));
   }
 
   const revokeResult = await revokeListenSessionAfterSuccessfulSend(settings, connection.session);
-  await writeAnnotationQueue([]);
+  await removeSentAnnotationQueueItems(sentQueueItemIds);
   await clearPairingToken();
   const devtoolsStop = await stopDevtoolsCaptureIfActive("send-complete");
   const activeTab = await getActiveTab();
@@ -521,9 +565,29 @@ async function sendAnnotationBatch() {
   };
 }
 
+async function readSettledAnnotationQueue() {
+  return enqueueAnnotationQueueMutation(async () => readAnnotationQueue());
+}
+
+async function removeSentAnnotationQueueItems(sentQueueItemIds) {
+  await enqueueAnnotationQueueMutation(async () => {
+    const queue = await readAnnotationQueue();
+    if (!sentQueueItemIds || sentQueueItemIds.size === 0) {
+      return writeAnnotationQueue(queue);
+    }
+    return writeAnnotationQueue(queue.filter((item) => !sentQueueItemIds.has(item && item.id)));
+  });
+}
+
+function enqueueAnnotationQueueMutation(task) {
+  const next = annotationQueueMutationQueue.then(task, task);
+  annotationQueueMutationQueue = next.catch(() => {});
+  return next;
+}
+
 async function revokeListenSessionAfterSuccessfulSend(settings, session) {
   try {
-    const response = await fetch(buildListenStopUrl(settings.serverUrl), {
+    const response = await fetchWithTimeout(buildListenStopUrl(settings.serverUrl), {
       method: "POST",
       headers: {
         Accept: "application/json",
@@ -535,7 +599,7 @@ async function revokeListenSessionAfterSuccessfulSend(settings, session) {
         threadId: session.threadId
       }),
       cache: "no-store"
-    });
+    }, REVOKE_FETCH_TIMEOUT_MS);
     if (!response.ok) {
       const payload = await readJsonSafely(response);
       console.warn("Browser annotation listen session revoke failed.", readStatusError(payload, `HTTP ${response.status}`));
@@ -546,6 +610,37 @@ async function revokeListenSessionAfterSuccessfulSend(settings, session) {
     console.warn("Browser annotation listen session revoke failed.", error);
     return { ok: false };
   }
+}
+
+async function fetchWithTimeout(url, init, timeoutMs) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: init && init.signal ? anySignal([init.signal, controller.signal]) : controller.signal
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(`Request timed out after ${timeoutMs}ms.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function anySignal(signals) {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  for (const signal of signals) {
+    if (signal.aborted) {
+      abort();
+      break;
+    }
+    signal.addEventListener("abort", abort, { once: true });
+  }
+  return controller.signal;
 }
 
 async function startDevtoolsCapture(options = {}) {

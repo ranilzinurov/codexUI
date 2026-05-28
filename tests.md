@@ -6649,3 +6649,42 @@ Harden public browser annotation ingress, pairing-token storage, extension URL p
 - Remove the unpacked extension from `chrome://extensions` if it was loaded only for this test.
 - Clear extension storage and revoke/expire any listener token used for manual checks.
 - Remove generated `dist/browser-annotation-extension/` artifacts if they are not needed locally.
+
+---
+
+### Browser Annotation Reliability Hardening
+
+#### Feature/Change Name
+Harden extension queue/lifecycle behavior and reject stale in-flight server requests.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Use Node.js 18 or newer.
+3. For manual checks, load the browser annotation extension in Chrome and use a disposable listener thread.
+
+#### Steps
+1. Run `node --check extension/browser-annotation/service-worker/service-worker.js`.
+2. Run `node --check extension/browser-annotation/sidepanel/sidepanel.js`.
+3. Run `node extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.mjs`.
+4. Run `node extension/browser-annotation/dev/annotation-queue-smoke.mjs`.
+5. Run `node extension/browser-annotation/dev/devtools-capture-smoke.mjs`.
+6. Run `pnpm exec vitest run src/server/browserAnnotationBatch.test.ts src/server/browserAnnotationAssets.test.ts --reporter=verbose`.
+7. Run `pnpm run test:browser-annotation`.
+8. Run `pnpm exec vue-tsc --noEmit`.
+9. Manually start DevTools capture, reload or navigate the captured tab, and confirm capture stops with a navigation/closed status instead of mixing rows from multiple pages.
+10. Manually queue two selections quickly and confirm both remain in the side-panel queue.
+11. Manually disconnect the server or use an unroutable server URL and confirm status/send/upload/transcribe requests fail with an error instead of leaving the panel busy indefinitely.
+12. Repeat side-panel queue and status readability checks in light and dark OS/browser color schemes.
+
+#### Expected Results
+- Static checks and extension smoke tests pass.
+- The service-worker persistence smoke verifies serialized queue mutations and tab close/navigation cleanup after an MV3-style restart.
+- Focused server tests reject batch and asset upload requests if the listener is revoked while the request body is still in flight.
+- Browser annotation endpoint smoke passes.
+- A successful batch send removes sent queue items without deleting annotations added concurrently during the send.
+- Light and dark side-panel states remain readable.
+
+#### Rollback/Cleanup
+- Stop DevTools capture if it remains active.
+- Remove the unpacked extension from `chrome://extensions` if loaded only for this test.
+- Revoke any listener token and clear extension storage used during manual checks.

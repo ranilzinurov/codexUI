@@ -9,6 +9,9 @@
     readStatusError
   } = globalThis.BrowserAnnotationPairingClient;
 
+  const VOICE_UPLOAD_TIMEOUT_MS = 60000;
+  const VOICE_TRANSCRIBE_TIMEOUT_MS = 60000;
+
   const elements = {
     connectionBadge: document.getElementById("connectionBadge"),
     serverUrl: document.getElementById("serverUrl"),
@@ -661,7 +664,7 @@
     const form = new FormData();
     form.append("kind", "audio");
     form.append("file", blob, voiceFileName(blob.type));
-    const response = await fetch(buildAssetUploadUrl(settings.serverUrl, session), {
+    const response = await fetchWithTimeout(buildAssetUploadUrl(settings.serverUrl, session), {
       method: "POST",
       headers: {
         Accept: "application/json",
@@ -670,7 +673,7 @@
       body: form,
       cache: "no-store",
       signal
-    });
+    }, VOICE_UPLOAD_TIMEOUT_MS);
     const payload = await readJsonSafely(response);
     if (!response.ok || !payload || !payload.asset) {
       throw new Error(readStatusError(payload, `Voice upload failed (${response.status}).`));
@@ -682,7 +685,7 @@
     const form = new FormData();
     form.append("file", blob, voiceFileName(blob.type));
     try {
-      const response = await fetch(buildTranscribeUrl(settings.serverUrl, session), {
+      const response = await fetchWithTimeout(buildTranscribeUrl(settings.serverUrl, session), {
         method: "POST",
         headers: {
           Accept: "application/json",
@@ -691,7 +694,7 @@
         body: form,
         cache: "no-store",
         signal
-      });
+      }, VOICE_TRANSCRIBE_TIMEOUT_MS);
       const payload = await readJsonSafely(response);
       if (!response.ok || !payload || payload.ok !== true) {
         return {
@@ -726,6 +729,37 @@
       transcriptError: transcript.ok ? "" : transcript.error,
       language: transcript.ok ? transcript.language : ""
     };
+  }
+
+  async function fetchWithTimeout(url, init, timeoutMs) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, {
+        ...init,
+        signal: init && init.signal ? anySignal([init.signal, controller.signal]) : controller.signal
+      });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error(`Request timed out after ${timeoutMs}ms.`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  function anySignal(signals) {
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    for (const signal of signals) {
+      if (signal.aborted) {
+        abort();
+        break;
+      }
+      signal.addEventListener("abort", abort, { once: true });
+    }
+    return controller.signal;
   }
 
   async function patchQueueVoice(id, voice) {

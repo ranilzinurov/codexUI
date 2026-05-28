@@ -105,6 +105,33 @@ async function postBatch(
   })
 }
 
+function delayedBodyStream(body: string, release: Promise<void>): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder()
+  const midpoint = Math.max(1, Math.floor(body.length / 2))
+  return new ReadableStream<Uint8Array>({
+    async start(controller) {
+      controller.enqueue(encoder.encode(body.slice(0, midpoint)))
+      await release
+      controller.enqueue(encoder.encode(body.slice(midpoint)))
+      controller.close()
+    },
+  })
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolveDelay) => setTimeout(resolveDelay, ms))
+}
+
+function deferred<T = void>(): { promise: Promise<T>; resolve: (value: T | PromiseLike<T>) => void; reject: (reason?: unknown) => void } {
+  let resolveDeferred!: (value: T | PromiseLike<T>) => void
+  let rejectDeferred!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolve, reject) => {
+    resolveDeferred = resolve
+    rejectDeferred = reject
+  })
+  return { promise, resolve: resolveDeferred, reject: rejectDeferred }
+}
+
 function createBatch(overrides: Partial<AnnotationBatch> = {}): AnnotationBatch {
   return {
     schemaVersion: ANNOTATION_BATCH_SCHEMA_VERSION,
@@ -286,6 +313,41 @@ describe('browser annotation batch endpoint', () => {
     expect(response.body.result).toMatchObject({ status: 'queued', threadId: 'thread-batch' })
     expect(queue.messages).toHaveLength(1)
     expect(queue.scheduled[0]).toEqual({ threadId: 'thread-batch', delayMs: 0 })
+  })
+
+  it('rejects a batch if the listen session is revoked while the body is in flight', async () => {
+    const store = new BrowserAnnotationListenStore({ nowMs: () => Date.UTC(2026, 4, 28), ttlMs: 60_000 })
+    const queue = { messages: [] as Array<{ threadId: string; message: StoredQueuedMessage }>, scheduled: [] as Array<{ threadId: string; delayMs?: number }> }
+    const { baseUrl } = await listenWithStore(store, queue)
+    const session = await startSession(baseUrl)
+    const releaseBody = deferred()
+    const body = JSON.stringify(createBatch({ batchId: 'revoked-in-flight-batch' }))
+    const path = `${BROWSER_ANNOTATION_BATCH_PATH}?sessionId=${encodeURIComponent(session.sessionId)}&threadId=${encodeURIComponent(session.threadId)}`
+
+    const responsePromise = fetch(`${baseUrl}${path}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${session.pairingToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: delayedBodyStream(body, releaseBody.promise),
+      duplex: 'half',
+    } as RequestInit & { duplex: 'half' })
+
+    await delay(20)
+    await requestJson(baseUrl, '/codex-api/extension/listen/stop', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.pairingToken}` },
+      body: JSON.stringify({ sessionId: session.sessionId }),
+    })
+    releaseBody.resolve()
+
+    const response = await responsePromise
+    const payload = await response.json() as Record<string, unknown>
+    expect(response.status).toBe(401)
+    expect(payload.error).toBe('Invalid, expired, or revoked extension bearer token')
+    expect(queue.messages).toHaveLength(0)
+    expect(queue.scheduled).toHaveLength(0)
   })
 
   it('rejects missing or invalid extension authorization before accepting malformed JSON', async () => {

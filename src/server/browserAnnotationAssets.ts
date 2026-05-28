@@ -149,14 +149,20 @@ export async function handleBrowserAnnotationAssetUploadRoute(
     return true
   }
 
+  const activeSession = store.getAuthorizedSession(token, selector)
+  if (!activeSession) {
+    setJson(res, 401, { error: 'Invalid, expired, or revoked extension bearer token' })
+    return true
+  }
+
   try {
     const asset = await persistUploadedAsset({
       data: parsed.fileData,
       fileName: parsed.fileName,
       kind,
       mimeType,
-      sessionId: session.sessionId,
-      threadId: session.threadId,
+      sessionId: activeSession.sessionId,
+      threadId: activeSession.threadId,
     })
     registerBrowserAnnotationUploadedAsset(asset)
     setJson(res, 200, { ok: true, asset })

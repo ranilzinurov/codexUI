@@ -116,7 +116,12 @@ export async function handleBrowserAnnotationBatchRoute(
   }
 
   const batch = bodyResult.body as AnnotationBatch
-  if (batch.targetThreadId && batch.targetThreadId !== session.threadId) {
+  const activeSession = store.getAuthorizedSession(token, selector)
+  if (!activeSession) {
+    setJson(res, 401, { error: 'Invalid, expired, or revoked extension bearer token' })
+    return true
+  }
+  if (batch.targetThreadId && batch.targetThreadId !== activeSession.threadId) {
     setJson(res, 400, { error: 'Batch targetThreadId does not match the authorized listen session' })
     return true
   }
@@ -125,12 +130,11 @@ export async function handleBrowserAnnotationBatchRoute(
   const assembled = buildBrowserAnnotationQueuedMessage(batch, {
     id: options.idFactory?.() ?? `annotation-batch-${Date.now()}-${randomBytes(3).toString('hex')}`,
     nowIso: queuedAtIso,
-    sessionId: session.sessionId,
-    threadId: session.threadId,
+    sessionId: activeSession.sessionId,
+    threadId: activeSession.threadId,
   })
 
-  await appendQueuedMessage(session.threadId, assembled.message)
-  store.recordReceivedBatch(session.sessionId, {
+  const recordedSession = store.recordReceivedBatch(activeSession.sessionId, {
     batchId: batch.batchId,
     queuedMessageId: assembled.message.id,
     receivedAtIso: queuedAtIso,
@@ -139,13 +143,18 @@ export async function handleBrowserAnnotationBatchRoute(
     consoleCount: batch.devTools?.console.length ?? 0,
     networkCount: batch.devTools?.network.length ?? 0,
   })
-  options.scheduleThreadQueueDrain?.(session.threadId, 0)
+  if (!recordedSession) {
+    setJson(res, 401, { error: 'Invalid, expired, or revoked extension bearer token' })
+    return true
+  }
+  await appendQueuedMessage(activeSession.threadId, assembled.message)
+  options.scheduleThreadQueueDrain?.(activeSession.threadId, 0)
 
   setJson(res, 200, {
     ok: true,
     result: {
       status: 'queued',
-      threadId: session.threadId,
+      threadId: activeSession.threadId,
       batchId: batch.batchId,
       annotationCount: batch.items.length,
       imageCount: assembled.imageCount,
