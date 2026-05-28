@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Codex Annotation</title>
+    <link rel="stylesheet" href="sidepanel.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="header">
+        <div>
+          <p class="eyebrow">Codex UI</p>
+          <h1>Browser annotation</h1>
+        </div>
+        <span id="connectionBadge" class="badge badge-muted">Disconnected</span>
+      </header>
+
+      <section class="section">
+        <label class="field">
+          <span>Server URL</span>
+          <input id="serverUrl" type="url" autocomplete="off" spellcheck="false">
+        </label>
+        <label class="field">
+          <span>Pairing token</span>
+          <input id="pairingToken" type="password" autocomplete="off" spellcheck="false" placeholder="Paste token later">
+        </label>
+        <button id="saveSettings" class="button button-secondary" type="button">Save settings</button>
+      </section>
+
+      <section class="section">
+        <div class="status-row">
+          <span>Active tab</span>
+          <strong id="tabStatus">Checking...</strong>
+        </div>
+        <p id="tabDetail" class="muted">The extension injects a placeholder overlay only after you request it on an http(s) page.</p>
+        <button id="injectOverlay" class="button button-primary" type="button">Inject overlay</button>
+      </section>
+
+      <section class="section section-quiet">
+        <div class="status-row">
+          <span>Annotation queue</span>
+          <strong>Not started</strong>
+        </div>
+        <p class="muted">Selection, screenshots, voice notes, and batch sending are intentionally out of scope for this scaffold.</p>
+      </section>
+
+      <p id="message" class="message" role="status" aria-live="polite"></p>
+    </main>
+
+    <script src="../shared/constants.js"></script>
+    <script src="../shared/url-utils.js"></script>
+    <script src="sidepanel.js"></script>
+  </body>
+</html>

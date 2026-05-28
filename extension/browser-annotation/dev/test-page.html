@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Codex Annotation Extension Test Page</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      body {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 40px 20px;
+        line-height: 1.5;
+      }
+
+      button,
+      input {
+        min-height: 36px;
+        border-radius: 6px;
+        border: 1px solid CanvasText;
+        padding: 6px 10px;
+        font: inherit;
+      }
+
+      .sample-card {
+        border: 1px solid color-mix(in srgb, CanvasText 22%, transparent);
+        border-radius: 8px;
+        padding: 18px;
+        margin-top: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Codex annotation extension test page</h1>
+    <p>This local page is safe for testing side-panel overlay injection during Stage 2.1.</p>
+    <label>
+      Sample input
+      <input value="Annotate me later">
+    </label>
+    <div class="sample-card">
+      <h2>Sample card</h2>
+      <p>Future stages can use this card to test element selection, screenshots, and queue behavior.</p>
+      <button type="button">Sample action</button>
+    </div>
+  </body>
+</html>

@@ -6000,3 +6000,43 @@ Paired extension annotation batch to Codex thread queue.
 
 #### Rollback/Cleanup
 - Remove any manual queued test messages from the thread queue state if you exercise the endpoint outside the focused tests.
+
+---
+
+### Browser Annotation Extension Scaffold
+
+#### Feature/Change Name
+Manifest V3 load-unpacked extension scaffold.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Chrome is installed for the manual smoke test.
+3. No Codex UI dev server is required for the scaffold-only static checks.
+
+#### Steps
+1. Run `node --check extension/browser-annotation/shared/constants.js`.
+2. Run `node --check extension/browser-annotation/shared/url-utils.js`.
+3. Run `node --check extension/browser-annotation/service-worker/service-worker.js`.
+4. Run `node --check extension/browser-annotation/content/content-script.js`.
+5. Run `node --check extension/browser-annotation/sidepanel/sidepanel.js`.
+6. Run `node --check extension/browser-annotation/dev/validate-extension.mjs`.
+7. Run `node extension/browser-annotation/dev/validate-extension.mjs`.
+8. For the manual smoke test, open `chrome://extensions`, enable Developer mode, click `Load unpacked`, and select `extension/browser-annotation`.
+9. Serve the repository with `python3 -m http.server 8899` and open `http://127.0.0.1:8899/extension/browser-annotation/dev/test-page.html`.
+10. Click the extension action, confirm the side panel opens, then click `Inject overlay`.
+11. Confirm the overlay placeholder appears on the page.
+12. In a light OS/browser color scheme, confirm the side panel text, fields, badge, and buttons are readable.
+13. In a dark OS/browser color scheme, repeat the side panel check and confirm it uses dark surfaces via `prefers-color-scheme`.
+14. Open `chrome://extensions` or a Chrome Web Store page and confirm the side panel reports a restricted-page error instead of injecting.
+
+#### Expected Results
+- All static Node checks pass.
+- The validator confirms Manifest V3, service worker path, side panel path, required permissions, exact `https://annotate.todo-tg-app.ru/*` host permission, and required scaffold files.
+- The extension loads without a build step.
+- Overlay injection happens only after the user clicks `Inject overlay`.
+- Restricted browser pages and Chrome Web Store pages are not offered as injectable targets.
+- Light and dark side panel color schemes are readable.
+
+#### Rollback/Cleanup
+- Remove the unpacked extension from `chrome://extensions`.
+- Stop the temporary `python3 -m http.server 8899` process if used.

@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Codex UI Browser Annotation",
+  "description": "MVP scaffold for collecting browser annotations and sending them to Codex UI.",
+  "version": "0.1.0",
+  "action": {
+    "default_title": "Codex annotation"
+  },
+  "background": {
+    "service_worker": "service-worker/service-worker.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel/sidepanel.html"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "tabs",
+    "sidePanel",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://annotate.todo-tg-app.ru/*"
+  ]
+}
