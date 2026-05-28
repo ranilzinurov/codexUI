@@ -13,7 +13,9 @@ const requiredPermissions = [
   "sidePanel"
 ];
 const requiredHostPermissions = [
-  "https://annotate.todo-tg-app.ru/*"
+  "https://annotate.todo-tg-app.ru/*",
+  "http://127.0.0.1/*",
+  "http://localhost/*"
 ];
 const requiredFiles = [
   manifest.background?.service_worker,
@@ -53,7 +55,7 @@ assert(
     manifest.host_permissions.every((permission, index) =>
       permission === requiredHostPermissions[index]
     ),
-  `host_permissions must be limited to: ${requiredHostPermissions.join(", ")}`
+  `host_permissions must be limited to production plus local development origins: ${requiredHostPermissions.join(", ")}`
 );
 
 for (const relativePath of requiredFiles) {

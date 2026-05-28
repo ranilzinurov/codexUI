@@ -6040,3 +6040,47 @@ Manifest V3 load-unpacked extension scaffold.
 #### Rollback/Cleanup
 - Remove the unpacked extension from `chrome://extensions`.
 - Stop the temporary `python3 -m http.server 8899` process if used.
+
+---
+
+### Browser Annotation Extension Pairing Flow
+
+#### Feature/Change Name
+Extension server URL and pairing-token validation.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Chrome is installed for the manual smoke test.
+3. For a valid-token manual check, start Codex UI locally and create an active browser annotation listener token from a thread.
+
+#### Steps
+1. Run `node --check extension/browser-annotation/shared/constants.js`.
+2. Run `node --check extension/browser-annotation/shared/url-utils.js`.
+3. Run `node --check extension/browser-annotation/shared/pairing-client.js`.
+4. Run `node --check extension/browser-annotation/service-worker/service-worker.js`.
+5. Run `node --check extension/browser-annotation/content/content-script.js`.
+6. Run `node --check extension/browser-annotation/sidepanel/sidepanel.js`.
+7. Run `node --check extension/browser-annotation/dev/validate-extension.mjs`.
+8. Run `node --check extension/browser-annotation/dev/pairing-client-smoke.mjs`.
+9. Run `node extension/browser-annotation/dev/validate-extension.mjs`.
+10. Run `node extension/browser-annotation/dev/pairing-client-smoke.mjs`.
+11. Load `extension/browser-annotation` as an unpacked Chrome extension.
+12. Open the side panel with no token saved and confirm it shows `Disconnected`.
+13. Enter `http://127.0.0.1:<port>` or `http://localhost:<port>` and an invalid token, then click `Save and validate`.
+14. Confirm the side panel shows `Error` and does not expose the token outside the password field.
+15. Paste a valid listener token from Codex UI and click `Save and validate`.
+16. Confirm the side panel shows `Connected`, thread id, and expiry metadata.
+17. Repeat the disconnected, error, and connected visual checks in light and dark OS/browser color schemes.
+
+#### Expected Results
+- All static Node checks pass.
+- The validator confirms the extension host permissions are limited to `https://annotate.todo-tg-app.ru/*`, `http://127.0.0.1/*`, and `http://localhost/*`.
+- The pairing client smoke confirms status URL construction, malformed JSON handling, error parsing, and omission of any returned `pairingToken`.
+- Extension local storage contains only the user-configured server URL and pasted pairing token; no provider API key is present.
+- Status validation sends the token only as `Authorization: Bearer <token>` to `/codex-api/extension/listen/status`.
+- Light and dark side panel states are readable for disconnected, error, and connected states.
+
+#### Rollback/Cleanup
+- Remove the unpacked extension from `chrome://extensions`.
+- Stop any local Codex UI dev server started solely for this check.
+- Revoke or stop any active listener session created for testing.
