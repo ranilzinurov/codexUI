@@ -6167,3 +6167,50 @@ Visible-tab capture, device-pixel-ratio crop, and bounded preview storage.
 - Remove the unpacked extension from `chrome://extensions`.
 - Stop the temporary `python3 -m http.server 8899` process.
 - Clear extension storage from the extension details page to remove preview test data.
+
+---
+
+### Browser Annotation Extension Multi-Annotation Batch Send
+
+#### Feature/Change Name
+Queue notes, edit/delete/reorder, and send one annotation batch.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Chrome is installed for the manual smoke test.
+3. Load `extension/browser-annotation` as an unpacked extension.
+4. Start Codex UI locally and create an active browser annotation listener token from a thread.
+5. Serve the repository locally with `python3 -m http.server 8899`.
+
+#### Steps
+1. Run `find extension/browser-annotation -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check`.
+2. Run `node extension/browser-annotation/dev/validate-extension.mjs`.
+3. Run `node extension/browser-annotation/dev/pairing-client-smoke.mjs`.
+4. Run `node extension/browser-annotation/dev/selection-context-smoke.mjs`.
+5. Run `node extension/browser-annotation/dev/annotation-queue-smoke.mjs`.
+6. Run `node extension/browser-annotation/dev/screenshot-crop-smoke.mjs`.
+7. Run `pnpm exec vitest run src/server/browserAnnotationBatch.test.ts --reporter=verbose`.
+8. Open `http://127.0.0.1:8899/extension/browser-annotation/dev/test-page.html`.
+9. Pair the extension with the local Codex UI listener token.
+10. Inject the overlay and select the sample button, input, and card.
+11. Add notes to at least two annotations.
+12. Move one annotation up or down.
+13. Delete one annotation so two remain.
+14. Click `Send batch`.
+15. Confirm the side panel reports success and the queue clears.
+16. Confirm the Codex UI thread receives one queued browser annotation batch containing two items.
+17. Repeat the queue controls and send-button readability check in light and dark OS/browser color schemes.
+
+#### Expected Results
+- All static, extension smoke, and server batch tests pass.
+- Queue changes update the side panel immediately and the Send button enables when connected with queued items.
+- Every batch item includes `noteText`, even when the note is blank.
+- The batch request includes `sessionId` and `threadId` query params and sends the pairing token only as a bearer token.
+- Local preview data URLs are not included in the batch body.
+- On successful send, the extension queue is cleared.
+
+#### Rollback/Cleanup
+- Remove the unpacked extension from `chrome://extensions`.
+- Stop the temporary `python3 -m http.server 8899` process.
+- Revoke or stop the active browser annotation listener session.
+- Clear extension storage from the extension details page if test annotations remain.

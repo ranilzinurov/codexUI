@@ -177,6 +177,7 @@ Use these gates unless a phase explicitly narrows or expands them.
 | 2026-05-28 | Phase 2 | Stage 2.2 | Completed | Added extension pairing settings and validation flow. The side panel stores server URL plus the pasted pairing token in extension local storage, validates via `GET /codex-api/extension/listen/status` with `Authorization: Bearer <token>`, and renders connected/disconnected/error states without displaying the raw token outside the password field. Added shared pairing helpers and `dev/pairing-client-smoke.mjs`. Reviewer found local URLs would fail MV3 cross-origin fetch without host permissions; fixed by limiting host permissions to the production origin plus `http://127.0.0.1/*` and `http://localhost/*`. Verification: `node --check` passed for all extension JS/MJS files; `node extension/browser-annotation/dev/validate-extension.mjs` and `node extension/browser-annotation/dev/pairing-client-smoke.mjs` passed. Performance audit: one status fetch only when a token is present, no polling/fanout/large payloads. Manual Chrome pairing remains for Phase 2 regression. |
 | 2026-05-28 | Phase 2 | Stage 2.3 | Completed | Added the page annotation overlay and selected-element context capture. The content script still injects only after a side-panel user gesture, creates a Shadow DOM/high-z-index hover and selected overlay, and queues selected element context into bounded extension local storage. Captured context includes selector, XPath fallback, inferred/explicit role, aria labels, text, stable attributes, rect, viewport, page metadata, nearby headings, and labels. Side panel renders queue state from `chrome.storage.onChanged` without polling. Verification: `node --check` passed for all extension JS/MJS files; `node extension/browser-annotation/dev/validate-extension.mjs`, `node extension/browser-annotation/dev/pairing-client-smoke.mjs`, and `node extension/browser-annotation/dev/selection-context-smoke.mjs` passed; `git diff --check -- extension/browser-annotation` passed. Performance audit: listeners are active only during annotation mode, hover rect updates are `requestAnimationFrame`-throttled, no full DOM scan runs on mousemove, context collection happens on click, and queue length is capped at 25. |
 | 2026-05-28 | Phase 2 | Stage 2.4 | Completed | Added visible-tab screenshot capture and cropped previews for selected elements. After a selection, the service worker calls `chrome.tabs.captureVisibleTab`, crops the selected rect with `devicePixelRatio`, stores only the cropped preview in the local annotation queue, and renders previews in the side panel. Reviewer found queue previews could exceed Chrome `storage.local` quota; fixed with a 250k data URL per-preview cap and aggregate queue trimming under a 5.5 MB JSON budget via `shared/annotation-queue.js`. Verification: `node --check` passed for all extension JS/MJS files; validator, pairing, selection, annotation-queue, and screenshot-crop smokes passed; `git diff --check -- extension/browser-annotation` passed. Performance audit: no polling, full screenshot is transient, preview queue is count- and byte-bounded. |
+| 2026-05-28 | Phase 2 | Stage 2.5 | Completed | Added multi-annotation queue UX: per-annotation notes, edit/delete/reorder controls, page-level batch metadata, and one-click batch send to `/codex-api/extension/annotation-batch` with the stored bearer token. Queue payload builder maps selected element context into `AnnotationBatch` items, includes `sessionId` and `threadId` query selectors, omits local preview data URLs, caps the send body, and clears the queue after success. Reviewer found stale side-panel queue state could keep Send disabled and blank notes omitted `noteText`; fixed both and added smoke assertions. Verification: all extension JS/MJS `node --check` passed; validator, pairing, selection, annotation-queue, and screenshot-crop smokes passed; `pnpm exec vitest run src/server/browserAnnotationBatch.test.ts --reporter=verbose` passed 8 tests; `git diff --check -- extension/browser-annotation` passed. Performance audit: no polling, user-triggered queue mutations only, one status validation plus one bounded POST on send. |
 
 ## Phase 0: Foundations, Secrets, And Deployment Discovery
 
@@ -304,11 +305,11 @@ Checklist:
   - [x] Store preview in extension queue.
   - Smoke test: crop dimensions and visible preview match selected element.
 
-- [ ] Stage 2.5: Multi-annotation queue UX
-  - [ ] Add text note per annotation.
-  - [ ] Allow edit/delete/reorder before send.
-  - [ ] Add page-level metadata once per batch.
-  - [ ] Send all queued annotations in one batch.
+- [x] Stage 2.5: Multi-annotation queue UX
+  - [x] Add text note per annotation.
+  - [x] Allow edit/delete/reorder before send.
+  - [x] Add page-level metadata once per batch.
+  - [x] Send all queued annotations in one batch.
   - Smoke test: create three annotations, delete one, send two.
 
 Phase 2 full regression:

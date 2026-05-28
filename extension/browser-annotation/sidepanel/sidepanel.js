@@ -36,7 +36,14 @@
     if (areaName !== "local" || !changes[STORAGE_KEYS.annotationQueue]) {
       return;
     }
-    renderQueue(changes[STORAGE_KEYS.annotationQueue].newValue || []);
+    const queue = changes[STORAGE_KEYS.annotationQueue].newValue || [];
+    if (lastState) {
+      lastState = {
+        ...lastState,
+        queue
+      };
+    }
+    renderQueue(queue);
   });
 
   refreshState();

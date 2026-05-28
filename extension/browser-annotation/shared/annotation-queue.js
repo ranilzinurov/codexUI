@@ -137,9 +137,7 @@
       batchItem.target = target;
     }
 
-    if (noteText) {
-      batchItem.noteText = noteText;
-    }
+    batchItem.noteText = noteText;
 
     const selectedText = sanitizeText(context.text, 1000);
     if (selectedText) {

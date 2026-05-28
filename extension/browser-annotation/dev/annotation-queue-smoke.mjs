@@ -117,10 +117,25 @@ assert.equal(batch.items[0].id, "annotation-bravo");
 assert.equal(batch.items[0].noteText, "Second note");
 assert.equal(batch.items[0].target.selector, "#bravo");
 assert.equal(batch.items[0].viewport.width, 1280);
+assert.equal(batch.items[1].noteText, "First note");
 assert.ok(!JSON.stringify(batch).includes("data:image/png"));
 assert.ok(
   BrowserAnnotationQueue.estimateJsonBytes(batch) <
     BrowserAnnotationConstants.MAX_ANNOTATION_BATCH_BYTES
 );
+
+const blankNoteBatch = BrowserAnnotationQueue.buildAnnotationBatchPayload(
+  [
+    {
+      ...stageQueue[0],
+      noteText: ""
+    }
+  ],
+  {
+    batchId: "annotation-batch-blank-note",
+    createdAtIso: "2026-05-28T10:02:00.000Z"
+  }
+);
+assert.equal(blankNoteBatch.items[0].noteText, "");
 
 console.log("Extension annotation queue smoke passed.");
