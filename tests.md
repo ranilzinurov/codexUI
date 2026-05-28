@@ -6031,7 +6031,7 @@ Manifest V3 load-unpacked extension scaffold.
 
 #### Expected Results
 - All static Node checks pass.
-- The validator confirms Manifest V3, service worker path, side panel path, required permissions, exact `https://annotate.todo-tg-app.ru/*` host permission, and required scaffold files.
+- The validator confirms Manifest V3, service worker path, side panel path, required permissions, production host permission, narrow local development host permissions, and required scaffold files.
 - The extension loads without a build step.
 - Overlay injection happens only after the user clicks `Inject overlay`.
 - Restricted browser pages and Chrome Web Store pages are not offered as injectable targets.
