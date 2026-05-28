@@ -265,4 +265,3 @@ Pairing token: <pairingToken from response>
 sudo: a terminal is required to read the password
 sudo: a password is required
 ```
-

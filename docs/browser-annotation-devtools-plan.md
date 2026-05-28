@@ -189,6 +189,7 @@ Use these gates unless a phase explicitly narrows or expands them.
 | 2026-05-28 | Phase 6 | Stage 6.2 compact renderer | Completed | Added compact thread rendering for `# Browser annotation batch` user messages. The renderer parses safe batch metadata, annotation previews, DevTools presence, and screenshot counts; groups screenshots inside the batch card; keeps raw markdown context behind a lazy-rendered `details` block; and uses global dark-theme overrides for the batch surface. Verification: `pnpm exec vitest run src/components/content/browserAnnotationBatchMessage.test.ts --reporter=verbose` passed 2 tests, `pnpm exec vue-tsc --noEmit` passed, `pnpm run test:browser-annotation` passed 6 files / 52 tests, Playwright route-interception smoke passed in light and dark themes with screenshots `output/playwright/browser-annotation-batch-light.png` and `output/playwright/browser-annotation-batch-dark.png`, and performance profile `output/playwright/browser-runtime-profile-home-2026-05-28T15-26-57-221Z.json` reported warnings `[]`, duplicateCounts threadList/skills/rateLimits/providerModels all 1, totalApiKB 215. Reviewer findings around eager raw markdown rendering and broad heading detection were fixed. |
 | 2026-05-28 | Phase 6 | Stage 6.3 MCP/plugin design spike | Completed | Documented the MCP/plugin path in `docs/browser-annotation-mcp-plugin-design.md`. Decision: do not create a separate browser annotation MCP server/plugin for the MVP; keep capture extension-driven through `/codex-api/extension/*` and reserve future MCP tools (`snapshot_dom`, `screenshot`, `inspect_console`, `inspect_network`, `select_element`) for agent-driven browser inspection after a dedicated security review. Runtime test not required for this design-only stage; `tests.md` contains a review checklist. |
 | 2026-05-28 | Phase 6 | Stage 6.4 troubleshooting documentation | Completed | Added `docs/browser-annotation-troubleshooting.md` and linked it from the extension README. The guide covers pairing tokens, server URL choices, DNS wildcard/propagation, nginx/default-server and Vite `allowedHosts` failures, active-tab permission errors, empty queue/missing preview behavior, DevTools debugger/body-capture issues, voice/microphone/transcription states, and public HTTPS deployment checks. Runtime test not required for this documentation-only stage; `tests.md` contains a review checklist. |
+| 2026-05-28 | Phase 6 | Full regression | Partial | Automated regression passed: `pnpm run test:unit` passed 24 files / 180 tests, `pnpm run build` passed, `pnpm run test:coverage` passed with Statements 21.33%, Branches 17.92%, Functions 23.71%, Lines 22.21%, and `PROFILE_BASE_URL=http://127.0.0.1:4173 PROFILE_WAIT_MS=7000 pnpm run profile:browser` produced `output/playwright/browser-runtime-profile-home-2026-05-28T15-41-57-765Z.json` with warnings `[]`, duplicateCounts threadList/skills/rateLimits/providerModels all 1, totalApiKB 217. Light/dark compact renderer verification passed via Playwright route-interception smoke. Full real Chrome workflow with pairing, multiple annotations, DevTools capture, voice recording, and send remains a manual acceptance item because it requires user/browser interaction and should run on a disposable or user-approved thread. |
 
 ## Phase 0: Foundations, Secrets, And Deployment Discovery
 
@@ -493,17 +494,17 @@ Checklist:
   - [x] Server deployment guide.
   - [x] Troubleshooting guide for debugger permission, pairing, audio, and DNS/cert issues.
   - [x] Update [tests.md](../tests.md).
-  - Smoke test: follow setup guide from clean browser profile.
+  - Smoke test: setup/troubleshooting guide review passed; clean browser profile workflow is deferred to the full manual workflow acceptance item.
 
 Phase 6 full regression:
 
-- [ ] `pnpm run test:unit`
-- [ ] `pnpm run build`
-- [ ] Linter gate
-- [ ] Coverage gate
+- [x] `pnpm run test:unit`
+- [x] `pnpm run build`
+- [x] Linter gate
+- [x] Coverage gate
 - [ ] Full manual workflow: pair, make multiple annotations, capture DevTools, record voice, send, Codex receives
-- [ ] Light/dark verification
-- [ ] Performance audit with `pnpm run profile:browser`
+- [x] Light/dark verification
+- [x] Performance audit with `pnpm run profile:browser`
 - [x] Update [tests.md](../tests.md)
 - [ ] Commit Phase 6 changes
 
