@@ -2,7 +2,12 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const extensionRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const args = process.argv.slice(2);
+const productionMode = args.includes("--production");
+const rootArg = args.find((arg) => !arg.startsWith("--"));
+const extensionRoot = rootArg
+  ? resolve(process.cwd(), rootArg)
+  : resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const manifestPath = resolve(extensionRoot, "manifest.json");
 const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
 
@@ -15,12 +20,16 @@ const requiredPermissions = [
   "sidePanel",
   "storage"
 ];
-const requiredHostPermissions = [
-  "https://annotate.todo-tg-app.ru/*",
+const productionHostPermissions = [
+  "https://annotate.todo-tg-app.ru/*"
+];
+const developmentHostPermissions = [
+  ...productionHostPermissions,
   "http://46.62.215.111/*",
   "http://127.0.0.1/*",
   "http://localhost/*"
 ];
+const requiredHostPermissions = productionMode ? productionHostPermissions : developmentHostPermissions;
 const requiredFiles = [
   manifest.background?.service_worker,
   manifest.side_panel?.default_path,
@@ -67,15 +76,31 @@ assert(
     manifest.host_permissions.every((permission, index) =>
       permission === requiredHostPermissions[index]
     ),
-  `host_permissions must be limited to production plus local development origins: ${requiredHostPermissions.join(", ")}`
+  `host_permissions must be limited to ${productionMode ? "the production origin" : "production plus local development origins"}: ${requiredHostPermissions.join(", ")}`
 );
+
+const csp = manifest.content_security_policy?.extension_pages || "";
+assert(!csp.includes("'unsafe-inline'"), "content_security_policy must not allow unsafe-inline");
+assert(!csp.includes("'unsafe-eval'"), "content_security_policy must not allow unsafe-eval");
+assert(!/https?:\/\//u.test(csp), "content_security_policy must not allow remote script origins");
 
 for (const relativePath of requiredFiles) {
   assert(relativePath, "manifest referenced an empty file path");
   await readFile(resolve(extensionRoot, relativePath), "utf8");
 }
 
-console.log("Extension manifest/static validation passed.");
+if (productionMode) {
+  await readFile(resolve(extensionRoot, "dev", "test-page.html"), "utf8")
+    .then(() => {
+      throw new Error("production artifact must not include dev/test-page.html");
+    })
+    .catch((error) => {
+      if (error && error.code === "ENOENT") return;
+      throw error;
+    });
+}
+
+console.log(`Extension manifest/static validation passed${productionMode ? " for production artifact" : ""}.`);
 
 function assert(condition, message) {
   if (!condition) {

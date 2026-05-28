@@ -183,6 +183,7 @@ Use these gates unless a phase explicitly narrows or expands them.
 | 2026-05-28 | Phase 3 | Stages 3.4-3.5 | Completed | Added safe DevTools header/body shaping and prompt correlation. Network rows now carry contract-compatible request/response headers with sensitive values redacted, metadata-only request/response body records by default, and explicit body-capture opt-in from the side panel. Opt-in response bodies are fetched through `Network.getResponseBody` only for textual bounded responses; request bodies from CDP events and response bodies are byte-capped, UTF-8 safe, and redacted when sensitive field names appear. Batch payloads now include headers/body privacy summary counts and per-annotation `devToolsContext` windows. Verification: annotation-queue and DevTools capture smokes passed; server batch regression passed 8 tests. Performance audit: no body capture unless explicitly enabled, body text is capped at 16 KiB by default / 64 KiB max, headers are capped to 80 rows with 600-char values, and network/body payloads remain under the existing batch size cap. |
 | 2026-05-28 | Phase 3 | Reviewer hardening | Completed | Closed reviewer findings for DevTools privacy and lifecycle: console redaction now covers JSON-style secrets and Basic/Bearer authorization strings, response body capture is limited to opt-in small textual failed/error responses with known encoded size, request bodies stay metadata-only from `requestWillBeSent`, DevTools state mutations are serialized, timeout detach is backed by `chrome.alarms`, side-panel body opt-in state reflects active capture options after reopen, and stale async response-body reads are dropped after stop/restart on the same tab. Verification: extension static/smoke suite passed, `pnpm run test:unit` passed 23 files / 178 tests, `pnpm run build` passed, `pnpm run test:coverage` passed at the current baseline, `pnpm run test:browser-annotation` passed 6 files / 52 tests, and performance profile `output/playwright/browser-runtime-profile-home-2026-05-28T13-54-41-828Z.json` reported warnings `[]`, duplicateCounts threadList/skills/rateLimits/providerModels all 1, totalApiKB 212.4. Manual DevTools extension smoke on a real Chrome page remains the next acceptance step. |
 | 2026-05-28 | Phase 4 | Stages 4.1-4.3 | Completed | Added per-annotation voice recording controls in the extension side panel, transient MediaRecorder blob handling, upload to `/codex-api/extension/assets/upload`, transcription through `/codex-api/extension/transcribe`, queue voice metadata sanitization, and batch `voice-note-audio`/`voiceNote` payload generation. Reviewer findings were fixed so voice metadata patches preserve typed notes, active recording state overrides persisted voice state, in-flight upload/transcription is aborted on delete, assets require `uploadedAtIso`, and raw `base64`/`audioBase64` voice fields are stripped from queue storage. Verification: extension static/smoke suite passed, `pnpm run test:browser-annotation` passed 6 files / 52 tests, `src/server/browserAnnotationBatch.test.ts` verifies the voice-only prompt includes `Voice note` metadata plus transcript text, and mocked transcription provider coverage lives in `src/server/browserAnnotationTranscribe.test.ts`. Full regression passed except manual light/dark voice smoke, which remains an acceptance step. Performance profile `output/playwright/browser-runtime-profile-home-2026-05-28T14-33-16-893Z.json` reported warnings `[]`, duplicateCounts threadList/skills/rateLimits/providerModels all 1, totalApiKB 214.4. |
+| 2026-05-28 | Phase 5 | DNS and repo deployment prep | Partial | Added explicit YC DNS record `annotate.todo-tg-app.ru. 300 A 46.62.215.111` in zone `todo-tg-app-ru`; public resolvers `8.8.8.8` and `1.1.1.1` returned `46.62.215.111`. Added `ops/nginx/annotate.todo-tg-app.ru.conf` narrow HTTPS ingress template for `/browser-annotation-test.html` and `/codex-api/extension/`, added production extension packaging via `pnpm run pack:browser-annotation`, tightened production artifact validation to require only `https://annotate.todo-tg-app.ru/*`, and allowed `annotate.todo-tg-app.ru` in Vite dev-server `allowedHosts`. Verification: `pnpm run pack:browser-annotation` produced `dist/browser-annotation-extension/codex-ui-browser-annotation-0.1.0.zip` with prod-only host permissions, `pnpm exec vue-tsc --noEmit` passed, `pnpm run test:browser-annotation` passed 6 files / 52 tests, `http://46.62.215.111/browser-annotation-test.html` returned `200` with the test-page heading, and check-host returned `200` from 6/6 nodes for `http://annotate.todo-tg-app.ru/browser-annotation-test.html`. Performance profile `output/playwright/browser-runtime-profile-home-2026-05-28T14-50-57-150Z.json` reported warnings `[]`, duplicateCounts threadList/skills/rateLimits/providerModels all 1, totalApiKB 214.3. HTTPS certbot/live nginx deployment and manual public-domain extension smoke remain blocked on root access to write `/etc/nginx`/issue certificate. |
 
 ## Phase 0: Foundations, Secrets, And Deployment Discovery
 
@@ -423,10 +424,10 @@ Objective: expose the extension ingress safely over HTTPS using the existing YC/
 
 Checklist:
 
-- [ ] Stage 5.1: DNS
-  - [ ] Use YC CLI to identify the DNS zone for `todo-tg-app.ru`.
-  - [ ] Create or update `annotate.todo-tg-app.ru` record.
-  - [ ] Verify propagation.
+- [x] Stage 5.1: DNS
+  - [x] Use YC CLI to identify the DNS zone for `todo-tg-app.ru`.
+  - [x] Create or update `annotate.todo-tg-app.ru` record.
+  - [x] Verify propagation.
   - Smoke test: `dig annotate.todo-tg-app.ru`.
 
 - [ ] Stage 5.2: Certificate
@@ -435,28 +436,28 @@ Checklist:
   - Smoke test: certificate status active and chain valid.
 
 - [ ] Stage 5.3: Reverse proxy
-  - [ ] Add Nginx route for annotation endpoints and Codex UI websocket needs if shared.
+  - [x] Add Nginx route for annotation endpoints and Codex UI websocket needs if shared.
   - [ ] Enforce HTTPS.
-  - [ ] Ensure upload size/timeouts support screenshots/audio but reject oversized payloads.
+  - [x] Ensure upload size/timeouts support screenshots/audio but reject oversized payloads.
   - Smoke test: `nginx -t`, HTTPS status endpoint, websocket unaffected.
 
 - [ ] Stage 5.4: Extension production config
-  - [ ] Set host permissions for `https://annotate.todo-tg-app.ru/*`.
-  - [ ] Add build artifact instructions.
+  - [x] Set host permissions for `https://annotate.todo-tg-app.ru/*`.
+  - [x] Add build artifact instructions.
   - [ ] Verify pairing and batch send over public HTTPS.
   - Smoke test: real extension sends two annotations to server.
 
 Phase 5 full regression:
 
 - [ ] `pnpm run test:unit`
-- [ ] `pnpm run build`
-- [ ] Linter gate
+- [x] `pnpm run build`
+- [x] Linter gate
 - [ ] Coverage gate
 - [ ] HTTPS endpoint smoke suite
 - [ ] Extension manual test over public domain
-- [ ] Performance audit for public endpoint request counts and payload sizes
-- [ ] Update [tests.md](../tests.md)
-- [ ] Commit Phase 5 changes
+- [x] Performance audit for public endpoint request counts and payload sizes
+- [x] Update [tests.md](../tests.md)
+- [x] Commit Phase 5 changes
 
 ## Phase 6: Codex Prompt Quality, UI Polish, And MCP Path
 

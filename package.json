@@ -55,6 +55,7 @@
     "test:unit": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:browser-annotation": "node scripts/test-browser-annotation-endpoints.cjs",
+    "pack:browser-annotation": "node scripts/package-browser-annotation-extension.cjs && node extension/browser-annotation/dev/validate-extension.mjs --production dist/browser-annotation-extension/unpacked",
     "preview": "vite preview",
     "prepublishOnly": "pnpm run build",
     "profile:browser": "node scripts/profile-browser-runtime.cjs",

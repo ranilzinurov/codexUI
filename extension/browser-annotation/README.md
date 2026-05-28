@@ -2,7 +2,15 @@
 
 Manifest V3 MVP scaffold for browser annotation. This stage includes extension structure, locally stored server URL and pairing token, bearer-token validation against the Codex UI listen status endpoint, connected/disconnected/error side-panel state, restricted-page guards, user-requested overlay injection, element hover/selection overlays, visible-tab screenshot capture, selected-element crop previews, explicit DevTools console/network capture, a local annotation queue with per-item notes/edit/delete/reorder, and batch send to Codex UI.
 
-No build step is required. The folder is designed to be loaded directly with Chrome's **Load unpacked** flow.
+No build step is required for local development. The folder is designed to be loaded directly with Chrome's **Load unpacked** flow.
+
+For a production install artifact, run:
+
+```sh
+pnpm run pack:browser-annotation
+```
+
+The command writes an unpacked production copy and zip archive under `dist/browser-annotation-extension/`. The production manifest keeps only `https://annotate.todo-tg-app.ru/*` in `host_permissions`, excludes `dev/` fixtures, keeps the default server URL at `https://annotate.todo-tg-app.ru`, and validates the artifact with `dev/validate-extension.mjs --production`.
 
 ## Files
 

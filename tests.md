@@ -6315,6 +6315,48 @@ Record, upload, transcribe, and send per-annotation voice notes without storing 
 
 ---
 
+### Browser Annotation HTTPS Production Ingress And Extension Artifact
+
+#### Feature/Change Name
+Expose the browser annotation ingress at `https://annotate.todo-tg-app.ru` and package a production-only Chrome extension zip.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. DNS zone `todo-tg-app-ru` exists in Yandex Cloud.
+3. Nginx can proxy `annotate.todo-tg-app.ru` to the Codex UI backend.
+4. A valid certificate exists at `/etc/letsencrypt/live/annotate.todo-tg-app.ru/`.
+5. Chrome is available for manual extension installation.
+
+#### Steps
+1. Run `yc dns zone list-records --name todo-tg-app-ru --format json` and confirm `annotate.todo-tg-app.ru. 300 A 46.62.215.111`.
+2. Run `dig +short annotate.todo-tg-app.ru A @8.8.8.8` and `dig +short annotate.todo-tg-app.ru A @1.1.1.1`.
+3. Install `ops/nginx/annotate.todo-tg-app.ru.conf` into `/etc/nginx/sites-available/annotate.todo-tg-app.ru`, enable it, run `sudo nginx -t`, then reload nginx.
+4. Run `curl -I https://annotate.todo-tg-app.ru/browser-annotation-test.html`.
+5. Run `curl -I https://annotate.todo-tg-app.ru/codex-api/extension/listen/status`.
+6. Run `pnpm run pack:browser-annotation`.
+7. Inspect `dist/browser-annotation-extension/unpacked/manifest.json`.
+8. Install `dist/browser-annotation-extension/unpacked` or the zip in Chrome and pair with `Server URL: https://annotate.todo-tg-app.ru`.
+9. Queue and send at least two annotations from a normal HTTPS page.
+10. Repeat pairing and side-panel readability checks in light and dark browser color schemes.
+
+#### Expected Results
+- Public DNS resolves `annotate.todo-tg-app.ru` to `46.62.215.111`.
+- HTTPS returns a valid certificate for `annotate.todo-tg-app.ru`.
+- `/browser-annotation-test.html` returns `200` and contains `Codex annotation extension test page`.
+- `/codex-api/extension/listen/status` reaches the Codex UI backend and returns an auth-shaped JSON response rather than an nginx/default-site HTML page.
+- Production manifest host permissions are exactly `["https://annotate.todo-tg-app.ru/*"]`.
+- The zip has `manifest.json` at archive root and does not include `dev/`.
+- The extension can pair, queue annotations, and send over HTTPS.
+- Light and dark side-panel states remain readable.
+
+#### Rollback/Cleanup
+- Remove or disable `/etc/nginx/sites-enabled/annotate.todo-tg-app.ru` and reload nginx.
+- Remove the explicit DNS record if rolling back to wildcard behavior.
+- Delete `dist/browser-annotation-extension/` if the artifact was only for a smoke test.
+- Revoke the browser annotation listener session.
+
+---
+
 ### Browser Annotation DevTools Persistence Serialization
 
 #### Feature/Change Name
