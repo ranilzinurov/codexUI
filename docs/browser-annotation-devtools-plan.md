@@ -16,58 +16,9 @@ Goal: implement all phases for a Chrome extension and Codex UI integration that 
 
 ## Sub-Agent Execution Protocol
 
-Every implementation stage in this plan must use a worker-then-reviewer loop before the stage can be marked complete. The default execution mode is controlled parallelism: up to 3 worker sub-agents may implement independent stages at the same time, and up to 3 reviewer sub-agents may review completed worker outputs at the same time.
+Every implementation stage in this plan must use a worker-then-reviewer loop before the stage can be marked complete.
 
 Required sequence for each stage:
-
-1. Main agent selects one unchecked stage from the current phase and assigns it a stage owner.
-2. Main agent declares the intended write scope for that stage before spawning the worker.
-3. Main agent spawns one worker sub-agent for that stage.
-4. Worker immediately inspects the current worktree and reports its intended write set before making edits when the stage may touch shared files.
-5. Main agent confirms the write set is disjoint from active workers before the worker proceeds.
-6. Worker owns the stage implementation and must:
-   - inspect the current worktree before editing;
-   - avoid reverting unrelated changes;
-   - make only stage-scoped edits inside the approved write set;
-   - stop and ask the main agent before editing any file outside the approved write set;
-   - stop and ask the main agent if another active worker has changed or may change the same file;
-   - run the stage smoke test when feasible;
-   - report checklist/work-log updates needed for this plan;
-   - report changed files, commands run, test results, and any unresolved risks back in chat.
-7. Main agent waits for the worker result and reviews the worker's changed files.
-8. Main agent spawns a separate reviewer sub-agent for the same stage.
-9. Reviewer must:
-   - inspect the worker changes from a review stance;
-   - verify the stage checklist and smoke-test evidence;
-   - look for correctness, security, performance, regression, and missing-test risks;
-   - report findings in chat with file/line references where applicable;
-   - not make unrelated edits.
-10. If reviewer finds issues, main agent sends fixes to the worker or applies a narrowly scoped fix, then repeats review as needed.
-11. When review passes, main agent closes both worker and reviewer sub-agents.
-12. Main agent updates this plan if the worker did not already do so, then commits that completed stage.
-13. Move to the next dependent stage only after the prior stage is reviewed, checked off, and committed.
-
-Parallel execution rules:
-
-1. Main agent may keep at most 3 worker sub-agents active at once.
-2. Main agent may keep at most 3 reviewer sub-agents active at once.
-3. Parallel stages must have disjoint write scopes. If write scopes overlap, the main agent serializes those stages.
-4. Shared coordination files are main-agent-owned by default:
-   - `docs/browser-annotation-devtools-plan.md`
-   - `tests.md`
-   - `package.json`
-   - lockfiles
-   - deployment files under `ops/`
-5. A worker may edit a shared coordination file only when the main agent explicitly grants that file in the worker's write scope.
-6. In parallel mode, workers should usually report plan/test-doc updates instead of editing shared coordination files directly; the main agent applies those shared-file updates after merging worker results.
-7. If a worker discovers it needs a file owned by another active worker, it must stop and request main-agent coordination instead of editing the file.
-8. If two completed workers produce conflicting changes, the main agent resolves the conflict intentionally and may request a follow-up review before committing.
-9. Reviewers may run in parallel only when they review distinct completed stages or explicitly separated file sets.
-10. No worker may start implementation for a stage that depends on an unreviewed or uncommitted prior stage.
-
-Legacy single-stage sequence:
-
-When the main agent intentionally runs only one worker, the same worker-reviewer loop still applies:
 
 1. Main agent selects exactly one unchecked stage from the current phase.
 2. Main agent spawns one worker sub-agent for that stage.
@@ -102,17 +53,8 @@ Sub-agent lifecycle rule:
 
 - Do not leave worker or reviewer agents open after their stage or phase review is complete.
 - Do not run multiple implementation workers on the same stage at the same time.
+- Parallel workers are allowed only for independent stages with disjoint write scopes, but the default flow is strictly sequential by stage.
 - If a worker is blocked, record the blocker in the Work Log and do not advance that stage until the blocker is resolved or the plan is intentionally revised.
-
-## External Security Prerequisites
-
-Some requirements depend on external account state that cannot be proven from this repository alone.
-
-- The OpenAI key pasted in chat must be revoked and replaced before any real OpenAI transcription call, public deployment, or production extension test.
-- Until revocation/replacement is externally confirmed, Stage 0.1 remains partial and the project may continue only through safe preparatory work that does not use a real OpenAI key.
-- Safe preparatory work may include local config readers, payload schemas, mock tests, extension UI scaffolding, DevTools capture using local fixtures, and deployment discovery.
-- Unsafe work blocked by this prerequisite includes real transcription requests, storing production secrets, production traffic through `annotate.todo-tg-app.ru`, and final phase acceptance.
-- When the user confirms rotation/replacement, record the evidence in the Work Log, check the Stage 0.1 revocation item, and run the Stage 0.1 smoke test again without printing the new key.
 
 ## Reference Instructions
 
@@ -160,8 +102,6 @@ Use these gates unless a phase explicitly narrows or expands them.
 | 2026-05-28 | Planning | Plan document | Completed | Initial implementation plan created. |
 | 2026-05-28 | Planning | Sub-agent protocol | Completed | Added mandatory worker-then-reviewer loop for every stage and phase. |
 | 2026-05-28 | Phase 0 | Stage 0.1 | Partial | Added server-only annotation transcription env config and a local smoke script that reports OpenAI key presence without printing the key. Key revocation/replacement remains unconfirmed outside the repo. |
-| 2026-05-28 | Planning | Parallel sub-agent protocol | Completed | Added controlled parallelism: up to 3 workers and 3 reviewers, with main-agent ownership of shared files and explicit write-scope conflict handling. |
-| 2026-05-28 | Planning | External security prerequisite | Completed | Recorded that safe prep may continue, but real transcription/deploy/final acceptance remain blocked until the pasted OpenAI key is externally revoked/replaced. |
 
 ## Phase 0: Foundations, Secrets, And Deployment Discovery
 
