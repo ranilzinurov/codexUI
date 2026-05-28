@@ -10,7 +10,8 @@ const requiredPermissions = [
   "activeTab",
   "scripting",
   "tabs",
-  "sidePanel"
+  "sidePanel",
+  "storage"
 ];
 const requiredHostPermissions = [
   "https://annotate.todo-tg-app.ru/*",
@@ -23,6 +24,7 @@ const requiredFiles = [
   "shared/constants.js",
   "shared/url-utils.js",
   "shared/pairing-client.js",
+  "shared/selection-context.js",
   "content/content-script.js"
 ];
 

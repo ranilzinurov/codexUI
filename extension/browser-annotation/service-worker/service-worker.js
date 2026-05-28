@@ -7,7 +7,8 @@ importScripts(
 const {
   MESSAGE_TYPES,
   DEFAULT_SETTINGS,
-  STORAGE_KEYS
+  STORAGE_KEYS,
+  MAX_ANNOTATION_QUEUE_ITEMS
 } = globalThis.BrowserAnnotationConstants;
 const {
   normalizeServerUrl,
@@ -32,7 +33,7 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  handleMessage(message)
+  handleMessage(message, _sender)
     .then((response) => sendResponse(response))
     .catch((error) => {
       sendResponse({
@@ -44,7 +45,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return true;
 });
 
-async function handleMessage(message) {
+async function handleMessage(message, sender) {
   if (!message || typeof message.type !== "string") {
     throw new Error("Unsupported extension message.");
   }
@@ -67,6 +68,10 @@ async function handleMessage(message) {
     return { ok: true };
   }
 
+  if (message.type === MESSAGE_TYPES.CONTENT_ELEMENT_SELECTED) {
+    return saveSelectedElementContext(message.context, sender);
+  }
+
   throw new Error(`Unsupported extension message type: ${message.type}`);
 }
 
@@ -83,6 +88,7 @@ async function getPanelState() {
   return {
     settings,
     connection,
+    queue: await readAnnotationQueue(),
     activeTab: activeTab
       ? {
           id: activeTab.id,
@@ -197,6 +203,7 @@ async function injectOverlayIntoActiveTab() {
     target: { tabId: tab.id },
     files: [
       "shared/constants.js",
+      "shared/selection-context.js",
       "content/content-script.js"
     ]
   });
@@ -210,4 +217,40 @@ async function injectOverlayIntoActiveTab() {
     injected: Boolean(response && response.ok),
     state: await getPanelState()
   };
+}
+
+async function saveSelectedElementContext(context, sender) {
+  if (!context || typeof context !== "object") {
+    throw new Error("Selected element context is missing.");
+  }
+
+  const queue = await readAnnotationQueue();
+  const item = {
+    id: `annotation-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    kind: "element-selection",
+    createdAtIso: new Date().toISOString(),
+    tab: sender && sender.tab
+      ? {
+          id: sender.tab.id,
+          title: sender.tab.title || "",
+          url: sender.tab.url || ""
+        }
+      : null,
+    context
+  };
+  const nextQueue = [...queue, item].slice(-MAX_ANNOTATION_QUEUE_ITEMS);
+  await chrome.storage.local.set({
+    [STORAGE_KEYS.annotationQueue]: nextQueue
+  });
+  return {
+    ok: true,
+    queueCount: nextQueue.length,
+    item
+  };
+}
+
+async function readAnnotationQueue() {
+  const stored = await chrome.storage.local.get(STORAGE_KEYS.annotationQueue);
+  const queue = stored[STORAGE_KEYS.annotationQueue];
+  return Array.isArray(queue) ? queue : [];
 }

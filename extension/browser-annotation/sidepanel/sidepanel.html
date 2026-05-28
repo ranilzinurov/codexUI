@@ -45,9 +45,10 @@
       <section class="section section-quiet">
         <div class="status-row">
           <span>Annotation queue</span>
-          <strong>Not started</strong>
+          <strong id="queueStatus">Empty</strong>
         </div>
-        <p class="muted">Selection, screenshots, voice notes, and batch sending are intentionally out of scope for this scaffold.</p>
+        <p id="queueDetail" class="muted">Select elements on the page to queue annotation context for later stages.</p>
+        <ol id="queueList" class="queue-list" aria-label="Queued annotations"></ol>
       </section>
 
       <p id="message" class="message" role="status" aria-live="polite"></p>

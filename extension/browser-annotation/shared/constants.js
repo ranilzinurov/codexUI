@@ -19,7 +19,8 @@
       SAVE_SETTINGS: "browserAnnotation.saveSettings",
       INJECT_OVERLAY: "browserAnnotation.injectOverlay",
       CONTENT_PING: "browserAnnotation.contentPing",
-      CONTENT_START_OVERLAY: "browserAnnotation.contentStartOverlay"
+      CONTENT_START_OVERLAY: "browserAnnotation.contentStartOverlay",
+      CONTENT_ELEMENT_SELECTED: "browserAnnotation.contentElementSelected"
     }),
     DEFAULT_SETTINGS: Object.freeze({
       serverUrl: "https://annotate.todo-tg-app.ru",
@@ -32,8 +33,10 @@
       "https:"
     ]),
     STORAGE_KEYS: Object.freeze({
-      settings: "browserAnnotation.settings"
+      settings: "browserAnnotation.settings",
+      annotationQueue: "browserAnnotation.annotationQueue"
     }),
+    MAX_ANNOTATION_QUEUE_ITEMS: 25,
     RESTRICTED_URL_PREFIXES: Object.freeze([
       "chrome://",
       "chrome-extension://",

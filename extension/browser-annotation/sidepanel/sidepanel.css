@@ -189,3 +189,28 @@ input:focus {
 .message-ok {
   color: var(--success);
 }
+
+.queue-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.queue-list:empty {
+  display: none;
+}
+
+.queue-list li {
+  overflow-wrap: anywhere;
+}
+
+.queue-list strong,
+.queue-list span {
+  display: block;
+}
+
+.queue-list span {
+  color: var(--muted);
+  font-size: 12px;
+}

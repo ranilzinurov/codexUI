@@ -1,7 +1,7 @@
 (function bootBrowserAnnotationSidePanel() {
   "use strict";
 
-  const { MESSAGE_TYPES } = globalThis.BrowserAnnotationConstants;
+  const { MESSAGE_TYPES, STORAGE_KEYS } = globalThis.BrowserAnnotationConstants;
 
   const elements = {
     connectionBadge: document.getElementById("connectionBadge"),
@@ -13,6 +13,9 @@
     injectOverlay: document.getElementById("injectOverlay"),
     tabStatus: document.getElementById("tabStatus"),
     tabDetail: document.getElementById("tabDetail"),
+    queueStatus: document.getElementById("queueStatus"),
+    queueDetail: document.getElementById("queueDetail"),
+    queueList: document.getElementById("queueList"),
     message: document.getElementById("message")
   };
   let lastState = null;
@@ -23,6 +26,12 @@
     if (!document.hidden) {
       refreshState();
     }
+  });
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== "local" || !changes[STORAGE_KEYS.annotationQueue]) {
+      return;
+    }
+    renderQueue(changes[STORAGE_KEYS.annotationQueue].newValue || []);
   });
 
   refreshState();
@@ -104,6 +113,7 @@
     elements.connectionBadge.classList.toggle("badge-muted", !connected && !error);
     elements.connectionStatus.textContent = connectionLabel(state.connection.status);
     elements.connectionDetail.textContent = connectionDetail(state.connection);
+    renderQueue(state.queue);
 
     if (!state.activeTab) {
       elements.tabStatus.textContent = "Unavailable";
@@ -178,5 +188,34 @@
       return "";
     }
     return date.toLocaleString();
+  }
+
+  function renderQueue(queue) {
+    const items = Array.isArray(queue) ? queue : [];
+    elements.queueStatus.textContent =
+      items.length === 0 ? "Empty" : `${items.length} item${items.length === 1 ? "" : "s"}`;
+    elements.queueDetail.textContent =
+      items.length === 0
+        ? "Select elements on the page to queue annotation context for later stages."
+        : "Stored locally in the extension. Batch send is added in a later stage.";
+    elements.queueList.replaceChildren(
+      ...items.slice(-5).reverse().map((item) => {
+        const row = document.createElement("li");
+        const name = document.createElement("strong");
+        const context = item.context || {};
+        name.textContent = queueItemName(context);
+        const meta = document.createElement("span");
+        meta.textContent = context.selector || context.xpath || "No selector";
+        row.append(name, meta);
+        return row;
+      })
+    );
+  }
+
+  function queueItemName(context) {
+    const tag = context.tagName || "element";
+    const role = context.role ? ` role=${context.role}` : "";
+    const text = context.text ? ` "${context.text}"` : "";
+    return `${tag}${role}${text}`;
   }
 })();

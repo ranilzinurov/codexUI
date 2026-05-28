@@ -6084,3 +6084,45 @@ Extension server URL and pairing-token validation.
 - Remove the unpacked extension from `chrome://extensions`.
 - Stop any local Codex UI dev server started solely for this check.
 - Revoke or stop any active listener session created for testing.
+
+---
+
+### Browser Annotation Extension Element Selection
+
+#### Feature/Change Name
+Page overlay, selected element context, and local annotation queue.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Chrome is installed for the manual smoke test.
+3. Load `extension/browser-annotation` as an unpacked extension.
+4. Serve the repository locally with `python3 -m http.server 8899`.
+
+#### Steps
+1. Run `for file in $(rg --files extension/browser-annotation -g '*.js' -g '*.mjs' | sort); do node --check "$file" || exit 1; done`.
+2. Run `node extension/browser-annotation/dev/validate-extension.mjs`.
+3. Run `node extension/browser-annotation/dev/pairing-client-smoke.mjs`.
+4. Run `node extension/browser-annotation/dev/selection-context-smoke.mjs`.
+5. Run `git diff --check -- extension/browser-annotation`.
+6. Open `http://127.0.0.1:8899/extension/browser-annotation/dev/test-page.html`.
+7. Click the extension action to open the side panel.
+8. Click `Inject overlay`.
+9. Hover the sample button, input, and card, and confirm the hover outline tracks each element.
+10. Click the sample button and confirm a selected outline remains and the side panel queue count increments.
+11. Repeat selection for the sample input and sample card.
+12. Confirm the queue entries show element type, text/label, selector, and page title or URL.
+13. Press `Esc` and confirm annotation mode pauses and page clicks work normally again.
+14. Repeat the side panel queue visual check in light and dark OS/browser color schemes.
+
+#### Expected Results
+- All static and smoke commands pass.
+- The overlay is injected only after the side-panel user action.
+- Hover and selected outlines appear above the page without affecting normal layout.
+- Button, input, and card selections queue context with selector, XPath, role, aria/text, rect, viewport, headings, and labels.
+- The queue is bounded in extension local storage and updates in the side panel without polling.
+- Light and dark side panel queue states remain readable.
+
+#### Rollback/Cleanup
+- Remove the unpacked extension from `chrome://extensions`.
+- Stop the temporary `python3 -m http.server 8899` process.
+- Clear extension storage from the extension details page if you want to remove queued test selections.
