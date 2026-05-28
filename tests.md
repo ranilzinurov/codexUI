@@ -6474,6 +6474,40 @@ Show safe last-received browser annotation batch metadata in the active listener
 
 ---
 
+### Browser Annotation Batch Compact Thread Rendering
+
+#### Feature/Change Name
+Render incoming browser annotation batch prompts as compact thread cards with parsed annotation summaries, screenshots, and expandable raw context.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Have a thread containing a `# Browser annotation batch` user message, or send one from the browser annotation extension.
+3. For manual checks, keep the extension paired and able to send annotations with at least one screenshot.
+
+#### Steps
+1. Run `pnpm exec vitest run src/components/content/browserAnnotationBatchMessage.test.ts --reporter=verbose`.
+2. Run `pnpm exec vue-tsc --noEmit`.
+3. Run `pnpm run test:browser-annotation`.
+4. Open a thread that contains a browser annotation batch message.
+5. Confirm the user message renders as a compact `Browser annotation` card instead of raw full prompt text.
+6. Confirm the card shows the primary page, batch id, annotation count, screenshot count, and `DevTools included` when present.
+7. Confirm each annotation row shows kind/id plus the best available note, transcript, voice error, selected text, or DevTools context.
+8. Confirm attached screenshots are shown inside the card and still open in the image modal.
+9. Open `Raw context` and confirm the original markdown prompt remains available.
+10. Repeat the thread readability check in light and dark themes.
+
+#### Expected Results
+- The focused parser test, Vue typecheck, and browser annotation suite pass.
+- Browser annotation batch messages are scannable without losing raw prompt detail.
+- Screenshot previews are grouped with the batch card rather than floating above it.
+- Light and dark themes keep readable text, borders, backgrounds, and raw-context surfaces.
+
+#### Rollback/Cleanup
+- Remove any manual test batch messages if they were created only for this check.
+- Stop or revoke the listener session and clear extension storage if needed.
+
+---
+
 ### Browser Annotation DevTools Persistence Serialization
 
 #### Feature/Change Name
