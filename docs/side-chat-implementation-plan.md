@@ -263,7 +263,7 @@ Atomic steps:
 - [x] Run required lint/build/coverage gates.
 - [x] Run performance audit and record results.
 - [x] Commit each completed phase separately.
-- [ ] Before merging to local main, diff-compare branch against main.
+- [x] Before merging to local main, diff-compare branch against main.
 
 Final regression:
 
@@ -310,3 +310,4 @@ Completion criteria:
 - [x] 2026-05-28: Ran `pnpm run test:coverage`: `23 passed` files, `180 passed` tests; coverage summary `21.46%` statements, `18.36%` branches, `24.15%` functions, `22.38%` lines.
 - [x] 2026-05-28: Ran `pnpm run test`: frontend build, CLI build, and project smoke scripts passed.
 - [x] 2026-05-28: Ran performance audit against side-worktree dev server on `http://127.0.0.1:4174` because `4173` was occupied by the main worktree. Report: `output/playwright/browser-runtime-profile-home-2026-05-28T09-18-54-712Z.json`; warnings `[]`; duplicate counts `threadList=1`, `threadListFirstPage=1`, `threadListCursor=0`, `threadResume=0`, `threadRead=0`, `skillsList=1`, `rateLimitsRead=1`, `providerModels=1`; total API `210.8 KB`.
+- [x] 2026-05-28: Ran pre-merge diff review with `git diff --stat main...HEAD`; branch includes side-chat commits plus pre-existing browser-annotation work relative to local `main`, so final merge should use a curated branch or cherry-pick side-chat commits if browser-annotation work is not intended for that merge.
