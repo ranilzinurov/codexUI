@@ -235,6 +235,7 @@ describe('unified responses proxy reasoning_content translation', () => {
         responsesEndpoint: `http://127.0.0.1:${upstreamPort}/v1/responses`,
         chatCompletionsEndpoint: `http://127.0.0.1:${upstreamPort}/v1/chat/completions`,
         missingKeyMessage: 'missing',
+        allowToolFallbackToResponses: false,
         responsesPayloadFormat: 'raw',
       })
     })
@@ -300,6 +301,7 @@ describe('unified responses proxy reasoning_content translation', () => {
         responsesEndpoint: `http://127.0.0.1:${upstreamPort}/v1/responses`,
         chatCompletionsEndpoint: `http://127.0.0.1:${upstreamPort}/v1/chat/completions`,
         missingKeyMessage: 'missing',
+        allowToolFallbackToResponses: false,
         responsesPayloadFormat: 'raw',
       })
     })
@@ -359,6 +361,7 @@ describe('unified responses proxy reasoning_content translation', () => {
         responsesEndpoint: `http://127.0.0.1:${upstreamPort}/v1/responses`,
         chatCompletionsEndpoint: `http://127.0.0.1:${upstreamPort}/v1/chat/completions`,
         missingKeyMessage: 'missing',
+        allowToolFallbackToResponses: false,
         responsesPayloadFormat: 'raw',
       })
     })

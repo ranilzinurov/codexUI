@@ -492,10 +492,11 @@ function isPreviousResponseNotFoundError(status: number, rawResponseBody: string
 
   const errorRecord = error as Record<string, unknown>
   if (errorRecord.code === 'previous_response_not_found') return true
-  if (errorRecord.param === 'previous_response_id') return true
 
   const message = typeof errorRecord.message === 'string' ? errorRecord.message : ''
-  return /previous[_\s-]+response/i.test(message) && /not[_\s-]+found/i.test(message)
+  const messageLooksLikeMissingPreviousResponse =
+    /previous[_\s-]+response/i.test(message) && /not[_\s-]+found/i.test(message)
+  return errorRecord.param === 'previous_response_id' && messageLooksLikeMissingPreviousResponse
 }
 
 function shouldRecoverWithoutPreviousResponseId(

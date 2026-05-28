@@ -5696,7 +5696,7 @@ Unified Responses proxy recovers from stale `previous_response_id` without touch
 
 #### Prerequisites/Setup
 1. Dev server running: `pnpm run dev --host 127.0.0.1 --port 4173`.
-2. A provider route that uses the unified Responses proxy is configured, such as Custom endpoint `Completions` mode through the local Responses-compatible proxy.
+2. A provider route that uses the unified Responses proxy raw Responses path is configured, such as Custom endpoint or OpenRouter `Responses API` mode through the local proxy.
 3. A test thread exists with at least one successful assistant response so a follow-up request can carry a `previous_response_id`.
 4. Ability to simulate a stale upstream previous-response reference, for example by using an endpoint/proxy fixture that rejects the next request because the referenced previous response is unknown or expired.
 
