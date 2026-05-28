@@ -18,9 +18,11 @@ describe('browser annotation transcription config', () => {
     })
     expect(config).toEqual({
       openAiApiKey: null,
-      primaryModel: DEFAULT_BROWSER_ANNOTATION_TRANSCRIBE_MODEL,
-      fallbackModel: DEFAULT_BROWSER_ANNOTATION_TRANSCRIBE_FALLBACK_MODEL,
+      primaryModel: 'gpt-audio-mini-2025-12-15',
+      fallbackModel: 'whisper-1',
     })
+    expect(DEFAULT_BROWSER_ANNOTATION_TRANSCRIBE_MODEL).toBe('gpt-audio-mini-2025-12-15')
+    expect(DEFAULT_BROWSER_ANNOTATION_TRANSCRIBE_FALLBACK_MODEL).toBe('whisper-1')
   })
 
   it('trims configured values and keeps the API key out of public summaries', () => {
