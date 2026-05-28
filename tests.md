@@ -6096,7 +6096,7 @@ Page overlay, selected element context, and local annotation queue.
 1. Run from the repository root.
 2. Chrome is installed for the manual smoke test.
 3. Load `extension/browser-annotation` as an unpacked extension.
-4. Serve the repository locally with `python3 -m http.server 8899`.
+4. Serve the repository with Codex UI dev server or `python3 -m http.server 8899`.
 
 #### Steps
 1. Run `for file in $(rg --files extension/browser-annotation -g '*.js' -g '*.mjs' | sort); do node --check "$file" || exit 1; done`.
@@ -6104,7 +6104,7 @@ Page overlay, selected element context, and local annotation queue.
 3. Run `node extension/browser-annotation/dev/pairing-client-smoke.mjs`.
 4. Run `node extension/browser-annotation/dev/selection-context-smoke.mjs`.
 5. Run `git diff --check -- extension/browser-annotation`.
-6. Open `http://127.0.0.1:8899/extension/browser-annotation/dev/test-page.html`.
+6. Open `http://127.0.0.1:4173/browser-annotation-test.html` when using Codex UI dev server, or `http://127.0.0.1:8899/extension/browser-annotation/dev/test-page.html` when using `python3 -m http.server`.
 7. Click the extension action or press `Ctrl+Shift+Y` to open the side panel and start annotation mode.
 8. If annotation mode is not active, click `Inject overlay`.
 9. Hover the sample button, input, and card, and confirm the hover outline tracks each element.
@@ -6124,7 +6124,7 @@ Page overlay, selected element context, and local annotation queue.
 
 #### Rollback/Cleanup
 - Remove the unpacked extension from `chrome://extensions`.
-- Stop the temporary `python3 -m http.server 8899` process.
+- Stop the temporary `python3 -m http.server 8899` process or Codex UI dev server used for the test.
 - Clear extension storage from the extension details page if you want to remove queued test selections.
 
 ---
@@ -6138,7 +6138,7 @@ Visible-tab capture, device-pixel-ratio crop, and bounded preview storage.
 1. Run from the repository root.
 2. Chrome is installed for the manual smoke test.
 3. Load `extension/browser-annotation` as an unpacked extension.
-4. Serve the repository locally with `python3 -m http.server 8899`.
+4. Serve the repository with Codex UI dev server or `python3 -m http.server 8899`.
 
 #### Steps
 1. Run `find extension/browser-annotation -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check`.
@@ -6148,7 +6148,7 @@ Visible-tab capture, device-pixel-ratio crop, and bounded preview storage.
 5. Run `node extension/browser-annotation/dev/annotation-queue-smoke.mjs`.
 6. Run `node extension/browser-annotation/dev/screenshot-crop-smoke.mjs`.
 7. Run `git diff --check -- extension/browser-annotation`.
-8. Open `http://127.0.0.1:8899/extension/browser-annotation/dev/test-page.html`.
+8. Open `http://127.0.0.1:4173/browser-annotation-test.html` when using Codex UI dev server, or `http://127.0.0.1:8899/extension/browser-annotation/dev/test-page.html` when using `python3 -m http.server`.
 9. Click the extension action or press `Ctrl+Shift+Y`; if annotation mode is not active, click `Inject overlay`.
 10. Select the sample button and confirm the queue row shows a crop preview matching the button.
 11. Select the sample input and card and confirm their preview aspect/contents match the selected elements.
@@ -6165,7 +6165,7 @@ Visible-tab capture, device-pixel-ratio crop, and bounded preview storage.
 
 #### Rollback/Cleanup
 - Remove the unpacked extension from `chrome://extensions`.
-- Stop the temporary `python3 -m http.server 8899` process.
+- Stop the temporary `python3 -m http.server 8899` process or Codex UI dev server used for the test.
 - Clear extension storage from the extension details page to remove preview test data.
 
 ---
@@ -6180,7 +6180,7 @@ Queue notes, edit/delete/reorder, and send one annotation batch.
 2. Chrome is installed for the manual smoke test.
 3. Load `extension/browser-annotation` as an unpacked extension.
 4. Start Codex UI locally and create an active browser annotation listener token from a thread.
-5. Serve the repository locally with `python3 -m http.server 8899`.
+5. Serve the repository with Codex UI dev server or `python3 -m http.server 8899`.
 
 #### Steps
 1. Run `find extension/browser-annotation -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check`.
@@ -6190,7 +6190,7 @@ Queue notes, edit/delete/reorder, and send one annotation batch.
 5. Run `node extension/browser-annotation/dev/annotation-queue-smoke.mjs`.
 6. Run `node extension/browser-annotation/dev/screenshot-crop-smoke.mjs`.
 7. Run `pnpm exec vitest run src/server/browserAnnotationBatch.test.ts --reporter=verbose`.
-8. Open `http://127.0.0.1:8899/extension/browser-annotation/dev/test-page.html`.
+8. Open `http://127.0.0.1:4173/browser-annotation-test.html` when using Codex UI dev server, or `http://127.0.0.1:8899/extension/browser-annotation/dev/test-page.html` when using `python3 -m http.server`.
 9. Pair the extension with the local Codex UI listener token.
 10. Inject the overlay and select the sample button, input, and card.
 11. Add notes to at least two annotations.
@@ -6211,6 +6211,6 @@ Queue notes, edit/delete/reorder, and send one annotation batch.
 
 #### Rollback/Cleanup
 - Remove the unpacked extension from `chrome://extensions`.
-- Stop the temporary `python3 -m http.server 8899` process.
+- Stop the temporary `python3 -m http.server 8899` process or Codex UI dev server used for the test.
 - Revoke or stop the active browser annotation listener session.
 - Clear extension storage from the extension details page if test annotations remain.
