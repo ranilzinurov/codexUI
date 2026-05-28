@@ -25,6 +25,7 @@ const requiredFiles = [
   "shared/url-utils.js",
   "shared/pairing-client.js",
   "shared/selection-context.js",
+  "shared/annotation-queue.js",
   "shared/screenshot-crop.js",
   "content/content-script.js"
 ];

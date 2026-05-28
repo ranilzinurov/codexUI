@@ -46,6 +46,7 @@ class FakeOffscreenCanvas {
 const context = vm.createContext({
   Buffer,
   Date,
+  TextEncoder,
   Uint8Array,
   console,
   OffscreenCanvas: FakeOffscreenCanvas,
@@ -80,6 +81,10 @@ const source = await readFile(
 vm.runInContext(source, context, { filename: "shared/screenshot-crop.js" });
 
 const { BrowserAnnotationScreenshotCrop } = context;
+assert.equal(
+  context.BrowserAnnotationScreenshotCrop.isDataUrl("data:image/png;base64,c291cmNl"),
+  true
+);
 const rect = {
   left: 10.4,
   top: 20.2,
@@ -125,7 +130,7 @@ const preview = await BrowserAnnotationScreenshotCrop.cropScreenshotDataUrl(
   viewport,
   {
     maxPreviewEdgePx: 640,
-    maxPreviewDataUrlChars: 750000
+    maxPreviewDataUrlChars: 250000
   }
 );
 assert.equal(preview.width, 240);

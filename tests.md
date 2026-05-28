@@ -6126,3 +6126,44 @@ Page overlay, selected element context, and local annotation queue.
 - Remove the unpacked extension from `chrome://extensions`.
 - Stop the temporary `python3 -m http.server 8899` process.
 - Clear extension storage from the extension details page if you want to remove queued test selections.
+
+---
+
+### Browser Annotation Extension Screenshot Crop Preview
+
+#### Feature/Change Name
+Visible-tab capture, device-pixel-ratio crop, and bounded preview storage.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Chrome is installed for the manual smoke test.
+3. Load `extension/browser-annotation` as an unpacked extension.
+4. Serve the repository locally with `python3 -m http.server 8899`.
+
+#### Steps
+1. Run `find extension/browser-annotation -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check`.
+2. Run `node extension/browser-annotation/dev/validate-extension.mjs`.
+3. Run `node extension/browser-annotation/dev/pairing-client-smoke.mjs`.
+4. Run `node extension/browser-annotation/dev/selection-context-smoke.mjs`.
+5. Run `node extension/browser-annotation/dev/annotation-queue-smoke.mjs`.
+6. Run `node extension/browser-annotation/dev/screenshot-crop-smoke.mjs`.
+7. Run `git diff --check -- extension/browser-annotation`.
+8. Open `http://127.0.0.1:8899/extension/browser-annotation/dev/test-page.html`.
+9. Click the extension action, then click `Inject overlay`.
+10. Select the sample button and confirm the queue row shows a crop preview matching the button.
+11. Select the sample input and card and confirm their preview aspect/contents match the selected elements.
+12. Confirm no full visible-tab screenshot appears in extension storage; only cropped previews are stored.
+13. Repeat the preview rendering check in light and dark OS/browser color schemes.
+
+#### Expected Results
+- All static and smoke commands pass.
+- `chrome.tabs.captureVisibleTab` is used only after the user-driven selection flow.
+- Crop math uses `devicePixelRatio` and clips to screenshot bounds.
+- Queue previews are capped per item and the queue is trimmed under the aggregate storage budget before `chrome.storage.local.set`.
+- The side panel renders the newest preview rows without polling.
+- Light and dark side panel preview rows are readable.
+
+#### Rollback/Cleanup
+- Remove the unpacked extension from `chrome://extensions`.
+- Stop the temporary `python3 -m http.server 8899` process.
+- Clear extension storage from the extension details page to remove preview test data.

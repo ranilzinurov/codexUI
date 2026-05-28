@@ -2,6 +2,7 @@ importScripts(
   "../shared/constants.js",
   "../shared/url-utils.js",
   "../shared/pairing-client.js",
+  "../shared/annotation-queue.js",
   "../shared/screenshot-crop.js"
 );
 
@@ -9,7 +10,6 @@ const {
   MESSAGE_TYPES,
   DEFAULT_SETTINGS,
   STORAGE_KEYS,
-  MAX_ANNOTATION_QUEUE_ITEMS,
   MAX_SCREENSHOT_PREVIEW_EDGE_PX,
   MAX_SCREENSHOT_PREVIEW_DATA_URL_CHARS
 } = globalThis.BrowserAnnotationConstants;
@@ -27,6 +27,7 @@ const {
 const {
   cropScreenshotDataUrl
 } = globalThis.BrowserAnnotationScreenshotCrop;
+const { trimAnnotationQueue } = globalThis.BrowserAnnotationQueue;
 
 enableActionSidePanelBehavior();
 
@@ -246,7 +247,7 @@ async function saveSelectedElementContext(context, sender) {
     context,
     preview
   };
-  const nextQueue = [...queue, item].slice(-MAX_ANNOTATION_QUEUE_ITEMS);
+  const nextQueue = trimAnnotationQueue([...queue, item]);
   await chrome.storage.local.set({
     [STORAGE_KEYS.annotationQueue]: nextQueue
   });

@@ -21,6 +21,7 @@ node --check extension/browser-annotation/shared/constants.js
 node --check extension/browser-annotation/shared/url-utils.js
 node --check extension/browser-annotation/shared/pairing-client.js
 node --check extension/browser-annotation/shared/selection-context.js
+node --check extension/browser-annotation/shared/annotation-queue.js
 node --check extension/browser-annotation/shared/screenshot-crop.js
 node --check extension/browser-annotation/service-worker/service-worker.js
 node --check extension/browser-annotation/content/content-script.js
@@ -28,10 +29,12 @@ node --check extension/browser-annotation/sidepanel/sidepanel.js
 node --check extension/browser-annotation/dev/validate-extension.mjs
 node --check extension/browser-annotation/dev/pairing-client-smoke.mjs
 node --check extension/browser-annotation/dev/selection-context-smoke.mjs
+node --check extension/browser-annotation/dev/annotation-queue-smoke.mjs
 node --check extension/browser-annotation/dev/screenshot-crop-smoke.mjs
 node extension/browser-annotation/dev/validate-extension.mjs
 node extension/browser-annotation/dev/pairing-client-smoke.mjs
 node extension/browser-annotation/dev/selection-context-smoke.mjs
+node extension/browser-annotation/dev/annotation-queue-smoke.mjs
 node extension/browser-annotation/dev/screenshot-crop-smoke.mjs
 ```
 
