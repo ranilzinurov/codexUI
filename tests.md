@@ -6793,3 +6793,30 @@ Render the browser annotation test page `Sample action` button as a green action
 
 #### Rollback/Cleanup
 - Stop any temporary dev or static server started for this check.
+
+---
+
+### Browser Annotation Test Page Sample Card Heading Font
+
+#### Feature/Change Name
+Render the browser annotation test page `Sample card` heading with a more decorative readable font.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Start Codex UI with `pnpm run dev --host 127.0.0.1 --port 4173`, or serve the extension dev directory with `python3 -m http.server`.
+
+#### Steps
+1. Open `http://127.0.0.1:4173/browser-annotation-test.html`.
+2. Confirm the `Sample card` heading inside the sample card uses a serif display-style font, larger size, and tighter spacing than the body text.
+3. Confirm the heading does not overlap the paragraph below it or change the selected annotation target.
+4. Switch the browser or OS to dark theme and reload the same page.
+5. Repeat steps 2-3 in dark theme.
+6. For the extension dev copy, open `extension/browser-annotation/dev/test-page.html` through the local static server and repeat the light and dark theme checks.
+
+#### Expected Results
+- The annotated `Sample card` heading is visually distinct and more decorative in both public and extension dev test pages.
+- The heading remains readable in light and dark themes.
+- The sample card layout remains stable, with the paragraph and green action button still visible and aligned.
+
+#### Rollback/Cleanup
+- Stop any temporary dev or static server started for this check.
