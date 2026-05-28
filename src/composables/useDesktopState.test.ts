@@ -13,7 +13,6 @@ import type { WorkspaceRootsState } from '../api/codexGateway'
 
 const gatewayMocks = vi.hoisted(() => ({
   archiveThread: vi.fn(),
-  createSideThread: vi.fn(),
   forkThread: vi.fn(),
   getAccountRateLimits: vi.fn(),
   getAvailableCollaborationModes: vi.fn(),
@@ -39,6 +38,7 @@ const gatewayMocks = vi.hoisted(() => ({
   setThreadQueueState: vi.fn(),
   setWorkspaceRootsState: vi.fn(),
   startThread: vi.fn(),
+  startSideThread: vi.fn(),
   startThreadTurn: vi.fn(),
   subscribeCodexNotifications: vi.fn(),
 }))
@@ -122,7 +122,7 @@ function installNotificationListener() {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  gatewayMocks.createSideThread.mockResolvedValue({ threadId: 'side-thread', model: 'gpt-5.4' })
+  gatewayMocks.startSideThread.mockResolvedValue({ threadId: 'side-thread', model: 'gpt-5.4' })
   gatewayMocks.getThreadQueueState.mockResolvedValue({})
   gatewayMocks.getThreadSummary.mockRejectedValue(new Error('thread summary unavailable'))
   gatewayMocks.getThreadTitleCache.mockResolvedValue({ titles: {} })
@@ -568,7 +568,7 @@ describe('side-chat state API', () => {
 
     const sideThreadId = await sideState.openSideChatForSelectedThread()
 
-    expect(gatewayMocks.createSideThread).toHaveBeenCalledWith('main-thread')
+    expect(gatewayMocks.startSideThread).toHaveBeenCalledWith('main-thread')
     expect(sideThreadId).toBe('side-thread')
     expect(sideState.sideThreadId.value).toBe('side-thread')
     expect(state.selectedThreadId.value).toBe('main-thread')
