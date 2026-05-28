@@ -5721,3 +5721,59 @@ Unified Responses proxy recovers from stale `previous_response_id` without touch
 - Remove any endpoint/proxy fixture used to force stale `previous_response_id` failures.
 - Restore provider/API format, selected model, and test thread state to preferred defaults.
 - Restore any local auth/account files from the pre-test backup if the manual environment was inspected or copied for comparison.
+
+---
+
+### Browser Annotation Transcription Env Smoke
+
+#### Feature/Change Name
+Browser annotation server-side transcription environment validation.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Do not paste, print, or commit any real OpenAI API key value.
+3. Optional: set `CODEXUI_ANNOTATION_TRANSCRIBE_MODEL` and `CODEXUI_ANNOTATION_TRANSCRIBE_FALLBACK_MODEL` to local placeholder values.
+
+#### Steps
+1. Run `node scripts/test-codexui-annotation-transcription-env.mjs`.
+2. Confirm the command exits successfully.
+3. Inspect the output and confirm it reports only whether `OPENAI_API_KEY` is `present` or `missing`.
+4. Confirm the output reports model env status without printing secret values.
+5. Light and dark theme verification is not applicable because this change has no UI surface.
+
+#### Expected Results
+- The smoke script exits 0.
+- Output includes `OPENAI_API_KEY=present` or `OPENAI_API_KEY=missing`.
+- The actual API key value is never printed.
+- Annotation transcription model env vars are trimmed and reported as configured or unset.
+
+#### Rollback/Cleanup
+- Unset any local placeholder `CODEXUI_ANNOTATION_TRANSCRIBE_MODEL` and `CODEXUI_ANNOTATION_TRANSCRIBE_FALLBACK_MODEL` values that were added only for testing.
+
+---
+
+### Browser Annotation Data Contracts
+
+#### Feature/Change Name
+Browser annotation batch contract, examples, and privacy validation.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. No browser or dev server is required.
+
+#### Steps
+1. Run `pnpm exec vitest run src/api/browserAnnotationContracts.test.ts`.
+2. Confirm representative text-only, screenshot-only, voice, and DevTools-heavy examples validate.
+3. Confirm sensitive headers and body fields are rejected unless their values are exactly `[REDACTED]`.
+4. Confirm captured body text requires user opt-in and respects the byte cap.
+5. Confirm malformed `assets` and `items` arrays return validation errors instead of throwing.
+6. Light and dark theme verification is not applicable because this change has no UI surface.
+
+#### Expected Results
+- The focused Vitest file passes.
+- DevTools payload examples enforce redaction for passwords, tokens, cookies, API keys, and common camelCase/kebab-case variants.
+- `redacted` and `not-captured` body states cannot carry raw text.
+- Multibyte body trimming does not exceed the configured byte cap.
+
+#### Rollback/Cleanup
+- None.
