@@ -45,7 +45,7 @@ Expected red failures:
 
 - [x] Phase 0: TDD branch and red tests
 - [x] Phase 1: Gateway contract
-- [ ] Phase 2: Desktop state and notification routing
+- [x] Phase 2: Desktop state and notification routing
 - [ ] Phase 3: Slash command integration
 - [ ] Phase 4: Side panel UI
 - [ ] Phase 5: Requests, approvals, and error handling
@@ -112,15 +112,15 @@ Purpose: let the UI keep main and side threads visible at the same time.
 
 Atomic steps:
 
-- [ ] Add `sideThreadId`, `sideMessages`, and `sideLiveOverlay` state.
-- [ ] Add `openSideChatForSelectedThread()`.
-- [ ] Ensure opening Side Chat does not call `setSelectedThreadId`.
-- [ ] Add `sendMessageToSideChat(...)` and route turns to `sideThreadId`.
-- [ ] Keep `sendMessageToSelectedThread(...)` bound to the main selected thread.
-- [ ] Generalize message/live-overlay helpers so selected and side threads can stream independently.
-- [ ] Route side-thread deltas into side state only.
-- [ ] Add `closeSideChat()` cleanup.
-- [ ] Prune/cleanup side state without affecting persisted main thread state.
+- [x] Add `sideThreadId`, `sideMessages`, and `sideLiveOverlay` state.
+- [x] Add `openSideChatForSelectedThread()`.
+- [x] Ensure opening Side Chat does not call `setSelectedThreadId`.
+- [x] Add `sendMessageToSideChat(...)` and route turns to `sideThreadId`.
+- [x] Keep `sendMessageToSelectedThread(...)` bound to the main selected thread.
+- [x] Generalize message/live-overlay helpers so selected and side threads can stream independently.
+- [x] Route side-thread deltas into side state only.
+- [x] Add `closeSideChat()` cleanup.
+- [x] Prune/cleanup side state without affecting persisted main thread state.
 
 Smoke tests:
 
@@ -300,4 +300,5 @@ Completion criteria:
 - [x] 2026-05-28: Refined state test contract to use `startSideThread`.
 - [x] 2026-05-28: Ran targeted red baseline: `8 failed | 35 passed`.
 - [x] 2026-05-28: Implemented Phase 1 gateway contract; `src/api/codexGateway.test.ts` passes 11/11.
+- [x] 2026-05-28: Implemented Phase 2 desktop state and side-thread notification routing; `src/composables/useDesktopState.test.ts` passes 30/30.
 - [ ] Implementation paused until explicit user approval.

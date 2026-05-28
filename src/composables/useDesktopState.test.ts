@@ -619,6 +619,12 @@ describe('side-chat state API', () => {
       },
       atIso: '2026-05-28T00:00:01.000Z',
     })
+
+    expect(sideState.sideLiveOverlay.value).toMatchObject({
+      activityLabel: 'Thinking',
+      reasoningText: 'Side thinking stays beside the main thread.',
+    })
+
     notify({
       method: 'item/agentMessage/delta',
       params: {
@@ -630,10 +636,7 @@ describe('side-chat state API', () => {
       atIso: '2026-05-28T00:00:02.000Z',
     })
 
-    expect(sideState.sideLiveOverlay.value).toMatchObject({
-      activityLabel: 'Thinking',
-      reasoningText: 'Side thinking stays beside the main thread.',
-    })
+    expect(sideState.sideLiveOverlay.value?.activityLabel).toBe('Writing response')
     expect(sideState.sideMessages.value).toEqual([
       expect.objectContaining({
         id: 'side-agent-message',

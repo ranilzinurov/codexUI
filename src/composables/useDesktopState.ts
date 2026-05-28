@@ -33,6 +33,7 @@ import {
   resumeThread,
 
   startThread,
+  startSideThread,
   subscribeCodexNotifications,
   startThreadTurn,
   type RpcNotification,
@@ -1580,6 +1581,7 @@ export function useDesktopState() {
   const projectGroups = ref<UiProjectGroup[]>([])
   const sourceGroups = ref<UiProjectGroup[]>([])
   const selectedThreadId = ref(loadSelectedThreadId())
+  const sideThreadId = ref('')
   const persistedMessagesByThreadId = ref<Record<string, UiMessage[]>>({})
   const livePlanMessagesByThreadId = ref<Record<string, UiMessage[]>>({})
   const liveAgentMessagesByThreadId = ref<Record<string, UiMessage[]>>({})
@@ -1750,31 +1752,33 @@ export function useDesktopState() {
     if (!threadId) return false
     return interruptBlockedUntilPersistedByThreadId.value[threadId] === true
   })
-  const selectedThreadServerRequests = computed<UiServerRequest[]>(() => {
+  function serverRequestsForThread(threadId: string): UiServerRequest[] {
     const rows: UiServerRequest[] = []
-    const selected = selectedThreadId.value
-    if (selected && Array.isArray(pendingServerRequestsByThreadId.value[selected])) {
-      rows.push(...pendingServerRequestsByThreadId.value[selected])
+    const normalizedThreadId = threadId.trim()
+    if (normalizedThreadId && Array.isArray(pendingServerRequestsByThreadId.value[normalizedThreadId])) {
+      rows.push(...pendingServerRequestsByThreadId.value[normalizedThreadId])
     }
     if (Array.isArray(pendingServerRequestsByThreadId.value[GLOBAL_SERVER_REQUEST_SCOPE])) {
       rows.push(...pendingServerRequestsByThreadId.value[GLOBAL_SERVER_REQUEST_SCOPE])
     }
     return rows.sort((first, second) => first.receivedAtIso.localeCompare(second.receivedAtIso))
-  })
-  const selectedLiveOverlay = computed<UiLiveOverlay | null>(() => {
-    const threadId = selectedThreadId.value
-    if (!threadId) return null
+  }
 
-    const isInProgress = inProgressById.value[threadId] === true
-    const activity = isInProgress ? turnActivityByThreadId.value[threadId] : undefined
+  function liveOverlayForThread(threadId: string): UiLiveOverlay | null {
+    const normalizedThreadId = threadId.trim()
+    if (!normalizedThreadId) return null
+
+    const requests = serverRequestsForThread(normalizedThreadId)
+    const isInProgress = inProgressById.value[normalizedThreadId] === true
+    const activity = isInProgress ? turnActivityByThreadId.value[normalizedThreadId] : undefined
     const reasoningText = isInProgress
-      ? (liveReasoningTextByThreadId.value[threadId] ?? '').trim()
+      ? (liveReasoningTextByThreadId.value[normalizedThreadId] ?? '').trim()
       : ''
-    const errorText = (turnErrorByThreadId.value[threadId]?.message ?? '').trim()
-    const collabAgents = isInProgress ? (liveCollabAgentsByThreadId.value[threadId] ?? []) : []
+    const errorText = (turnErrorByThreadId.value[normalizedThreadId]?.message ?? '').trim()
+    const collabAgents = isInProgress ? (liveCollabAgentsByThreadId.value[normalizedThreadId] ?? []) : []
     const mcpActivities = [
-      ...(isInProgress ? (liveMcpActivitiesByThreadId.value[threadId] ?? []) : []),
-      ...buildMcpActivities(selectedThreadServerRequests.value),
+      ...(isInProgress ? (liveMcpActivitiesByThreadId.value[normalizedThreadId] ?? []) : []),
+      ...buildMcpActivities(requests),
     ]
 
     if (!activity && !reasoningText && !errorText && collabAgents.length === 0 && mcpActivities.length === 0) return null
@@ -1786,28 +1790,37 @@ export function useDesktopState() {
       collabAgents,
       mcpActivities,
     }
-  })
+  }
+
+  const selectedThreadServerRequests = computed<UiServerRequest[]>(() => serverRequestsForThread(selectedThreadId.value))
+  const selectedLiveOverlay = computed<UiLiveOverlay | null>(() => liveOverlayForThread(selectedThreadId.value))
+  const sideLiveOverlay = computed<UiLiveOverlay | null>(() => liveOverlayForThread(sideThreadId.value))
+
+  function messagesForThread(threadId: string): UiMessage[] {
+    const normalizedThreadId = threadId.trim()
+    if (!normalizedThreadId) return []
+
+    const persisted = persistedMessagesByThreadId.value[normalizedThreadId] ?? []
+    const livePlan = livePlanMessagesByThreadId.value[normalizedThreadId] ?? []
+    const liveAgent = liveAgentMessagesByThreadId.value[normalizedThreadId] ?? []
+    const liveCommands = liveCommandsByThreadId.value[normalizedThreadId] ?? []
+    const liveFileChanges = liveFileChangeMessagesByThreadId.value[normalizedThreadId] ?? []
+    const combined = [...persisted, ...livePlan, ...liveCommands, ...liveFileChanges, ...liveAgent]
+
+    const summary = turnSummaryByThreadId.value[normalizedThreadId]
+    if (!summary) return combined
+    return insertTurnSummaryMessage(combined, summary)
+  }
+
+  const sideMessages = computed<UiMessage[]>(() => messagesForThread(sideThreadId.value))
+  const sideThreadServerRequests = computed<UiServerRequest[]>(() => serverRequestsForThread(sideThreadId.value))
   const codexQuota = computed<UiRateLimitSnapshot | null>(() => codexRateLimit.value)
   const selectedThreadTokenUsage = computed<UiThreadTokenUsage | null>(() => {
     const threadId = selectedThreadId.value
     if (!threadId) return null
     return threadTokenUsageByThreadId.value[threadId] ?? null
   })
-  const messages = computed<UiMessage[]>(() => {
-    const threadId = selectedThreadId.value
-    if (!threadId) return []
-
-    const persisted = persistedMessagesByThreadId.value[threadId] ?? []
-    const livePlan = livePlanMessagesByThreadId.value[threadId] ?? []
-    const liveAgent = liveAgentMessagesByThreadId.value[threadId] ?? []
-    const liveCommands = liveCommandsByThreadId.value[threadId] ?? []
-    const liveFileChanges = liveFileChangeMessagesByThreadId.value[threadId] ?? []
-    const combined = [...persisted, ...livePlan, ...liveCommands, ...liveFileChanges, ...liveAgent]
-
-    const summary = turnSummaryByThreadId.value[threadId]
-    if (!summary) return combined
-    return insertTurnSummaryMessage(combined, summary)
-  })
+  const messages = computed<UiMessage[]>(() => messagesForThread(selectedThreadId.value))
   const hasMoreOlderMessages = computed(() => {
     const threadId = selectedThreadId.value
     return threadId ? hasMoreOlderMessagesByThreadId.value[threadId] === true : false
@@ -4451,7 +4464,7 @@ export function useDesktopState() {
     applyCollabAgentRealtimeUpdate(notification)
     applyMcpActivityRealtimeUpdate(notification)
 
-    if (!notificationThreadId || notificationThreadId !== selectedThreadId.value) return
+    if (!notificationThreadId) return
 
     const startedAgentMessageId = readAgentMessageStartedId(notification)
     if (startedAgentMessageId) {
@@ -5608,6 +5621,78 @@ export function useDesktopState() {
     )
   }
 
+  async function openSideChatForSelectedThread(): Promise<string> {
+    const parentThreadId = selectedThreadId.value.trim()
+    if (!parentThreadId) return ''
+    if (sideThreadId.value) return sideThreadId.value
+
+    const sideThread = await startSideThread(parentThreadId)
+    const nextSideThreadId = sideThread.threadId.trim()
+    if (!nextSideThreadId) return ''
+
+    sideThreadId.value = nextSideThreadId
+    resumedThreadById.value = {
+      ...resumedThreadById.value,
+      [nextSideThreadId]: true,
+    }
+    setThreadModelId(nextSideThreadId, sideThread.model)
+    setSelectedCollaborationModeForThread(nextSideThreadId, selectedCollaborationMode.value)
+    return nextSideThreadId
+  }
+
+  async function sendMessageToSideChat(
+    text: string,
+    imageUrls: string[] = [],
+    skills: Array<{ name: string; path: string }> = [],
+    mode: 'steer' | 'queue' = 'steer',
+    fileAttachments: FileAttachment[] = [],
+  ): Promise<SendMessageResult> {
+    const targetSideThreadId = sideThreadId.value.trim()
+    if (!targetSideThreadId) return 'ignored'
+    return sendMessageToThreadInternal(
+      targetSideThreadId,
+      text,
+      imageUrls,
+      skills,
+      mode,
+      fileAttachments,
+      undefined,
+      readSelectedCollaborationMode(selectedCollaborationModeByContext.value, targetSideThreadId),
+      {
+        refreshThreadStatus: false,
+        surfaceGlobalError: false,
+        enableAutoScroll: false,
+        requireQueuePersistence: false,
+      },
+    )
+  }
+
+  function closeSideChat(): void {
+    const closingThreadId = sideThreadId.value.trim()
+    sideThreadId.value = ''
+    if (!closingThreadId) return
+
+    clearLiveAgentMessagesForThread(closingThreadId)
+    clearLivePlansForThread(closingThreadId)
+    clearLiveFileChangesForThread(closingThreadId)
+    clearLiveReasoningForThread(closingThreadId)
+    clearLiveCollabAgentsForThread(closingThreadId)
+    clearLiveMcpActivitiesForThread(closingThreadId)
+    setTurnActivityForThread(closingThreadId, null)
+    setTurnErrorForThread(closingThreadId, null)
+    setThreadInProgress(closingThreadId, false)
+    setTurnSummaryForThread(closingThreadId, null)
+    if (activeTurnIdByThreadId.value[closingThreadId]) {
+      activeTurnIdByThreadId.value = omitKey(activeTurnIdByThreadId.value, closingThreadId)
+    }
+    if (pendingServerRequestsByThreadId.value[closingThreadId]) {
+      pendingServerRequestsByThreadId.value = omitKey(pendingServerRequestsByThreadId.value, closingThreadId)
+    }
+    if (pendingTurnRequestByThreadId.value[closingThreadId]) {
+      pendingTurnRequestByThreadId.value = omitKey(pendingTurnRequestByThreadId.value, closingThreadId)
+    }
+  }
+
   async function sendMessageToThread(
     threadId: string,
     text: string,
@@ -6356,6 +6441,10 @@ export function useDesktopState() {
     isSelectedThreadInterruptPending,
     selectedThreadServerRequests,
     selectedLiveOverlay,
+    sideThreadId,
+    sideMessages,
+    sideLiveOverlay,
+    sideThreadServerRequests,
     codexQuota,
     selectedThreadId,
     availableCollaborationModes,
@@ -6396,6 +6485,9 @@ export function useDesktopState() {
     rollbackSelectedThread,
 
     sendMessageToSelectedThread,
+    openSideChatForSelectedThread,
+    sendMessageToSideChat,
+    closeSideChat,
     sendMessageToThread,
     sendMessageToNewThread,
     interruptSelectedThreadTurn,
