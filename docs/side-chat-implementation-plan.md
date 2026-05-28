@@ -2,7 +2,7 @@
 
 Goal: ship a seamless one-off Side Chat for Codex UI that can answer questions from the current thread/project context without polluting the main conversation or destabilizing existing chat behavior.
 
-Status: TDD preparation only. Do not start implementation until explicitly approved.
+Status: implementation in progress on branch/worktree `side-chat-tdd-tests`.
 
 ## Current Contract
 
@@ -47,8 +47,8 @@ Expected red failures:
 - [x] Phase 1: Gateway contract
 - [x] Phase 2: Desktop state and notification routing
 - [x] Phase 3: Slash command integration
-- [ ] Phase 4: Side panel UI
-- [ ] Phase 5: Requests, approvals, and error handling
+- [x] Phase 4: Side panel UI
+- [x] Phase 5: Requests, approvals, and error handling
 - [ ] Phase 6: Documentation, regression, and performance audit
 
 ## Phase 0: TDD Branch and Red Tests
@@ -179,16 +179,16 @@ Purpose: provide the friendly in-page window without disrupting main chat.
 
 Atomic steps:
 
-- [ ] Add `SideChatPanel.vue`.
-- [ ] Mount it beside the current thread route in `App.vue`.
-- [ ] Add a `Side` button in the `ContentHeader` action area for active thread routes.
-- [ ] Render side messages and side live overlay.
-- [ ] Add side composer input with send/disabled/loading states.
-- [ ] Add close action.
-- [ ] Desktop layout: right-side panel.
-- [ ] Mobile layout: drawer or bottom sheet.
-- [ ] Ensure light and dark themes are both intentional.
-- [ ] Ensure review mode and terminal panel interactions have a deterministic priority.
+- [x] Add `SideChatPanel.vue`.
+- [x] Mount it beside the current thread route in `App.vue`.
+- [x] Add a `Side` button in the `ContentHeader` action area for active thread routes.
+- [x] Render side messages and side live overlay.
+- [x] Add side composer input with send/disabled/loading states.
+- [x] Add close action.
+- [x] Desktop layout: right-side panel.
+- [x] Mobile layout: bottom panel under the main thread.
+- [x] Ensure light and dark themes are both intentional.
+- [x] Ensure review mode and terminal panel interactions have a deterministic priority.
 
 Smoke tests:
 
@@ -227,12 +227,12 @@ Purpose: keep side conversations safe when tools or user input are involved.
 
 Atomic steps:
 
-- [ ] Add side-thread server request accessors.
-- [ ] Surface side-thread `item/tool/requestUserInput` in the side panel or a shared request panel.
-- [ ] Surface approval requests clearly as side requests.
-- [ ] Reject or disable side mutation paths if the backend cannot enforce ephemeral fork behavior.
-- [ ] Show a clear error if current Codex CLI/app-server does not support ephemeral side forks.
-- [ ] Ensure closing a side chat with pending side requests is handled intentionally.
+- [x] Add side-thread server request accessors.
+- [x] Surface side-thread `item/tool/requestUserInput` in the side panel or a shared request panel.
+- [x] Surface approval requests clearly as side requests.
+- [x] Reject or disable side mutation paths if the backend cannot enforce ephemeral fork behavior.
+- [x] Show a clear error if current Codex CLI/app-server does not support ephemeral side forks.
+- [x] Ensure closing a side chat with pending side requests is handled intentionally.
 
 Smoke tests:
 
@@ -302,4 +302,7 @@ Completion criteria:
 - [x] 2026-05-28: Implemented Phase 1 gateway contract; `src/api/codexGateway.test.ts` passes 11/11.
 - [x] 2026-05-28: Implemented Phase 2 desktop state and side-thread notification routing; `src/composables/useDesktopState.test.ts` passes 30/30.
 - [x] 2026-05-28: Implemented Phase 3 slash command integration; targeted TDD suite passes 43/43.
-- [ ] Implementation paused until explicit user approval.
+- [x] 2026-05-28: Implemented Phase 4 side panel UI with header action, desktop side layout, mobile stacked layout, side composer, close action, and light/dark styling.
+- [x] 2026-05-28: Implemented Phase 5 request surfacing by reusing `ThreadPendingRequestPanel` inside Side Chat and routing replies through the existing server-request responder.
+- [x] 2026-05-28: Ran targeted TDD suite: `3 passed` files, `43 passed` tests.
+- [x] 2026-05-28: Ran `pnpm run build:frontend`; fixed an unrelated Tailwind utility build blocker in `BrowserAnnotationListenerPanel.vue`.

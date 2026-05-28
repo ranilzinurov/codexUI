@@ -621,6 +621,19 @@
             </span>
           </template>
           <template #actions>
+            <button
+              v-if="route.name === 'thread' && selectedThreadId.length > 0"
+              class="content-header-side-chat"
+              :class="{ 'is-open': sideThreadId.length > 0 }"
+              type="button"
+              title="Side chat"
+              aria-label="Open side chat"
+              :aria-pressed="sideThreadId.length > 0"
+              @click="onOpenSideChat"
+            >
+              <IconTablerGitFork class="content-header-side-chat-icon" />
+              <span class="content-header-side-chat-label">Side</span>
+            </button>
             <ComposerDropdown
               v-if="canShowTerminalToggle"
               class="content-header-terminal-command"
@@ -1044,18 +1057,29 @@
               />
 
               <template v-else>
-                <div class="content-thread">
-                  <ThreadConversation ref="threadConversationRef" :messages="filteredMessages" :is-loading="isLoadingMessages"
-                    :active-thread-id="composerThreadContextId" :cwd="composerCwd"
-                    :live-overlay="liveOverlay"
-                    :pending-requests="selectedThreadServerRequests"
-                    :has-more-persisted-above="hasMoreOlderMessages"
-                    :is-loading-persisted-above="isLoadingOlderMessages"
-                    :load-earlier-messages="loadOlderMessages"
-                    @fork-thread="onForkThreadFromMessage"
-                    @rollback="onRollback"
-                    @implement-plan="onImplementPlan"
-                    @respond-server-request="onRespondServerRequest" />
+                <div class="thread-side-layout" :class="{ 'has-side-chat': sideThreadId.length > 0 }">
+                  <div class="content-thread">
+                    <ThreadConversation ref="threadConversationRef" :messages="filteredMessages" :is-loading="isLoadingMessages"
+                      :active-thread-id="composerThreadContextId" :cwd="composerCwd"
+                      :live-overlay="liveOverlay"
+                      :pending-requests="selectedThreadServerRequests"
+                      :has-more-persisted-above="hasMoreOlderMessages"
+                      :is-loading-persisted-above="isLoadingOlderMessages"
+                      :load-earlier-messages="loadOlderMessages"
+                      @fork-thread="onForkThreadFromMessage"
+                      @rollback="onRollback"
+                      @implement-plan="onImplementPlan"
+                      @respond-server-request="onRespondServerRequest" />
+                  </div>
+                  <SideChatPanel
+                    v-if="sideThreadId.length > 0"
+                    :messages="sideMessages"
+                    :live-overlay="sideLiveOverlay"
+                    :pending-requests="sideThreadServerRequests"
+                    @close="onCloseSideChat"
+                    @submit="onSubmitSideChat"
+                    @respond-server-request="onRespondServerRequest"
+                  />
                 </div>
 
                 <div class="composer-with-queue">
@@ -1227,6 +1251,7 @@ import ContentHeader from './components/content/ContentHeader.vue'
 import ThreadComposer from './components/content/ThreadComposer.vue'
 import ThreadPendingRequestPanel from './components/content/ThreadPendingRequestPanel.vue'
 import BrowserAnnotationListenerPanel from './components/content/BrowserAnnotationListenerPanel.vue'
+import SideChatPanel from './components/content/SideChatPanel.vue'
 import QueuedMessages from './components/content/QueuedMessages.vue'
 import RateLimitStatus from './components/content/RateLimitStatus.vue'
 import TaskNotificationsSetting from './components/content/TaskNotificationsSetting.vue'
@@ -1238,6 +1263,7 @@ import IconTablerBolt from './components/icons/IconTablerBolt.vue'
 import IconTablerSearch from './components/icons/IconTablerSearch.vue'
 import IconTablerSettings from './components/icons/IconTablerSettings.vue'
 import IconTablerTerminal from './components/icons/IconTablerTerminal.vue'
+import IconTablerGitFork from './components/icons/IconTablerGitFork.vue'
 import IconTablerX from './components/icons/IconTablerX.vue'
 import IconTablerAlertTriangle from './components/icons/IconTablerAlertTriangle.vue'
 import { useDesktopState } from './composables/useDesktopState'
@@ -1491,6 +1517,10 @@ const {
   selectedThreadTerminalOpen,
   selectedThreadServerRequests,
   selectedLiveOverlay,
+  sideThreadId,
+  sideMessages,
+  sideLiveOverlay,
+  sideThreadServerRequests,
   codexQuota,
   selectedThreadId,
   availableCollaborationModes,
@@ -1529,6 +1559,7 @@ const {
   sendMessageToSelectedThread,
   openSideChatForSelectedThread,
   sendMessageToSideChat,
+  closeSideChat,
   sendMessageToThread,
   sendMessageToNewThread,
   interruptSelectedThreadTurn,
@@ -3577,6 +3608,28 @@ async function onSlashCommand(payload: ParsedCodexSlashCommand): Promise<void> {
   }
 }
 
+async function onOpenSideChat(): Promise<void> {
+  error.value = ''
+  try {
+    await openSideChatForSelectedThread()
+  } catch (unknownError) {
+    error.value = unknownError instanceof Error ? unknownError.message : 'Failed to open side chat.'
+  }
+}
+
+function onCloseSideChat(): void {
+  closeSideChat()
+}
+
+async function onSubmitSideChat(text: string): Promise<void> {
+  error.value = ''
+  try {
+    await sendMessageToSideChat(text)
+  } catch (unknownError) {
+    error.value = unknownError instanceof Error ? unknownError.message : 'Failed to send side chat message.'
+  }
+}
+
 async function runGoalSlashCommand(threadId: string, args: string): Promise<void> {
   if (!args) {
     const goal = await getThreadGoal(threadId)
@@ -5249,6 +5302,58 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 
 .content-thread {
   @apply flex-1 min-h-0;
+}
+
+.thread-side-layout {
+  @apply flex min-h-0 flex-1 overflow-hidden rounded-none border border-transparent;
+}
+
+.thread-side-layout.has-side-chat {
+  @apply border-zinc-200 bg-white;
+}
+
+:global(:root.dark) .thread-side-layout.has-side-chat {
+  @apply border-zinc-700 bg-zinc-950;
+}
+
+.content-header-side-chat {
+  @apply inline-flex h-8 items-center gap-1.5 rounded-full border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 outline-none transition hover:bg-zinc-50 focus:ring-2 focus:ring-zinc-300;
+}
+
+.content-header-side-chat.is-open {
+  @apply border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800;
+}
+
+.content-header-side-chat-icon {
+  @apply h-4 w-4;
+}
+
+.content-header-side-chat-label {
+  @apply leading-none;
+}
+
+:global(:root.dark) .content-header-side-chat {
+  @apply border-zinc-700 bg-zinc-900 text-zinc-200 hover:bg-zinc-800 focus:ring-zinc-600;
+}
+
+:global(:root.dark) .content-header-side-chat.is-open {
+  @apply border-zinc-100 bg-zinc-100 text-zinc-950 hover:bg-white;
+}
+
+@media (max-width: 900px) {
+  .thread-side-layout {
+    @apply flex-col;
+  }
+}
+
+@media (max-width: 640px) {
+  .content-header-side-chat {
+    @apply w-8 justify-center px-0;
+  }
+
+  .content-header-side-chat-label {
+    @apply sr-only;
+  }
 }
 
 .composer-with-queue {
