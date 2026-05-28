@@ -386,6 +386,73 @@ html::after {
   @apply text-zinc-200;
 }
 
+:root.dark .thread-side-layout.has-side-chat {
+  @apply border-zinc-700 bg-zinc-950;
+}
+
+:root.dark .content-header-side-chat {
+  @apply border-zinc-700 bg-zinc-900 text-zinc-200 hover:bg-zinc-800 focus:ring-zinc-600;
+}
+
+:root.dark .content-header-side-chat.is-open {
+  @apply border-zinc-100 bg-zinc-100 text-zinc-950 hover:bg-white;
+}
+
+:root.dark .side-chat-panel {
+  @apply border-zinc-700 bg-zinc-900;
+}
+
+:root.dark .side-chat-header,
+:root.dark .side-chat-composer,
+:root.dark .side-chat-pending-request {
+  @apply border-zinc-700;
+}
+
+:root.dark .side-chat-title,
+:root.dark .side-chat-message-text,
+:root.dark .side-chat-live-text {
+  @apply text-zinc-100;
+}
+
+:root.dark .side-chat-meta,
+:root.dark .side-chat-empty,
+:root.dark .side-chat-message-role {
+  @apply text-zinc-400;
+}
+
+:root.dark .side-chat-icon-button,
+:root.dark .side-chat-send,
+:root.dark .side-chat-message,
+:root.dark .side-chat-input {
+  @apply border-zinc-700 bg-zinc-800 text-zinc-100;
+}
+
+:root.dark .side-chat-message.is-user {
+  @apply border-blue-900 bg-blue-950;
+}
+
+:root.dark .side-chat-live {
+  @apply border-zinc-600 bg-zinc-800;
+}
+
+:root.dark .side-chat-live-label {
+  @apply text-zinc-300;
+}
+
+:root.dark .browser-annotation-listener {
+  --annotation-listener-bg: rgb(24 24 27);
+  --annotation-listener-border: rgb(63 63 70);
+  --annotation-listener-text: rgb(250 250 250);
+  --annotation-listener-subtle: rgb(161 161 170);
+  --annotation-listener-panel-bg: rgb(9 9 11);
+  --annotation-listener-control-bg: rgb(9 9 11);
+  --annotation-listener-control-border: rgb(63 63 70);
+  --annotation-listener-hover-bg: rgb(39 39 42);
+  --annotation-listener-primary-bg: rgb(244 244 245);
+  --annotation-listener-primary-text: rgb(9 9 11);
+  --annotation-listener-error: rgb(253 164 175);
+}
+
 :root.dark .sidebar-thread-controls-button {
   @apply text-zinc-400 hover:border-zinc-600 hover:bg-zinc-800;
 }
