@@ -30,7 +30,7 @@
       CONTENT_ELEMENT_SELECTED: "browserAnnotation.contentElementSelected"
     }),
     DEFAULT_SETTINGS: Object.freeze({
-      serverUrl: "https://annotate.todo-tg-app.ru",
+      serverUrl: "https://codex-ui.todo-tg-app.ru",
       pairingToken: ""
     }),
     LISTEN_STATUS_PATH: "/codex-api/extension/listen/status",
@@ -38,7 +38,7 @@
     ANNOTATION_BATCH_PATH: "/codex-api/extension/annotation-batch",
     ASSET_UPLOAD_PATH: "/codex-api/extension/assets/upload",
     TRANSCRIBE_PATH: "/codex-api/extension/transcribe",
-    TARGET_HOST_PATTERN: "https://annotate.todo-tg-app.ru/*",
+    TARGET_HOST_PATTERN: "https://codex-ui.todo-tg-app.ru/*",
     ALLOWED_TAB_PROTOCOLS: Object.freeze([
       "http:",
       "https:"

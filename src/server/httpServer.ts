@@ -13,6 +13,7 @@ import { WebSocketServer, type WebSocket } from 'ws'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const distDir = join(__dirname, '..', 'dist')
 const spaEntryFile = join(distDir, 'index.html')
+const browserAnnotationZipFile = join(distDir, 'browser-annotation-extension', 'codex-ui-browser-annotation-0.1.0.zip')
 
 export type ServerOptions = {
   password?: string
@@ -86,9 +87,25 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
 
   app.use(createMobileShellCorsMiddleware())
 
+  app.get('/codex-ui-browser-annotation-0.1.0.zip', (_req, res) => {
+    if (!existsSync(browserAnnotationZipFile)) {
+      res.status(404).json({ error: 'Browser annotation extension artifact is not available. Run pnpm run pack:browser-annotation.' })
+      return
+    }
+    res.type('application/zip')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.sendFile(browserAnnotationZipFile)
+  })
+
   // 1. Auth middleware (if password is set)
   if (authSession) {
-    app.use(authSession.middleware)
+    app.use((req, res, next) => {
+      if (isBrowserAnnotationBearerRoute(req)) {
+        next()
+        return
+      }
+      authSession.middleware(req, res, next)
+    })
   }
 
   // 2. Bridge middleware for /codex-api/*
@@ -302,4 +319,9 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
       })
     },
   }
+}
+
+function isBrowserAnnotationBearerRoute(req: express.Request): boolean {
+  if (!req.path.startsWith('/codex-api/extension/')) return false
+  return !(req.method === 'POST' && req.path === '/codex-api/extension/listen/start')
 }

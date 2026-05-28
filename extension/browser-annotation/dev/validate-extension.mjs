@@ -21,6 +21,7 @@ const requiredPermissions = [
   "storage"
 ];
 const productionHostPermissions = [
+  "https://codex-ui.todo-tg-app.ru/*",
   "https://annotate.todo-tg-app.ru/*"
 ];
 const developmentHostPermissions = [
