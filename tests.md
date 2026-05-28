@@ -6729,3 +6729,32 @@ Allow the browser annotation extension to request access for normal `http(s)` si
 - Remove the unpacked extension from `chrome://extensions` if loaded only for this test.
 - Clear site permissions granted to the extension from Chrome extension details if needed.
 - Revoke or let expire any listener token used during manual checks.
+
+---
+
+### Thread Not Found Turn Start Recovery
+
+#### Feature/Change Name
+Recover from stale selected/resumed thread state before starting a turn.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Use a browser profile where Codex UI may have an older `codex-web-local.selected-thread-id.v1` value, or simulate it in localStorage.
+3. Have at least one valid thread available in the refreshed thread list.
+
+#### Steps
+1. Run `pnpm exec vitest run src/composables/useDesktopState.test.ts --testNamePattern "target thread message sender|thread selection refresh"`.
+2. Open Codex UI in light theme, refresh the thread list with localStorage pointing at a missing thread ID, and confirm the app selects an available thread instead of keeping the missing ID.
+3. Send a message to an existing thread after an app-server restart or reconnect, where the web UI may still think the thread was already resumed.
+4. Confirm the first `turn/start` `thread not found` failure is recovered by a `thread/resume` and one retry.
+5. Repeat steps 2-4 in dark theme and confirm the error banner does not appear for the recovered path.
+
+#### Expected Results
+- The focused regression tests pass.
+- Missing persisted selected thread IDs are replaced with the first available refreshed thread.
+- A stale resumed-thread cache does not surface `RPC turn/start failed with HTTP 502: thread not found` when `thread/resume` can reload the thread.
+- Light and dark theme views remain readable and do not show the recovered error state.
+
+#### Rollback/Cleanup
+- Clear any test-only localStorage values, especially `codex-web-local.selected-thread-id.v1`.
+- No generated artifacts are required for this test.

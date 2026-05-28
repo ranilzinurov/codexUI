@@ -488,6 +488,33 @@ describe('target thread message sender', () => {
     expect(gatewayMocks.setThreadQueueState).not.toHaveBeenCalled()
   })
 
+  it('resumes and retries once when a cached resumed thread is missing during turn start', async () => {
+    installTestWindow()
+    gatewayMocks.getThreadSummary.mockResolvedValue({
+      ...thread('target-thread', '/tmp/project'),
+      inProgress: false,
+    })
+    gatewayMocks.resumeThread.mockResolvedValue({ model: 'gpt-5.4' })
+    gatewayMocks.startThreadTurn
+      .mockResolvedValueOnce('turn-1')
+      .mockRejectedValueOnce(new Error('RPC turn/start failed with HTTP 502: thread not found: target-thread'))
+      .mockResolvedValueOnce('turn-2')
+
+    const state = useDesktopState()
+
+    await expect(state.sendMessageToThread('target-thread', 'first message')).resolves.toBe('started')
+    await expect(state.sendMessageToThread('target-thread', 'second message', { mode: 'steer' })).resolves.toBe('started')
+    await vi.waitFor(() => {
+      expect(gatewayMocks.startThreadTurn).toHaveBeenCalledTimes(3)
+    })
+
+    expect(gatewayMocks.resumeThread).toHaveBeenCalledTimes(2)
+    expect(gatewayMocks.resumeThread).toHaveBeenNthCalledWith(1, 'target-thread')
+    expect(gatewayMocks.resumeThread).toHaveBeenNthCalledWith(2, 'target-thread')
+    expect(gatewayMocks.startThreadTurn.mock.calls[1][1]).toBe('second message')
+    expect(gatewayMocks.startThreadTurn.mock.calls[2][1]).toBe('second message')
+  })
+
   it('steers a message into a busy target thread when requested without selecting it', async () => {
     installTestWindow()
     gatewayMocks.getThreadSummary.mockResolvedValue({
@@ -634,6 +661,30 @@ describe('Codex CLI availability', () => {
     await state.refreshAll({ awaitAncillaryRefreshes: true })
     expect(state.error.value).toBe('Connection lost')
     expect(state.codexCliMissingError.value).toBe('')
+  })
+})
+
+describe('thread selection refresh', () => {
+  it('replaces a persisted selected thread when it is absent from the refreshed thread list', async () => {
+    installTestWindow({
+      'codex-web-local.selected-thread-id.v1': 'missing-thread',
+    })
+    gatewayMocks.getThreadGroupsPage.mockResolvedValue({
+      groups: [
+        {
+          projectName: 'Project',
+          threads: [thread('available-thread', '/tmp/project')],
+        },
+      ],
+      nextCursor: null,
+    })
+
+    const state = useDesktopState()
+
+    await state.refreshAll({ includeSelectedThreadMessages: false, awaitAncillaryRefreshes: true })
+
+    expect(state.selectedThreadId.value).toBe('available-thread')
+    expect(window.localStorage.getItem('codex-web-local.selected-thread-id.v1')).toBe('available-thread')
   })
 })
 
