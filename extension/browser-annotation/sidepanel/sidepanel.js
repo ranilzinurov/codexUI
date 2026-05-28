@@ -8,6 +8,9 @@
     readJsonSafely,
     readStatusError
   } = globalThis.BrowserAnnotationPairingClient;
+  const {
+    getTabOriginPattern
+  } = globalThis.BrowserAnnotationUrlUtils;
 
   const VOICE_UPLOAD_TIMEOUT_MS = 60000;
   const VOICE_TRANSCRIBE_TIMEOUT_MS = 60000;
@@ -106,6 +109,7 @@
   async function injectOverlay() {
     setBusy(true);
     try {
+      await requestActiveTabHostPermission();
       const response = await sendRuntimeMessage({
         type: MESSAGE_TYPES.INJECT_OVERLAY
       });
@@ -221,11 +225,45 @@
       return;
     }
 
-    elements.tabStatus.textContent = state.activeTab.restricted ? "Restricted" : "Ready";
-    elements.tabDetail.textContent = state.activeTab.restricted
-      ? state.activeTab.restrictionReason
-      : state.activeTab.title || state.activeTab.url || "This page can receive the annotation overlay.";
+    elements.tabStatus.textContent = state.activeTab.restricted
+      ? "Restricted"
+      : state.activeTab.needsHostPermission
+        ? "Needs access"
+        : "Ready";
+    elements.tabDetail.textContent = activeTabDetail(state.activeTab);
     elements.injectOverlay.disabled = state.activeTab.restricted;
+  }
+
+  async function requestActiveTabHostPermission() {
+    const activeTab = lastState && lastState.activeTab ? lastState.activeTab : null;
+    if (!activeTab || activeTab.restricted) {
+      return;
+    }
+
+    const originPattern = activeTab.hostPermissionPattern || getTabOriginPattern(activeTab.url);
+    if (!originPattern || activeTab.hasHostAccess === true) {
+      return;
+    }
+
+    if (!chrome.permissions || !chrome.permissions.request) {
+      throw new Error("Chrome host permissions API is unavailable; cannot inject the annotation overlay.");
+    }
+
+    const granted = await chrome.permissions.request({ origins: [originPattern] });
+    if (!granted) {
+      throw new Error(`Permission denied. Allow Codex UI Browser Annotation to access ${originPattern} before injecting the overlay.`);
+    }
+  }
+
+  function activeTabDetail(activeTab) {
+    if (activeTab.restricted) {
+      return activeTab.restrictionReason;
+    }
+    const label = activeTab.title || activeTab.url || "This page can receive the annotation overlay.";
+    if (activeTab.needsHostPermission) {
+      return `${label} Grant access when Chrome asks, then the overlay can be injected.`;
+    }
+    return label;
   }
 
   function setBusy(isBusy) {

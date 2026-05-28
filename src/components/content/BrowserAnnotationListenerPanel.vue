@@ -66,7 +66,12 @@
             <span class="browser-annotation-listener-label">{{ t('Server URL') }}</span>
             <input class="browser-annotation-listener-input" type="text" :value="listenerUrl" readonly />
           </label>
-          <button class="browser-annotation-listener-copy-button" type="button" @click="copyText(listenerUrl, 'url')">
+          <button
+            class="browser-annotation-listener-copy-button"
+            type="button"
+            :aria-label="t('Copy server URL')"
+            @click="copyText(listenerUrl, 'url')"
+          >
             {{ copiedField === 'url' ? t('Copied') : t('Copy') }}
           </button>
         </div>
@@ -75,7 +80,12 @@
             <span class="browser-annotation-listener-label">{{ t('Pairing token') }}</span>
             <input class="browser-annotation-listener-input browser-annotation-listener-token" type="text" :value="pairingToken" readonly />
           </label>
-          <button class="browser-annotation-listener-copy-button" type="button" @click="copyText(pairingToken, 'token')">
+          <button
+            class="browser-annotation-listener-copy-button"
+            type="button"
+            :aria-label="t('Copy pairing token')"
+            @click="copyText(pairingToken, 'token')"
+          >
             {{ copiedField === 'token' ? t('Copied') : t('Copy') }}
           </button>
         </div>

@@ -6,7 +6,7 @@
 2. Confirm the side panel server URL matches the deployment:
    - local/dev: `http://127.0.0.1:4173`
    - temporary public HTTP smoke: `http://46.62.215.111` for page reachability only; do not pair or send tokens over non-local HTTP
-   - production target: `https://annotate.todo-tg-app.ru`
+   - production target: `https://codex-ui.todo-tg-app.ru`
 3. Confirm the pairing token is fresh and belongs to the thread you want to receive annotations.
 4. Open a normal `http(s)` page. Chrome blocks extension injection on `chrome://`, `chrome-extension://`, `file://`, `devtools://`, `about:`, and Chrome Web Store pages.
 
@@ -32,12 +32,12 @@ The toast `Unable to queue selected element. Either the '<all_urls>' or 'activeT
 
 Try:
 
-1. Click the extension action again on the target tab so Chrome grants `activeTab`.
-2. Click `Inject overlay` from the side panel after the tab is active.
+1. Click `Inject overlay` from the side panel after the tab is active.
+2. Approve Chrome's site access prompt for the current `http(s)` site if it appears.
 3. Test on a normal `http(s)` page, not a restricted Chrome/internal page.
 4. Reload the extension from `chrome://extensions` if permissions changed after installing a new build.
 
-The production artifact intentionally keeps only `https://annotate.todo-tg-app.ru/*` as a host permission for server calls. Page access should come from `activeTab` after the user clicks the extension. Non-local `http://` server URLs are rejected; use HTTPS for public ingress or `http://127.0.0.1` / `http://localhost` for local development only.
+The production artifact intentionally keeps only Codex UI/annotation server origins as permanent host permissions for server calls. Page access for arbitrary sites comes from runtime optional host permissions after the user clicks `Inject overlay` and approves Chrome's prompt. Non-local `http://` server URLs are rejected; use HTTPS for public ingress or `http://127.0.0.1` / `http://localhost` for local development only.
 
 ## Queue Is Empty Or Preview Is Missing
 

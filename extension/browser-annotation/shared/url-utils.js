@@ -68,7 +68,7 @@
       return "";
     }
 
-    return `${parsed.protocol}//${parsed.host}/*`;
+    return `${parsed.protocol}//${parsed.hostname}/*`;
   }
 
   function parseUrl(url) {

@@ -29,7 +29,7 @@ assert.equal(
 );
 assert.equal(
   BrowserAnnotationUrlUtils.getTabOriginPattern("http://127.0.0.1:4173/test-page.html"),
-  "http://127.0.0.1:4173/*"
+  "http://127.0.0.1/*"
 );
 assert.equal(BrowserAnnotationUrlUtils.getTabOriginPattern("chrome://extensions"), "");
 assert.equal(BrowserAnnotationUrlUtils.isRestrictedTabUrl("https://chromewebstore.google.com/detail/test"), true);

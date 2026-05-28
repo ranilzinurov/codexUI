@@ -99,6 +99,12 @@ export class BrowserAnnotationListenStore {
     return session ? this.toResponse(session) : null
   }
 
+  getAuthorizedSessionStatus(token: string, selector: { sessionId?: string; threadId?: string } = {}): BrowserAnnotationListenSessionResponse | null {
+    this.pruneExpired()
+    const session = this.findAuthorizedSession(token, selector, { allowRevoked: true })
+    return session ? this.toResponse(session) : null
+  }
+
   stopAuthorizedSession(token: string, selector: { sessionId?: string; threadId?: string } = {}): BrowserAnnotationListenSessionResponse | null {
     this.pruneExpired()
     const session = this.findAuthorizedSession(token, selector)
@@ -119,14 +125,19 @@ export class BrowserAnnotationListenStore {
     return this.toResponse(session)
   }
 
-  private findAuthorizedSession(token: string, selector: { sessionId?: string; threadId?: string }): BrowserAnnotationListenSessionRecord | null {
+  private findAuthorizedSession(
+    token: string,
+    selector: { sessionId?: string; threadId?: string },
+    options: { allowRevoked?: boolean } = {},
+  ): BrowserAnnotationListenSessionRecord | null {
     const candidates = selector.sessionId
       ? [this.sessions.get(selector.sessionId)].filter((session): session is BrowserAnnotationListenSessionRecord => Boolean(session))
       : Array.from(this.sessions.values())
 
     for (const session of candidates) {
       if (selector.threadId && session.threadId !== selector.threadId) continue
-      if (this.getStatus(session) !== 'active') continue
+      const status = this.getStatus(session)
+      if (status !== 'active' && !(options.allowRevoked && status === 'revoked')) continue
       if (doesTokenMatchHash(token, session.tokenHash)) return session
     }
     return null
@@ -225,7 +236,7 @@ export async function handleBrowserAnnotationListenRoutes(
       return true
     }
 
-    const session = store.getAuthorizedSession(token, readBrowserAnnotationSessionSelector(url))
+    const session = store.getAuthorizedSessionStatus(token, readBrowserAnnotationSessionSelector(url))
     if (!session) {
       setJson(res, 401, { error: 'Invalid or expired extension bearer token' })
       return true

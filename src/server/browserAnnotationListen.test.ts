@@ -154,7 +154,7 @@ describe('browser annotation listen endpoints', () => {
     expect(status.body.error).toBe('Invalid or expired extension bearer token')
   })
 
-  it('revokes a session and rejects the revoked token afterwards', async () => {
+  it('revokes a session and returns revoked status for the same token afterwards', async () => {
     const store = new BrowserAnnotationListenStore({ nowMs: () => Date.UTC(2026, 0, 1), ttlMs: 60_000 })
     const { baseUrl } = await listenWithStore(store)
     const start = await requestJson(baseUrl, '/codex-api/extension/listen/start', {
@@ -176,8 +176,10 @@ describe('browser annotation listen endpoints', () => {
       headers: { Authorization: `Bearer ${started.pairingToken}` },
     })
 
-    expect(status.status).toBe(401)
-    expect(status.body.error).toBe('Invalid or expired extension bearer token')
+    expect(status.status).toBe(200)
+    const statusSession = sessionFrom(status.body)
+    expect(statusSession.sessionId).toBe(started.sessionId)
+    expect(statusSession.status).toBe('revoked')
   })
 
   it('rejects malformed start JSON without creating a session', async () => {
@@ -243,7 +245,8 @@ describe('browser annotation listen endpoints', () => {
       headers: { Authorization: `Bearer ${secondSession.pairingToken}` },
     })
 
-    expect(oldStatus.status).toBe(401)
+    expect(oldStatus.status).toBe(200)
+    expect(sessionFrom(oldStatus.body).status).toBe('revoked')
     expect(newStatus.status).toBe(200)
     expect(sessionFrom(newStatus.body).sessionId).toBe(secondSession.sessionId)
   })

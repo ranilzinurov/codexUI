@@ -6126,7 +6126,7 @@ Extension server URL and pairing-token validation.
 
 #### Expected Results
 - All static Node checks pass.
-- The validator confirms the extension host permissions are limited to `https://annotate.todo-tg-app.ru/*`, `http://127.0.0.1/*`, and `http://localhost/*`.
+- The validator confirms permanent host permissions are limited to Codex UI/annotation server origins plus local development origins, and arbitrary page access is declared only through optional runtime host permissions.
 - The pairing client smoke confirms status URL construction, malformed JSON handling, error parsing, and omission of any returned `pairingToken`.
 - Extension local storage contains only the user-configured server URL; the pasted pairing token is kept in extension session storage while needed and no provider API key is present.
 - Status validation sends the token only as `Authorization: Bearer <token>` to `/codex-api/extension/listen/status`.
@@ -6344,7 +6344,7 @@ Expose the browser annotation ingress at `https://annotate.todo-tg-app.ru` and p
 - HTTPS returns a valid certificate for `annotate.todo-tg-app.ru`.
 - `/browser-annotation-test.html` returns `200` and contains `Codex annotation extension test page`.
 - `/codex-api/extension/listen/status` reaches the Codex UI backend and returns an auth-shaped JSON response rather than an nginx/default-site HTML page.
-- Production manifest host permissions are exactly `["https://annotate.todo-tg-app.ru/*"]`.
+- Production manifest permanent host permissions are limited to Codex UI/annotation server origins, with `http://*/*` and `https://*/*` available only as optional runtime page permissions.
 - The zip has `manifest.json` at archive root and does not include `dev/`.
 - The extension can pair, queue annotations, and send over HTTPS.
 - Light and dark side-panel states remain readable.
@@ -6629,10 +6629,10 @@ Harden public browser annotation ingress, pairing-token storage, extension URL p
 7. Run `pnpm exec vitest run src/server/browserAnnotationAssets.test.ts --reporter=verbose`.
 8. Run `pnpm run test:browser-annotation`.
 9. Run `pnpm run pack:browser-annotation`.
-10. Inspect `dist/browser-annotation-extension/unpacked/manifest.json` and confirm `host_permissions` contains only `https://annotate.todo-tg-app.ru/*`.
-11. Confirm the side panel rejects `http://46.62.215.111` and other non-local `http://` server URLs.
+10. Inspect `dist/browser-annotation-extension/unpacked/manifest.json` and confirm `host_permissions` contains only Codex UI/annotation server origins while `optional_host_permissions` contains normal `http(s)` page access.
+11. Confirm the side panel rejects `http://46.62.215.111` and other non-local `http://` values as the Server URL, while still allowing overlay injection into normal `http(s)` pages after Chrome grants site access.
 12. Pair with a fresh token, send a queued annotation batch, and confirm the pairing token is no longer present in `chrome.storage.local` after save/send.
-13. Reuse the same token against `/codex-api/extension/listen/status` after send and confirm the server rejects it.
+13. Reuse the same token against `/codex-api/extension/listen/status` after send and confirm the server returns revoked status for that same session without echoing the token.
 14. Repeat the side-panel connection and queue readability checks in light and dark OS/browser color schemes.
 15. On a deployed public nginx host, request `/codex-api/extension/listen/start` through the public annotation ingress and confirm it is not exposed.
 
@@ -6688,3 +6688,44 @@ Harden extension queue/lifecycle behavior and reject stale in-flight server requ
 - Stop DevTools capture if it remains active.
 - Remove the unpacked extension from `chrome://extensions` if loaded only for this test.
 - Revoke any listener token and clear extension storage used during manual checks.
+
+---
+
+### Browser Annotation Any-Site Injection And Compact Listener
+
+#### Feature/Change Name
+Allow the browser annotation extension to request access for normal `http(s)` sites at runtime and keep the Codex UI listener compact.
+
+#### Prerequisites/Setup
+1. Run from the repository root on `browser-annotation-devtools`.
+2. Build or use the packaged extension from `pnpm run pack:browser-annotation`.
+3. Install the fresh extension artifact in Chrome.
+4. Open Codex UI on the browser annotation branch and start a listener from the target thread.
+
+#### Steps
+1. Run `node extension/browser-annotation/dev/validate-extension.mjs`.
+2. Run `node extension/browser-annotation/dev/pairing-client-smoke.mjs`.
+3. Run `node extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.mjs`.
+4. Run `pnpm exec vitest run src/server/browserAnnotationListen.test.ts --reporter=verbose`.
+5. Run `pnpm exec vue-tsc --noEmit`.
+6. Run `pnpm run pack:browser-annotation`.
+7. Inspect `dist/browser-annotation-extension/unpacked/manifest.json` and confirm `optional_host_permissions` contains `http://*/*` and `https://*/*`.
+8. In Chrome, open a normal page outside the pairing host, for example `http://46.62.215.111/browser-annotation-test.html` or `https://example.com`.
+9. Click `Inject overlay` in the extension side panel and approve the host access prompt.
+10. Select at least one element and confirm it appears in the annotation queue.
+11. Send the queued annotations and wait for the Codex UI listener status to update.
+12. Repeat the compact listener visual check in light and dark themes: idle, active with setup collapsed, setup expanded, and stopped/revoked after send.
+
+#### Expected Results
+- Static extension validation and focused listen tests pass.
+- The production package keeps narrow permanent pairing host permissions while allowing runtime access requests for normal `http(s)` sites.
+- Chrome asks for access to the current site once; after approval, overlay injection works without adding that host to the manifest or rebuilding the extension.
+- Restricted pages such as `chrome://`, `chrome-extension://`, Chrome Web Store, `about:`, `view-source:`, and `devtools://` remain blocked.
+- The Codex UI listener is a compact row by default, with server URL and pairing token hidden behind setup details.
+- After the extension sends a batch and revokes the listen session, Codex UI can observe `status: revoked` for that session and stop showing an active listener.
+- Light and dark compact listener states remain readable.
+
+#### Rollback/Cleanup
+- Remove the unpacked extension from `chrome://extensions` if loaded only for this test.
+- Clear site permissions granted to the extension from Chrome extension details if needed.
+- Revoke or let expire any listener token used during manual checks.

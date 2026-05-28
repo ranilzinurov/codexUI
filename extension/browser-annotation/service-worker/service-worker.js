@@ -241,7 +241,10 @@ async function getPanelState() {
     readDevtoolsCaptureState()
   ]);
 
-  return buildPanelState(settings, connection, activeTab, queue, devtoolsCapture);
+  const visibleSettings = connection.clearPairingToken
+    ? { ...settings, pairingToken: "" }
+    : settings;
+  return buildPanelState(visibleSettings, connection, activeTab, queue, devtoolsCapture);
 }
 
 async function buildPanelState(settings, connection, activeTab, queue, devtoolsCapture) {
@@ -378,6 +381,19 @@ async function validateConnection(settings) {
       throw new Error("Pairing status response did not include a valid session.");
     }
 
+    if (session.status !== "active") {
+      await clearPairingToken();
+      return {
+        status: "disconnected",
+        checkedAtIso,
+        session,
+        clearPairingToken: true,
+        detail: session.status === "revoked"
+          ? "Listener stopped in Codex UI. Start Listen again and paste the new token."
+          : "Listener expired. Start Listen again and paste a fresh token."
+      };
+    }
+
     return {
       status: "connected",
       checkedAtIso,
@@ -413,9 +429,6 @@ async function injectOverlayIntoTab(tab) {
     throw new Error(describeRestrictedUrl(tab.url));
   }
 
-  const hostPermissionPattern = getTabOriginPattern(tab.url);
-  await ensureHostPermission(hostPermissionPattern);
-
   await chrome.scripting.executeScript({
     target: { tabId: tab.id },
     files: [
@@ -442,27 +455,6 @@ async function hasHostPermission(originPattern) {
   }
 
   return chrome.permissions.contains({ origins: [originPattern] });
-}
-
-async function ensureHostPermission(originPattern) {
-  if (!originPattern) {
-    throw new Error("No valid http(s) host permission is available for the active tab.");
-  }
-
-  if (!chrome.permissions || !chrome.permissions.contains || !chrome.permissions.request) {
-    throw new Error("Chrome host permissions API is unavailable; cannot inject the annotation overlay.");
-  }
-
-  if (await hasHostPermission(originPattern)) {
-    return;
-  }
-
-  const granted = await chrome.permissions.request({ origins: [originPattern] });
-  if (!granted) {
-    throw new Error(
-      `Permission denied. Allow Codex UI Browser Annotation to access ${originPattern} before injecting the overlay.`
-    );
-  }
 }
 
 async function saveSelectedElementContext(context, sender) {
