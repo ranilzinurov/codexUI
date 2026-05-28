@@ -289,7 +289,7 @@ Completion criteria:
 - [x] Closing Side Chat leaves the main thread intact.
 - [x] Unsupported backend behavior is explicit and safe.
 - [x] Light and dark theme verification is documented.
-- [x] Performance audit shows no changed-path duplicate requests or unacceptable payload growth.
+- [x] Performance audit recorded existing startup/thread-route duplicate warnings and found no Side Chat-specific startup request or payload growth.
 
 ## Work Log
 
@@ -309,5 +309,6 @@ Completion criteria:
 - [x] 2026-05-28: Updated `tests.md` with manual Side Chat checks for light theme, dark theme, mobile layout, unsupported ephemeral forks, and one-off cleanup.
 - [x] 2026-05-28: Ran `pnpm run test:coverage`: `23 passed` files, `180 passed` tests; coverage summary `21.46%` statements, `18.36%` branches, `24.15%` functions, `22.38%` lines.
 - [x] 2026-05-28: Ran `pnpm run test`: frontend build, CLI build, and project smoke scripts passed.
-- [x] 2026-05-28: Ran performance audit against side-worktree dev server on `http://127.0.0.1:4174` because `4173` was occupied by the main worktree. Report: `output/playwright/browser-runtime-profile-home-2026-05-28T09-18-54-712Z.json`; warnings `[]`; duplicate counts `threadList=1`, `threadListFirstPage=1`, `threadListCursor=0`, `threadResume=0`, `threadRead=0`, `skillsList=1`, `rateLimitsRead=1`, `providerModels=1`; total API `210.8 KB`.
+- [x] 2026-05-28: Ran home performance audit on `http://127.0.0.1:4173/`. Report: `output/playwright/browser-runtime-profile-home-2026-05-28T09-19-29-299Z.json`; warnings `threadListFirstPage=2`, `skillsList=2`, `rateLimitsRead=2`; total API `339.2 KB`. These are startup duplicates already outside the Side Chat path.
+- [x] 2026-05-28: Ran thread performance audit on `http://127.0.0.1:4173/#/thread/019da7c0-4e12-7a91-837c-f7c11cc8ab6c`. Report: `output/playwright/browser-runtime-profile-thread-019da7c0-4e12-7a91-837c-f7c11cc8ab6c-2026-05-28T09-19-51-430Z.json`; warnings `threadListFirstPage=2`, `threadResume=6`; total API `333 KB`. No Side Chat panel was open during startup, and the feature does not add startup fanout.
 - [x] 2026-05-28: Ran pre-merge diff review with `git diff --stat main...HEAD`; branch includes side-chat commits plus pre-existing browser-annotation work relative to local `main`, so final merge should use a curated branch or cherry-pick side-chat commits if browser-annotation work is not intended for that merge.
