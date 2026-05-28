@@ -393,7 +393,7 @@
     if (!isRecord(row)) {
       return null;
     }
-    const text = sanitizeText(row.text, 2000);
+    const text = sanitizeConsoleText(row.text, 2000);
     if (!text) {
       return null;
     }
@@ -405,7 +405,7 @@
       url: sanitizeUrl(row.url),
       lineNumber: finiteNumber(row.lineNumber),
       columnNumber: finiteNumber(row.columnNumber),
-      stackTrace: sanitizeText(row.stackTrace, 2000),
+      stackTrace: sanitizeConsoleText(row.stackTrace, 2000),
       timestampIso: sanitizeText(row.timestampIso, 80) || new Date().toISOString()
     };
   }
@@ -713,20 +713,47 @@
     if (!Array.isArray(args)) {
       return "";
     }
-    return sanitizeText(args.map(summarizeRemoteObject).filter(Boolean).join(" "), 2000);
+    return sanitizeConsoleText(args.map(summarizeRemoteObject).filter(Boolean).join(" "), 2000);
   }
 
   function summarizeRemoteObject(value) {
     if (!isRecord(value)) {
       return "";
     }
+    const preview = summarizeRemoteObjectPreview(value.preview);
     if (typeof value.value === "string") {
-      return value.value;
+      return [value.value, preview].filter(Boolean).join(" ");
     }
     if (value.value !== undefined && value.value !== null) {
-      return String(value.value);
+      return [String(value.value), preview].filter(Boolean).join(" ");
     }
-    return value.description || value.className || value.type || "";
+    return [value.description || value.className || value.type || "", preview]
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  function summarizeRemoteObjectPreview(preview) {
+    if (!isRecord(preview) || !Array.isArray(preview.properties)) {
+      return "";
+    }
+    return preview.properties
+      .slice(0, 8)
+      .map((property) => {
+        if (!isRecord(property)) {
+          return "";
+        }
+        const name = sanitizeText(property.name, 80);
+        const value = sanitizeText(
+          property.value || property.valuePreview || property.description || property.type,
+          240
+        );
+        if (!name && !value) {
+          return "";
+        }
+        return name ? `${name}: ${value}` : value;
+      })
+      .filter(Boolean)
+      .join(", ");
   }
 
   function summarizeStackTrace(stackTrace) {
@@ -845,6 +872,45 @@
       return text;
     }
     return text.slice(0, Math.max(0, maxChars - 16)).trimEnd() + "... [truncated]";
+  }
+
+  function sanitizeConsoleText(value, maxChars) {
+    return redactSensitiveText(sanitizeText(value, maxChars), maxChars);
+  }
+
+  function redactSensitiveText(value, maxChars) {
+    let text = String(value || "");
+    if (!text) {
+      return "";
+    }
+    text = text.replace(
+      /\b(authorization)\s*[:=]\s*bearer\s+[^\s,;'"})\]]+/gi,
+      (_match, name) => `${name}: Bearer ${REDACTED_VALUE}`
+    );
+    text = text.replace(
+      /\b(cookie|set-cookie)\s*[:=]\s*[^,;'"})\]]+(?:=[^,;'"})\]]+)?/gi,
+      (_match, name) => `${name}=${REDACTED_VALUE}`
+    );
+    text = text.replace(
+      /\b([A-Za-z][A-Za-z0-9_-]*)\s*[:=]\s*([^,\s;'"})\]]+)/g,
+      (match, name) => isSensitiveConsoleName(name) ? `${name}=${REDACTED_VALUE}` : match
+    );
+    return sanitizeText(text, maxChars);
+  }
+
+  function isSensitiveConsoleName(name) {
+    const normalized = normalizeSensitiveName(name);
+    return SENSITIVE_BODY_FIELD_NAMES.has(normalized) ||
+      normalized.includes("password") ||
+      normalized.includes("passwd") ||
+      normalized.includes("token") ||
+      normalized.includes("apikey") ||
+      normalized.includes("secret") ||
+      normalized.includes("session") ||
+      normalized.includes("cookie") ||
+      normalized.includes("authorization") ||
+      normalized === "auth" ||
+      normalized === "pwd";
   }
 
   function finiteNumber(value) {

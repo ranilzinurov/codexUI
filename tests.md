@@ -6239,3 +6239,32 @@ Queue notes, edit/delete/reorder, and send one annotation batch.
 - Stop the temporary `python3 -m http.server 8899` process or Codex UI dev server used for the test.
 - Revoke or stop the active browser annotation listener session.
 - Clear extension storage from the extension details page if test annotations remain.
+
+---
+
+### Browser Annotation DevTools Console Secret Redaction
+
+#### Feature/Change Name
+DevTools console capture redacts secrets before console rows are stored.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Use Node.js with extension smoke-test dependencies available from the repository checkout.
+
+#### Steps
+1. Run `node extension/browser-annotation/dev/devtools-capture-smoke.mjs`.
+2. Run `node extension/browser-annotation/dev/annotation-queue-smoke.mjs`.
+3. Manually start a DevTools capture in the unpacked extension against a test page.
+4. In the page console, emit `password=supersecret token=abc123 cookie=sid=sekret Authorization: Bearer abc`.
+5. Send or inspect the captured annotation batch payload.
+6. Repeat the side-panel capture status readability check in light and dark OS/browser color schemes.
+
+#### Expected Results
+- The smoke tests pass.
+- `consoleRows` and the batch DevTools console payload do not contain `password=supersecret`, `token=abc123`, `cookie=sid=sekret`, `Authorization: Bearer abc`, or the raw secret values.
+- Redacted console text uses `[REDACTED]`.
+- Light and dark side-panel capture status remains readable.
+
+#### Rollback/Cleanup
+- Stop DevTools capture.
+- Remove the unpacked extension from `chrome://extensions` if it was loaded only for this test.

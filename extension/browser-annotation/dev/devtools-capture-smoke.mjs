@@ -61,6 +61,74 @@ state = BrowserAnnotationDevtoolsCapture.appendConsoleEvent(
   { nowMs: Date.parse("2026-05-28T10:00:01.000Z") }
 );
 
+const rawConsoleSecret = "password=supersecret token=abc123 cookie=sid=sekret Authorization: Bearer abc";
+state = BrowserAnnotationDevtoolsCapture.appendConsoleEvent(
+  state,
+  "Runtime.consoleAPICalled",
+  {
+    type: "log",
+    timestamp: Date.parse("2026-05-28T10:00:01.250Z"),
+    args: [
+      { value: `runtime string ${rawConsoleSecret}` },
+      { description: `runtime description ${rawConsoleSecret}` },
+      {
+        type: "object",
+        description: "Object",
+        preview: {
+          properties: [
+            { name: "password", type: "string", value: "supersecret" },
+            { name: "token", type: "string", value: "abc123" },
+            { name: "cookie", type: "string", value: "sid=sekret" },
+            { name: "Authorization", type: "string", value: "Bearer abc" }
+          ]
+        }
+      }
+    ],
+    stackTrace: {
+      callFrames: [
+        {
+          functionName: "emitSecret",
+          url: "https://app.example.test/smoke",
+          lineNumber: 14,
+          columnNumber: 6
+        }
+      ]
+    }
+  },
+  { nowMs: Date.parse("2026-05-28T10:00:01.250Z") }
+);
+
+state = BrowserAnnotationDevtoolsCapture.appendConsoleEvent(
+  state,
+  "Log.entryAdded",
+  {
+    entry: {
+      level: "error",
+      text: `log entry ${rawConsoleSecret}`,
+      timestamp: Date.parse("2026-05-28T10:00:01.500Z"),
+      url: "https://app.example.test/smoke"
+    }
+  },
+  { nowMs: Date.parse("2026-05-28T10:00:01.500Z") }
+);
+
+state = BrowserAnnotationDevtoolsCapture.appendConsoleEvent(
+  state,
+  "Runtime.exceptionThrown",
+  {
+    exceptionDetails: {
+      text: `exception ${rawConsoleSecret}`,
+      exception: {
+        description: `exception description ${rawConsoleSecret}`
+      },
+      url: "https://app.example.test/smoke",
+      lineNumber: 16,
+      columnNumber: 8
+    }
+  },
+  { nowMs: Date.parse("2026-05-28T10:00:01.750Z") }
+);
+
 state = BrowserAnnotationDevtoolsCapture.upsertNetworkEvent(
   state,
   "Network.requestWillBeSent",
@@ -116,10 +184,28 @@ state = BrowserAnnotationDevtoolsCapture.upsertNetworkEvent(
 
 const status = BrowserAnnotationDevtoolsCapture.buildDevtoolsCaptureStatus(state);
 assert.equal(status.status, "active");
-assert.equal(status.consoleCount, 1);
+assert.equal(status.consoleCount, 4);
 assert.equal(status.networkCount, 1);
-assert.equal(status.lastConsoleRow.level, "warn");
+assert.equal(status.lastConsoleRow.level, "error");
+assert.equal(state.consoleRows[0].level, "warn");
 assert.equal(status.lastNetworkRow.status, 404);
+const serializedConsoleRows = JSON.stringify(status.detail) + JSON.stringify(state.consoleRows);
+for (const rawSecretPart of [
+  "password=supersecret",
+  "token=abc123",
+  "cookie=sid=sekret",
+  "Authorization: Bearer abc",
+  "Bearer abc",
+  "supersecret",
+  "abc123",
+  "sid=sekret"
+]) {
+  assert.ok(
+    !serializedConsoleRows.includes(rawSecretPart),
+    `consoleRows should redact ${rawSecretPart}`
+  );
+}
+assert.ok(serializedConsoleRows.includes("[REDACTED]"));
 assert.equal(status.lastNetworkRow.url, "https://app.example.test/api?token=%5Bredacted%5D");
 assert.deepEqual(toPlainJson(status.lastNetworkRow.requestHeaders.slice(0, 5)), [
   { name: "authorization", value: "[REDACTED]", redacted: true },
