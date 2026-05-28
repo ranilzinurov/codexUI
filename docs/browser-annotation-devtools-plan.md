@@ -169,6 +169,7 @@ Use these gates unless a phase explicitly narrows or expands them.
 | 2026-05-28 | Phase 0 | Stage 0.2 decision | Completed | Repo-side routing decision recorded: `annotate.todo-tg-app.ru` should be a narrow annotation ingress to the existing Codex UI backend, not a full alternate UI mirror. Public DNS, certificate, and nginx deployment remain Phase 5 tasks because the current hostname resolves via wildcard and lacks a valid TLS SAN. |
 | 2026-05-28 | Phase 1 | Stage 1.2 | Completed | Added server pairing endpoints under `/codex-api/extension/listen` with TTL-bound in-memory sessions, SHA-256 token hashes, same-thread replacement, global session cap, route-local malformed JSON handling, and a 16 KiB request body limit. Worker smoke tests passed, reviewer findings were fixed, and re-review found no remaining issues. Verification: `pnpm vitest run src/server/browserAnnotationListen.test.ts --reporter=verbose` passed 8 tests; `pnpm exec vue-tsc --noEmit` passed. Performance audit: code-path analysis only; status/stop are direct lookup when `sessionId` is supplied, token-only fallback scans at most 100 retained sessions. |
 | 2026-05-28 | Phase 1 | Stage 1.1 | Completed | Added compact active-thread listener UI, typed gateway helpers, copyable server URL/token, expiry/status display, stop/revoke, active-only token handling, and lifecycle guards for thread changes/unmount during in-flight requests. Codex.app parity pre-check was blocked because `/Applications/Codex.app` is unavailable and no CDP endpoint was exposed in this Linux environment; UI followed local composer/pending-panel patterns. Verification: `pnpm vitest run src/api/codexGateway.test.ts --reporter=verbose` passed 7 tests; `pnpm exec vue-tsc --noEmit` passed. Reviewer race findings were fixed and final re-review found no remaining issues. Performance audit: no startup requests; one start request on click and one 15s status poll only while active. |
+| 2026-05-28 | Phase 1 | Stage 1.3 | Completed | Added `POST /codex-api/extension/assets/upload` for paired extension screenshot/crop/audio multipart uploads. Uploads require query `sessionId`/`threadId` plus bearer token and authorize before body buffering, cap request bodies at 15 MiB, allow PNG/WebP/JPEG and WebM/WAV/MP4/MPEG, sanitize/cap filenames, persist under `tmpdir()/codex-web-uploads`, and return local image URLs for image assets. Reviewer findings around early auth and filename length were fixed. Verification: `pnpm vitest run src/server/browserAnnotationAssets.test.ts src/server/browserAnnotationListen.test.ts --reporter=verbose` passed 18 tests; `pnpm exec vue-tsc --noEmit` passed. Performance audit: code-path analysis; one bounded multipart parse and temp-file write per accepted upload, no token/body logging. |
 
 ## Phase 0: Foundations, Secrets, And Deployment Discovery
 
@@ -232,12 +233,12 @@ Checklist:
   - [x] Enforce existing Codex UI auth and extension bearer token.
   - Smoke test: `pnpm vitest run src/server/browserAnnotationListen.test.ts --reporter=verbose` covers success, expiry, wrong token, revoked token, malformed JSON, oversized body, same-thread replacement, and session cap.
 
-- [ ] Stage 1.3: Asset upload endpoint
-  - [ ] Accept screenshot/crop/audio uploads from paired extension.
-  - [ ] Reuse existing temp upload conventions where possible.
-  - [ ] Return local asset references compatible with `localImage` or server-side prompt assembly.
-  - [ ] Cap file size and mime types.
-  - Smoke test: upload PNG/WebP/WebM fixture and reject invalid type/oversize.
+- [x] Stage 1.3: Asset upload endpoint
+  - [x] Accept screenshot/crop/audio uploads from paired extension.
+  - [x] Reuse existing temp upload conventions where possible.
+  - [x] Return local asset references compatible with `localImage` or server-side prompt assembly.
+  - [x] Cap file size and mime types.
+  - Smoke test: `pnpm vitest run src/server/browserAnnotationAssets.test.ts src/server/browserAnnotationListen.test.ts --reporter=verbose` covers PNG/WebP/WebM success and invalid type/oversize/auth/selector/revoked/malformed/long-name rejection paths.
 
 - [ ] Stage 1.4: OpenAI transcription endpoint
   - [ ] Add server-only transcription for annotation audio.

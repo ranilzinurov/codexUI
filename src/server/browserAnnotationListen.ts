@@ -157,7 +157,7 @@ export class BrowserAnnotationListenStore {
   }
 }
 
-const sharedBrowserAnnotationListenStore = new BrowserAnnotationListenStore()
+export const sharedBrowserAnnotationListenStore = new BrowserAnnotationListenStore()
 
 export type BrowserAnnotationListenRouteOptions = {
   store?: BrowserAnnotationListenStore
@@ -198,13 +198,13 @@ export async function handleBrowserAnnotationListenRoutes(
   }
 
   if (req.method === 'GET' && routePath === `${BROWSER_ANNOTATION_LISTEN_BASE_PATH}/status`) {
-    const token = readBearerToken(req)
+    const token = readBrowserAnnotationBearerToken(req)
     if (!token) {
       setJson(res, 401, { error: 'Missing extension bearer token' })
       return true
     }
 
-    const session = store.getAuthorizedSession(token, readSessionSelector(url))
+    const session = store.getAuthorizedSession(token, readBrowserAnnotationSessionSelector(url))
     if (!session) {
       setJson(res, 401, { error: 'Invalid or expired extension bearer token' })
       return true
@@ -215,7 +215,7 @@ export async function handleBrowserAnnotationListenRoutes(
   }
 
   if (req.method === 'POST' && routePath === `${BROWSER_ANNOTATION_LISTEN_BASE_PATH}/stop`) {
-    const token = readBearerToken(req)
+    const token = readBrowserAnnotationBearerToken(req)
     if (!token) {
       setJson(res, 401, { error: 'Missing extension bearer token' })
       return true
@@ -228,8 +228,8 @@ export async function handleBrowserAnnotationListenRoutes(
     }
     const body = bodyResult.body
     const selector = {
-      ...readSessionSelector(url),
-      ...(isRecord(body) ? readSessionSelectorFromRecord(body) : {}),
+      ...readBrowserAnnotationSessionSelector(url),
+      ...(isRecord(body) ? readBrowserAnnotationSessionSelectorFromRecord(body) : {}),
     }
     const session = store.stopAuthorizedSession(token, selector)
     if (!session) {
@@ -255,7 +255,7 @@ function doesTokenMatchHash(token: string, expectedHash: string): boolean {
   return actual.length === expected.length && timingSafeEqual(actual, expected)
 }
 
-function readBearerToken(req: IncomingMessage): string | null {
+export function readBrowserAnnotationBearerToken(req: IncomingMessage): string | null {
   const header = req.headers.authorization
   const value = Array.isArray(header) ? header[0] : header
   if (!value) return null
@@ -264,14 +264,14 @@ function readBearerToken(req: IncomingMessage): string | null {
   return token.length > 0 ? token : null
 }
 
-function readSessionSelector(url: URL): { sessionId?: string; threadId?: string } {
-  return readSessionSelectorFromRecord({
+export function readBrowserAnnotationSessionSelector(url: URL): { sessionId?: string; threadId?: string } {
+  return readBrowserAnnotationSessionSelectorFromRecord({
     sessionId: url.searchParams.get('sessionId'),
     threadId: url.searchParams.get('threadId'),
   })
 }
 
-function readSessionSelectorFromRecord(record: Record<string, unknown>): { sessionId?: string; threadId?: string } {
+export function readBrowserAnnotationSessionSelectorFromRecord(record: Record<string, unknown>): { sessionId?: string; threadId?: string } {
   const selector: { sessionId?: string; threadId?: string } = {}
   if (typeof record.sessionId === 'string' && record.sessionId.trim().length > 0) {
     selector.sessionId = record.sessionId.trim()

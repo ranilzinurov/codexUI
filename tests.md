@@ -5899,3 +5899,35 @@ Active-thread `Listen for browser annotations` panel.
 
 #### Rollback/Cleanup
 - Click `Stop` for any active listener session. Sessions also expire automatically or disappear when the server process exits.
+
+---
+
+### Browser Annotation Asset Upload Endpoint
+
+#### Feature/Change Name
+Paired extension screenshot, crop, and audio upload API.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Dependencies are installed.
+3. No browser or extension is required for the focused endpoint tests.
+
+#### Steps
+1. Run `pnpm vitest run src/server/browserAnnotationAssets.test.ts src/server/browserAnnotationListen.test.ts --reporter=verbose`.
+2. Confirm PNG screenshot uploads return an `asset.localImageUrl`.
+3. Confirm WebP crop uploads return an image-compatible local reference.
+4. Confirm WebM audio uploads succeed without `localImageUrl`.
+5. Confirm unsupported mime types and oversized uploads are rejected.
+6. Confirm missing/wrong bearer tokens, missing query selector, revoked sessions, malformed multipart bodies, and very long filenames are handled without persisting unsafe assets.
+7. Run `pnpm exec vue-tsc --noEmit`.
+8. Light and dark theme verification is not applicable because this stage adds a server endpoint only and no UI surface.
+
+#### Expected Results
+- The focused Vitest files pass all listen and asset upload cases.
+- The server typecheck passes.
+- Upload requests require an active listen session selected by query `sessionId` or `threadId` plus an extension bearer token.
+- Unauthorized upload requests are rejected before multipart body buffering.
+- Accepted image assets are written under the temp upload root and expose `/codex-local-image?path=...` references.
+
+#### Rollback/Cleanup
+- Test-uploaded files are removed by the focused test cleanup. Manual temp files can be removed from the system temp `codex-web-uploads` directory if needed.
