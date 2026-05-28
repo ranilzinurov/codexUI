@@ -5979,15 +5979,16 @@ Paired extension annotation batch to Codex thread queue.
 3. No browser or extension is required for the focused endpoint tests.
 
 #### Steps
-1. Run `pnpm exec vitest run src/server/browserAnnotationBatch.test.ts src/server/browserAnnotationAssets.test.ts src/server/codexAppServerBridge.inlinePayload.test.ts --reporter=verbose`.
-2. Confirm a valid two-annotation batch returns `status: queued` and schedules immediate backend queue drain.
-3. Confirm note text, selected element details, voice transcript text, and DevTools console/network summaries are included in the queued prompt.
-4. Confirm sensitive URL query params are redacted and redacted/not-captured body states do not expose raw body text.
-5. Confirm uploaded screenshot refs become queue `imageUrls` only when the ref was issued by the upload endpoint for the same session/thread.
-6. Confirm arbitrary local image paths and upload-root refs from another session are rejected from queue image attachments.
-7. Confirm missing/wrong bearer tokens, missing selector, malformed JSON, and invalid batch payloads do not queue messages.
-8. Run `pnpm exec vue-tsc --noEmit`.
-9. Light and dark theme verification is not applicable because this stage adds a server endpoint only and no UI surface.
+1. Run `pnpm run test:browser-annotation` for the full CommonJS browser annotation endpoint smoke suite.
+2. Run `pnpm exec vitest run src/server/browserAnnotationBatch.test.ts src/server/browserAnnotationAssets.test.ts src/server/codexAppServerBridge.inlinePayload.test.ts --reporter=verbose` for the focused queue/image integration subset.
+3. Confirm a valid two-annotation batch returns `status: queued` and schedules immediate backend queue drain.
+4. Confirm note text, selected element details, voice transcript text, and DevTools console/network summaries are included in the queued prompt.
+5. Confirm sensitive URL query params are redacted and redacted/not-captured body states do not expose raw body text.
+6. Confirm uploaded screenshot refs become queue `imageUrls` only when the ref was issued by the upload endpoint for the same session/thread.
+7. Confirm arbitrary local image paths and upload-root refs from another session are rejected from queue image attachments.
+8. Confirm missing/wrong bearer tokens, missing selector, malformed JSON, and invalid batch payloads do not queue messages.
+9. Run `pnpm exec vue-tsc --noEmit`.
+10. Light and dark theme verification is not applicable because this stage adds a server endpoint only and no UI surface.
 
 #### Expected Results
 - Focused endpoint and queue integration tests pass.
