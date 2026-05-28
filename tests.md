@@ -6150,17 +6150,18 @@ Visible-tab capture, device-pixel-ratio crop, and bounded preview storage.
 7. Run `git diff --check -- extension/browser-annotation`.
 8. Open `http://127.0.0.1:4173/browser-annotation-test.html` when using Codex UI dev server, or `http://127.0.0.1:8899/extension/browser-annotation/dev/test-page.html` when using `python3 -m http.server`.
 9. Click the extension action or press `Ctrl+Shift+Y`; if annotation mode is not active, click `Inject overlay`.
-10. Select the sample button and confirm the queue row shows a crop preview matching the button.
-11. Select the sample input and card and confirm their preview aspect/contents match the selected elements.
-12. Confirm no full visible-tab screenshot appears in extension storage; only cropped previews are stored.
-13. Repeat the preview rendering check in light and dark OS/browser color schemes.
+10. Select the sample button and confirm the queue row shows either a crop preview matching the button or a `No preview` placeholder if Chrome denies visible-tab capture.
+11. Select the sample input and card and confirm each element is queued even when preview capture is unavailable.
+12. Confirm no full visible-tab screenshot appears in extension storage; only cropped previews or a short `previewError` are stored.
+13. Repeat the preview/placeholder rendering check in light and dark OS/browser color schemes.
 
 #### Expected Results
 - All static and smoke commands pass.
 - `chrome.tabs.captureVisibleTab` is used only after the user-driven selection flow.
 - Crop math uses `devicePixelRatio` and clips to screenshot bounds.
+- Queue previews are best-effort; a `captureVisibleTab` failure does not block element queueing.
 - Queue previews are capped per item and the queue is trimmed under the aggregate storage budget before `chrome.storage.local.set`.
-- The side panel renders the newest preview rows without polling.
+- The side panel renders the newest preview rows or `No preview` placeholders without polling.
 - Light and dark side panel preview rows are readable.
 
 #### Rollback/Cleanup

@@ -271,7 +271,7 @@ async function saveSelectedElementContext(context, sender) {
     throw new Error("Selected element context is missing.");
   }
 
-  const preview = await captureSelectedElementPreview(context, sender);
+  const previewResult = await captureSelectedElementPreviewSafely(context, sender);
   const queue = await readAnnotationQueue();
   const item = {
     id: `annotation-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
@@ -285,7 +285,8 @@ async function saveSelectedElementContext(context, sender) {
         }
       : null,
     context,
-    preview
+    preview: previewResult.preview,
+    previewError: previewResult.error
   };
   const nextQueue = trimAnnotationQueue([...queue, item]);
   await writeAnnotationQueue(nextQueue);
@@ -385,6 +386,22 @@ async function sendAnnotationBatch() {
     result: payload && payload.result ? payload.result : null,
     state: buildPanelState(settings, connection, activeTab, [])
   };
+}
+
+async function captureSelectedElementPreviewSafely(context, sender) {
+  try {
+    return {
+      preview: await captureSelectedElementPreview(context, sender),
+      error: ""
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn("Unable to capture selected element preview.", error);
+    return {
+      preview: null,
+      error: message
+    };
+  }
 }
 
 async function captureSelectedElementPreview(context, sender) {
