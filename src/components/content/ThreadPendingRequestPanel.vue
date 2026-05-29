@@ -977,37 +977,37 @@ function onRejectUnknownRequest(request: UiServerRequest): void {
 
 .thread-pending-request {
   @apply w-full max-w-[min(var(--chat-column-max,45rem),100%)] mx-auto;
-  --pending-request-bg: theme(colors.white);
-  --pending-request-border: theme(colors.zinc.200);
-  --pending-request-text: theme(colors.zinc.900);
-  --pending-request-muted: theme(colors.zinc.500);
-  --pending-request-subtle: theme(colors.zinc.600);
-  --pending-request-control-bg: theme(colors.white);
-  --pending-request-control-border: theme(colors.zinc.300);
-  --pending-request-control-hover-bg: theme(colors.zinc.50);
-  --pending-request-control-focus: theme(colors.zinc.400);
-  --pending-request-panel-bg: theme(colors.zinc.50 / 0.85);
-  --pending-request-primary-bg: theme(colors.zinc.900);
-  --pending-request-primary-text: theme(colors.white);
-  --pending-request-primary-hover-bg: theme(colors.zinc.800);
-  --pending-request-error: theme(colors.rose.600);
+  --pending-request-bg: rgb(255 255 255);
+  --pending-request-border: rgb(228 228 231);
+  --pending-request-text: rgb(24 24 27);
+  --pending-request-muted: rgb(113 113 122);
+  --pending-request-subtle: rgb(82 82 91);
+  --pending-request-control-bg: rgb(255 255 255);
+  --pending-request-control-border: rgb(212 212 216);
+  --pending-request-control-hover-bg: rgb(250 250 250);
+  --pending-request-control-focus: rgb(161 161 170);
+  --pending-request-panel-bg: rgb(250 250 250 / 0.85);
+  --pending-request-primary-bg: rgb(24 24 27);
+  --pending-request-primary-text: rgb(255 255 255);
+  --pending-request-primary-hover-bg: rgb(39 39 42);
+  --pending-request-error: rgb(225 29 72);
 }
 
 :global(:root.dark) .thread-pending-request {
-  --pending-request-bg: theme(colors.zinc.900);
-  --pending-request-border: theme(colors.zinc.700);
-  --pending-request-text: theme(colors.zinc.50);
-  --pending-request-muted: theme(colors.zinc.500);
-  --pending-request-subtle: theme(colors.zinc.400);
-  --pending-request-control-bg: theme(colors.zinc.950);
-  --pending-request-control-border: theme(colors.zinc.700);
-  --pending-request-control-hover-bg: theme(colors.zinc.800 / 0.7);
-  --pending-request-control-focus: theme(colors.zinc.500);
-  --pending-request-panel-bg: theme(colors.zinc.900 / 0.75);
-  --pending-request-primary-bg: theme(colors.zinc.100);
-  --pending-request-primary-text: theme(colors.zinc.950);
-  --pending-request-primary-hover-bg: theme(colors.white);
-  --pending-request-error: theme(colors.rose.300);
+  --pending-request-bg: rgb(24 24 27);
+  --pending-request-border: rgb(63 63 70);
+  --pending-request-text: rgb(250 250 250);
+  --pending-request-muted: rgb(113 113 122);
+  --pending-request-subtle: rgb(161 161 170);
+  --pending-request-control-bg: rgb(9 9 11);
+  --pending-request-control-border: rgb(63 63 70);
+  --pending-request-control-hover-bg: rgb(39 39 42 / 0.7);
+  --pending-request-control-focus: rgb(113 113 122);
+  --pending-request-panel-bg: rgb(24 24 27 / 0.75);
+  --pending-request-primary-bg: rgb(244 244 245);
+  --pending-request-primary-text: rgb(9 9 11);
+  --pending-request-primary-hover-bg: rgb(255 255 255);
+  --pending-request-error: rgb(253 164 175);
 }
 
 .thread-pending-request-shell {
