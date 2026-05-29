@@ -3,11 +3,12 @@ const path = require('path')
 const { chromium } = require('playwright')
 
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:4174'
-const THREAD_TITLE = process.env.THREAD_TITLE || 'Веб-версия side диалога Codex'
+const THREAD_ID = process.env.THREAD_ID || '019e72fd-945e-7030-9b4a-830e39a6443c'
+const THREAD_TITLE = process.env.THREAD_TITLE || 'Привязка платежа Точка банка'
 const TIMEOUT_MS = Number(process.env.SIDE_CHAT_TIMEOUT_MS || 180000)
 const DARK_MODE = process.env.SIDE_CHAT_DARK === '1'
 const MARKER = `SIDE_E2E_${Date.now()}`
-const QUESTION = process.env.SIDE_CHAT_QUESTION || `${MARKER}: По истории основного чата коротко ответь по-русски: какую функцию мы проверяем? Не используй инструменты.`
+const QUESTION = process.env.SIDE_CHAT_QUESTION || `${MARKER}: Ответь на русском в 1-2 предложениях: судя по основному чату, что нужно сделать? Если в основном чате есть Точка-банк или платеж, упомяни это явно. Не используй инструменты.`
 const OUT_DIR = path.resolve(process.cwd(), 'output/playwright')
 const SCREENSHOT_PATH = path.join(OUT_DIR, 'side-chat-real-behavior-failure.png')
 const PASS_SCREENSHOT_PATH = path.join(OUT_DIR, DARK_MODE
@@ -34,6 +35,7 @@ async function main() {
 
   const evidence = {
     baseUrl: BASE_URL,
+    threadId: THREAD_ID,
     threadTitle: THREAD_TITLE,
     marker: MARKER,
     question: QUESTION,
@@ -112,9 +114,13 @@ async function main() {
   })
 
   try {
-    await page.goto(`${BASE_URL}/`, { waitUntil: 'domcontentloaded', timeout: 30000 })
-    await page.getByText(THREAD_TITLE, { exact: true }).click({ timeout: 30000 })
-    await page.waitForURL(/#\/thread\//, { timeout: 30000 })
+    if (THREAD_ID) {
+      await page.goto(`${BASE_URL}/#/thread/${THREAD_ID}`, { waitUntil: 'domcontentloaded', timeout: 30000 })
+    } else {
+      await page.goto(`${BASE_URL}/`, { waitUntil: 'domcontentloaded', timeout: 30000 })
+      await page.getByText(THREAD_TITLE, { exact: true }).click({ timeout: 30000 })
+      await page.waitForURL(/#\/thread\//, { timeout: 30000 })
+    }
     await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {})
 
     const sideButton = page.getByRole('button', { name: 'Open side chat' })
