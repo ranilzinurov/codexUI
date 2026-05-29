@@ -6037,3 +6037,42 @@ Temporary `/side` chat panel for questions against the active thread context.
 
 #### Rollback/Cleanup
 - Close the Side panel. The first release treats Side Chat as temporary one-off state, so no side thread is intentionally persisted in the UI.
+
+---
+
+### Side Chat Real Answer Regression
+
+#### Feature/Change Name
+Side Chat keeps the side answer visible after the ephemeral side turn completes.
+
+#### Prerequisites/Setup
+1. Run the side-chat worktree on a non-production port:
+   `pnpm run dev --host 127.0.0.1 --port 4174`
+2. Open a real existing thread with enough context for a follow-up question.
+3. Keep the main thread selected while the Side panel is open.
+
+#### Steps
+1. In light theme, run:
+   `BASE_URL=http://127.0.0.1:4174 SIDE_CHAT_TIMEOUT_MS=180000 node scripts/side-chat-real-behavior.cjs`
+2. Confirm the script opens the configured real thread, clicks `Side`, sends a side-only question, and waits for both a non-empty Codex answer and a completed `Worked for ...` side-turn summary.
+3. Confirm the screenshot at `output/playwright/side-chat-real-behavior-pass.png` shows the assistant answer in the Side panel and no side question/answer appended to the main transcript.
+4. Confirm `output/playwright/side-chat-real-behavior-log.json` reports `fetchErrors: []` and at least one `turn/completed` websocket notification.
+5. In dark theme, run:
+   `BASE_URL=http://127.0.0.1:4174 SIDE_CHAT_TIMEOUT_MS=180000 SIDE_CHAT_DARK=1 node scripts/side-chat-real-behavior.cjs`
+6. Confirm the dark screenshot at `output/playwright/side-chat-real-behavior-dark.png` shows the answer and completed summary without light-theme surfaces.
+7. Confirm the dev-server log does not emit `[thread-title] Automatic title generation failed` for the ephemeral side thread after the side turn completes.
+8. Run the focused unit regression:
+   `/home/rnl1/prog/codexUI/node_modules/.bin/vitest run --config /home/rnl1/prog/codexUI-side-chat-tdd/vitest.config.ts --root /home/rnl1/prog/codexUI-side-chat-tdd src/server/threadAutoTitle.test.ts src/composables/useDesktopState.test.ts src/api/codexGateway.test.ts`
+
+#### Expected Results
+- The Playwright script exits successfully and prints the side answer, `Worked for ...`, and screenshot path.
+- The Playwright log reports no `/codex-api` 4xx/5xx responses.
+- The Side panel shows the assistant answer from the main thread context after `turn/completed`.
+- The Side panel no longer stays stuck on `Thinking` after side-thread notification sync or completed live deltas.
+- Ephemeral side turns do not trigger automatic title-generation retries or warnings.
+- Main-thread selection and transcript remain unchanged by the side turn.
+- Light and dark theme side surfaces remain readable while the answer is visible.
+
+#### Rollback/Cleanup
+- Stop the temporary `4174` dev server after verification.
+- Close the Side panel. Ephemeral side thread UI state remains temporary.

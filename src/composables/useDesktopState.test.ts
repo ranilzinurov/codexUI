@@ -28,6 +28,7 @@ const gatewayMocks = vi.hoisted(() => ({
   getWorkspaceRootsState: vi.fn(),
   generateThreadTitle: vi.fn(),
   interruptThreadTurn: vi.fn(),
+  persistThreadReadState: vi.fn(),
   persistThreadTitle: vi.fn(),
   renameThread: vi.fn(),
   replyToServerRequest: vi.fn(),
@@ -66,6 +67,7 @@ function thread(id: string, cwd: string, options: { hasWorktree?: boolean } = {}
 
 function installTestWindow(initialStorage: Record<string, string> = {}) {
   const store = new Map(Object.entries(initialStorage))
+  let timeoutId = 0
   vi.stubGlobal('window', {
     localStorage: {
       getItem: vi.fn((key: string) => store.get(key) ?? null),
@@ -76,7 +78,10 @@ function installTestWindow(initialStorage: Record<string, string> = {}) {
         store.delete(key)
       }),
     },
-    setTimeout: vi.fn(),
+    setTimeout: vi.fn(() => {
+      timeoutId += 1
+      return timeoutId
+    }),
     clearTimeout: vi.fn(),
   })
 }
@@ -118,6 +123,19 @@ function installNotificationListener() {
     return () => {}
   })
   return (notification: { method: string; params: unknown; atIso: string }) => notify(notification)
+}
+
+function scheduledWindowTimeoutCallbacks(): Array<() => void> {
+  const timeoutMock = window.setTimeout as unknown as { mock?: { calls: Array<[unknown, ...unknown[]]> } }
+  return (timeoutMock.mock?.calls ?? [])
+    .map(([callback]) => callback)
+    .filter((callback): callback is () => void => typeof callback === 'function')
+}
+
+async function flushAsyncWork(): Promise<void> {
+  for (let index = 0; index < 20; index += 1) {
+    await Promise.resolve()
+  }
 }
 
 beforeEach(() => {
@@ -647,6 +665,69 @@ describe('side-chat state API', () => {
     ])
     expect(state.selectedLiveOverlay.value).toBe(null)
     expect(state.messages.value).toEqual([])
+    expect(state.selectedThreadId.value).toBe('main-thread')
+  })
+
+  it('keeps a streamed side answer when thread-list refresh prunes thread-scoped state', async () => {
+    installTestWindow({ 'codex-web-local.selected-thread-id.v1': 'main-thread' })
+    const notify = installNotificationListener()
+    gatewayMocks.getThreadGroupsPage.mockResolvedValue({
+      groups: [{ projectName: 'project', threads: [thread('main-thread', '/tmp/project')] }],
+      nextCursor: null,
+    })
+    gatewayMocks.startThreadTurn.mockResolvedValue('side-turn')
+    const state = useDesktopState()
+    const sideState = expectSideChatState(state)
+    state.startPolling()
+
+    await sideState.openSideChatForSelectedThread()
+    await sideState.sendMessageToSideChat('What is the main chat about?')
+    const mainMessagesBeforeCompletion = [...state.messages.value]
+
+    const liveSideAnswer = {
+      id: 'side-agent-message',
+      role: 'assistant' as const,
+      text: 'The main chat is about side-chat notification sync.',
+      messageType: 'agentMessage.live',
+    }
+    notify({
+      method: 'item/agentMessage/delta',
+      params: {
+        threadId: 'side-thread',
+        turnId: 'side-turn',
+        itemId: liveSideAnswer.id,
+        delta: liveSideAnswer.text,
+      },
+      atIso: '2026-05-28T00:00:02.000Z',
+    })
+
+    expect(sideState.sideMessages.value).toEqual([expect.objectContaining(liveSideAnswer)])
+
+    const scheduledBeforeCompletion = scheduledWindowTimeoutCallbacks().length
+    notify({
+      method: 'turn/completed',
+      params: {
+        threadId: 'side-thread',
+        turnId: 'side-turn',
+        turn: {
+          id: 'side-turn',
+          threadId: 'side-thread',
+          status: 'completed',
+          startedAt: '2026-05-28T00:00:00.000Z',
+          completedAt: '2026-05-28T00:00:03.000Z',
+        },
+      },
+      atIso: '2026-05-28T00:00:03.000Z',
+    })
+    for (const callback of scheduledWindowTimeoutCallbacks().slice(scheduledBeforeCompletion)) {
+      callback()
+    }
+    await flushAsyncWork()
+
+    expect(sideState.sideLiveOverlay.value).toBe(null)
+    expect(sideState.sideMessages.value).toEqual(expect.arrayContaining([expect.objectContaining(liveSideAnswer)]))
+    expect(gatewayMocks.getThreadDetail).not.toHaveBeenCalledWith('side-thread')
+    expect(state.messages.value).toEqual(mainMessagesBeforeCompletion)
     expect(state.selectedThreadId.value).toBe('main-thread')
   })
 

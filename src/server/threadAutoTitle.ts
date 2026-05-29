@@ -704,6 +704,11 @@ function extractThreadId(notification: RpcNotification): string {
   return readString(params?.threadId)
 }
 
+function isEphemeralIncludeTurnsError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.toLowerCase().includes('ephemeral threads do not support includeturns')
+}
+
 export class ThreadAutoTitleManager {
   private readonly inFlightThreadIds = new Set<string>()
   private readonly completedThreadIds = new Set<string>()
@@ -766,6 +771,10 @@ export class ThreadAutoTitleManager {
       })
       this.rememberCompleted(threadId)
     } catch (error) {
+      if (isEphemeralIncludeTurnsError(error)) {
+        this.rememberCompleted(threadId)
+        return
+      }
       if (attempt + 1 < RETRY_DELAYS_MS.length) {
         nextAttempt = attempt + 1
         return

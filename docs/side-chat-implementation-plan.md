@@ -2,7 +2,7 @@
 
 Goal: ship a seamless one-off Side Chat for Codex UI that can answer questions from the current thread/project context without polluting the main conversation or destabilizing existing chat behavior.
 
-Status: implementation in progress on branch/worktree `side-chat-tdd-tests`.
+Status: implemented and under behavior-regression verification on branch/worktree `side-chat-tdd-tests`.
 
 ## Current Contract
 
@@ -312,3 +312,11 @@ Completion criteria:
 - [x] 2026-05-28: Ran home performance audit on `http://127.0.0.1:4173/`. Report: `output/playwright/browser-runtime-profile-home-2026-05-28T09-19-29-299Z.json`; warnings `threadListFirstPage=2`, `skillsList=2`, `rateLimitsRead=2`; total API `339.2 KB`. These are startup duplicates already outside the Side Chat path.
 - [x] 2026-05-28: Ran thread performance audit on `http://127.0.0.1:4173/#/thread/019da7c0-4e12-7a91-837c-f7c11cc8ab6c`. Report: `output/playwright/browser-runtime-profile-thread-019da7c0-4e12-7a91-837c-f7c11cc8ab6c-2026-05-28T09-19-51-430Z.json`; warnings `threadListFirstPage=2`, `threadResume=6`; total API `333 KB`. No Side Chat panel was open during startup, and the feature does not add startup fanout.
 - [x] 2026-05-28: Ran pre-merge diff review with `git diff --stat main...HEAD`; branch includes side-chat commits plus pre-existing browser-annotation work relative to local `main`, so final merge should use a curated branch or cherry-pick side-chat commits if browser-annotation work is not intended for that merge.
+- [x] 2026-05-29: Reproduced the real behavior bug with `scripts/side-chat-real-behavior.cjs`: backend returned `turn/start`, streamed `item/agentMessage/delta`, and emitted `turn/completed`, but the UI did not keep the completed side answer visible before the side-thread sync fix. Failure artifact: `output/playwright/side-chat-real-behavior-failure.png`.
+- [x] 2026-05-29: Fixed side-thread completion sync by keeping the active side thread out of thread-scoped state pruning, so `thread/list` refreshes no longer remove side live answers after `turn/completed`.
+- [x] 2026-05-29: Added regression unit tests for completed side turns staying visible without polluting the selected main thread and for skipping noisy ephemeral auto-title retries.
+- [x] 2026-05-29: Re-ran real Playwright behavior on `http://127.0.0.1:4174`: `ok: true`, full answer rendered in the Side panel, `Worked for 19s`, `fetchErrors: []`, screenshot `output/playwright/side-chat-real-behavior-pass.png`.
+- [x] 2026-05-29: Re-ran real Playwright behavior in dark theme with `SIDE_CHAT_DARK=1`: `ok: true`, `Worked for 13s`, `fetchErrors: []`, screenshot `output/playwright/side-chat-real-behavior-dark.png`.
+- [x] 2026-05-29: Ran targeted TDD suite: `4 passed` files, `45 passed` tests.
+- [x] 2026-05-29: Ran `pnpm run build`; production frontend and CLI builds passed.
+- [x] 2026-05-29: Ran clean thread performance audit on `http://127.0.0.1:4174/#/thread/019e6dae-b691-7210-a487-779865e68dee`. Report: `output/playwright/browser-runtime-profile-thread-019e6dae-b691-7210-a487-779865e68dee-2026-05-29T17-13-08-753Z.json`; warnings `[]`; duplicate counts `threadListFirstPage=1`, `threadResume=1`, `skillsList=1`, `rateLimitsRead=1`; total API `520.7 KB`.

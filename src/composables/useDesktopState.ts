@@ -2398,6 +2398,10 @@ export function useDesktopState() {
     if (currentThreadId) {
       activeThreadIds.add(currentThreadId)
     }
+    const activeSideThreadId = sideThreadId.value.trim()
+    if (activeSideThreadId) {
+      activeThreadIds.add(activeSideThreadId)
+    }
     const nextSelectedModelMap = pruneThreadContextStateMap(selectedModelIdByContext.value, activeThreadIds)
     if (nextSelectedModelMap !== selectedModelIdByContext.value) {
       selectedModelIdByContext.value = nextSelectedModelMap
