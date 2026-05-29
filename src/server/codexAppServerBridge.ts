@@ -40,6 +40,11 @@ import {
   summarizePreviousResponseError,
   writePreviousResponseDiagnostic,
 } from './previousResponseDiagnostics.js'
+import {
+  isTurnStartThreadNotFoundLike,
+  summarizeTurnStartThreadNotFound,
+  writeThreadErrorDiagnostic,
+} from './threadErrorDiagnostics.js'
 import { ThreadTerminalManager } from './terminalManager.js'
 import { WebPushNotifications } from './webPushNotifications.js'
 import { ThreadAutoTitleManager } from './threadAutoTitle.js'
@@ -5826,6 +5831,7 @@ class AppServerProcess {
 
       if (message.error) {
         this.logPreviousResponseRpcError(pendingRequest, message.error)
+        this.logThreadNotFoundRpcError(pendingRequest, message.error)
         pendingRequest.reject(new Error(sanitizeCodexErrorMessage(message.error.message)))
       } else {
         if (pendingRequest.method === 'config/read') {
@@ -5970,6 +5976,46 @@ class AppServerProcess {
       ...event,
       willRetry: typeof record?.willRetry === 'boolean' ? record.willRetry : null,
     })
+  }
+
+  private buildThreadNotFoundDiagnosticContext(input: {
+    phase: string
+    method: string
+    params: unknown
+    error: unknown
+  }): Record<string, unknown> | null {
+    if (input.method !== 'turn/start' || !isTurnStartThreadNotFoundLike(input.error)) return null
+
+    const params = asRecord(input.params)
+    const threadId = extractDiagnosticThreadId(input.params)
+    const snapshot = threadId ? this.getLastThreadReadSnapshot(threadId) : null
+
+    return {
+      source: 'codex-app-server',
+      kind: 'turn-start-thread-not-found',
+      phase: input.phase,
+      method: input.method,
+      threadId: threadId || null,
+      config: this.lastConfigDiagnosticSnapshot,
+      thread: snapshot ? buildThreadDiagnosticSnapshot(snapshot, '') : null,
+      requestedModel: readNonEmptyString(params?.model) || null,
+      hasInput: Boolean(params && Object.prototype.hasOwnProperty.call(params, 'input')),
+      inputItemCount: Array.isArray(params?.input) ? params.input.length : null,
+      hasAttachments: Array.isArray(params?.attachments) && params.attachments.length > 0,
+      collaborationMode: readNonEmptyString(asRecord(params?.collaborationMode)?.mode) || null,
+      ...this.getRecentRpcDiagnostic(threadId),
+      error: summarizeTurnStartThreadNotFound(input.error),
+    }
+  }
+
+  private logThreadNotFoundRpcError(pendingRequest: PendingRpcRequest, error: unknown): void {
+    const event = this.buildThreadNotFoundDiagnosticContext({
+      phase: 'json-rpc-error',
+      method: pendingRequest.method,
+      params: pendingRequest.params,
+      error,
+    })
+    if (event) writeThreadErrorDiagnostic(event)
   }
 
   private recordStreamEvent(notification: { method: string; params: unknown }): void {

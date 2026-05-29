@@ -6827,6 +6827,36 @@ Cleaner `previous_response_not_found` diagnostics with structured app-server con
 
 ---
 
+### Turn Start Thread Not Found Diagnostics
+
+#### Feature/Change Name
+`turn/start` `thread not found` diagnostic JSONL logging.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Dependencies are installed.
+3. Optional: set `CODEXUI_THREAD_ERROR_LOG=/tmp/codexui-thread-errors.jsonl` to choose a custom log path. By default the log is written to `output/thread-errors.jsonl`.
+
+#### Steps
+1. Run `pnpm vitest run src/server/threadErrorDiagnostics.test.ts src/server/previousResponseDiagnostics.test.ts`.
+2. Run `pnpm exec tsc --noEmit -p tsconfig.server.json`.
+3. Start Codex UI normally and continue using threads until an error like `RPC turn/start failed with HTTP 502: thread not found: <thread-id>` appears.
+4. Inspect `output/thread-errors.jsonl` or the configured log path.
+5. Confirm a row with `kind: "turn-start-thread-not-found"` is written and includes `threadId`, `method`, `config`, cached `thread`, recent RPC context, request shape flags, and summarized error text.
+6. Confirm this diagnostic does not write prompt text, attachment paths, bearer tokens, or authorization headers.
+7. Light and dark theme verification is not applicable because this change has no UI surface.
+
+#### Expected Results
+- The focused Vitest files pass.
+- The server typecheck passes.
+- Future stale-thread `turn/start` failures are captured separately from `previous_response_id` failures.
+- Normal UI rendering is unchanged in both light and dark themes.
+
+#### Rollback/Cleanup
+- Delete any temporary diagnostic log used for testing, or unset `CODEXUI_THREAD_ERROR_LOG` to return to the default path.
+
+---
+
 ### Browser Annotation Test Page Sample Card Heading Font
 
 #### Feature/Change Name
