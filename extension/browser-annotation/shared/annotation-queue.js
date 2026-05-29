@@ -1,0 +1,787 @@
+(function attachBrowserAnnotationQueue(globalScope) {
+  "use strict";
+
+  const constants = globalScope.BrowserAnnotationConstants;
+  const DEFAULT_PRIVACY_RULES = Object.freeze({
+    redactPasswordsTokensCookiesByDefault: true,
+    sensitiveHeaderNames: Object.freeze([
+      "authorization",
+      "cookie",
+      "proxy-authorization",
+      "set-cookie",
+      "x-api-key",
+      "x-auth-token",
+      "x-csrf-token"
+    ]),
+    sensitiveFieldNames: Object.freeze([
+      "access_token",
+      "api_key",
+      "auth",
+      "client_secret",
+      "cookie",
+      "csrf",
+      "id_token",
+      "password",
+      "refresh_token",
+      "secret",
+      "session",
+      "token"
+    ]),
+    bodyCaptureMode: "metadata-only",
+    bodyCapBytes: 16384
+  });
+  const DEVTOOLS_CONTEXT_BEFORE_MS = 2 * 60 * 1000;
+  const DEVTOOLS_CONTEXT_AFTER_MS = 30 * 1000;
+
+  function trimAnnotationQueue(queue, options = {}) {
+    const maxItems = positiveInteger(
+      options.maxItems,
+      constants.MAX_ANNOTATION_QUEUE_ITEMS
+    );
+    const maxStorageBytes = positiveInteger(
+      options.maxStorageBytes,
+      constants.MAX_ANNOTATION_QUEUE_STORAGE_BYTES
+    );
+    const cappedByCount = Array.isArray(queue) ? queue.slice(-maxItems) : [];
+
+    while (
+      cappedByCount.length > 0 &&
+      estimateJsonBytes(cappedByCount) > maxStorageBytes
+    ) {
+      cappedByCount.shift();
+    }
+
+    return cappedByCount;
+  }
+
+  function updateAnnotationQueueItem(queue, id, patch) {
+    const safeId = String(id || "");
+    return normalizeQueue(queue).map((item) => {
+      if (item.id !== safeId) {
+        return item;
+      }
+      const nextItem = { ...item };
+      if (patch && Object.prototype.hasOwnProperty.call(patch, "noteText")) {
+        nextItem.noteText = sanitizeNoteText(patch.noteText);
+      }
+      if (patch && Object.prototype.hasOwnProperty.call(patch, "voice")) {
+        const voice = sanitizeQueueVoice(patch.voice);
+        if (voice) {
+          nextItem.voice = voice;
+        } else {
+          delete nextItem.voice;
+        }
+      }
+      return nextItem;
+    });
+  }
+
+  function deleteAnnotationQueueItem(queue, id) {
+    const safeId = String(id || "");
+    return normalizeQueue(queue).filter((item) => item.id !== safeId);
+  }
+
+  function moveAnnotationQueueItem(queue, id, direction) {
+    const items = normalizeQueue(queue);
+    const fromIndex = items.findIndex((item) => item.id === String(id || ""));
+    if (fromIndex < 0) {
+      return items;
+    }
+    const step = Number(direction) < 0 ? -1 : 1;
+    const toIndex = fromIndex + step;
+    if (toIndex < 0 || toIndex >= items.length) {
+      return items;
+    }
+    const moved = items.slice();
+    const [item] = moved.splice(fromIndex, 1);
+    moved.splice(toIndex, 0, item);
+    return moved;
+  }
+
+  function buildAnnotationBatchPayload(queue, options = {}) {
+    const items = normalizeQueue(queue);
+    if (items.length === 0) {
+      throw new Error("Annotation queue is empty.");
+    }
+
+    const createdAtIso = options.createdAtIso || new Date().toISOString();
+    const devtoolsSnapshot = buildDevtoolsSnapshot(options.devtoolsCapture, createdAtIso);
+    const voiceAssetMap = new Map();
+    const batchItems = items.map((item) => buildBatchItem(item, devtoolsSnapshot, voiceAssetMap));
+    return {
+      schemaVersion: 1,
+      batchId: options.batchId || createId("annotation-batch"),
+      createdAtIso,
+      source: {
+        kind: "chrome-extension",
+        extensionVersion: options.extensionVersion || "",
+        browserName: options.browserName || "Chrome"
+      },
+      targetThreadId: options.targetThreadId || undefined,
+      page: readBatchPage(items),
+      privacy: DEFAULT_PRIVACY_RULES,
+      assets: Array.from(voiceAssetMap.values()),
+      items: batchItems,
+      ...(devtoolsSnapshot ? { devTools: devtoolsSnapshot } : {})
+    };
+  }
+
+  function normalizeQueue(queue) {
+    return Array.isArray(queue) ? queue.filter(isRecord) : [];
+  }
+
+  function buildBatchItem(item, devtoolsSnapshot, voiceAssetMap) {
+    const context = isRecord(item.context) ? item.context : {};
+    const page = readItemPage(item);
+    const noteText = sanitizeNoteText(item.noteText);
+    const createdAtIso = item.createdAtIso || new Date().toISOString();
+    const voiceNote = readVoiceNote(item.voice, item.id, voiceAssetMap);
+    const batchItem = {
+      id: item.id || createId("annotation"),
+      kind: readAnnotationKind(noteText, voiceNote),
+      createdAtIso,
+      page
+    };
+
+    const viewport = readViewport(context.viewport);
+    if (viewport) {
+      batchItem.viewport = viewport;
+    }
+
+    const target = readTarget(context);
+    if (target) {
+      batchItem.target = target;
+    }
+
+    batchItem.noteText = noteText;
+    if (voiceNote) {
+      batchItem.voiceNote = voiceNote;
+    }
+
+    const selectedText = sanitizeText(context.text, 1000);
+    if (selectedText) {
+      batchItem.selectedText = selectedText;
+    }
+
+    const devToolsContext = buildItemDevtoolsContext(devtoolsSnapshot, createdAtIso);
+    if (devToolsContext) {
+      batchItem.devToolsContext = devToolsContext;
+    }
+
+    return batchItem;
+  }
+
+  function readAnnotationKind(noteText, voiceNote) {
+    if (voiceNote && noteText) {
+      return "mixed";
+    }
+    if (voiceNote) {
+      return "voice";
+    }
+    return noteText ? "mixed" : "screenshot";
+  }
+
+  function readVoiceNote(value, itemId, voiceAssetMap) {
+    if (!isRecord(value)) {
+      return null;
+    }
+
+    const asset = readVoiceAsset(value, itemId);
+    if (!asset) {
+      return null;
+    }
+    const transcript = readVoiceTranscript(value);
+
+    const voiceNote = {
+      id: sanitizeText(value.id || value.voiceNoteId, 160) || createId("voice-note"),
+      assetId: asset.id,
+      mimeType: asset.mimeType,
+      durationMs: asset.durationMs || 0,
+      transcriptStatus: transcript ? transcript.status : "not-started"
+    };
+    voiceAssetMap.set(asset.id, asset);
+    if (transcript && transcript.text) {
+      voiceNote.transcriptText = transcript.text;
+    }
+    if (transcript && transcript.error) {
+      voiceNote.errorMessage = transcript.error;
+    }
+    if (transcript && transcript.language) {
+      voiceNote.language = transcript.language;
+    }
+    const recordedAtIso = sanitizeText(value.recordedAtIso, 80);
+    if (recordedAtIso) {
+      voiceNote.recordedAtIso = recordedAtIso;
+    }
+    return Object.keys(voiceNote).length > 0 ? voiceNote : null;
+  }
+
+  function readVoiceAsset(value, itemId) {
+    const nestedAudio = isRecord(value.audio) ? value.audio : {};
+    const nestedAsset = isRecord(value.asset) ? value.asset : {};
+    const hasAssetMetadata = Boolean(
+      value.assetId ||
+      value.assetRef ||
+      value.mimeType ||
+      value.byteLength ||
+      value.durationMs ||
+      nestedAudio.assetId ||
+      nestedAudio.assetRef ||
+      nestedAudio.mimeType ||
+      nestedAudio.type ||
+      nestedAudio.byteLength ||
+      nestedAudio.size ||
+      nestedAudio.durationMs ||
+      nestedAsset.id ||
+      nestedAsset.mimeType ||
+      nestedAsset.byteLength
+    );
+    if (!hasAssetMetadata) {
+      return null;
+    }
+    const assetId = sanitizeText(
+      value.assetId || value.assetRef || nestedAudio.assetId || nestedAudio.assetRef || nestedAsset.id,
+      160
+    ) || createId(`voice-note-audio-${sanitizeText(itemId, 80) || "asset"}`);
+    const mimeType = sanitizeText(
+      value.mimeType || nestedAudio.mimeType || nestedAudio.type || nestedAsset.mimeType,
+      120
+    ) || "audio/webm";
+    const byteLength = positiveNumber(
+      value.byteLength || nestedAudio.byteLength || nestedAudio.size || nestedAsset.byteLength
+    );
+    const durationMs = positiveNumber(value.durationMs || nestedAudio.durationMs);
+    if (byteLength === undefined) {
+      return null;
+    }
+    const asset = {
+      id: assetId,
+      kind: "voice-note-audio",
+      mimeType,
+      byteLength
+    };
+
+    const sha256 = sanitizeText(value.sha256 || nestedAudio.sha256 || nestedAsset.sha256, 160);
+    const uploadedAtIso = sanitizeText(
+      value.uploadedAtIso || nestedAudio.uploadedAtIso || nestedAsset.uploadedAtIso || value.createdAtIso || value.recordedAtIso,
+      80
+    );
+    if (!uploadedAtIso) {
+      return null;
+    }
+    const storageKey = sanitizeText(value.storageKey || nestedAudio.storageKey || nestedAsset.storageKey, 500);
+
+    if (durationMs !== undefined) {
+      asset.durationMs = durationMs;
+    }
+    if (sha256) {
+      asset.sha256 = sha256;
+    }
+    if (uploadedAtIso) {
+      asset.uploadedAtIso = uploadedAtIso;
+    }
+    if (storageKey) {
+      asset.storageKey = storageKey;
+    }
+    return asset;
+  }
+
+  function readVoiceTranscript(value) {
+    const transcript = isRecord(value.transcript) ? value.transcript : {};
+    const status = sanitizeText(value.transcriptStatus || transcript.status, 40);
+    const text = sanitizeText(value.transcriptText || transcript.text, constants.MAX_ANNOTATION_NOTE_CHARS);
+    const error = sanitizeText(value.transcriptError || value.errorMessage || transcript.error, 300);
+    const normalizedStatus = readTranscriptStatus(status, text, error);
+    if (!normalizedStatus && !text) {
+      return null;
+    }
+
+    const result = {
+      status: normalizedStatus || "completed"
+    };
+    if (text) {
+      result.text = text;
+    }
+    if (error) {
+      result.error = error;
+    }
+    const language = sanitizeText(value.language || transcript.language, 40);
+    if (language) {
+      result.language = language;
+    }
+    if (typeof transcript.confidence === "number") {
+      result.confidence = finiteNumber(transcript.confidence);
+    }
+    return result;
+  }
+
+  function readTranscriptStatus(status, text, error) {
+    if (status === "complete" || status === "failed" || status === "pending" || status === "not-started" || status === "uncertain") {
+      return status;
+    }
+    if (status === "completed" || status === "transcribed") {
+      return "complete";
+    }
+    if (error) {
+      return "failed";
+    }
+    if (text) {
+      return "complete";
+    }
+    return "";
+  }
+
+  function sanitizeQueueVoice(value) {
+    if (!isRecord(value)) {
+      return null;
+    }
+    const voice = {};
+    for (const [key, item] of Object.entries(value)) {
+      const normalizedKey = key.toLowerCase();
+      if (
+        normalizedKey === "dataurl" ||
+        normalizedKey === "rawaudio" ||
+        normalizedKey === "blob" ||
+        normalizedKey === "chunks" ||
+        normalizedKey === "base64" ||
+        normalizedKey === "audiobase64"
+      ) {
+        continue;
+      }
+      if (isRecord(item)) {
+        voice[key] = sanitizeQueueVoice(item);
+      } else if (Array.isArray(item)) {
+        continue;
+      } else if (typeof item === "number") {
+        voice[key] = finiteNumber(item);
+      } else if (typeof item === "boolean") {
+        voice[key] = item;
+      } else {
+        voice[key] = sanitizeText(item, key.toLowerCase().includes("error") ? 300 : constants.MAX_ANNOTATION_NOTE_CHARS);
+      }
+    }
+    return Object.keys(voice).length > 0 ? voice : null;
+  }
+
+  function buildDevtoolsSnapshot(devtoolsCapture, capturedAtIso) {
+    const capture = isRecord(devtoolsCapture) ? devtoolsCapture : {};
+    const consoleRows = Array.isArray(capture.consoleRows)
+      ? capture.consoleRows.map(toDevtoolsConsoleEntry).filter(Boolean)
+      : [];
+    const networkRows = Array.isArray(capture.networkRows)
+      ? capture.networkRows.map(toDevtoolsNetworkRecord).filter(Boolean)
+      : [];
+    if (consoleRows.length === 0 && networkRows.length === 0) {
+      return null;
+    }
+
+    const errorCount = consoleRows.filter((row) => row.level === "error").length +
+      networkRows.filter((row) => row.errorText || finiteNumber(row.status) >= 400).length;
+    const bodySummary = summarizeDevtoolsBodies(networkRows);
+    return {
+      id: createId("devtools-snapshot"),
+      capturedAtIso,
+      attachMode: "explicit-user-enabled",
+      captureStartedAtIso: sanitizeText(capture.startedAtIso, 80) || capturedAtIso,
+      captureEndedAtIso: capturedAtIso,
+      privacy: {
+        ...DEFAULT_PRIVACY_RULES,
+        bodyCaptureMode: bodySummary.capturedBodyCount > 0 || bodySummary.trimmedBodyCount > 0
+          ? "full-body-opt-in"
+          : "metadata-only"
+      },
+      summary: {
+        consoleCount: consoleRows.length,
+        networkCount: networkRows.length,
+        errorCount,
+        redactedHeaderCount: networkRows.reduce((count, row) => (
+          count + countRedactedHeaders(row.requestHeaders) + countRedactedHeaders(row.responseHeaders)
+        ), 0),
+        capturedBodyCount: bodySummary.capturedBodyCount,
+        trimmedBodyCount: bodySummary.trimmedBodyCount,
+        omittedBodyCount: bodySummary.omittedBodyCount
+      },
+      console: consoleRows,
+      network: networkRows
+    };
+  }
+
+  function buildItemDevtoolsContext(devtoolsSnapshot, createdAtIso) {
+    if (!devtoolsSnapshot) {
+      return null;
+    }
+    const createdAtMs = Date.parse(createdAtIso);
+    const startedAtMs = Number.isFinite(createdAtMs)
+      ? createdAtMs - DEVTOOLS_CONTEXT_BEFORE_MS
+      : Number.NEGATIVE_INFINITY;
+    const endedAtMs = Number.isFinite(createdAtMs)
+      ? createdAtMs + DEVTOOLS_CONTEXT_AFTER_MS
+      : Number.POSITIVE_INFINITY;
+    const consoleEntryIds = devtoolsSnapshot.console
+      .filter((row) => isIsoWithinWindow(row.timestampIso, startedAtMs, endedAtMs))
+      .map((row) => row.id);
+    const requestIds = devtoolsSnapshot.network
+      .filter((row) => {
+        const started = Date.parse(row.startedAtIso);
+        const finished = row.finishedAtIso ? Date.parse(row.finishedAtIso) : started;
+        return (!Number.isFinite(started) || started <= endedAtMs) &&
+          (!Number.isFinite(finished) || finished >= startedAtMs);
+      })
+      .map((row) => row.id);
+    if (consoleEntryIds.length === 0 && requestIds.length === 0) {
+      return null;
+    }
+    return {
+      snapshotId: devtoolsSnapshot.id,
+      startedAtIso: Number.isFinite(startedAtMs)
+        ? new Date(startedAtMs).toISOString()
+        : devtoolsSnapshot.captureStartedAtIso,
+      endedAtIso: Number.isFinite(endedAtMs)
+        ? new Date(endedAtMs).toISOString()
+        : devtoolsSnapshot.captureEndedAtIso,
+      requestIds,
+      consoleEntryIds
+    };
+  }
+
+  function toDevtoolsConsoleEntry(row) {
+    if (!isRecord(row)) {
+      return null;
+    }
+    const text = sanitizeText(row.text, 2000);
+    if (!text) {
+      return null;
+    }
+    const entry = {
+      id: sanitizeText(row.id, 120) || createId("console"),
+      level: toServerConsoleLevel(row.level),
+      timestampIso: sanitizeText(row.timestampIso, 80) || new Date().toISOString(),
+      text
+    };
+    const source = sanitizeText(row.source, 80);
+    const url = sanitizeText(row.url, 2048);
+    if (source) {
+      entry.source = source;
+    }
+    if (url) {
+      entry.url = url;
+    }
+    if (typeof row.lineNumber === "number") {
+      entry.lineNumber = finiteNumber(row.lineNumber);
+    }
+    if (typeof row.columnNumber === "number") {
+      entry.columnNumber = finiteNumber(row.columnNumber);
+    }
+    return entry;
+  }
+
+  function toDevtoolsNetworkRecord(row) {
+    if (!isRecord(row)) {
+      return null;
+    }
+    const url = sanitizeText(row.url, 2048);
+    if (!url) {
+      return null;
+    }
+    const record = {
+      id: sanitizeText(row.id, 120) || sanitizeText(row.requestId, 120) || createId("request"),
+      startedAtIso: sanitizeText(row.startedAtIso, 80) || new Date().toISOString(),
+      method: sanitizeText(row.method, 20) || "GET",
+      url,
+      resourceType: sanitizeText(row.resourceType, 80),
+      requestHeaders: readDevtoolsHeaders(row.requestHeaders),
+      responseHeaders: readDevtoolsHeaders(row.responseHeaders)
+    };
+    const finishedAtIso = sanitizeText(row.finishedAtIso, 80);
+    const statusText = sanitizeText(row.statusText, 120);
+    const errorText = sanitizeText(row.failureReason, 300);
+    if (finishedAtIso) {
+      record.finishedAtIso = finishedAtIso;
+    }
+    if (typeof row.status === "number") {
+      record.status = finiteNumber(row.status);
+    }
+    if (statusText) {
+      record.statusText = statusText;
+    }
+    if (errorText) {
+      record.errorText = errorText;
+    }
+    if (row.fromDiskCache === true) {
+      record.fromCache = true;
+    }
+    const requestBody = readDevtoolsBody(row.requestBody);
+    const responseBody = readDevtoolsBody(row.responseBody);
+    if (requestBody) {
+      record.requestBody = requestBody;
+    }
+    if (responseBody) {
+      record.responseBody = responseBody;
+    }
+    return record;
+  }
+
+  function readDevtoolsHeaders(headers) {
+    if (!Array.isArray(headers)) {
+      return [];
+    }
+    return headers.flatMap((header) => {
+      if (!isRecord(header)) {
+        return [];
+      }
+      const name = sanitizeText(header.name, 160);
+      if (!name) {
+        return [];
+      }
+      const row = {
+        name,
+        value: sanitizeText(header.value, 600)
+      };
+      if (header.redacted === true) {
+        row.redacted = true;
+      }
+      return [row];
+    });
+  }
+
+  function readDevtoolsBody(body) {
+    if (!isRecord(body)) {
+      return null;
+    }
+    const capBytes = positiveInteger(body.capBytes, 16384);
+    const byteLength = typeof body.byteLength === "number" ? finiteNumber(body.byteLength) : undefined;
+    if (body.state === "captured" || body.state === "trimmed") {
+      if (body.userOptIn !== true || typeof body.text !== "string") {
+        return null;
+      }
+      const result = {
+        state: body.state,
+        userOptIn: true,
+        capBytes,
+        text: sanitizeText(body.text, capBytes),
+        byteLength: byteLength || estimateJsonBytes(body.text),
+        redactionApplied: body.redactionApplied === true
+      };
+      if (typeof body.originalByteLength === "number") {
+        result.originalByteLength = finiteNumber(body.originalByteLength);
+      }
+      return result;
+    }
+    if (body.state === "redacted") {
+      const result = {
+        state: "redacted",
+        reason: body.reason === "policy" ? "policy" : "sensitive",
+        userOptIn: body.userOptIn === true,
+        capBytes
+      };
+      if (byteLength !== undefined) {
+        result.byteLength = byteLength;
+      }
+      return result;
+    }
+    const result = {
+      state: "not-captured",
+      reason: readNotCapturedReason(body.reason),
+      userOptIn: false,
+      capBytes
+    };
+    if (byteLength !== undefined) {
+      result.byteLength = byteLength;
+    }
+    return result;
+  }
+
+  function readNotCapturedReason(reason) {
+    return reason === "binary" || reason === "too-large" || reason === "user-disabled"
+      ? reason
+      : "default-privacy";
+  }
+
+  function summarizeDevtoolsBodies(networkRows) {
+    const summary = {
+      capturedBodyCount: 0,
+      trimmedBodyCount: 0,
+      omittedBodyCount: 0
+    };
+    for (const row of networkRows) {
+      for (const body of [row.requestBody, row.responseBody]) {
+        if (!body) {
+          continue;
+        }
+        if (body.state === "captured") {
+          summary.capturedBodyCount += 1;
+        } else if (body.state === "trimmed") {
+          summary.trimmedBodyCount += 1;
+        } else if (body.state === "not-captured" || body.state === "redacted") {
+          summary.omittedBodyCount += 1;
+        }
+      }
+    }
+    return summary;
+  }
+
+  function countRedactedHeaders(headers) {
+    return Array.isArray(headers)
+      ? headers.filter((header) => header && header.redacted === true).length
+      : 0;
+  }
+
+  function toServerConsoleLevel(level) {
+    const value = sanitizeText(level, 40).toLowerCase();
+    if (value === "warn" || value === "warning") {
+      return "warning";
+    }
+    if (value === "info" || value === "error" || value === "debug" || value === "log") {
+      return value;
+    }
+    return "log";
+  }
+
+  function isIsoWithinWindow(iso, startedAtMs, endedAtMs) {
+    const value = Date.parse(iso);
+    return !Number.isFinite(value) || (value >= startedAtMs && value <= endedAtMs);
+  }
+
+  function readBatchPage(items) {
+    for (const item of items) {
+      const page = readItemPage(item);
+      if (page.url) {
+        return page;
+      }
+    }
+    return { url: "about:blank" };
+  }
+
+  function readItemPage(item) {
+    const context = isRecord(item.context) ? item.context : {};
+    const contextPage = isRecord(context.page) ? context.page : {};
+    const tab = isRecord(item.tab) ? item.tab : {};
+    const url = sanitizeText(contextPage.url || tab.url, 2048);
+    const title = sanitizeText(contextPage.title || tab.title, 300);
+    const page = {
+      url: url || "about:blank"
+    };
+    if (title) {
+      page.title = title;
+    }
+    const origin = readOrigin(url);
+    if (origin) {
+      page.origin = origin;
+    }
+    if (typeof tab.id === "number" && Number.isFinite(tab.id)) {
+      page.tabId = tab.id;
+    }
+    return page;
+  }
+
+  function readViewport(value) {
+    if (!isRecord(value)) {
+      return null;
+    }
+    return {
+      width: finiteNumber(value.width),
+      height: finiteNumber(value.height),
+      devicePixelRatio: finiteNumber(value.devicePixelRatio || 1),
+      scrollX: finiteNumber(value.scrollX),
+      scrollY: finiteNumber(value.scrollY)
+    };
+  }
+
+  function readTarget(context) {
+    const target = {};
+    const selector = sanitizeText(context.selector, 1000);
+    const xpath = sanitizeText(context.xpath, 1000);
+    const tagName = sanitizeText(context.tagName, 80);
+    const aria = isRecord(context.aria) ? context.aria : {};
+    const ariaLabel = sanitizeText(aria.label || aria.labelledByText, 300);
+    const textSnippet = sanitizeText(context.text, 500);
+    if (selector) {
+      target.selector = selector;
+    }
+    if (xpath) {
+      target.xpath = xpath;
+    }
+    if (tagName) {
+      target.tagName = tagName;
+    }
+    if (ariaLabel) {
+      target.ariaLabel = ariaLabel;
+    }
+    if (textSnippet) {
+      target.textSnippet = textSnippet;
+    }
+    if (isRecord(context.rect)) {
+      target.rect = {
+        x: finiteNumber(context.rect.x),
+        y: finiteNumber(context.rect.y),
+        width: finiteNumber(context.rect.width),
+        height: finiteNumber(context.rect.height)
+      };
+    }
+    return Object.keys(target).length > 0 ? target : null;
+  }
+
+  function estimateJsonBytes(value) {
+    const json = JSON.stringify(value);
+    if (typeof globalScope.TextEncoder === "function") {
+      return new globalScope.TextEncoder().encode(json).byteLength;
+    }
+    return json.length;
+  }
+
+  function positiveInteger(value, fallback) {
+    const number = Number(value);
+    return Number.isFinite(number) && number > 0 ? Math.floor(number) : fallback;
+  }
+
+  function positiveNumber(value) {
+    const number = Number(value);
+    return Number.isFinite(number) && number > 0 ? number : undefined;
+  }
+
+  function sanitizeNoteText(value) {
+    return sanitizeText(value, constants.MAX_ANNOTATION_NOTE_CHARS);
+  }
+
+  function sanitizeText(value, maxChars) {
+    const text = String(value || "").replace(/\s+/g, " ").trim();
+    if (text.length <= maxChars) {
+      return text;
+    }
+    return text.slice(0, Math.max(0, maxChars - 16)).trimEnd() + "... [truncated]";
+  }
+
+  function finiteNumber(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : 0;
+  }
+
+  function createId(prefix) {
+    return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  }
+
+  function readOrigin(url) {
+    if (!url) {
+      return "";
+    }
+    try {
+      return new URL(url).origin;
+    } catch (_error) {
+      return "";
+    }
+  }
+
+  function isRecord(value) {
+    return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  }
+
+  globalScope.BrowserAnnotationQueue = {
+    buildAnnotationBatchPayload,
+    deleteAnnotationQueueItem,
+    estimateJsonBytes,
+    moveAnnotationQueueItem,
+    sanitizeNoteText,
+    updateAnnotationQueueItem,
+    trimAnnotationQueue
+  };
+})(globalThis);

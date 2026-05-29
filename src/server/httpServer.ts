@@ -13,6 +13,13 @@ import { WebSocketServer, type WebSocket } from 'ws'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const distDir = join(__dirname, '..', 'dist')
 const spaEntryFile = join(distDir, 'index.html')
+const browserAnnotationExtensionVersion = '0.1.1'
+const browserAnnotationZipFile = join(
+  distDir,
+  'browser-annotation-extension',
+  `codex-ui-browser-annotation-${browserAnnotationExtensionVersion}.zip`,
+)
+const browserAnnotationTestPageFile = join(__dirname, '..', 'public', 'browser-annotation-test.html')
 
 export type ServerOptions = {
   password?: string
@@ -86,9 +93,38 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
 
   app.use(createMobileShellCorsMiddleware())
 
+  app.get([
+    '/codex-ui-browser-annotation.zip',
+    `/codex-ui-browser-annotation-${browserAnnotationExtensionVersion}.zip`,
+  ], (_req, res) => {
+    if (!existsSync(browserAnnotationZipFile)) {
+      res.status(404).json({ error: 'Browser annotation extension artifact is not available. Run pnpm run pack:browser-annotation.' })
+      return
+    }
+    res.type('application/zip')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.sendFile(browserAnnotationZipFile)
+  })
+
+  app.get('/browser-annotation-test.html', (_req, res) => {
+    if (!existsSync(browserAnnotationTestPageFile)) {
+      res.status(404).json({ error: 'Browser annotation test page is not available.' })
+      return
+    }
+    res.type('html')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.sendFile(browserAnnotationTestPageFile)
+  })
+
   // 1. Auth middleware (if password is set)
   if (authSession) {
-    app.use(authSession.middleware)
+    app.use((req, res, next) => {
+      if (isBrowserAnnotationBearerRoute(req)) {
+        next()
+        return
+      }
+      authSession.middleware(req, res, next)
+    })
   }
 
   // 2. Bridge middleware for /codex-api/*
@@ -302,4 +338,9 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
       })
     },
   }
+}
+
+function isBrowserAnnotationBearerRoute(req: express.Request): boolean {
+  if (!req.path.startsWith('/codex-api/extension/')) return false
+  return !(req.method === 'POST' && req.path === '/codex-api/extension/listen/start')
 }

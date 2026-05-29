@@ -117,7 +117,7 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     port: 5173,
-    allowedHosts: [".trycloudflare.com"],
+    allowedHosts: [".trycloudflare.com", "annotate.todo-tg-app.ru"],
     watch: {
       ignored: [
         '**/.omx/**',

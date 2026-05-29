@@ -19,6 +19,58 @@ This file tracks manual regression and feature verification steps.
 #### Rollback/Cleanup
 - <cleanup action, if any>
 
+### Feature: Browser annotation DevTools smoke fixture
+
+#### Prerequisites
+- Chrome extension Phase 3 DevTools mode is being implemented or reviewed.
+- Run `node extension/browser-annotation/dev/devtools-fixture-server.mjs` from the repository root.
+- Load the browser annotation extension unpacked in Chrome.
+
+#### Steps
+1. Open `http://127.0.0.1:8899/`.
+2. Enable the extension's explicit DevTools capture mode for the tab.
+3. Click `Console info`, `Console warn`, `Console error`, and `Console burst`.
+4. Click `Network success`, `Network 404`, `Network slow`, `Network fail`, and `Network burst`.
+5. Make an annotation on the page after the trigger clicks.
+6. Repeat the page check with the browser or operating system in light and dark color scheme.
+
+#### Expected Results
+- Console capture records info, warn, and error entries prefixed with `codex-devtools-smoke:`.
+- Network capture records a 200 JSON request, a 404 JSON request, a delayed 200 JSON request, and a failed request.
+- The annotation made after the trigger clicks can be correlated with the recent console and network fixture events.
+- The fixture page remains readable in light and dark color schemes.
+
+#### Rollback/Cleanup
+- Stop the fixture server with `Ctrl+C`.
+
+### Feature: Browser annotation voice metadata contract
+
+#### Prerequisites
+- Work from the repository root on `browser-annotation-devtools`.
+- No extension UI recording flow is required; this covers shared extension-side metadata only.
+
+#### Steps
+1. Run `node --check extension/browser-annotation/shared/constants.js`.
+2. Run `node --check extension/browser-annotation/shared/pairing-client.js`.
+3. Run `node --check extension/browser-annotation/shared/annotation-queue.js`.
+4. Run `node --check extension/browser-annotation/dev/pairing-client-smoke.mjs`.
+5. Run `node --check extension/browser-annotation/dev/annotation-queue-smoke.mjs`.
+6. Run `node extension/browser-annotation/dev/pairing-client-smoke.mjs`.
+7. Run `node extension/browser-annotation/dev/annotation-queue-smoke.mjs`.
+8. For light-theme regression, load the extension side panel and confirm the existing annotation queue UI is unchanged.
+9. For dark-theme regression, repeat the side panel check with dark theme enabled.
+
+#### Expected Results
+- Pairing URL builders return listen status, annotation batch, asset upload, and transcribe URLs with `sessionId` and `threadId` query parameters where required.
+- Voice-only queue metadata produces an item with `kind: "voice"`, a `voiceNote`, and one `assets[]` record with `kind: "voice-note-audio"`.
+- Note plus voice metadata produces an item with `kind: "mixed"` while preserving the note text.
+- Failed and pending transcript metadata is preserved as sanitized status/error metadata.
+- Asset references are preserved without including raw audio, data URLs, or base64 payloads in the annotation batch JSON.
+- Light and dark side panel surfaces remain unchanged because no UI recording controls were added.
+
+#### Rollback/Cleanup
+- No cleanup is required.
+
 ### Feature: Project recency sort, pins, and mobile move mode
 
 #### Prerequisites
@@ -5721,3 +5773,1142 @@ Unified Responses proxy recovers from stale `previous_response_id` without touch
 - Remove any endpoint/proxy fixture used to force stale `previous_response_id` failures.
 - Restore provider/API format, selected model, and test thread state to preferred defaults.
 - Restore any local auth/account files from the pre-test backup if the manual environment was inspected or copied for comparison.
+
+---
+
+### Browser Annotation Transcription Env Smoke
+
+#### Feature/Change Name
+Browser annotation server-side transcription environment validation.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Do not paste, print, or commit any real OpenAI API key value.
+3. Optional: set `CODEXUI_ANNOTATION_TRANSCRIBE_MODEL` and `CODEXUI_ANNOTATION_TRANSCRIBE_FALLBACK_MODEL` to local placeholder values.
+
+#### Steps
+1. Run `node scripts/test-codexui-annotation-transcription-env.mjs`.
+2. Confirm the command exits successfully.
+3. Inspect the output and confirm it reports only whether `OPENAI_API_KEY` is `present` or `missing`.
+4. Confirm the output reports model env status without printing secret values.
+5. Light and dark theme verification is not applicable because this change has no UI surface.
+
+#### Expected Results
+- The smoke script exits 0.
+- Output includes `OPENAI_API_KEY=present` or `OPENAI_API_KEY=missing`.
+- The actual API key value is never printed.
+- Annotation transcription model env vars are trimmed and reported as configured or unset.
+
+#### Rollback/Cleanup
+- Unset any local placeholder `CODEXUI_ANNOTATION_TRANSCRIBE_MODEL` and `CODEXUI_ANNOTATION_TRANSCRIBE_FALLBACK_MODEL` values that were added only for testing.
+
+---
+
+### Browser Annotation Data Contracts
+
+#### Feature/Change Name
+Browser annotation batch contract, examples, and privacy validation.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. No browser or dev server is required.
+
+#### Steps
+1. Run `pnpm exec vitest run src/api/browserAnnotationContracts.test.ts`.
+2. Confirm representative text-only, screenshot-only, voice, and DevTools-heavy examples validate.
+3. Confirm sensitive headers and body fields are rejected unless their values are exactly `[REDACTED]`.
+4. Confirm captured body text requires user opt-in and respects the byte cap.
+5. Confirm malformed `assets` and `items` arrays return validation errors instead of throwing.
+6. Light and dark theme verification is not applicable because this change has no UI surface.
+
+#### Expected Results
+- The focused Vitest file passes.
+- DevTools payload examples enforce redaction for passwords, tokens, cookies, API keys, and common camelCase/kebab-case variants.
+- `redacted` and `not-captured` body states cannot carry raw text.
+- Multibyte body trimming does not exceed the configured byte cap.
+
+#### Rollback/Cleanup
+- None.
+
+---
+
+### Browser Annotation Phase 0 Quality Gates
+
+#### Feature/Change Name
+Phase 0 unit, build, lint-substitute, and coverage baseline gates.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Dependencies are installed with `pnpm install`.
+
+#### Steps
+1. Run `pnpm run test:unit`.
+2. Run `pnpm run build`.
+3. Run `pnpm exec tsc --noEmit -p tsconfig.server.json` as the server typecheck/lint substitute.
+4. Run `pnpm run test:coverage`.
+5. Inspect the coverage summary and record the current baseline.
+6. Light and dark theme verification is not applicable because this change has no UI surface.
+
+#### Expected Results
+- `pnpm run test:unit` passes all unit tests.
+- `pnpm run build` passes frontend and CLI builds.
+- The server typecheck/lint substitute passes.
+- `pnpm run test:coverage` passes and reports the TypeScript coverage baseline.
+- Current baseline: statements 18.34%, branches 15.46%, functions 21.23%, lines 19.12%.
+
+#### Rollback/Cleanup
+- Remove generated `coverage/` output if it is not needed locally.
+
+---
+
+### Previous Response Error Diagnostics
+
+#### Feature/Change Name
+`previous_response_id` / `previous_response_not_found` diagnostic JSONL logging.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Dependencies are installed.
+3. Optional: set `CODEXUI_PREVIOUS_RESPONSE_ERROR_LOG=/tmp/codexui-previous-response-errors.jsonl` to choose a custom log path. By default the log is written to `output/previous-response-errors.jsonl`.
+
+#### Steps
+1. Run `pnpm vitest run src/server/unifiedResponsesProxy.test.ts`.
+2. Run `pnpm exec tsc --noEmit -p tsconfig.server.json`.
+3. During normal app usage, leave the app running and wait for any error containing `previous_response_not_found`, `previous_response_id`, or `Previous response ... not found`.
+4. Inspect the JSONL log path and confirm each row contains diagnostic metadata such as `source`, `phase`, `method` or `requestPath`, `threadId` when known, `model`, `wireApi`, `status`, `previousResponseId`, and summarized error text.
+5. Confirm log rows do not include bearer tokens, authorization headers, or full prompt/input payloads.
+6. Light and dark theme verification is not applicable because this change has no UI surface.
+
+#### Expected Results
+- The focused Vitest file passes and verifies retry diagnostics are written for stale previous-response recovery.
+- The server typecheck passes.
+- Runtime failures of this specific class are captured in JSONL without requiring auto-continue behavior.
+- Normal UI rendering is unchanged in both light and dark themes.
+
+#### Rollback/Cleanup
+- Delete any temporary diagnostic log used for testing, or unset `CODEXUI_PREVIOUS_RESPONSE_ERROR_LOG` to return to the default path.
+
+---
+
+### Browser Annotation Server Pairing Endpoints
+
+#### Feature/Change Name
+Browser annotation short-lived listen session API.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Dependencies are installed.
+3. No browser or dev server is required for the focused endpoint tests.
+
+#### Steps
+1. Run `pnpm vitest run src/server/browserAnnotationListen.test.ts --reporter=verbose`.
+2. Confirm `/codex-api/extension/listen/start` returns a session with a one-time `pairingToken`.
+3. Confirm `/codex-api/extension/listen/status` accepts the returned bearer token and never echoes `pairingToken`.
+4. Confirm expired, revoked, and wrong tokens are rejected.
+5. Confirm malformed JSON returns `400` and oversized JSON returns `413`.
+6. Confirm starting a new session for the same thread revokes the older active session and the global session cap removes oldest records.
+7. Run `pnpm exec vue-tsc --noEmit`.
+8. Light and dark theme verification is not applicable because this stage adds server endpoints only and no UI surface.
+
+#### Expected Results
+- The focused Vitest file passes all endpoint cases.
+- The server typecheck passes.
+- Tokens are stored server-side only as hashes and are returned only from the start endpoint.
+- Status/stop requests require a bearer token and can be scoped by `sessionId`.
+
+#### Rollback/Cleanup
+- None. Sessions are in-memory and expire or disappear when the server process exits.
+
+---
+
+### Browser Annotation Listening Session UI
+
+#### Feature/Change Name
+Active-thread `Listen for browser annotations` panel.
+
+#### Prerequisites/Setup
+1. Run the app locally and open an existing thread.
+2. Keep DevTools Network open if you want to inspect endpoint calls.
+3. No Chrome extension is required for this UI smoke check.
+
+#### Steps
+1. In light theme, open a thread and confirm the compact listener panel appears above the composer.
+2. Click `Listen`.
+3. Confirm the panel shows active status, the selected thread title, expiry time, copyable server URL, and a pairing token.
+4. Click `Copy` for the server URL and pairing token and confirm the copied-state label appears briefly.
+5. Click `Stop` and confirm the token disappears and status changes away from active.
+6. Start listening again, switch to a different thread before the request completes if possible, and confirm the old thread token is not shown on the new thread.
+7. Repeat steps 1-5 in dark theme and confirm surfaces, text, inputs, and buttons use dark colors without light-theme panels.
+8. Run `pnpm vitest run src/api/codexGateway.test.ts --reporter=verbose`.
+9. Run `pnpm exec vue-tsc --noEmit`.
+
+#### Expected Results
+- The panel is idle until the user clicks `Listen`; no startup request is made.
+- A start request creates one short-lived session for the active thread.
+- While active, status polling runs at a 15-second cadence and includes `sessionId` and `threadId`.
+- Pairing token is visible only while the listener is active and is cleared on stop, expiry/status failure, thread change, and unmount.
+- Light and dark theme panels are readable and visually consistent with the composer area.
+- Phase 1 verification captured `output/playwright/browser-annotation-listener-light.png` and `output/playwright/browser-annotation-listener-dark.png`; dark mode shell background was `rgb(24, 24, 27)` and the token disappeared after Stop.
+
+#### Rollback/Cleanup
+- Click `Stop` for any active listener session. Sessions also expire automatically or disappear when the server process exits.
+
+---
+
+### Browser Annotation Asset Upload Endpoint
+
+#### Feature/Change Name
+Paired extension screenshot, crop, and audio upload API.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Dependencies are installed.
+3. No browser or extension is required for the focused endpoint tests.
+
+#### Steps
+1. Run `pnpm vitest run src/server/browserAnnotationAssets.test.ts src/server/browserAnnotationListen.test.ts --reporter=verbose`.
+2. Confirm PNG screenshot uploads return an `asset.localImageUrl`.
+3. Confirm WebP crop uploads return an image-compatible local reference.
+4. Confirm WebM audio uploads succeed without `localImageUrl`.
+5. Confirm unsupported mime types and oversized uploads are rejected.
+6. Confirm missing/wrong bearer tokens, missing query selector, revoked sessions, malformed multipart bodies, and very long filenames are handled without persisting unsafe assets.
+7. Run `pnpm exec vue-tsc --noEmit`.
+8. Light and dark theme verification is not applicable because this stage adds a server endpoint only and no UI surface.
+
+#### Expected Results
+- The focused Vitest files pass all listen and asset upload cases.
+- The server typecheck passes.
+- Upload requests require an active listen session selected by query `sessionId` or `threadId` plus an extension bearer token.
+- Unauthorized upload requests are rejected before multipart body buffering.
+- Accepted image assets are written under the temp upload root and expose `/codex-local-image?path=...` references.
+
+#### Rollback/Cleanup
+- Test-uploaded files are removed by the focused test cleanup. Manual temp files can be removed from the system temp `codex-web-uploads` directory if needed.
+
+---
+
+### Browser Annotation Audio Transcription Endpoint
+
+#### Feature/Change Name
+Server-only paired extension audio transcription API.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Dependencies are installed.
+3. Do not use a real OpenAI API key unless the pasted key has been externally revoked/replaced.
+4. For local mocked verification, no real `OPENAI_API_KEY` is required.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/browserAnnotationTranscribe.test.ts src/server/browserAnnotationListen.test.ts src/server/browserAnnotationAssets.test.ts --reporter=verbose`.
+2. Confirm mocked OpenAI success uses `CODEXUI_ANNOTATION_TRANSCRIBE_MODEL`.
+3. Confirm mocked retryable provider failure falls back to `CODEXUI_ANNOTATION_TRANSCRIBE_FALLBACK_MODEL`.
+4. Confirm missing key/model config returns setup errors without calling OpenAI.
+5. Confirm missing/wrong/revoked/expired extension sessions are rejected before transcription.
+6. Confirm invalid mime types, oversized uploads, and malformed multipart bodies are rejected.
+7. Confirm provider and network errors containing key-like text are sanitized before being returned to the extension.
+8. Run `pnpm exec vue-tsc --noEmit`.
+9. Light and dark theme verification is not applicable because this stage adds a server endpoint only and no UI surface.
+
+#### Expected Results
+- The focused Vitest files pass.
+- The server typecheck passes.
+- The endpoint requires a paired listen session selected by query `sessionId` or `threadId`.
+- The OpenAI API key is read only on the server and is never returned to the browser/extension.
+- Provider fallback is bounded to one configured fallback attempt for retryable failures.
+
+#### Rollback/Cleanup
+- None for mocked tests. If a manual real-provider test is later run with a rotated key, unset temporary env vars after testing.
+
+---
+
+### Browser Annotation Batch Queueing Endpoint
+
+#### Feature/Change Name
+Paired extension annotation batch to Codex thread queue.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Dependencies are installed.
+3. No browser or extension is required for the focused endpoint tests.
+
+#### Steps
+1. Run `pnpm run test:browser-annotation` for the full CommonJS browser annotation endpoint smoke suite.
+2. Run `pnpm exec vitest run src/server/browserAnnotationBatch.test.ts src/server/browserAnnotationAssets.test.ts src/server/codexAppServerBridge.inlinePayload.test.ts --reporter=verbose` for the focused queue/image integration subset.
+3. Confirm a valid two-annotation batch returns `status: queued` and schedules immediate backend queue drain.
+4. Confirm note text, selected element details, voice transcript text, and DevTools console/network summaries are included in the queued prompt.
+5. Confirm sensitive URL query params are redacted and redacted/not-captured body states do not expose raw body text.
+6. Confirm uploaded screenshot refs become queue `imageUrls` only when the ref was issued by the upload endpoint for the same session/thread.
+7. Confirm arbitrary local image paths and upload-root refs from another session are rejected from queue image attachments.
+8. Confirm missing/wrong bearer tokens, missing selector, malformed JSON, and invalid batch payloads do not queue messages.
+9. Run `pnpm exec vue-tsc --noEmit`.
+10. Light and dark theme verification is not applicable because this stage adds a server endpoint only and no UI surface.
+
+#### Expected Results
+- Focused endpoint and queue integration tests pass.
+- Server typecheck passes.
+- Annotation batches are queued through the existing backend queue path and scheduled for draining.
+- The response includes batch/thread/count metadata and queued message id.
+- Image attachments cannot point to arbitrary local files.
+
+#### Rollback/Cleanup
+- Remove any manual queued test messages from the thread queue state if you exercise the endpoint outside the focused tests.
+
+---
+
+### Browser Annotation Extension Scaffold
+
+#### Feature/Change Name
+Manifest V3 load-unpacked extension scaffold.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Chrome is installed for the manual smoke test.
+3. No Codex UI dev server is required for the scaffold-only static checks.
+
+#### Steps
+1. Run `node --check extension/browser-annotation/shared/constants.js`.
+2. Run `node --check extension/browser-annotation/shared/url-utils.js`.
+3. Run `node --check extension/browser-annotation/service-worker/service-worker.js`.
+4. Run `node --check extension/browser-annotation/content/content-script.js`.
+5. Run `node --check extension/browser-annotation/sidepanel/sidepanel.js`.
+6. Run `node --check extension/browser-annotation/dev/validate-extension.mjs`.
+7. Run `node extension/browser-annotation/dev/validate-extension.mjs`.
+8. For the manual smoke test, open `chrome://extensions`, enable Developer mode, click `Load unpacked`, and select `extension/browser-annotation`.
+9. Serve the repository with `python3 -m http.server 8899` and open `http://127.0.0.1:8899/extension/browser-annotation/dev/test-page.html`.
+10. Click the extension action or press `Ctrl+Shift+Y`, confirm the side panel opens and annotation mode starts; if it is not active, click `Inject overlay`.
+11. Confirm the overlay placeholder appears on the page.
+12. In a light OS/browser color scheme, confirm the side panel text, fields, badge, and buttons are readable.
+13. In a dark OS/browser color scheme, repeat the side panel check and confirm it uses dark surfaces via `prefers-color-scheme`.
+14. Open `chrome://extensions` or a Chrome Web Store page and confirm the side panel reports a restricted-page error instead of injecting.
+
+#### Expected Results
+- All static Node checks pass.
+- The validator confirms Manifest V3, service worker path, side panel path, required permissions, production host permission, narrow local development host permissions, and required scaffold files.
+- The extension loads without a build step.
+- Overlay injection happens only after the user clicks the extension action, uses the extension action shortcut, or clicks `Inject overlay`.
+- Restricted browser pages and Chrome Web Store pages are not offered as injectable targets.
+- Light and dark side panel color schemes are readable.
+
+#### Rollback/Cleanup
+- Remove the unpacked extension from `chrome://extensions`.
+- Stop the temporary `python3 -m http.server 8899` process if used.
+
+---
+
+### Browser Annotation Extension Pairing Flow
+
+#### Feature/Change Name
+Extension server URL and pairing-token validation.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Chrome is installed for the manual smoke test.
+3. For a valid-token manual check, start Codex UI locally and create an active browser annotation listener token from a thread.
+
+#### Steps
+1. Run `node --check extension/browser-annotation/shared/constants.js`.
+2. Run `node --check extension/browser-annotation/shared/url-utils.js`.
+3. Run `node --check extension/browser-annotation/shared/pairing-client.js`.
+4. Run `node --check extension/browser-annotation/service-worker/service-worker.js`.
+5. Run `node --check extension/browser-annotation/content/content-script.js`.
+6. Run `node --check extension/browser-annotation/sidepanel/sidepanel.js`.
+7. Run `node --check extension/browser-annotation/dev/validate-extension.mjs`.
+8. Run `node --check extension/browser-annotation/dev/pairing-client-smoke.mjs`.
+9. Run `node extension/browser-annotation/dev/validate-extension.mjs`.
+10. Run `node extension/browser-annotation/dev/pairing-client-smoke.mjs`.
+11. Load `extension/browser-annotation` as an unpacked Chrome extension.
+12. Open the side panel with the extension action or `Ctrl+Shift+Y`, with no token saved, and confirm it shows `Disconnected`.
+13. Enter `http://127.0.0.1:<port>` or `http://localhost:<port>` and an invalid token, then click `Save and validate`.
+14. Confirm the side panel shows `Error` and does not expose the token outside the password field.
+15. Paste a valid listener token from Codex UI and click `Save and validate`.
+16. Confirm the side panel shows `Connected`, thread id, and expiry metadata.
+17. Repeat the disconnected, error, and connected visual checks in light and dark OS/browser color schemes.
+
+#### Expected Results
+- All static Node checks pass.
+- The validator confirms permanent host permissions are limited to Codex UI/annotation server origins plus local development origins, and arbitrary page access is declared only through optional runtime host permissions.
+- The pairing client smoke confirms status URL construction, malformed JSON handling, error parsing, and omission of any returned `pairingToken`.
+- Extension local storage contains only the user-configured server URL; the pasted pairing token is kept in extension session storage while needed and no provider API key is present.
+- Status validation sends the token only as `Authorization: Bearer <token>` to `/codex-api/extension/listen/status`.
+- Light and dark side panel states are readable for disconnected, error, and connected states.
+
+#### Rollback/Cleanup
+- Remove the unpacked extension from `chrome://extensions`.
+- Stop any local Codex UI dev server started solely for this check.
+- Revoke or stop any active listener session created for testing.
+
+---
+
+### Browser Annotation Extension Element Selection
+
+#### Feature/Change Name
+Page overlay, selected element context, and local annotation queue.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Chrome is installed for the manual smoke test.
+3. Load `extension/browser-annotation` as an unpacked extension.
+4. Serve the repository with Codex UI dev server or `python3 -m http.server 8899`.
+
+#### Steps
+1. Run `for file in $(rg --files extension/browser-annotation -g '*.js' -g '*.mjs' | sort); do node --check "$file" || exit 1; done`.
+2. Run `node extension/browser-annotation/dev/validate-extension.mjs`.
+3. Run `node extension/browser-annotation/dev/pairing-client-smoke.mjs`.
+4. Run `node extension/browser-annotation/dev/selection-context-smoke.mjs`.
+5. Run `git diff --check -- extension/browser-annotation`.
+6. Open `http://127.0.0.1:4173/browser-annotation-test.html` when using Codex UI dev server, or `http://127.0.0.1:8899/extension/browser-annotation/dev/test-page.html` when using `python3 -m http.server`.
+7. Click the extension action or press `Ctrl+Shift+Y` to open the side panel and start annotation mode.
+8. If annotation mode is not active, click `Inject overlay`.
+9. Hover the sample button, input, and card, and confirm the hover outline tracks each element.
+10. Click the sample button and confirm a selected outline remains and the side panel queue count increments.
+11. Repeat selection for the sample input and sample card.
+12. Confirm the queue entries show element type, text/label, selector, and page title or URL.
+13. Press `Esc` and confirm annotation mode pauses and page clicks work normally again.
+14. Repeat the side panel queue visual check in light and dark OS/browser color schemes.
+
+#### Expected Results
+- All static and smoke commands pass.
+- The overlay is injected only after the side-panel user action.
+- Hover and selected outlines appear above the page without affecting normal layout.
+- Button, input, and card selections queue context with selector, XPath, role, aria/text, rect, viewport, headings, and labels.
+- The queue is bounded in extension local storage and updates in the side panel without polling.
+- Light and dark side panel queue states remain readable.
+
+#### Rollback/Cleanup
+- Remove the unpacked extension from `chrome://extensions`.
+- Stop the temporary `python3 -m http.server 8899` process or Codex UI dev server used for the test.
+- Clear extension storage from the extension details page if you want to remove queued test selections.
+
+---
+
+### Browser Annotation Extension Screenshot Crop Preview
+
+#### Feature/Change Name
+Visible-tab capture, device-pixel-ratio crop, and bounded preview storage.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Chrome is installed for the manual smoke test.
+3. Load `extension/browser-annotation` as an unpacked extension.
+4. Serve the repository with Codex UI dev server or `python3 -m http.server 8899`.
+
+#### Steps
+1. Run `find extension/browser-annotation -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check`.
+2. Run `node extension/browser-annotation/dev/validate-extension.mjs`.
+3. Run `node extension/browser-annotation/dev/pairing-client-smoke.mjs`.
+4. Run `node extension/browser-annotation/dev/selection-context-smoke.mjs`.
+5. Run `node extension/browser-annotation/dev/annotation-queue-smoke.mjs`.
+6. Run `node extension/browser-annotation/dev/screenshot-crop-smoke.mjs`.
+7. Run `git diff --check -- extension/browser-annotation`.
+8. Open `http://127.0.0.1:4173/browser-annotation-test.html` when using Codex UI dev server, or `http://127.0.0.1:8899/extension/browser-annotation/dev/test-page.html` when using `python3 -m http.server`.
+9. Click the extension action or press `Ctrl+Shift+Y`; if annotation mode is not active, click `Inject overlay`.
+10. Select the sample button and confirm the queue row shows either a crop preview matching the button or a `No preview` placeholder if Chrome denies visible-tab capture.
+11. Select the sample input and card and confirm each element is queued even when preview capture is unavailable.
+12. Confirm no full visible-tab screenshot appears in extension storage; only cropped previews or a short `previewError` are stored.
+13. Repeat the preview/placeholder rendering check in light and dark OS/browser color schemes.
+
+#### Expected Results
+- All static and smoke commands pass.
+- `chrome.tabs.captureVisibleTab` is used only after the user-driven selection flow.
+- Crop math uses `devicePixelRatio` and clips to screenshot bounds.
+- Queue previews are best-effort; a `captureVisibleTab` failure does not block element queueing.
+- Queue previews are capped per item and the queue is trimmed under the aggregate storage budget before `chrome.storage.local.set`.
+- The side panel renders the newest preview rows or `No preview` placeholders without polling.
+- Light and dark side panel preview rows are readable.
+
+#### Rollback/Cleanup
+- Remove the unpacked extension from `chrome://extensions`.
+- Stop the temporary `python3 -m http.server 8899` process or Codex UI dev server used for the test.
+- Clear extension storage from the extension details page to remove preview test data.
+
+---
+
+### Browser Annotation Extension Multi-Annotation Batch Send
+
+#### Feature/Change Name
+Queue notes, edit/delete/reorder, and send one annotation batch.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Chrome is installed for the manual smoke test.
+3. Load `extension/browser-annotation` as an unpacked extension.
+4. Start Codex UI locally and create an active browser annotation listener token from a thread.
+5. Serve the repository with Codex UI dev server or `python3 -m http.server 8899`.
+
+#### Steps
+1. Run `find extension/browser-annotation -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check`.
+2. Run `node extension/browser-annotation/dev/validate-extension.mjs`.
+3. Run `node extension/browser-annotation/dev/pairing-client-smoke.mjs`.
+4. Run `node extension/browser-annotation/dev/selection-context-smoke.mjs`.
+5. Run `node extension/browser-annotation/dev/annotation-queue-smoke.mjs`.
+6. Run `node extension/browser-annotation/dev/screenshot-crop-smoke.mjs`.
+7. Run `pnpm exec vitest run src/server/browserAnnotationBatch.test.ts --reporter=verbose`.
+8. Open `http://127.0.0.1:4173/browser-annotation-test.html` when using Codex UI dev server, or `http://127.0.0.1:8899/extension/browser-annotation/dev/test-page.html` when using `python3 -m http.server`.
+9. Pair the extension with the local Codex UI listener token.
+10. Inject the overlay and select the sample button, input, and card.
+11. Add notes to at least two annotations.
+12. Move one annotation up or down.
+13. Delete one annotation so two remain.
+14. Click `Send batch`.
+15. Confirm the side panel reports success and the queue clears.
+16. Confirm the Codex UI thread receives one queued browser annotation batch containing two items.
+17. Repeat the queue controls and send-button readability check in light and dark OS/browser color schemes.
+
+#### Expected Results
+- All static, extension smoke, and server batch tests pass.
+- Queue changes update the side panel immediately and the Send button enables when connected with queued items.
+- Every batch item includes `noteText`, even when the note is blank.
+- The batch request includes `sessionId` and `threadId` query params and sends the pairing token only as a bearer token.
+- Local preview data URLs are not included in the batch body.
+- On successful send, the extension queue is cleared.
+
+#### Rollback/Cleanup
+- Remove the unpacked extension from `chrome://extensions`.
+- Stop the temporary `python3 -m http.server 8899` process or Codex UI dev server used for the test.
+- Revoke or stop the active browser annotation listener session.
+- Clear extension storage from the extension details page if test annotations remain.
+
+---
+
+### Browser Annotation Voice Notes
+
+#### Feature/Change Name
+Record, upload, transcribe, and send per-annotation voice notes without storing raw audio in queue JSON.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Chrome is installed and `extension/browser-annotation` is loaded unpacked.
+3. Start Codex UI and create an active browser annotation listener token from a thread.
+4. The server has browser annotation transcription configured, or be ready to verify the failed-transcription path.
+5. Serve a normal `http(s)` test page and pair the extension with the listener token.
+
+#### Steps
+1. Run `find extension/browser-annotation -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check`.
+2. Run `node extension/browser-annotation/dev/validate-extension.mjs`.
+3. Run `node extension/browser-annotation/dev/pairing-client-smoke.mjs`.
+4. Run `node extension/browser-annotation/dev/annotation-queue-smoke.mjs`.
+5. Run `pnpm run test:browser-annotation`.
+6. Queue an annotation on the test page.
+7. Click `Record`, speak briefly, then click `Cancel`; confirm no voice note remains.
+8. Click `Record` again, speak briefly, then click `Stop`.
+9. Confirm the row shows upload and transcription progress, then either a ready voice note or a transcription error while preserving the uploaded audio metadata.
+10. Type a note in the same row and confirm voice upload/transcription does not clear the note text.
+11. Delete the voice note while upload/transcription is active and confirm the row returns to no voice note, in-flight requests are aborted, and Send is not left disabled.
+12. Record another voice note, wait for upload/transcription to settle, then click `Send queued annotations`.
+13. Confirm the batch contains a `voice-note-audio` asset record, item `voiceNote`, no raw audio/base64/data URL, and the Codex UI prompt includes typed note plus voice transcript or voice error.
+14. Repeat the queue row voice controls and status readability check in light and dark OS/browser color schemes.
+
+#### Expected Results
+- Static, extension smoke, and browser annotation endpoint tests pass.
+- Asset upload uses `/codex-api/extension/assets/upload?sessionId=...&threadId=...` with bearer auth and multipart `kind=audio` plus `file`.
+- Transcription uses `/codex-api/extension/transcribe?sessionId=...&threadId=...` with bearer auth and multipart `file`.
+- Queue storage contains only voice metadata: asset id, mime type, byte length, duration, uploaded timestamp, transcript status/text/error/language.
+- Raw `Blob`, chunks, base64, and data URLs never appear in queue storage or batch JSON.
+- `voiceNote.transcriptStatus` is `complete` or `failed`, and failed transcription does not drop the annotation.
+- Send is disabled while recording/uploading/transcribing and re-enabled after completion or cancellation.
+- Light and dark side-panel voice controls remain readable.
+
+#### Rollback/Cleanup
+- Delete test voice notes from the queue or clear extension storage from `chrome://extensions`.
+- Remove the unpacked extension if it was loaded only for this test.
+- Stop or revoke the browser annotation listener session.
+
+---
+
+### Browser Annotation HTTPS Production Ingress And Extension Artifact
+
+#### Feature/Change Name
+Expose the browser annotation ingress at `https://annotate.todo-tg-app.ru` and package a production-only Chrome extension zip.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. DNS zone `todo-tg-app-ru` exists in Yandex Cloud.
+3. Nginx can proxy `annotate.todo-tg-app.ru` to the Codex UI backend.
+4. A valid certificate exists at `/etc/letsencrypt/live/annotate.todo-tg-app.ru/`.
+5. Chrome is available for manual extension installation.
+
+#### Steps
+1. Run `yc dns zone list-records --name todo-tg-app-ru --format json` and confirm `annotate.todo-tg-app.ru. 300 A 46.62.215.111`.
+2. Run `dig +short annotate.todo-tg-app.ru A @8.8.8.8` and `dig +short annotate.todo-tg-app.ru A @1.1.1.1`.
+3. Install `ops/nginx/annotate.todo-tg-app.ru.conf` into `/etc/nginx/sites-available/annotate.todo-tg-app.ru`, enable it, run `sudo nginx -t`, then reload nginx.
+4. Run `curl -I https://annotate.todo-tg-app.ru/browser-annotation-test.html`.
+5. Run `curl -I https://annotate.todo-tg-app.ru/codex-api/extension/listen/status`.
+6. Run `pnpm run pack:browser-annotation`.
+7. Inspect `dist/browser-annotation-extension/unpacked/manifest.json`.
+8. Install `dist/browser-annotation-extension/unpacked` or the zip in Chrome and pair with `Server URL: https://annotate.todo-tg-app.ru`.
+9. Queue and send at least two annotations from a normal HTTPS page.
+10. Repeat pairing and side-panel readability checks in light and dark browser color schemes.
+
+#### Expected Results
+- Public DNS resolves `annotate.todo-tg-app.ru` to `46.62.215.111`.
+- HTTPS returns a valid certificate for `annotate.todo-tg-app.ru`.
+- `/browser-annotation-test.html` returns `200` and contains `Codex annotation extension test page`.
+- `/codex-api/extension/listen/status` reaches the Codex UI backend and returns an auth-shaped JSON response rather than an nginx/default-site HTML page.
+- Production manifest permanent host permissions are limited to Codex UI/annotation server origins, with `http://*/*` and `https://*/*` available only as optional runtime page permissions.
+- The zip has `manifest.json` at archive root and does not include `dev/`.
+- The extension can pair, queue annotations, and send over HTTPS.
+- Light and dark side-panel states remain readable.
+
+#### Rollback/Cleanup
+- Remove or disable `/etc/nginx/sites-enabled/annotate.todo-tg-app.ru` and reload nginx.
+- Remove the explicit DNS record if rolling back to wildcard behavior.
+- Delete `dist/browser-annotation-extension/` if the artifact was only for a smoke test.
+- Revoke the browser annotation listener session.
+
+---
+
+### Browser Annotation Prompt Composer Tuning
+
+#### Feature/Change Name
+Browser annotation batches include an explicit Codex action request that correlates annotations, screenshots, voice, DOM, and DevTools context.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Use Node.js 18 or newer.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/browserAnnotationBatch.test.ts --reporter=verbose`.
+2. Inspect the queued message text assembled by `buildBrowserAnnotationQueuedMessage`.
+3. Confirm the prompt contains a `## Request for Codex` section.
+4. Confirm the request tells Codex to correlate DOM target, selector, note, voice transcript, attached screenshot image, and DevTools console/network evidence when present.
+5. Confirm the request asks Codex to implement the appropriate repository fix and run focused verification.
+6. If checking manually in Codex UI, send a browser annotation batch and verify the rendered user message remains readable in light and dark themes.
+
+#### Expected Results
+- The focused Vitest file passes.
+- The prompt remains structured as metadata, request, annotation notes, and optional DevTools summary.
+- Sensitive URLs and body fields remain redacted by existing privacy assertions.
+- No UI style changes are required; any manual light/dark check should show the same readable message rendering as other user messages.
+
+#### Rollback/Cleanup
+- No cleanup is required for the focused unit test.
+- Delete any manually sent browser annotation batch thread messages if they were created only for smoke testing.
+
+---
+
+### Browser Annotation MCP/Plugin Design Decision
+
+#### Feature/Change Name
+Document the browser annotation MCP/plugin path as a future agent-driven architecture instead of an MVP blocker.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Read `docs/browser-annotation-mcp-plugin-design.md`.
+
+#### Steps
+1. Confirm the decision says no separate browser annotation MCP server or plugin is required for the current MVP.
+2. Confirm the document keeps current capture extension-driven through `/codex-api/extension/*`.
+3. Confirm future tool names are listed: `snapshot_dom`, `screenshot`, `inspect_console`, `inspect_network`, and `select_element`.
+4. Confirm the boundaries keep Chrome debugger, screenshot, audio, and token handling inside the explicit extension/user-consent flow.
+5. Confirm the risks section calls out duplicate ingress, permission complexity, user-gesture conflicts, and security review needs.
+
+#### Expected Results
+- The design decision is understandable without reading implementation code.
+- No runtime MCP/plugin code is required for this stage.
+- No UI styling changed; light/dark verification is not applicable to this design-only stage.
+
+#### Rollback/Cleanup
+- Remove or revise the design document if a future implementation phase chooses to build a browser annotation MCP server.
+
+---
+
+### Browser Annotation Troubleshooting Guide
+
+#### Feature/Change Name
+Document troubleshooting for pairing, DNS/nginx/HTTPS, active-tab permissions, queue previews, DevTools capture, and voice transcription.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Read `docs/browser-annotation-troubleshooting.md`.
+3. Optionally keep Chrome with the unpacked extension available for spot checks.
+
+#### Steps
+1. Confirm the guide lists local, temporary public HTTP, and production HTTPS server URL options.
+2. Confirm the pairing section explains expired/revoked tokens and wrong server URLs.
+3. Confirm the blank page / `403` / `404` section covers DNS wildcard, Vite `allowedHosts`, and nginx default-server issues.
+4. Confirm the selected-element queueing section explains the `activeTab` user gesture and restricted page limitations.
+5. Confirm the DevTools section documents debugger warnings, detach causes, and body-capture opt-in.
+6. Confirm the voice section documents microphone permission, busy send state, failed transcription behavior, and raw-audio exclusion.
+7. Confirm the public HTTPS section references the YC zone, explicit A record, nginx template, Let's Encrypt path, and root-required deployment actions.
+8. Open `extension/browser-annotation/README.md` and confirm it links to the troubleshooting guide.
+
+#### Expected Results
+- A user can map common observed failures to a concrete check or fix.
+- No runtime code changes are required for this documentation-only stage.
+- No UI styling changed; light/dark verification is not applicable to this documentation-only stage.
+
+#### Rollback/Cleanup
+- Revise or remove the guide if the deployment or extension architecture changes.
+
+---
+
+### Browser Annotation Listener Last Batch Metadata
+
+#### Feature/Change Name
+Show safe last-received browser annotation batch metadata in the active listener panel.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Start or reuse a Codex UI browser annotation listener session.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/browserAnnotationListen.test.ts src/server/browserAnnotationBatch.test.ts src/api/codexGateway.test.ts --reporter=verbose`.
+2. Run `pnpm exec vue-tsc --noEmit`.
+3. Run `pnpm run test:browser-annotation`.
+4. Start a listener from a thread and pair the extension.
+5. Send an annotation batch.
+6. Wait for the listener panel status refresh, or trigger a status refresh by reopening the selected thread.
+7. Confirm the panel shows `Last batch` with annotation count and received time.
+8. Confirm the context line shows image, console, and network counts only.
+9. Repeat the panel readability check in light and dark themes.
+
+#### Expected Results
+- Focused Vitest, typecheck, and browser annotation endpoint suites pass.
+- The listen status response includes only safe metadata: batch id, queued message id, timestamp, and counts.
+- Raw annotation text, DOM snippets, tokens, screenshots, audio, and DevTools bodies are not exposed in listener status.
+- The listener panel keeps the same light/dark styling and remains readable.
+
+#### Rollback/Cleanup
+- Stop or revoke the listener session.
+- Clear extension storage if manual test data remains.
+
+---
+
+### Browser Annotation Batch Compact Thread Rendering
+
+#### Feature/Change Name
+Render incoming browser annotation batch prompts as compact thread cards with parsed annotation summaries, screenshots, and expandable raw context.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Have a thread containing a `# Browser annotation batch` user message, or send one from the browser annotation extension.
+3. For manual checks, keep the extension paired and able to send annotations with at least one screenshot.
+
+#### Steps
+1. Run `pnpm exec vitest run src/components/content/browserAnnotationBatchMessage.test.ts --reporter=verbose`.
+2. Run `pnpm exec vue-tsc --noEmit`.
+3. Run `pnpm run test:browser-annotation`.
+4. Open a thread that contains a browser annotation batch message.
+5. Confirm the user message renders as a compact `Browser annotation` card instead of raw full prompt text.
+6. Confirm the card shows the primary page, batch id, annotation count, screenshot count, and `DevTools included` when present.
+7. Confirm each annotation row shows kind/id plus the best available note, transcript, voice error, selected text, or DevTools context.
+8. Confirm attached screenshots are shown inside the card and still open in the image modal.
+9. Open `Raw context` and confirm the original markdown prompt remains available.
+10. Repeat the thread readability check in light and dark themes.
+
+#### Expected Results
+- The focused parser test, Vue typecheck, and browser annotation suite pass.
+- Browser annotation batch messages are scannable without losing raw prompt detail.
+- Screenshot previews are grouped with the batch card rather than floating above it.
+- Light and dark themes keep readable text, borders, backgrounds, and raw-context surfaces.
+
+#### Rollback/Cleanup
+- Remove any manual test batch messages if they were created only for this check.
+- Stop or revoke the listener session and clear extension storage if needed.
+
+---
+
+### Browser Annotation DevTools Persistence Serialization
+
+#### Feature/Change Name
+Serialize DevTools debugger event persistence to preserve bursty console and network rows.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Use Node.js 18 or newer.
+
+#### Steps
+1. Run `node --check extension/browser-annotation/service-worker/service-worker.js`.
+2. Run `node --check extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.mjs`.
+3. Run `node extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.mjs`.
+4. Optional manual check: load `extension/browser-annotation` as an unpacked extension, start DevTools capture, trigger many console logs and fetches quickly from a test page, then confirm the side panel keeps all expected DevTools rows.
+
+#### Expected Results
+- Static checks pass.
+- The persistence smoke prints `Extension DevTools service worker persistence smoke passed.`
+- Bursty debugger events are applied sequentially, so later writes do not overwrite rows captured by earlier events.
+- No UI styling changed; existing DevTools capture rows remain readable in both light and dark side panel themes.
+
+#### Rollback/Cleanup
+- Remove the unpacked extension from `chrome://extensions` if the optional manual check was performed.
+- Clear extension storage from the extension details page if manual DevTools capture data remains.
+
+---
+
+### Browser Annotation DevTools Console Secret Redaction
+
+#### Feature/Change Name
+DevTools console capture redacts secrets before console rows are stored.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Use Node.js with extension smoke-test dependencies available from the repository checkout.
+
+#### Steps
+1. Run `node extension/browser-annotation/dev/devtools-capture-smoke.mjs`.
+2. Run `node extension/browser-annotation/dev/annotation-queue-smoke.mjs`.
+3. Manually start a DevTools capture in the unpacked extension against a test page.
+4. In the page console, emit `password=supersecret token=abc123 cookie=sid=sekret Authorization: Bearer abc`.
+5. Emit JSON- and Basic-auth-shaped examples such as `{"token":"json-token-abc","password":"json-secret"}` and `Authorization: Basic basic-secret-abc`.
+6. Send or inspect the captured annotation batch payload.
+7. Repeat the side-panel capture status readability check in light and dark OS/browser color schemes.
+
+#### Expected Results
+- The smoke tests pass.
+- `consoleRows` and the batch DevTools console payload do not contain `password=supersecret`, `token=abc123`, `cookie=sid=sekret`, `Authorization: Bearer abc`, or the raw secret values.
+- JSON-style secret values and Basic auth credentials are redacted before they appear in `consoleRows`.
+- Redacted console text uses `[REDACTED]`.
+- Light and dark side-panel capture status remains readable.
+
+#### Rollback/Cleanup
+- Stop DevTools capture.
+- Remove the unpacked extension from `chrome://extensions` if it was loaded only for this test.
+
+---
+
+### Browser Annotation DevTools Failed Body Capture Timeout
+
+#### Feature/Change Name
+DevTools response body capture is limited to small textual failures and timeout uses MV3 alarms.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Chrome is installed for the manual alarm/capture smoke test.
+3. Load `extension/browser-annotation` as an unpacked extension.
+4. Serve a test page that can issue successful, `>=400`, large, binary, and failed network requests.
+
+#### Steps
+1. Run `node --check extension/browser-annotation/service-worker/service-worker.js`.
+2. Run `node --check extension/browser-annotation/shared/devtools-capture.js`.
+3. Run `node --check extension/browser-annotation/dev/validate-extension.mjs`.
+4. Run `node extension/browser-annotation/dev/validate-extension.mjs`.
+5. Run `node extension/browser-annotation/dev/devtools-capture-smoke.mjs`.
+6. Enable DevTools capture with body capture opt-in.
+7. Trigger a successful small textual request, a small textual `404` or `500`, a large textual error over the cap, a response with unknown `encodedDataLength`, and a binary error response.
+8. Confirm only the small textual HTTP error attempts response body capture; successful, large, unknown-size, and binary responses remain metadata-only.
+9. Close and reopen the side panel while DevTools capture is still active.
+10. Confirm the body-capture checkbox is still checked, disabled, and accompanied by status/help text explaining that body capture is active for the current capture session.
+11. Stop DevTools capture, start it again without body opt-in, close and reopen the side panel, and confirm the checkbox is unchecked, disabled while active, and the status/help text says bodies are excluded for that active session.
+12. Let the capture timeout expire or shorten `DEVTOOLS_CAPTURE_TIMEOUT_MS` in a temporary local build and confirm the debugger detaches after the service worker has been allowed to go idle.
+13. Repeat the side-panel capture status readability check in light and dark OS/browser color schemes.
+
+#### Expected Results
+- Static checks, manifest validation, and DevTools capture smoke pass.
+- The manifest includes the `alarms` permission required for MV3 wakeup-backed timeout handling.
+- `Network.getResponseBody` is not requested for successful, large, unknown-size, or non-textual responses.
+- Request bodies from successful `Network.requestWillBeSent` events remain metadata-only even when body capture is opted in.
+- Failed HTTP responses with status `>=400` and failed network rows are eligible only when `encodedDataLength` is numeric and at or below the body cap.
+- Reopening the side panel during active capture preserves the checked/disabled body-capture state and explanatory text for the active session.
+- The alarm reconciliation stops expired DevTools capture and detaches the debugger even if the in-memory `setTimeout` was lost when the service worker suspended.
+- Light and dark side-panel capture status remains readable.
+
+#### Rollback/Cleanup
+- Stop DevTools capture.
+- Remove the unpacked extension from `chrome://extensions` if it was loaded only for this test.
+- Revert any temporary local timeout constant used for the manual alarm smoke test.
+
+---
+
+### Browser Annotation Security Hardening
+
+#### Feature/Change Name
+Harden public browser annotation ingress, pairing-token storage, extension URL policy, and uploaded asset validation.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Use the checked-in extension source or the packaged artifact from `pnpm run pack:browser-annotation`.
+3. For manual Chrome checks, load the unpacked extension from `extension/browser-annotation` or the generated production artifact.
+
+#### Steps
+1. Run `node --check extension/browser-annotation/service-worker/service-worker.js`.
+2. Run `node --check extension/browser-annotation/sidepanel/sidepanel.js`.
+3. Run `node extension/browser-annotation/dev/validate-extension.mjs`.
+4. Run `node extension/browser-annotation/dev/pairing-client-smoke.mjs`.
+5. Run `node extension/browser-annotation/dev/annotation-queue-smoke.mjs`.
+6. Run `node extension/browser-annotation/dev/devtools-capture-smoke.mjs`.
+7. Run `pnpm exec vitest run src/server/browserAnnotationAssets.test.ts --reporter=verbose`.
+8. Run `pnpm run test:browser-annotation`.
+9. Run `pnpm run pack:browser-annotation`.
+10. Inspect `dist/browser-annotation-extension/unpacked/manifest.json` and confirm `host_permissions` contains only Codex UI/annotation server origins while `optional_host_permissions` contains normal `http(s)` page access.
+11. Confirm the side panel rejects `http://46.62.215.111` and other non-local `http://` values as the Server URL, while still allowing overlay injection into normal `http(s)` pages after Chrome grants site access.
+12. Pair with a fresh token, send a queued annotation batch, and confirm the pairing token is no longer present in `chrome.storage.local` after save/send.
+13. Reuse the same token against `/codex-api/extension/listen/status` after send and confirm the server returns revoked status for that same session without echoing the token.
+14. Repeat the side-panel connection and queue readability checks in light and dark OS/browser color schemes.
+15. On a deployed public nginx host, request `/codex-api/extension/listen/start` through the public annotation ingress and confirm it is not exposed.
+
+#### Expected Results
+- Static checks, extension smoke tests, focused asset tests, and the browser annotation suite pass.
+- The production package does not include temporary public-IP host permissions.
+- Non-local plain HTTP server URLs are rejected by the extension.
+- Pairing tokens are stored only in extension session storage while needed, the server listen session is revoked after a successful send, and the local token is cleared.
+- Uploads whose bytes do not match the declared image/audio MIME type are rejected with `415`.
+- Public ingress does not allow anonymous pairing-token minting.
+- Light and dark side-panel states remain readable.
+
+#### Rollback/Cleanup
+- Remove the unpacked extension from `chrome://extensions` if it was loaded only for this test.
+- Clear extension storage and revoke/expire any listener token used for manual checks.
+- Remove generated `dist/browser-annotation-extension/` artifacts if they are not needed locally.
+
+---
+
+### Browser Annotation Reliability Hardening
+
+#### Feature/Change Name
+Harden extension queue/lifecycle behavior and reject stale in-flight server requests.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Use Node.js 18 or newer.
+3. For manual checks, load the browser annotation extension in Chrome and use a disposable listener thread.
+
+#### Steps
+1. Run `node --check extension/browser-annotation/service-worker/service-worker.js`.
+2. Run `node --check extension/browser-annotation/sidepanel/sidepanel.js`.
+3. Run `node extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.mjs`.
+4. Run `node extension/browser-annotation/dev/annotation-queue-smoke.mjs`.
+5. Run `node extension/browser-annotation/dev/devtools-capture-smoke.mjs`.
+6. Run `pnpm exec vitest run src/server/browserAnnotationBatch.test.ts src/server/browserAnnotationAssets.test.ts --reporter=verbose`.
+7. Run `pnpm run test:browser-annotation`.
+8. Run `pnpm exec vue-tsc --noEmit`.
+9. Manually start DevTools capture, reload or navigate the captured tab, and confirm capture stops with a navigation/closed status instead of mixing rows from multiple pages.
+10. Manually queue two selections quickly and confirm both remain in the side-panel queue.
+11. Manually disconnect the server or use an unroutable server URL and confirm status/send/upload/transcribe requests fail with an error instead of leaving the panel busy indefinitely.
+12. Repeat side-panel queue and status readability checks in light and dark OS/browser color schemes.
+
+#### Expected Results
+- Static checks and extension smoke tests pass.
+- The service-worker persistence smoke verifies serialized queue mutations and tab close/navigation cleanup after an MV3-style restart.
+- Focused server tests reject batch and asset upload requests if the listener is revoked while the request body is still in flight.
+- Browser annotation endpoint smoke passes.
+- A successful batch send removes sent queue items without deleting annotations added concurrently during the send.
+- Light and dark side-panel states remain readable.
+
+#### Rollback/Cleanup
+- Stop DevTools capture if it remains active.
+- Remove the unpacked extension from `chrome://extensions` if loaded only for this test.
+- Revoke any listener token and clear extension storage used during manual checks.
+
+---
+
+### Browser Annotation Any-Site Injection, Cancel, And Compact Listener
+
+#### Feature/Change Name
+Allow the browser annotation extension to request access for normal `http(s)` sites at runtime, cancel selected annotations from the overlay, and keep the Codex UI listener compact.
+
+#### Prerequisites/Setup
+1. Run from the repository root on `browser-annotation-devtools`.
+2. Build or use the packaged extension from `pnpm run pack:browser-annotation`.
+3. Install the fresh extension artifact in Chrome.
+4. Open Codex UI on the browser annotation branch and start a listener from the target thread.
+
+#### Steps
+1. Run `node extension/browser-annotation/dev/validate-extension.mjs`.
+2. Run `node extension/browser-annotation/dev/pairing-client-smoke.mjs`.
+3. Run `node extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.mjs`.
+4. Run `node extension/browser-annotation/dev/sidepanel-host-permission-smoke.cjs`.
+5. Run `node extension/browser-annotation/dev/content-overlay-cancel-smoke.cjs`.
+6. Run `pnpm exec vitest run src/server/browserAnnotationListen.test.ts --reporter=verbose`.
+7. Run `pnpm exec vue-tsc --noEmit`.
+8. Run `pnpm run pack:browser-annotation`.
+9. Inspect `dist/browser-annotation-extension/unpacked/manifest.json` and confirm `host_permissions` is limited to the Codex UI/annotation origins while `optional_host_permissions` contains `http://*/*` and `https://*/*`.
+10. In Chrome, open a normal page outside the pairing host, for example `http://46.62.215.111/browser-annotation-test.html`, `https://crm-dev.todo-tg-app.ru/admin/crm?section=pricing`, or `https://example.com`.
+11. Click `Inject overlay` in the extension side panel and approve the host access prompt.
+12. Select at least one element and confirm it appears in the annotation queue.
+13. Click the selected overlay `×` and confirm the highlighted selection disappears and the queued item is removed while annotation mode stays ready for another selection.
+14. Select another element, press Esc, and confirm the selected annotation is removed and annotation mode pauses until `Inject overlay` is clicked again.
+15. Send the queued annotations and wait for the Codex UI listener status to update.
+16. Repeat the side panel, overlay cancel button, and compact listener visual checks in light and dark themes: idle, active with setup collapsed, setup expanded, selected, canceled, and stopped/revoked after send.
+
+#### Expected Results
+- Static extension validation and focused listen tests pass.
+- The side panel requests host permission for the fresh active tab, not a stale Codex UI tab, before sending the inject message.
+- The production package keeps narrow permanent pairing host permissions while allowing runtime access requests for normal `http(s)` sites.
+- Chrome asks for access to the current site once; after approval, overlay injection works without adding that host to the manifest or rebuilding the extension.
+- The selected overlay includes a visible cancel `×`; clicking it removes the current queued annotation and leaves annotation mode active.
+- Pressing Esc removes the current queued annotation and pauses annotation mode.
+- Restricted pages such as `chrome://`, `chrome-extension://`, Chrome Web Store, `about:`, `view-source:`, and `devtools://` remain blocked.
+- The Codex UI listener is a compact row by default, with server URL and pairing token hidden behind setup details.
+- After the extension sends a batch and revokes the listen session, Codex UI can observe `status: revoked` for that session and stop showing an active listener.
+- Light and dark compact listener states remain readable.
+
+#### Rollback/Cleanup
+- Remove the unpacked extension from `chrome://extensions` if loaded only for this test.
+- Clear site permissions granted to the extension from Chrome extension details if needed.
+- Revoke or let expire any listener token used during manual checks.
+
+---
+
+### Thread Not Found Turn Start Recovery
+
+#### Feature/Change Name
+Recover from stale selected/resumed thread state before starting a turn.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Use a browser profile where Codex UI may have an older `codex-web-local.selected-thread-id.v1` value, or simulate it in localStorage.
+3. Have at least one valid thread available in the refreshed thread list.
+
+#### Steps
+1. Run `pnpm exec vitest run src/composables/useDesktopState.test.ts --testNamePattern "target thread message sender|thread selection refresh"`.
+2. Open Codex UI in light theme, refresh the thread list with localStorage pointing at a missing thread ID, and confirm the app selects an available thread instead of keeping the missing ID.
+3. Send a message to an existing thread after an app-server restart or reconnect, where the web UI may still think the thread was already resumed.
+4. Confirm the first `turn/start` `thread not found` failure is recovered by a `thread/resume` and one retry.
+5. Repeat steps 2-4 in dark theme and confirm the error banner does not appear for the recovered path.
+
+#### Expected Results
+- The focused regression tests pass.
+- Missing persisted selected thread IDs are replaced with the first available refreshed thread.
+- A stale resumed-thread cache does not surface `RPC turn/start failed with HTTP 502: thread not found` when `thread/resume` can reload the thread.
+- Light and dark theme views remain readable and do not show the recovered error state.
+
+#### Rollback/Cleanup
+- Clear any test-only localStorage values, especially `codex-web-local.selected-thread-id.v1`.
+- No generated artifacts are required for this test.
+
+---
+
+### Browser Annotation Test Page Green Sample Action
+
+#### Feature/Change Name
+Render the browser annotation test page `Sample action` button as a green action button.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Start Codex UI with `pnpm run dev --host 127.0.0.1 --port 4173`, or serve the extension dev directory with `python3 -m http.server`.
+
+#### Steps
+1. Open `http://127.0.0.1:4173/browser-annotation-test.html`.
+2. Confirm the `Sample action` button inside the sample card has a green background, darker green border, and white label.
+3. Hover and press the button to confirm it darkens without resizing or shifting the sample card.
+4. Switch the browser or OS to dark theme and reload the same page.
+5. Repeat steps 2-3 in dark theme.
+6. For the extension dev copy, open `extension/browser-annotation/dev/test-page.html` through the local static server and repeat the light and dark theme checks.
+
+#### Expected Results
+- The annotated `Sample action` button is visibly green in both public and extension dev test pages.
+- The label remains readable in light and dark themes.
+- Hover and active states stay green and do not alter layout.
+- Other controls, including `Sample input`, keep their existing neutral styling.
+
+#### Rollback/Cleanup
+- Stop any temporary dev or static server started for this check.
+
+---
+
+### Previous Response Diagnostics Noise Filtering
+
+#### Feature/Change Name
+Cleaner `previous_response_not_found` diagnostics with structured app-server context.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Dependencies are installed.
+3. Optional: set `CODEXUI_PREVIOUS_RESPONSE_ERROR_LOG=/tmp/codexui-prev-response.jsonl` to write the diagnostic log outside `output/`.
+
+#### Steps
+1. Run `pnpm vitest run src/server/previousResponseDiagnostics.test.ts src/server/unifiedResponsesProxy.test.ts`.
+2. Run `pnpm exec tsc --noEmit -p tsconfig.server.json`.
+3. Start Codex UI normally and continue using threads until another `previous_response_not_found` failure appears.
+4. Inspect `output/previous-response-errors.jsonl` or the configured log path.
+5. Confirm new app-server entries are limited to real `method: "error"` and failed `method: "turn/completed"` events.
+6. Confirm entries include structured `responseId`, `status`, `threadId`, `turnId`, cached `config`, cached `thread`, and recent RPC context when available.
+7. Confirm user messages and command output that merely contain the error text do not create new app-server diagnostic rows.
+8. Light and dark theme verification is not applicable because this change has no UI surface.
+
+#### Expected Results
+- The focused Vitest files pass.
+- The server typecheck passes.
+- Diagnostic rows are quieter and more useful for root-cause analysis of stale `previous_response_id` failures.
+- Normal UI rendering is unchanged in both light and dark themes.
+
+#### Rollback/Cleanup
+- Delete any temporary diagnostic log used for testing, or unset `CODEXUI_PREVIOUS_RESPONSE_ERROR_LOG` to return to the default path.
+
+---
+
+### Turn Start Thread Not Found Diagnostics
+
+#### Feature/Change Name
+`turn/start` `thread not found` diagnostic JSONL logging.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Dependencies are installed.
+3. Optional: set `CODEXUI_THREAD_ERROR_LOG=/tmp/codexui-thread-errors.jsonl` to choose a custom log path. By default the log is written to `output/thread-errors.jsonl`.
+
+#### Steps
+1. Run `pnpm vitest run src/server/threadErrorDiagnostics.test.ts src/server/previousResponseDiagnostics.test.ts`.
+2. Run `pnpm exec tsc --noEmit -p tsconfig.server.json`.
+3. Start Codex UI normally and continue using threads until an error like `RPC turn/start failed with HTTP 502: thread not found: <thread-id>` appears.
+4. Inspect `output/thread-errors.jsonl` or the configured log path.
+5. Confirm a row with `kind: "turn-start-thread-not-found"` is written and includes `threadId`, `method`, `config`, cached `thread`, recent RPC context, request shape flags, and summarized error text.
+6. Confirm this diagnostic does not write prompt text, attachment paths, bearer tokens, or authorization headers.
+7. Light and dark theme verification is not applicable because this change has no UI surface.
+
+#### Expected Results
+- The focused Vitest files pass.
+- The server typecheck passes.
+- Future stale-thread `turn/start` failures are captured separately from `previous_response_id` failures.
+- Normal UI rendering is unchanged in both light and dark themes.
+
+#### Rollback/Cleanup
+- Delete any temporary diagnostic log used for testing, or unset `CODEXUI_THREAD_ERROR_LOG` to return to the default path.
+
+---
+
+### Browser Annotation Test Page Sample Card Heading Font
+
+#### Feature/Change Name
+Render the browser annotation test page `Sample card` heading with a more decorative readable font.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Start Codex UI with `pnpm run dev --host 127.0.0.1 --port 4173`, or serve the extension dev directory with `python3 -m http.server`.
+
+#### Steps
+1. Open `http://127.0.0.1:4173/browser-annotation-test.html`.
+2. Confirm the `Sample card` heading inside the sample card uses a serif display-style font, larger size, and tighter spacing than the body text.
+3. Confirm the heading does not overlap the paragraph below it or change the selected annotation target.
+4. Switch the browser or OS to dark theme and reload the same page.
+5. Repeat steps 2-3 in dark theme.
+6. For the extension dev copy, open `extension/browser-annotation/dev/test-page.html` through the local static server and repeat the light and dark theme checks.
+
+#### Expected Results
+- The annotated `Sample card` heading is visually distinct and more decorative in both public and extension dev test pages.
+- The heading remains readable in light and dark themes.
+- The sample card layout remains stable, with the paragraph and green action button still visible and aligned.
+
+#### Rollback/Cleanup
+- Stop any temporary dev or static server started for this check.
+
+---
+
+### Compact Browser Annotation Listen Control
+
+#### Feature/Change Name
+Move browser annotation listening from the wide thread banner into the composer button row and sidebar settings.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Start Codex UI with `pnpm run dev --host 127.0.0.1 --port 4173`.
+3. Open an existing thread that can receive browser annotation batches.
+
+#### Steps
+1. Open the selected thread in light theme.
+2. Confirm the previous wide `Listen for browser annotations` banner is not shown above the composer.
+3. Confirm a compact black `Listen` button appears in the composer action row, immediately to the left of the microphone button.
+4. Click `Listen` and confirm it starts a listener for the selected thread without resizing the composer.
+5. Open the sidebar `Settings` popup, click `Listen settings`, and confirm the listener status, thread, expiry, setup disclosure, server URL, and pairing token controls are available.
+6. Use the setup disclosure and copy controls, then click `Stop` from `Listen settings`.
+7. Switch to dark theme and repeat steps 2-6.
+
+#### Expected Results
+- The thread no longer loses vertical space to a persistent listen banner.
+- The compact `Listen` button stays aligned with the microphone and send controls in light and dark themes.
+- Active, busy, stopped, expired, and error states are reflected in the sidebar `Listen settings` section.
+- Server URL and pairing token copy controls remain readable and usable in both themes.
+
+#### Rollback/Cleanup
+- Stop any active browser annotation listener before leaving the test thread.
+- No generated artifacts are required for this test.

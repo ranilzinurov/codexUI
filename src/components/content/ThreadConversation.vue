@@ -197,7 +197,7 @@
           <div class="message-stack" :data-role="message.role">
             <article class="message-body" :data-role="message.role">
               <ul
-                v-if="message.images && message.images.length > 0"
+                v-if="message.images && message.images.length > 0 && !isBrowserAnnotationBatchMessage(message)"
                 class="message-image-list"
                 :class="{ 'message-generated-image-list': message.messageType === 'imageView' }"
                 :data-role="message.role"
@@ -243,7 +243,12 @@
                 </a>
               </div>
 
-              <article v-if="message.text.length > 0" class="message-card" :data-role="message.role">
+              <article
+                v-if="message.text.length > 0"
+                class="message-card"
+                :class="{ 'message-card-browser-annotation': isBrowserAnnotationBatchMessage(message) }"
+                :data-role="message.role"
+              >
                 <div v-if="message.isAutomationRun" class="automation-message-label">
                   <span>Sent via automation</span>
                   <code v-if="message.automationDisplayName">{{ message.automationDisplayName }}</code>
@@ -335,6 +340,87 @@
                       Implement plan
                     </button>
                   </div>
+                </div>
+                <div v-else-if="isBrowserAnnotationBatchMessage(message)" class="browser-annotation-batch-card">
+                  <div class="browser-annotation-batch-header">
+                    <div class="browser-annotation-batch-title-block">
+                      <p class="browser-annotation-batch-kicker">Browser annotation</p>
+                      <h3 class="browser-annotation-batch-title">Captured page context</h3>
+                    </div>
+                    <span
+                      v-if="(readBrowserAnnotationBatchSummary(message)?.annotationCount ?? null) !== null"
+                      class="browser-annotation-batch-count"
+                    >
+                      {{ browserAnnotationCountLabel(readBrowserAnnotationBatchSummary(message)?.annotationCount ?? null, 'annotation', 'annotations') }}
+                    </span>
+                  </div>
+                  <p
+                    v-if="readBrowserAnnotationBatchSummary(message)?.primaryPage"
+                    class="browser-annotation-batch-page"
+                  >
+                    {{ readBrowserAnnotationBatchSummary(message)?.primaryPage }}
+                  </p>
+                  <div class="browser-annotation-batch-meta">
+                    <span v-if="readBrowserAnnotationBatchSummary(message)?.batchId">
+                      Batch {{ readBrowserAnnotationBatchSummary(message)?.batchId }}
+                    </span>
+                    <span v-if="(readBrowserAnnotationBatchSummary(message)?.imageCount ?? null) !== null">
+                      {{ browserAnnotationCountLabel(readBrowserAnnotationBatchSummary(message)?.imageCount ?? null, 'screenshot', 'screenshots') }}
+                    </span>
+                    <span v-if="readBrowserAnnotationBatchSummary(message)?.hasDevTools">DevTools included</span>
+                  </div>
+
+                  <ul
+                    v-if="(readBrowserAnnotationBatchSummary(message)?.annotations.length ?? 0) > 0"
+                    class="browser-annotation-batch-list"
+                  >
+                    <li
+                      v-for="annotation in readBrowserAnnotationBatchSummary(message)?.annotations"
+                      :key="`${message.id}:${annotation.id || annotation.title}`"
+                      class="browser-annotation-batch-item"
+                    >
+                      <div class="browser-annotation-batch-item-header">
+                        <span class="browser-annotation-batch-kind">{{ annotation.kind || 'element' }}</span>
+                        <code v-if="annotation.id" class="browser-annotation-batch-id">{{ annotation.id }}</code>
+                      </div>
+                      <p class="browser-annotation-batch-preview">
+                        {{ browserAnnotationAnnotationPreview(annotation) }}
+                      </p>
+                      <p v-if="annotation.selector" class="browser-annotation-batch-selector">
+                        {{ annotation.selector }}
+                      </p>
+                    </li>
+                  </ul>
+
+                  <div v-if="message.images && message.images.length > 0" class="browser-annotation-batch-images">
+                    <p class="browser-annotation-batch-section-title">Attached screenshots</p>
+                    <ul
+                      class="message-image-list browser-annotation-batch-image-list"
+                      :class="{ 'message-generated-image-list': message.messageType === 'imageView' }"
+                      :data-role="message.role"
+                    >
+                      <li v-for="imageUrl in message.images" :key="imageUrl" class="message-image-item">
+                        <button class="message-image-button" type="button" @click="openImageModal(imageUrl)">
+                          <img
+                            class="message-image-preview"
+                            :class="{ 'message-generated-image-preview': message.messageType === 'imageView' }"
+                            :src="imageUrl"
+                            alt="Browser annotation screenshot"
+                            loading="lazy"
+                          />
+                        </button>
+                      </li>
+                    </ul>
+                  </div>
+
+                  <details class="browser-annotation-batch-raw" @toggle="onBrowserAnnotationRawToggle(message, $event)">
+                    <summary>Raw context</summary>
+                    <div
+                      v-if="isBrowserAnnotationRawExpanded(message)"
+                      class="browser-annotation-batch-raw-content"
+                      v-html="renderMarkdownBlocksAsHtml(message.text)"
+                    />
+                  </details>
                 </div>
                 <div
                   v-else
@@ -902,6 +988,12 @@ import type { UiFileChange, UiLiveOverlay, UiMessage, UiPlanStep, UiServerReques
 import { useFeedbackDiagnostics } from '../../composables/useFeedbackDiagnostics'
 import { useMobile } from '../../composables/useMobile'
 import { resolveBackendHttpUrl } from '../../backendUrl'
+import {
+  isBrowserAnnotationBatchText,
+  parseBrowserAnnotationBatchMessage,
+  type BrowserAnnotationBatchAnnotationSummary,
+  type BrowserAnnotationBatchMessageSummary,
+} from './browserAnnotationBatchMessage'
 
 import IconTablerArrowUp from '../icons/IconTablerArrowUp.vue'
 import IconTablerCopy from '../icons/IconTablerCopy.vue'
@@ -916,6 +1008,7 @@ const collapsedAutoCommandIds = ref<Set<string>>(new Set())
 const expandedCommandGroupIds = ref<Set<string>>(new Set())
 const expandedWorkedIds = ref<Set<string>>(new Set())
 const expandedFileChangeSummaryIds = ref<Set<string>>(new Set())
+const expandedBrowserAnnotationRawIds = ref<Set<string>>(new Set())
 const activeDiffViewerSummary = ref<TurnFileChangeSummary | null>(null)
 const activeDiffViewerChangeKey = ref('')
 const isDiffViewerFileListOpen = ref(false)
@@ -994,6 +1087,53 @@ function isAssistantWorkDetail(message: UiMessage): boolean {
 
 function isPlanMessage(message: UiMessage): boolean {
   return message.messageType === 'plan' || message.messageType === 'plan.live'
+}
+
+function isBrowserAnnotationBatchMessage(message: UiMessage): boolean {
+  return message.role === 'user' && isBrowserAnnotationBatchText(message.text)
+}
+
+function readBrowserAnnotationBatchSummary(message: UiMessage): BrowserAnnotationBatchMessageSummary | null {
+  const cached = browserAnnotationBatchSummaryCache.get(message.id)
+  if (cached && cached.text === message.text) return cached.summary
+  return setBoundedCacheEntry(
+    browserAnnotationBatchSummaryCache,
+    message.id,
+    {
+      text: message.text,
+      summary: parseBrowserAnnotationBatchMessage(message.text),
+    },
+    MESSAGE_BLOCK_CACHE_LIMIT,
+  ).summary
+}
+
+function browserAnnotationCountLabel(count: number | null, singular: string, plural: string): string {
+  if (count === null) return ''
+  return `${count} ${count === 1 ? singular : plural}`
+}
+
+function browserAnnotationAnnotationPreview(annotation: BrowserAnnotationBatchAnnotationSummary): string {
+  const candidates = [
+    annotation.note,
+    annotation.voiceTranscript,
+    annotation.voiceError,
+    annotation.selectedText ? `Selected: ${annotation.selectedText}` : '',
+    annotation.devToolsContext,
+  ]
+  return candidates.find((candidate) => candidate.trim().length > 0) ?? 'Annotation context captured.'
+}
+
+function onBrowserAnnotationRawToggle(message: UiMessage, event: Event): void {
+  const target = event.currentTarget
+  if (!(target instanceof HTMLDetailsElement)) return
+  const next = new Set(expandedBrowserAnnotationRawIds.value)
+  if (target.open) next.add(message.id)
+  else next.delete(message.id)
+  expandedBrowserAnnotationRawIds.value = next
+}
+
+function isBrowserAnnotationRawExpanded(message: UiMessage): boolean {
+  return expandedBrowserAnnotationRawIds.value.has(message.id)
 }
 
 function buildPlanMessageText(explanation: string, steps: UiPlanStep[]): string {
@@ -1441,10 +1581,16 @@ type MarkdownHtmlCacheEntry = {
   html: string
 }
 
+type BrowserAnnotationBatchSummaryCacheEntry = {
+  text: string
+  summary: BrowserAnnotationBatchMessageSummary | null
+}
+
 const messageBlockCache = new Map<string, MessageBlockCacheEntry>()
 const inlineSegmentCache = new Map<string, InlineSegment[]>()
 const markdownHtmlCache = new Map<string, MarkdownHtmlCacheEntry>()
 const highlightHtmlCache = new Map<string, string>()
+const browserAnnotationBatchSummaryCache = new Map<string, BrowserAnnotationBatchSummaryCacheEntry>()
 
 function setBoundedCacheEntry<K, V>(cache: Map<K, V>, key: K, value: V, limit: number): V {
   if (cache.has(key)) cache.delete(key)
@@ -4358,6 +4504,10 @@ watch(
         ...Object.keys(standaloneFileChangeSummaryByMessageId.value),
       ]),
     )
+    expandedBrowserAnnotationRawIds.value = pruneCommandIdSet(
+      expandedBrowserAnnotationRawIds.value,
+      new Set(next.filter(isBrowserAnnotationBatchMessage).map((message) => message.id)),
+    )
 
     // Keep renderWindowStart in bounds whenever the message list changes length.
     // Following output: always pin the window to the last RENDER_WINDOW_SIZE messages so
@@ -4969,6 +5119,111 @@ onBeforeUnmount(() => {
   @apply inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 transition hover:border-slate-400 hover:bg-slate-50;
 }
 
+.browser-annotation-batch-card {
+  @apply flex w-full max-w-full flex-col gap-3 rounded-xl border border-blue-200 bg-white px-4 py-3 text-left text-slate-900 shadow-sm shadow-blue-950/5;
+}
+
+.browser-annotation-batch-header {
+  @apply flex items-start justify-between gap-3;
+}
+
+.browser-annotation-batch-title-block {
+  @apply min-w-0;
+}
+
+.browser-annotation-batch-kicker {
+  @apply m-0 text-[11px] font-semibold uppercase leading-4 text-blue-700;
+}
+
+.browser-annotation-batch-title {
+  @apply m-0 text-base font-semibold leading-6 text-slate-950;
+}
+
+.browser-annotation-batch-count {
+  @apply inline-flex shrink-0 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-medium leading-5 text-blue-800;
+}
+
+.browser-annotation-batch-page {
+  @apply m-0 break-words text-sm leading-5 text-slate-700;
+  overflow-wrap: anywhere;
+}
+
+.browser-annotation-batch-meta {
+  @apply flex flex-wrap gap-1.5 text-xs font-medium leading-5 text-slate-600;
+}
+
+.browser-annotation-batch-meta span {
+  @apply rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5;
+}
+
+.browser-annotation-batch-list {
+  @apply m-0 flex list-none flex-col gap-2 p-0;
+}
+
+.browser-annotation-batch-item {
+  @apply rounded-lg border border-slate-200 bg-slate-50 px-3 py-2;
+}
+
+.browser-annotation-batch-item-header {
+  @apply flex min-w-0 items-center gap-2;
+}
+
+.browser-annotation-batch-kind {
+  @apply rounded-md bg-slate-200 px-1.5 py-0.5 text-[11px] font-semibold uppercase leading-4 text-slate-700;
+}
+
+.browser-annotation-batch-id {
+  @apply min-w-0 truncate text-[11px] leading-4 text-slate-500;
+}
+
+.browser-annotation-batch-preview {
+  @apply mt-1 mb-0 text-sm leading-5 text-slate-800;
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.browser-annotation-batch-selector {
+  @apply mt-1 mb-0 rounded-md bg-white px-2 py-1 font-mono text-[11px] leading-4 text-slate-600;
+  overflow-wrap: anywhere;
+}
+
+.browser-annotation-batch-images {
+  @apply flex flex-col gap-2;
+}
+
+.browser-annotation-batch-section-title {
+  @apply m-0 text-xs font-semibold leading-4 text-slate-600;
+}
+
+.browser-annotation-batch-image-list {
+  @apply mb-0 justify-start;
+}
+
+.browser-annotation-batch-raw {
+  @apply rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700;
+}
+
+.browser-annotation-batch-raw summary {
+  @apply cursor-pointer text-xs font-semibold leading-5 text-slate-700;
+}
+
+.browser-annotation-batch-raw-content {
+  @apply mt-2 flex max-h-96 flex-col gap-2 overflow-auto border-t border-slate-200 pt-2;
+}
+
+.browser-annotation-batch-raw-content :deep(.message-text),
+.browser-annotation-batch-raw-content :deep(.message-heading),
+.browser-annotation-batch-raw-content :deep(.message-blockquote),
+.browser-annotation-batch-raw-content :deep(.message-list),
+.browser-annotation-batch-raw-content :deep(.message-table-wrap),
+.browser-annotation-batch-raw-content :deep(.message-code-block),
+.browser-annotation-batch-raw-content :deep(.message-divider) {
+  @apply m-0;
+}
+
 .message-text {
   @apply m-0 text-sm leading-relaxed whitespace-pre-wrap break-words text-slate-800;
   overflow-wrap: anywhere;
@@ -5157,6 +5412,10 @@ onBeforeUnmount(() => {
   width: fit-content;
   margin-left: auto;
   align-self: flex-end;
+}
+
+.message-card[data-role='user'].message-card-browser-annotation {
+  @apply w-full max-w-[min(820px,100%)] bg-transparent p-0;
 }
 
 .automation-message-label {

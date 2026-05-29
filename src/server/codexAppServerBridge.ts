@@ -34,9 +34,24 @@ import {
 import { handleOpenRouterProxyRequest } from './openRouterProxy.js'
 import { handleZenProxyRequest } from './zenProxy.js'
 import { handleCustomEndpointProxyRequest } from './customEndpointProxy.js'
+import {
+  isPreviousResponseNotFoundLike,
+  redactDiagnosticUrl,
+  summarizePreviousResponseError,
+  writePreviousResponseDiagnostic,
+} from './previousResponseDiagnostics.js'
+import {
+  isTurnStartThreadNotFoundLike,
+  summarizeTurnStartThreadNotFound,
+  writeThreadErrorDiagnostic,
+} from './threadErrorDiagnostics.js'
 import { ThreadTerminalManager } from './terminalManager.js'
 import { WebPushNotifications } from './webPushNotifications.js'
 import { ThreadAutoTitleManager } from './threadAutoTitle.js'
+import { handleBrowserAnnotationListenRoutes } from './browserAnnotationListen.js'
+import { handleBrowserAnnotationAssetUploadRoute } from './browserAnnotationAssets.js'
+import { handleBrowserAnnotationTranscribeRoute } from './browserAnnotationTranscribe.js'
+import { handleBrowserAnnotationBatchRoute } from './browserAnnotationBatch.js'
 import { getSpawnInvocation } from '../utils/commandInvocation.js'
 import {
   getNpmGlobalBinDir,
@@ -69,6 +84,27 @@ type JsonRpcResponse = {
 type RpcProxyRequest = {
   method: string
   params?: unknown
+}
+
+type PendingRpcRequest = {
+  method: string
+  params: unknown
+  resolve: (value: unknown) => void
+  reject: (reason?: unknown) => void
+}
+
+type RecentRpcCall = {
+  method: string
+  atIso: string
+}
+
+type DiagnosticConfigSnapshot = {
+  model: string | null
+  modelProvider: string | null
+  profile: string | null
+  reasoningEffort: string | null
+  providerWireApi: string | null
+  providerBaseUrl: string | null
 }
 
 type RpcExecutor = {
@@ -526,6 +562,104 @@ function parseBooleanEnvFlag(value: string | null | undefined): boolean | null {
   if (['1', 'true', 'yes', 'on'].includes(normalized)) return true
   if (['0', 'false', 'no', 'off'].includes(normalized)) return false
   return null
+}
+
+function extractDiagnosticThreadId(value: unknown): string {
+  const record = asRecord(value)
+  if (!record) return ''
+  const direct =
+    readNonEmptyString(record.threadId)
+    || readNonEmptyString(record.thread_id)
+    || readNonEmptyString(record.conversationId)
+    || readNonEmptyString(record.conversation_id)
+  if (direct) return direct
+
+  const thread = asRecord(record.thread)
+  const threadId = readNonEmptyString(thread?.id)
+  if (threadId) return threadId
+
+  const turn = asRecord(record.turn)
+  return readNonEmptyString(turn?.threadId) || readNonEmptyString(turn?.thread_id)
+}
+
+function extractDiagnosticTurnId(value: unknown): string {
+  const record = asRecord(value)
+  if (!record) return ''
+  const direct = readNonEmptyString(record.turnId) || readNonEmptyString(record.turn_id)
+  if (direct) return direct
+  const turn = asRecord(record.turn)
+  return readNonEmptyString(turn?.id) || readNonEmptyString(turn?.turnId) || readNonEmptyString(turn?.turn_id)
+}
+
+function getNotificationPreviousResponseCandidate(method: string, params: unknown): unknown | null {
+  const record = asRecord(params)
+  if (method === 'error') {
+    return record?.error ?? params
+  }
+
+  if (method !== 'turn/completed') return null
+
+  const turn = asRecord(record?.turn)
+  const status = readNonEmptyString(turn?.status)
+  if (status !== 'failed') return null
+
+  return turn?.error ?? params
+}
+
+function buildDiagnosticConfigSnapshot(result: unknown): DiagnosticConfigSnapshot | null {
+  const root = asRecord(result)
+  const config = asRecord(root?.config) ?? root
+  if (!config) return null
+
+  const providerId = readNonEmptyString(config.model_provider)
+  const providers = asRecord(config.model_providers)
+  const provider = providerId ? asRecord(providers?.[providerId]) : null
+  const providerBaseUrl = readNonEmptyString(provider?.base_url)
+
+  return {
+    model: readNonEmptyString(config.model) || null,
+    modelProvider: providerId || null,
+    profile: readNonEmptyString(config.profile) || null,
+    reasoningEffort: readNonEmptyString(config.model_reasoning_effort) || null,
+    providerWireApi: readNonEmptyString(provider?.wire_api) || null,
+    providerBaseUrl: providerBaseUrl ? redactDiagnosticUrl(providerBaseUrl) : null,
+  }
+}
+
+function buildThreadDiagnosticSnapshot(snapshot: unknown, failedTurnId: string): Record<string, unknown> | null {
+  const record = asRecord(snapshot)
+  const thread = asRecord(record?.thread)
+  if (!thread) return null
+
+  const turns = Array.isArray(thread.turns) ? thread.turns : []
+  let lastCompletedTurn: Record<string, unknown> | null = null
+  let failedTurnIndex: number | null = null
+  for (let index = 0; index < turns.length; index += 1) {
+    const turn = asRecord(turns[index])
+    if (!turn) continue
+    const turnId = readNonEmptyString(turn.id)
+    if (failedTurnId && turnId === failedTurnId) {
+      failedTurnIndex = index
+    }
+    const status = readNonEmptyString(turn.status)
+    if (status === 'completed' || status === 'succeeded') {
+      lastCompletedTurn = turn
+    }
+  }
+
+  const status = asRecord(thread.status)
+  return {
+    threadId: readNonEmptyString(thread.id) || null,
+    modelProvider: readNonEmptyString(thread.modelProvider) || readNonEmptyString(thread.model_provider) || null,
+    cwd: readNonEmptyString(thread.cwd) || null,
+    sessionPath: readNonEmptyString(thread.path) || null,
+    status: readNonEmptyString(status?.type) || readNonEmptyString(thread.status) || null,
+    turnCount: turns.length,
+    failedTurnIndex,
+    lastCompletedTurnId: readNonEmptyString(lastCompletedTurn?.id) || null,
+    lastCompletedTurnStatus: readNonEmptyString(lastCompletedTurn?.status) || null,
+    lastCompletedAt: lastCompletedTurn?.completedAt ?? lastCompletedTurn?.completed_at ?? null,
+  }
 }
 
 function resolveApiPerfLoggingEnabled(): boolean {
@@ -4633,7 +4767,7 @@ async function writeThreadReadState(readAtByThreadId: Record<string, string>): P
 const FIRST_LAUNCH_PLUGINS_CARD_DISMISSED_KEY = 'first-launch-plugins-card-dismissed'
 const THREAD_QUEUE_STATE_KEY = 'thread-queue-state'
 
-type StoredQueuedMessage = {
+export type StoredQueuedMessage = {
   id: string
   text: string
   imageUrls: string[]
@@ -4769,7 +4903,7 @@ async function writeThreadQueueState(nextState: ThreadQueueState): Promise<void>
   }))
 }
 
-async function appendThreadQueuedMessage(threadId: string, message: StoredQueuedMessage): Promise<void> {
+export async function appendThreadQueuedMessage(threadId: string, message: StoredQueuedMessage): Promise<void> {
   const normalizedThreadId = threadId.trim()
   if (!normalizedThreadId) throw new Error('threadId is required')
   await withThreadQueueStateUpdate((state) => ({
@@ -5579,7 +5713,7 @@ class AppServerProcess {
   private readBuffer = ''
   private nextId = 1
   private stopping = false
-  private readonly pending = new Map<number, { resolve: (value: unknown) => void; reject: (reason?: unknown) => void }>()
+  private readonly pending = new Map<number, PendingRpcRequest>()
   private readonly notificationListeners = new Set<(value: { method: string; params: unknown }) => void>()
   private readonly pendingServerRequests = new Map<number, PendingServerRequest>()
   private readonly appServerArgs = buildAppServerArgs()
@@ -5590,6 +5724,8 @@ class AppServerProcess {
   private readonly threadTurnPageReadPromiseByThreadId = new Map<string, Promise<unknown>>()
   private readonly capturedItemsByThreadId = new Map<string, Map<string, CapturedItem>>()
   private readonly liveStateCache = new Map<string, { data: unknown; turnCount: number; sessionSize: number }>()
+  private readonly recentRpcCallsByThreadId = new Map<string, RecentRpcCall[]>()
+  private lastConfigDiagnosticSnapshot: DiagnosticConfigSnapshot | null = null
   private chatgptAuthRefreshPromise: Promise<ChatgptAuthTokensRefreshResponse> | null = null
 
 
@@ -5694,14 +5830,20 @@ class AppServerProcess {
       if (!pendingRequest) return
 
       if (message.error) {
+        this.logPreviousResponseRpcError(pendingRequest, message.error)
+        this.logThreadNotFoundRpcError(pendingRequest, message.error)
         pendingRequest.reject(new Error(sanitizeCodexErrorMessage(message.error.message)))
       } else {
+        if (pendingRequest.method === 'config/read') {
+          this.lastConfigDiagnosticSnapshot = buildDiagnosticConfigSnapshot(message.result)
+        }
         pendingRequest.resolve(message.result)
       }
       return
     }
 
     if (typeof message.method === 'string' && typeof message.id !== 'number') {
+      this.logPreviousResponseNotification(message.method, message.params ?? null)
       this.emitNotification({
         method: message.method,
         params: message.params ?? null,
@@ -5753,6 +5895,127 @@ class AppServerProcess {
       if (turnThreadId) return turnThreadId
     }
     return ''
+  }
+
+  private recordRecentRpcCall(method: string, params: unknown): void {
+    const threadId = this.extractThreadIdFromParams(params)
+    if (!threadId) return
+
+    const calls = this.recentRpcCallsByThreadId.get(threadId) ?? []
+    calls.push({ method, atIso: new Date().toISOString() })
+    if (calls.length > 20) {
+      calls.splice(0, calls.length - 20)
+    }
+    this.recentRpcCallsByThreadId.set(threadId, calls)
+  }
+
+  private getRecentRpcDiagnostic(threadId: string): Record<string, unknown> {
+    const calls = threadId ? (this.recentRpcCallsByThreadId.get(threadId) ?? []) : []
+    const recentThreadResume = [...calls].reverse().find((call) => call.method === 'thread/resume') ?? null
+    const recentThreadResumeAtMs = recentThreadResume ? Date.parse(recentThreadResume.atIso) : NaN
+    const msSinceRecentThreadResume = Number.isFinite(recentThreadResumeAtMs)
+      ? Date.now() - recentThreadResumeAtMs
+      : null
+
+    return {
+      recentRpcCalls: calls.slice(-8),
+      recentThreadResumeAtIso: recentThreadResume?.atIso ?? null,
+      msSinceRecentThreadResume,
+    }
+  }
+
+  private buildPreviousResponseDiagnosticContext(input: {
+    phase: string
+    method: string
+    params: unknown
+    error: unknown
+  }): Record<string, unknown> | null {
+    if (!isPreviousResponseNotFoundLike(input.error)) return null
+
+    const threadId = extractDiagnosticThreadId(input.params)
+    const turnId = extractDiagnosticTurnId(input.params)
+    const snapshot = threadId ? this.getLastThreadReadSnapshot(threadId) : null
+
+    return {
+      source: 'codex-app-server',
+      phase: input.phase,
+      method: input.method,
+      threadId: threadId || null,
+      turnId: turnId || null,
+      config: this.lastConfigDiagnosticSnapshot,
+      thread: snapshot ? buildThreadDiagnosticSnapshot(snapshot, turnId) : null,
+      ...this.getRecentRpcDiagnostic(threadId),
+      error: summarizePreviousResponseError(input.error),
+    }
+  }
+
+  private logPreviousResponseRpcError(pendingRequest: PendingRpcRequest, error: unknown): void {
+    const event = this.buildPreviousResponseDiagnosticContext({
+      phase: 'json-rpc-error',
+      method: pendingRequest.method,
+      params: pendingRequest.params,
+      error,
+    })
+    if (event) writePreviousResponseDiagnostic(event)
+  }
+
+  private logPreviousResponseNotification(method: string, params: unknown): void {
+    const candidate = getNotificationPreviousResponseCandidate(method, params)
+    if (!candidate) return
+
+    const event = this.buildPreviousResponseDiagnosticContext({
+      phase: 'notification',
+      method,
+      params,
+      error: candidate,
+    })
+    if (!event) return
+
+    const record = asRecord(params)
+    writePreviousResponseDiagnostic({
+      ...event,
+      willRetry: typeof record?.willRetry === 'boolean' ? record.willRetry : null,
+    })
+  }
+
+  private buildThreadNotFoundDiagnosticContext(input: {
+    phase: string
+    method: string
+    params: unknown
+    error: unknown
+  }): Record<string, unknown> | null {
+    if (input.method !== 'turn/start' || !isTurnStartThreadNotFoundLike(input.error)) return null
+
+    const params = asRecord(input.params)
+    const threadId = extractDiagnosticThreadId(input.params)
+    const snapshot = threadId ? this.getLastThreadReadSnapshot(threadId) : null
+
+    return {
+      source: 'codex-app-server',
+      kind: 'turn-start-thread-not-found',
+      phase: input.phase,
+      method: input.method,
+      threadId: threadId || null,
+      config: this.lastConfigDiagnosticSnapshot,
+      thread: snapshot ? buildThreadDiagnosticSnapshot(snapshot, '') : null,
+      requestedModel: readNonEmptyString(params?.model) || null,
+      hasInput: Boolean(params && Object.prototype.hasOwnProperty.call(params, 'input')),
+      inputItemCount: Array.isArray(params?.input) ? params.input.length : null,
+      hasAttachments: Array.isArray(params?.attachments) && params.attachments.length > 0,
+      collaborationMode: readNonEmptyString(asRecord(params?.collaborationMode)?.mode) || null,
+      ...this.getRecentRpcDiagnostic(threadId),
+      error: summarizeTurnStartThreadNotFound(input.error),
+    }
+  }
+
+  private logThreadNotFoundRpcError(pendingRequest: PendingRpcRequest, error: unknown): void {
+    const event = this.buildThreadNotFoundDiagnosticContext({
+      phase: 'json-rpc-error',
+      method: pendingRequest.method,
+      params: pendingRequest.params,
+      error,
+    })
+    if (event) writeThreadErrorDiagnostic(event)
   }
 
   private recordStreamEvent(notification: { method: string; params: unknown }): void {
@@ -6018,7 +6281,8 @@ class AppServerProcess {
     const id = this.nextId++
 
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject })
+      this.recordRecentRpcCall(method, params)
+      this.pending.set(id, { method, params, resolve, reject })
 
       this.sendLine({
         jsonrpc: '2.0',
@@ -6725,6 +6989,25 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
       }
 
       const url = new URL(req.url, 'http://localhost')
+
+      if (await handleBrowserAnnotationListenRoutes(req, res, url)) {
+        return
+      }
+
+      if (await handleBrowserAnnotationAssetUploadRoute(req, res, url)) {
+        return
+      }
+
+      if (await handleBrowserAnnotationTranscribeRoute(req, res, url)) {
+        return
+      }
+
+      if (await handleBrowserAnnotationBatchRoute(req, res, url, {
+        appendQueuedMessage: appendThreadQueuedMessage,
+        scheduleThreadQueueDrain: (threadId, delayMs) => backendQueueProcessor.scheduleThreadQueueDrain(threadId, delayMs),
+      })) {
+        return
+      }
 
       if (req.method === 'GET' && url.pathname === '/codex-api/restart/status') {
         setJson(res, 200, { data: await getRestartStatus() })

@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { listDirectoryApps, listDirectoryComposioConnectors, startThreadTurn } from './codexGateway'
+import {
+  getBrowserAnnotationListenStatus,
+  listDirectoryApps,
+  listDirectoryComposioConnectors,
+  startBrowserAnnotationListenSession,
+  startThreadTurn,
+  stopBrowserAnnotationListenSession,
+} from './codexGateway'
 
 function mockRpcFetch(): { requests: Array<{ method: string, params: Record<string, unknown> }> } {
   const requests: Array<{ method: string, params: Record<string, unknown> }> = []
@@ -85,6 +92,93 @@ describe('listDirectoryComposioConnectors', () => {
     await listDirectoryComposioConnectors('instagram', '50', 25)
 
     expect(requests).toEqual(['/codex-api/composio/connectors?query=instagram&cursor=50&limit=25'])
+  })
+})
+
+describe('browser annotation listen helpers', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('starts a listener session for the selected thread', async () => {
+    const requests: Array<{ input: string; init?: RequestInit }> = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ input: String(input), init })
+      return new Response(JSON.stringify({
+        ok: true,
+        session: {
+          sessionId: 'session-1',
+          threadId: 'thread-1',
+          serverUrl: 'http://127.0.0.1:4173',
+          serverPath: '/codex-api/extension/listen',
+          expiresAtIso: '2026-05-28T12:10:00.000Z',
+          createdAtIso: '2026-05-28T12:00:00.000Z',
+          status: 'active',
+          pairingToken: 'token-1',
+        },
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }))
+
+    const session = await startBrowserAnnotationListenSession('thread-1')
+
+    expect(session.pairingToken).toBe('token-1')
+    expect(requests).toHaveLength(1)
+    expect(requests[0].input).toBe('/codex-api/extension/listen/start')
+    expect(requests[0].init?.method).toBe('POST')
+    expect(JSON.parse(String(requests[0].init?.body))).toEqual({ threadId: 'thread-1' })
+  })
+
+  it('sends bearer token and selector for status and stop requests', async () => {
+    const requests: Array<{ input: string; init?: RequestInit }> = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ input: String(input), init })
+      return new Response(JSON.stringify({
+        ok: true,
+        session: {
+          sessionId: 'session-1',
+          threadId: 'thread-1',
+          serverUrl: null,
+          serverPath: '/codex-api/extension/listen',
+          expiresAtIso: '2026-05-28T12:10:00.000Z',
+          createdAtIso: '2026-05-28T12:00:00.000Z',
+          status: 'active',
+          lastReceivedBatch: {
+            batchId: 'batch-1',
+            queuedMessageId: 'queued-batch-message',
+            receivedAtIso: '2026-05-28T12:01:00.000Z',
+            annotationCount: 2,
+            imageCount: 1,
+            consoleCount: 3,
+            networkCount: 4,
+          },
+        },
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }))
+
+    const status = await getBrowserAnnotationListenStatus('token-1', { sessionId: 'session-1', threadId: 'thread-1' })
+    await stopBrowserAnnotationListenSession('token-1', { sessionId: 'session-1', threadId: 'thread-1' })
+
+    expect(status.lastReceivedBatch).toEqual({
+      batchId: 'batch-1',
+      queuedMessageId: 'queued-batch-message',
+      receivedAtIso: '2026-05-28T12:01:00.000Z',
+      annotationCount: 2,
+      imageCount: 1,
+      consoleCount: 3,
+      networkCount: 4,
+    })
+    expect(requests[0].input).toBe('/codex-api/extension/listen/status?sessionId=session-1&threadId=thread-1')
+    expect((requests[0].init?.headers as Record<string, string>).Authorization).toBe('Bearer token-1')
+    expect(requests[1].input).toBe('/codex-api/extension/listen/stop')
+    expect(requests[1].init?.method).toBe('POST')
+    expect((requests[1].init?.headers as Record<string, string>).Authorization).toBe('Bearer token-1')
+    expect(JSON.parse(String(requests[1].init?.body))).toEqual({ sessionId: 'session-1', threadId: 'thread-1' })
   })
 })
 

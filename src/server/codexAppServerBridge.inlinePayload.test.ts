@@ -356,24 +356,33 @@ describe('thread session skill recovery', () => {
 describe('backend queue scheduling', () => {
   it('reschedules a pending drain when a run-now request needs an earlier drain', async () => {
     vi.useFakeTimers()
+    vi
+      .spyOn(BackendQueueProcessor.prototype, 'scheduleAllQueuedThreads')
+      .mockResolvedValue(undefined)
+
     const processor = new BackendQueueProcessor({
       onNotification: () => () => undefined,
     } as never)
-    const processThreadQueue = vi
-      .spyOn(processor as unknown as { processThreadQueue: (threadId: string) => Promise<void> }, 'processThreadQueue')
-      .mockResolvedValue(undefined)
 
-    processor.scheduleThreadQueueDrain('thread-1', 5000)
-    processor.scheduleThreadQueueDrain('thread-1', 0)
+    try {
+      const processThreadQueue = vi
+        .spyOn(processor as unknown as { processThreadQueue: (threadId: string) => Promise<void> }, 'processThreadQueue')
+        .mockResolvedValue(undefined)
 
-    await vi.advanceTimersByTimeAsync(0)
-    expect(processThreadQueue).toHaveBeenCalledTimes(1)
-    expect(processThreadQueue).toHaveBeenCalledWith('thread-1')
+      processor.scheduleThreadQueueDrain('thread-1', 5000)
+      processor.scheduleThreadQueueDrain('thread-1', 0)
 
-    await vi.advanceTimersByTimeAsync(5000)
-    expect(processThreadQueue).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(processThreadQueue).toHaveBeenCalledTimes(1)
+      expect(processThreadQueue).toHaveBeenCalledWith('thread-1')
 
-    processor.dispose()
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(processThreadQueue).toHaveBeenCalledTimes(1)
+    } finally {
+      processor.dispose()
+      vi.clearAllTimers()
+      vi.useRealTimers()
+    }
   })
 })
 

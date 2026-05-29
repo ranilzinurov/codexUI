@@ -304,6 +304,10 @@ html::after {
   @apply bg-zinc-700 text-zinc-500;
 }
 
+:root.dark .thread-composer-listen {
+  @apply bg-zinc-100 text-zinc-950 hover:bg-zinc-200 disabled:bg-zinc-700 disabled:text-zinc-500;
+}
+
 :root.dark .thread-composer-mic {
   @apply bg-zinc-700 text-zinc-400 hover:bg-zinc-600 hover:text-zinc-200;
 }
@@ -1843,6 +1847,53 @@ html::after {
 :root.dark .automation-detail-grid div,
 :root.dark .automation-detail-prompt p {
   @apply bg-zinc-900 text-zinc-200;
+}
+
+:root.dark .browser-annotation-batch-card {
+  @apply border-zinc-700 bg-zinc-900 text-zinc-100 shadow-black/20;
+}
+
+:root.dark .browser-annotation-batch-kicker {
+  @apply text-blue-300;
+}
+
+:root.dark .browser-annotation-batch-title {
+  @apply text-zinc-50;
+}
+
+:root.dark .browser-annotation-batch-count {
+  @apply border-blue-800/80 bg-blue-950/60 text-blue-200;
+}
+
+:root.dark .browser-annotation-batch-page,
+:root.dark .browser-annotation-batch-section-title,
+:root.dark .browser-annotation-batch-meta,
+:root.dark .browser-annotation-batch-id,
+:root.dark .browser-annotation-batch-selector,
+:root.dark .browser-annotation-batch-raw summary {
+  @apply text-zinc-300;
+}
+
+:root.dark .browser-annotation-batch-meta span,
+:root.dark .browser-annotation-batch-item,
+:root.dark .browser-annotation-batch-raw {
+  @apply border-zinc-700 bg-zinc-800;
+}
+
+:root.dark .browser-annotation-batch-kind {
+  @apply bg-zinc-700 text-zinc-200;
+}
+
+:root.dark .browser-annotation-batch-preview {
+  @apply text-zinc-100;
+}
+
+:root.dark .browser-annotation-batch-selector {
+  @apply bg-zinc-950/70;
+}
+
+:root.dark .browser-annotation-batch-raw-content {
+  @apply border-zinc-700;
 }
 
 @media (max-width: 768px) {

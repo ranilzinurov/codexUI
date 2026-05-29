@@ -111,6 +111,11 @@ function isCodexCliMissingError(error: unknown): boolean {
   return message.includes('Codex CLI is not available')
 }
 
+function isTurnStartThreadNotFoundError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  return message.includes('turn/start') && /thread not found/iu.test(message)
+}
+
 function loadReadStateMap(): Record<string, string> {
   if (typeof window === 'undefined') return {}
 
@@ -4918,7 +4923,7 @@ export function useDesktopState() {
 
       const currentExists = flatThreads.some((thread) => thread.id === selectedThreadId.value)
 
-      if (!currentExists && !selectedThreadId.value) {
+      if (!currentExists) {
         setSelectedThreadId(flatThreads[0]?.id ?? '')
       }
     } finally {
@@ -5778,7 +5783,22 @@ export function useDesktopState() {
           collaborationMode,
         )
       } catch (unknownError) {
-        if (modelId && modelId !== MODEL_FALLBACK_ID && isUnsupportedChatGptModelError(unknownError)) {
+        if (isTurnStartThreadNotFoundError(unknownError)) {
+          resumedThreadById.value = omitKey(resumedThreadById.value, threadId)
+          const resumedThread = await resumeThread(threadId)
+          setThreadModelId(threadId, resumedThread.model)
+          const recoveredModelId = readModelIdForThread(threadId)
+          startedTurnId = await startThreadTurn(
+            threadId,
+            nextText,
+            normalizedImageUrls,
+            recoveredModelId || undefined,
+            reasoningEffort || undefined,
+            skills.length > 0 ? skills : undefined,
+            fileAttachments,
+            collaborationMode,
+          )
+        } else if (modelId && modelId !== MODEL_FALLBACK_ID && isUnsupportedChatGptModelError(unknownError)) {
           await applyFallbackModelSelection(threadId)
           setPendingTurnRequest(threadId, {
             text: normalizedText,

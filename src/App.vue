@@ -285,6 +285,34 @@
                 <p v-else class="sidebar-settings-field-help">{{ t('Leave empty for browser/PWA same-origin mode. Reload after changing to reconnect active streams.') }}</p>
               </div>
 
+              <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.browserAnnotationListen" @click="isListenSettingsOpen = !isListenSettingsOpen">
+                <span class="sidebar-settings-label">{{ t('Listen settings') }}</span>
+                <span class="sidebar-settings-value">{{ browserAnnotationSettingsStatusLabel }}</span>
+              </button>
+              <BrowserAnnotationListenerPanel
+                v-if="isListenSettingsOpen"
+                :session="browserAnnotationSession"
+                :pairing-token="browserAnnotationPairingToken"
+                :phase="browserAnnotationPhase"
+                :error-message="browserAnnotationErrorMessage"
+                :copied-field="browserAnnotationCopiedField"
+                :details-open="isBrowserAnnotationDetailsOpen"
+                :is-busy="isBrowserAnnotationListenerBusy"
+                :is-active="isBrowserAnnotationListenerActive"
+                :can-listen="selectedThreadId.length > 0"
+                :target-thread-title="browserAnnotationTargetThreadTitle"
+                :listener-url="browserAnnotationListenerUrl"
+                :expires-label="browserAnnotationExpiresLabel"
+                :last-batch-label="browserAnnotationLastBatchLabel"
+                :last-batch-context-label="browserAnnotationLastBatchContextLabel"
+                :status-text="browserAnnotationStatusText"
+                @start="startBrowserAnnotationListener"
+                @stop="stopBrowserAnnotationListener"
+                @update:details-open="isBrowserAnnotationDetailsOpen = $event"
+                @copy-url="onCopyBrowserAnnotationUrl"
+                @copy-token="onCopyBrowserAnnotationToken"
+              />
+
               <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.githubTrendingProjects" @click="toggleGithubTrendingProjects">
                 <span class="sidebar-settings-label">{{ t('GitHub trending projects') }}</span>
                 <span class="sidebar-settings-toggle" :class="{ 'is-on': showGithubTrendingProjects }" />
@@ -1111,11 +1139,16 @@
                     :dictation-language="dictationLanguage"
                     :dictation-background-transcription="true"
                     :dictation-status-message="activeDictationStatusMessage"
+                    :show-browser-annotation-listen="selectedThreadId.length > 0"
+                    :is-browser-annotation-listener-active="isBrowserAnnotationListenerActive"
+                    :is-browser-annotation-listener-busy="isBrowserAnnotationListenerBusy"
+                    :browser-annotation-listener-title="browserAnnotationButtonTitle"
                     @update:selected-collaboration-mode="onSelectCollaborationMode"
                     @submit="onSubmitThreadMessage" @dictation-recording-ready="onDictationRecordingReady" @slash-command="onSlashCommand" @update:selected-model="onSelectModel"
                     @update:selected-reasoning-effort="onSelectReasoningEffort"
                     @update:selected-speed-mode="onSelectSpeedMode"
                     @dictation-input-updated="onDictationInputUpdated"
+                    @toggle-browser-annotation-listener="toggleBrowserAnnotationListener"
                     @interrupt="onInterruptTurn" />
                 </div>
               </template>
@@ -1221,6 +1254,7 @@ import SidebarThreadTree from './components/sidebar/SidebarThreadTree.vue'
 import ContentHeader from './components/content/ContentHeader.vue'
 import ThreadComposer from './components/content/ThreadComposer.vue'
 import ThreadPendingRequestPanel from './components/content/ThreadPendingRequestPanel.vue'
+import BrowserAnnotationListenerPanel from './components/content/BrowserAnnotationListenerPanel.vue'
 import QueuedMessages from './components/content/QueuedMessages.vue'
 import RateLimitStatus from './components/content/RateLimitStatus.vue'
 import TaskNotificationsSetting from './components/content/TaskNotificationsSetting.vue'
@@ -1240,6 +1274,7 @@ import { useMobile } from './composables/useMobile'
 import { useTaskNotificationClientPresence } from './composables/useTaskNotificationClientPresence'
 import { useUiLanguage } from './composables/useUiLanguage'
 import { useFeedbackDiagnostics } from './composables/useFeedbackDiagnostics'
+import { useBrowserAnnotationListener } from './composables/useBrowserAnnotationListener'
 import {
   useDictationBackgroundJobs,
   type CreateDictationBackgroundJobInput,
@@ -1322,6 +1357,7 @@ const SETTINGS_HELP = {
   dictationAutoSend: t('Automatically send transcribed dictation when recording stops.'),
   dictationLastInput: t('Last microphone reported by the browser after dictation starts.'),
   backendUrl: t('Remote Codex UI server used by the iOS shell for API and WebSocket traffic.'),
+  browserAnnotationListen: t('Pair the browser annotation extension with the selected thread.'),
   githubTrendingProjects: t('Show or hide GitHub trending project cards on the new thread screen.'),
   dictationLanguage: t('Choose transcription language or keep auto-detect.'),
 } as const
@@ -1702,6 +1738,7 @@ const customEndpointKey = ref('')
 const customEndpointWireApi = ref<'responses' | 'chat'>('responses')
 const openRouterWireApi = ref<'responses' | 'chat'>('responses')
 const opencodeZenKey = ref('')
+const isListenSettingsOpen = ref(false)
 const isTelegramConfigOpen = ref(false)
 const telegramBotTokenDraft = ref('')
 const telegramAllowedUserIdsDraft = ref('')
@@ -1854,6 +1891,29 @@ const selectedThreadPendingRequest = computed<UiServerRequest | null>(() => {
   const rows = selectedThreadServerRequests.value
   return rows.length > 0 ? rows[rows.length - 1] : null
 })
+const selectedThreadListenTitle = computed(() => selectedThread.value?.title?.trim() || t('Untitled thread'))
+const {
+  session: browserAnnotationSession,
+  pairingToken: browserAnnotationPairingToken,
+  phase: browserAnnotationPhase,
+  errorMessage: browserAnnotationErrorMessage,
+  copiedField: browserAnnotationCopiedField,
+  detailsOpen: isBrowserAnnotationDetailsOpen,
+  isBusy: isBrowserAnnotationListenerBusy,
+  isActive: isBrowserAnnotationListenerActive,
+  targetThreadTitle: browserAnnotationTargetThreadTitle,
+  listenerUrl: browserAnnotationListenerUrl,
+  expiresLabel: browserAnnotationExpiresLabel,
+  lastBatchLabel: browserAnnotationLastBatchLabel,
+  lastBatchContextLabel: browserAnnotationLastBatchContextLabel,
+  statusText: browserAnnotationStatusText,
+  buttonTitle: browserAnnotationButtonTitle,
+  settingsStatusLabel: browserAnnotationSettingsStatusLabel,
+  start: startBrowserAnnotationListener,
+  stop: stopBrowserAnnotationListener,
+  toggle: toggleBrowserAnnotationListener,
+  copyText: copyBrowserAnnotationText,
+} = useBrowserAnnotationListener(selectedThreadId, selectedThreadListenTitle)
 const composerCwd = computed(() => {
   if (isHomeRoute.value) return newThreadCwd.value.trim()
   return selectedThread.value?.cwd?.trim() ?? ''
@@ -2476,6 +2536,14 @@ async function onCreateAutomationFromPanel(): Promise<void> {
 function onAutomationsChanged(): void {
   if (route.name !== 'automations') return
   void automationsPanelRef.value?.loadAutomations()
+}
+
+function onCopyBrowserAnnotationUrl(): void {
+  void copyBrowserAnnotationText(browserAnnotationListenerUrl.value, 'url')
+}
+
+function onCopyBrowserAnnotationToken(): void {
+  void copyBrowserAnnotationText(browserAnnotationPairingToken.value, 'token')
 }
 
 async function onExportThread(threadId: string): Promise<void> {
