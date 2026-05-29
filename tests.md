@@ -6881,3 +6881,34 @@ Render the browser annotation test page `Sample card` heading with a more decora
 
 #### Rollback/Cleanup
 - Stop any temporary dev or static server started for this check.
+
+---
+
+### Compact Browser Annotation Listen Control
+
+#### Feature/Change Name
+Move browser annotation listening from the wide thread banner into the composer button row and sidebar settings.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Start Codex UI with `pnpm run dev --host 127.0.0.1 --port 4173`.
+3. Open an existing thread that can receive browser annotation batches.
+
+#### Steps
+1. Open the selected thread in light theme.
+2. Confirm the previous wide `Listen for browser annotations` banner is not shown above the composer.
+3. Confirm a compact black `Listen` button appears in the composer action row, immediately to the left of the microphone button.
+4. Click `Listen` and confirm it starts a listener for the selected thread without resizing the composer.
+5. Open the sidebar `Settings` popup, click `Listen settings`, and confirm the listener status, thread, expiry, setup disclosure, server URL, and pairing token controls are available.
+6. Use the setup disclosure and copy controls, then click `Stop` from `Listen settings`.
+7. Switch to dark theme and repeat steps 2-6.
+
+#### Expected Results
+- The thread no longer loses vertical space to a persistent listen banner.
+- The compact `Listen` button stays aligned with the microphone and send controls in light and dark themes.
+- Active, busy, stopped, expired, and error states are reflected in the sidebar `Listen settings` section.
+- Server URL and pairing token copy controls remain readable and usable in both themes.
+
+#### Rollback/Cleanup
+- Stop any active browser annotation listener before leaving the test thread.
+- No generated artifacts are required for this test.

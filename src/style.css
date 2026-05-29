@@ -304,6 +304,10 @@ html::after {
   @apply bg-zinc-700 text-zinc-500;
 }
 
+:root.dark .thread-composer-listen {
+  @apply bg-zinc-100 text-zinc-950 hover:bg-zinc-200 disabled:bg-zinc-700 disabled:text-zinc-500;
+}
+
 :root.dark .thread-composer-mic {
   @apply bg-zinc-700 text-zinc-400 hover:bg-zinc-600 hover:text-zinc-200;
 }
