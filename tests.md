@@ -6912,3 +6912,113 @@ Move browser annotation listening from the wide thread banner into the composer 
 #### Rollback/Cleanup
 - Stop any active browser annotation listener before leaving the test thread.
 - No generated artifacts are required for this test.
+
+---
+
+### Side Chat Ephemeral Thread Panel
+
+#### Feature/Change Name
+One-off Side Chat opened from the active thread with `/side` or the `Side` header action.
+
+#### Prerequisites/Setup
+1. Run the app from the repository root with a Codex CLI/app-server version that supports `thread/fork` with `ephemeral: true`.
+2. Open an existing thread with enough context to ask a follow-up question.
+3. Keep the main thread visible so message pollution can be checked.
+
+#### Steps
+1. In light theme, open an existing thread and click the `Side` button in the content header.
+2. Confirm a right-side panel appears on desktop, or a stacked bottom panel appears on narrow/mobile layout.
+3. Type a short question in the Side composer and send it.
+4. Confirm the side question and response render inside the Side panel while the main transcript does not receive the side question or side answer.
+5. Send `/side quick context question` from the main composer.
+6. Confirm the Side panel opens, the argument text is sent to Side Chat, and the selected main thread remains selected.
+7. Trigger or mock a side-thread request that uses `item/tool/requestUserInput` or an approval method.
+8. Confirm the pending request appears inside the Side panel and that responding continues the side thread.
+9. Close the Side panel and confirm the main thread selection, main messages, terminal panel state, and review mode state remain unchanged.
+10. Repeat steps 1-9 in dark theme and confirm the Side button, panel, messages, pending request panel, input, and send/close buttons use dark-theme surfaces without light panels.
+11. With an older backend that rejects `ephemeral` fork parameters, click `Side` and confirm the UI shows a clear error instead of sending the question to the main thread.
+
+#### Expected Results
+- Opening Side Chat calls the side fork path and does not navigate to another thread.
+- Side messages, live status, reasoning text, and server requests are isolated to the side panel.
+- Main-thread sending, queueing, terminal controls, review mode, and pending requests continue to behave as before.
+- Closing Side Chat clears the temporary side UI only.
+- Unsupported ephemeral fork behavior is explicit and safe.
+- Light and dark theme layouts are readable and intentional on desktop and mobile widths.
+
+#### Rollback/Cleanup
+- Close the Side panel. Ephemeral side thread UI state is temporary and should not appear in the sidebar as a normal persisted thread.
+
+---
+
+### Side Chat One-Off Thread Panel
+
+#### Feature/Change Name
+Temporary `/side` chat panel for questions against the active thread context.
+
+#### Prerequisites/Setup
+1. Run the app locally and open an existing thread.
+2. Use a Codex app-server build that supports ephemeral `thread/fork` requests.
+3. Keep a second ordinary thread available for checking that main-thread selection is unchanged.
+
+#### Steps
+1. In light theme, open an existing thread and click the `Side` action in the content header.
+2. Confirm a right-side Side panel opens beside the main conversation, with the main composer still below the main thread.
+3. Type a short question in the Side panel and send it.
+4. Confirm the side message and live answer appear only in the Side panel and do not append to the main transcript.
+5. Trigger `/side <question>` from the main composer and confirm the Side panel opens and sends the text there.
+6. If Codex requests approval or input from the side turn, confirm the request appears inside the Side panel and responses continue the side turn.
+7. Close the Side panel and confirm the selected main thread, its messages, and its composer draft remain intact.
+8. Repeat steps 1-7 in dark theme and confirm the header button, side panel, messages, request panel, and composer all use dark colors without light-theme surfaces.
+9. On a narrow viewport, confirm the Side panel stacks below the main conversation instead of overlapping the composer.
+10. Run `pnpm exec vitest run src/codexSlashCommands.test.ts src/api/codexGateway.test.ts src/composables/useDesktopState.test.ts --reporter=verbose`.
+11. Run `pnpm run build`.
+
+#### Expected Results
+- Side Chat opens from the header button or `/side`.
+- Side turns use an ephemeral fork and main-thread messages remain unpolluted.
+- Unsupported ephemeral fork behavior surfaces as a visible error instead of falling back to the main thread.
+- Closing Side Chat clears the temporary side surface without changing the selected main thread.
+- Light and dark theme surfaces are readable and consistent.
+
+#### Rollback/Cleanup
+- Close the Side panel. The first release treats Side Chat as temporary one-off state, so no side thread is intentionally persisted in the UI.
+
+---
+
+### Side Chat Real Answer Regression
+
+#### Feature/Change Name
+Side Chat keeps the side answer visible after the ephemeral side turn completes.
+
+#### Prerequisites/Setup
+1. Run the merged main worktree on a non-production port:
+   `pnpm run dev --host 127.0.0.1 --port 4174`
+2. Open a real existing thread with enough context for a follow-up question.
+3. Keep the main thread selected while the Side panel is open.
+
+#### Steps
+1. In light theme, run:
+   `BASE_URL=http://127.0.0.1:4174 SIDE_CHAT_TIMEOUT_MS=180000 node scripts/side-chat-real-behavior.cjs`
+2. Confirm the script opens the configured real thread, clicks `Side`, sends a side-only question, and waits for both a non-empty Codex answer and a completed `Worked for ...` side-turn summary.
+3. Confirm the screenshot at `output/playwright/side-chat-real-behavior-pass.png` shows the assistant answer in the Side panel and no side question/answer appended to the main transcript.
+4. Confirm `output/playwright/side-chat-real-behavior-log.json` reports `fetchErrors: []` and at least one `turn/completed` websocket notification.
+5. In dark theme, run:
+   `BASE_URL=http://127.0.0.1:4174 SIDE_CHAT_TIMEOUT_MS=180000 SIDE_CHAT_DARK=1 node scripts/side-chat-real-behavior.cjs`
+6. Confirm the dark screenshot at `output/playwright/side-chat-real-behavior-dark.png` shows the answer and completed summary without light-theme surfaces.
+7. Confirm the dev-server log does not emit `[thread-title] Automatic title generation failed` for the ephemeral side thread after the side turn completes.
+8. Run the focused unit regression:
+   `pnpm exec vitest run src/server/threadAutoTitle.test.ts src/composables/useDesktopState.test.ts src/api/codexGateway.test.ts src/codexSlashCommands.test.ts --reporter=verbose`
+
+#### Expected Results
+- The Playwright script exits successfully and prints the side answer, `Worked for ...`, and screenshot path.
+- The Playwright log reports no `/codex-api` 4xx/5xx responses.
+- The Side panel shows the assistant answer from the main thread context after `turn/completed`.
+- The Side panel no longer stays stuck on `Thinking` after side-thread notification sync or completed live deltas.
+- Ephemeral side turns do not trigger automatic title-generation retries or warnings.
+- Main-thread selection and transcript remain unchanged by the side turn.
+- Light and dark theme side surfaces remain readable while the answer is visible.
+
+#### Rollback/Cleanup
+- Stop the temporary `4174` dev server after verification.
+- Close the Side panel. Ephemeral side thread UI state remains temporary.
