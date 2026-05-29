@@ -6796,6 +6796,37 @@ Render the browser annotation test page `Sample action` button as a green action
 
 ---
 
+### Previous Response Diagnostics Noise Filtering
+
+#### Feature/Change Name
+Cleaner `previous_response_not_found` diagnostics with structured app-server context.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Dependencies are installed.
+3. Optional: set `CODEXUI_PREVIOUS_RESPONSE_ERROR_LOG=/tmp/codexui-prev-response.jsonl` to write the diagnostic log outside `output/`.
+
+#### Steps
+1. Run `pnpm vitest run src/server/previousResponseDiagnostics.test.ts src/server/unifiedResponsesProxy.test.ts`.
+2. Run `pnpm exec tsc --noEmit -p tsconfig.server.json`.
+3. Start Codex UI normally and continue using threads until another `previous_response_not_found` failure appears.
+4. Inspect `output/previous-response-errors.jsonl` or the configured log path.
+5. Confirm new app-server entries are limited to real `method: "error"` and failed `method: "turn/completed"` events.
+6. Confirm entries include structured `responseId`, `status`, `threadId`, `turnId`, cached `config`, cached `thread`, and recent RPC context when available.
+7. Confirm user messages and command output that merely contain the error text do not create new app-server diagnostic rows.
+8. Light and dark theme verification is not applicable because this change has no UI surface.
+
+#### Expected Results
+- The focused Vitest files pass.
+- The server typecheck passes.
+- Diagnostic rows are quieter and more useful for root-cause analysis of stale `previous_response_id` failures.
+- Normal UI rendering is unchanged in both light and dark themes.
+
+#### Rollback/Cleanup
+- Delete any temporary diagnostic log used for testing, or unset `CODEXUI_PREVIOUS_RESPONSE_ERROR_LOG` to return to the default path.
+
+---
+
 ### Browser Annotation Test Page Sample Card Heading Font
 
 #### Feature/Change Name

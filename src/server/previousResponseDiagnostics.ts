@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path'
 
 const DEFAULT_LOG_PATH = resolve(process.cwd(), 'output', 'previous-response-errors.jsonl')
 const MAX_TEXT_LENGTH = 1200
+const MAX_MATCH_DEPTH = 8
 
 let warnedAboutWriteFailure = false
 
@@ -16,6 +17,117 @@ function safeJson(value: unknown): string {
   } catch {
     return String(value)
   }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function parseJsonRecord(value: string): Record<string, unknown> | null {
+  const trimmed = value.trim()
+  if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return null
+  try {
+    return asRecord(JSON.parse(trimmed) as unknown)
+  } catch {
+    return null
+  }
+}
+
+function isPreviousResponseText(value: string): boolean {
+  return (
+    /previous_response_not_found/i.test(value)
+    || (/previous[_\s-]+response/i.test(value) && /not[_\s-]+found/i.test(value))
+    || (/previous_response_id/i.test(value) && /not[_\s-]+found/i.test(value))
+  )
+}
+
+function readString(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function readNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function extractPreviousResponseId(message: string): string | null {
+  const quoted = message.match(/Previous response with id ['"]([^'"]+)['"] not found/i)?.[1]
+  if (quoted) return quoted
+  return message.match(/\b(resp_[A-Za-z0-9_-]+)\b/u)?.[1] ?? null
+}
+
+function recordLooksLikePreviousResponseError(record: Record<string, unknown>): boolean {
+  const type = readString(record.type)
+  const code = readString(record.code)
+  const param = readString(record.param)
+  const message = readString(record.message)
+  return (
+    code === 'previous_response_not_found'
+    || type === 'previous_response_not_found'
+    || (param === 'previous_response_id' && isPreviousResponseText(message))
+    || isPreviousResponseText(message)
+  )
+}
+
+type PreviousResponseErrorMatch = {
+  container: Record<string, unknown> | null
+  error: Record<string, unknown> | null
+  text: string
+}
+
+function findPreviousResponseErrorMatch(value: unknown, depth = 0): PreviousResponseErrorMatch | null {
+  if (depth > MAX_MATCH_DEPTH) return null
+
+  if (typeof value === 'string') {
+    const parsed = parseJsonRecord(value)
+    if (parsed) {
+      const nested = findPreviousResponseErrorMatch(parsed, depth + 1)
+      if (nested) return nested
+    }
+    return isPreviousResponseText(value)
+      ? { container: null, error: null, text: value }
+      : null
+  }
+
+  const record = asRecord(value)
+  if (!record) return null
+
+  const error = asRecord(record.error)
+  const errorMessage = readString(error?.message)
+  if (errorMessage) {
+    const parsed = parseJsonRecord(errorMessage)
+    if (parsed) {
+      const nested = findPreviousResponseErrorMatch(parsed, depth + 1)
+      if (nested) return nested
+    }
+  }
+
+  if (error && recordLooksLikePreviousResponseError(error)) {
+    return { container: record, error, text: readString(error.message) || safeJson(error) }
+  }
+
+  const message = readString(record.message)
+  if (message) {
+    const parsed = parseJsonRecord(message)
+    if (parsed) {
+      const nested = findPreviousResponseErrorMatch(parsed, depth + 1)
+      if (nested) return nested
+    }
+  }
+
+  if (recordLooksLikePreviousResponseError(record)) {
+    return { container: record, error: record, text: readString(record.message) || safeJson(record) }
+  }
+
+  const prioritizedKeys = ['error', 'params', 'turn', 'message', 'cause', 'additionalDetails', 'additional_details']
+  for (const key of prioritizedKeys) {
+    if (!Object.prototype.hasOwnProperty.call(record, key)) continue
+    const nested = findPreviousResponseErrorMatch(record[key], depth + 1)
+    if (nested) return nested
+  }
+
+  return null
 }
 
 export function getPreviousResponseDiagnosticsLogPath(): string {
@@ -37,31 +149,26 @@ export function redactDiagnosticUrl(value: string): string {
 }
 
 export function isPreviousResponseNotFoundLike(value: unknown): boolean {
-  const text = typeof value === 'string' ? value : safeJson(value)
-  return (
-    /previous_response_not_found/i.test(text)
-    || (/previous[_\s-]+response/i.test(text) && /not[_\s-]+found/i.test(text))
-    || (/previous_response_id/i.test(text) && /not[_\s-]+found/i.test(text))
-  )
+  return Boolean(findPreviousResponseErrorMatch(value))
 }
 
 export function summarizePreviousResponseError(value: unknown): Record<string, unknown> {
-  const record = value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null
-  const error = record?.error && typeof record.error === 'object' && !Array.isArray(record.error)
-    ? record.error as Record<string, unknown>
-    : record
-
-  if (!error) {
+  const match = findPreviousResponseErrorMatch(value)
+  if (!match) {
     return { message: truncateText(typeof value === 'string' ? value : safeJson(value)) }
   }
 
+  const error = match.error
+  const container = match.container
+  const message = error ? readString(error.message) || match.text : match.text
+
   return {
-    type: typeof error.type === 'string' ? error.type : null,
-    code: typeof error.code === 'string' ? error.code : null,
-    param: typeof error.param === 'string' ? error.param : null,
-    message: truncateText(typeof error.message === 'string' ? error.message : safeJson(error)),
+    type: error ? readString(error.type) || null : null,
+    code: error ? readString(error.code) || null : null,
+    param: error ? readString(error.param) || null : null,
+    status: readNumber(container?.status) ?? readNumber(error?.status),
+    responseId: extractPreviousResponseId(message),
+    message: truncateText(message),
   }
 }
 
