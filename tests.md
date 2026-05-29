@@ -46,7 +46,7 @@ This file tracks manual regression and feature verification steps.
 ### Feature: Browser annotation voice metadata contract
 
 #### Prerequisites
-- Work from the repository root on `browser-annotation-devtools`.
+- Work from the repository root on `main`.
 - No extension UI recording flow is required; this covers shared extension-side metadata only.
 
 #### Steps
@@ -5932,22 +5932,22 @@ Active-thread `Listen for browser annotations` panel.
 3. No Chrome extension is required for this UI smoke check.
 
 #### Steps
-1. In light theme, open a thread and confirm the compact listener panel appears above the composer.
+1. In light theme, open a thread and click the three-dot thread feature menu in the content header.
 2. Click `Listen`.
-3. Confirm the panel shows active status, the selected thread title, expiry time, copyable server URL, and a pairing token.
+3. Open sidebar `Settings` > `Listen settings` and confirm the panel shows active status, the selected thread title, expiry time, copyable server URL, and a pairing token.
 4. Click `Copy` for the server URL and pairing token and confirm the copied-state label appears briefly.
 5. Click `Stop` and confirm the token disappears and status changes away from active.
 6. Start listening again, switch to a different thread before the request completes if possible, and confirm the old thread token is not shown on the new thread.
-7. Repeat steps 1-5 in dark theme and confirm surfaces, text, inputs, and buttons use dark colors without light-theme panels.
+7. Repeat steps 1-5 in dark theme and confirm the feature menu, settings surfaces, text, inputs, and buttons use dark colors without light-theme panels.
 8. Run `pnpm vitest run src/api/codexGateway.test.ts --reporter=verbose`.
 9. Run `pnpm exec vue-tsc --noEmit`.
 
 #### Expected Results
-- The panel is idle until the user clicks `Listen`; no startup request is made.
+- The settings panel is idle until the user clicks `Listen` from the feature menu; no startup request is made.
 - A start request creates one short-lived session for the active thread.
 - While active, status polling runs at a 15-second cadence and includes `sessionId` and `threadId`.
 - Pairing token is visible only while the listener is active and is cleared on stop, expiry/status failure, thread change, and unmount.
-- Light and dark theme panels are readable and visually consistent with the composer area.
+- Light and dark theme panels are readable and visually consistent with the header/settings surfaces.
 - Phase 1 verification captured `output/playwright/browser-annotation-listener-light.png` and `output/playwright/browser-annotation-listener-dark.png`; dark mode shell background was `rgb(24, 24, 27)` and the token disappeared after Stop.
 
 #### Rollback/Cleanup
@@ -6697,10 +6697,10 @@ Harden extension queue/lifecycle behavior and reject stale in-flight server requ
 Allow the browser annotation extension to request access for normal `http(s)` sites at runtime, cancel selected annotations from the overlay, and keep the Codex UI listener compact.
 
 #### Prerequisites/Setup
-1. Run from the repository root on `browser-annotation-devtools`.
+1. Run from the repository root on `main`.
 2. Build or use the packaged extension from `pnpm run pack:browser-annotation`.
 3. Install the fresh extension artifact in Chrome.
-4. Open Codex UI on the browser annotation branch and start a listener from the target thread.
+4. Open Codex UI on `main` and start a listener from the target thread through the header feature menu.
 
 #### Steps
 1. Run `node extension/browser-annotation/dev/validate-extension.mjs`.
@@ -6887,7 +6887,7 @@ Render the browser annotation test page `Sample card` heading with a more decora
 ### Compact Browser Annotation Listen Control
 
 #### Feature/Change Name
-Move browser annotation listening from the wide thread banner into the composer button row and sidebar settings.
+Move browser annotation listening from the composer row into the shared thread feature menu and sidebar settings.
 
 #### Prerequisites/Setup
 1. Run from the repository root.
@@ -6897,16 +6897,21 @@ Move browser annotation listening from the wide thread banner into the composer 
 #### Steps
 1. Open the selected thread in light theme.
 2. Confirm the previous wide `Listen for browser annotations` banner is not shown above the composer.
-3. Confirm a compact black `Listen` button appears in the composer action row, immediately to the left of the microphone button.
-4. Click `Listen` and confirm it starts a listener for the selected thread without resizing the composer.
-5. Open the sidebar `Settings` popup, click `Listen settings`, and confirm the listener status, thread, expiry, setup disclosure, server URL, and pairing token controls are available.
-6. Use the setup disclosure and copy controls, then click `Stop` from `Listen settings`.
-7. Switch to dark theme and repeat steps 2-6.
+3. Confirm there is no standalone `Listen` button in the composer action row.
+4. Click the top header thread feature menu button with the three-dot icon.
+5. Confirm the dropdown contains `Side` and `Listen`.
+6. Click `Listen` and confirm it starts a listener for the selected thread without resizing the composer.
+7. Reopen the feature menu and confirm the listener row shows an active/busy state while appropriate.
+8. Open the sidebar `Settings` popup, click `Listen settings`, and confirm the listener status, thread, expiry, setup disclosure, server URL, and pairing token controls are available.
+9. Use the setup disclosure and copy controls, then click `Stop` from `Listen settings`.
+10. Switch to dark theme and repeat steps 2-9.
 
 #### Expected Results
 - The thread no longer loses vertical space to a persistent listen banner.
-- The compact `Listen` button stays aligned with the microphone and send controls in light and dark themes.
+- Thread features are grouped under one top header menu instead of separate header/composer buttons.
+- The composer microphone and send controls keep their alignment after the standalone `Listen` button is removed.
 - Active, busy, stopped, expired, and error states are reflected in the sidebar `Listen settings` section.
+- The feature menu trigger, dropdown, statuses, and menu items remain readable in light and dark themes.
 - Server URL and pairing token copy controls remain readable and usable in both themes.
 
 #### Rollback/Cleanup
@@ -6915,10 +6920,45 @@ Move browser annotation listening from the wide thread banner into the composer 
 
 ---
 
+### Thread Feature Menu For Side And Listen
+
+#### Feature/Change Name
+Group thread-level feature actions under a single three-dot header menu.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Start Codex UI with `pnpm run dev --host 127.0.0.1 --port 4173`.
+3. Open an existing thread in light theme.
+
+#### Steps
+1. Confirm the content header shows one circular three-dot feature menu button.
+2. Confirm there is no standalone `Side` button in the header and no standalone `Listen` button in the composer.
+3. Open the feature menu and confirm it lists `Side` and `Listen`.
+4. Click outside the menu and confirm it closes.
+5. Reopen the menu, press Escape, and confirm it closes.
+6. Reopen the menu and click `Side`; confirm the Side panel opens and the feature menu trigger indicates an active feature.
+7. Close Side, reopen the feature menu, click `Listen`, and confirm listener state is visible in `Settings` > `Listen settings`.
+8. Stop the listener from `Listen settings`.
+9. Repeat steps 1-8 in dark theme.
+10. Repeat steps 1-5 at mobile width and confirm the menu fits without clipping or overlapping the branch/terminal controls.
+
+#### Expected Results
+- Thread features are discoverable from a single header menu.
+- Side Chat and browser annotation listener behavior remain unchanged after moving their entry points.
+- The menu closes on outside click, Escape, and after selecting an action.
+- Light and dark theme menu surfaces, active states, disabled states, and status pills are readable.
+- The composer action row remains stable after removing the standalone `Listen` button.
+
+#### Rollback/Cleanup
+- Stop any active browser annotation listener.
+- Close the Side panel before leaving the thread.
+
+---
+
 ### Side Chat Ephemeral Thread Panel
 
 #### Feature/Change Name
-One-off Side Chat opened from the active thread with `/side` or the `Side` header action.
+One-off Side Chat opened from the active thread with `/side` or the shared thread feature menu.
 
 #### Prerequisites/Setup
 1. Run the app from the repository root with a Codex CLI/app-server version that supports `thread/fork` with `ephemeral: true`.
@@ -6926,7 +6966,7 @@ One-off Side Chat opened from the active thread with `/side` or the `Side` heade
 3. Keep the main thread visible so message pollution can be checked.
 
 #### Steps
-1. In light theme, open an existing thread and click the `Side` button in the content header.
+1. In light theme, open an existing thread, click the three-dot thread feature menu in the content header, then click `Side`.
 2. Confirm a right-side panel appears on desktop, or a stacked bottom panel appears on narrow/mobile layout.
 3. Type a short question in the Side composer and send it.
 4. Confirm the side question and response render inside the Side panel while the main transcript does not receive the side question or side answer.
@@ -6935,8 +6975,8 @@ One-off Side Chat opened from the active thread with `/side` or the `Side` heade
 7. Trigger or mock a side-thread request that uses `item/tool/requestUserInput` or an approval method.
 8. Confirm the pending request appears inside the Side panel and that responding continues the side thread.
 9. Close the Side panel and confirm the main thread selection, main messages, terminal panel state, and review mode state remain unchanged.
-10. Repeat steps 1-9 in dark theme and confirm the Side button, panel, messages, pending request panel, input, and send/close buttons use dark-theme surfaces without light panels.
-11. With an older backend that rejects `ephemeral` fork parameters, click `Side` and confirm the UI shows a clear error instead of sending the question to the main thread.
+10. Repeat steps 1-9 in dark theme and confirm the feature menu, Side panel, messages, pending request panel, input, and send/close buttons use dark-theme surfaces without light panels.
+11. With an older backend that rejects `ephemeral` fork parameters, choose `Side` from the feature menu and confirm the UI shows a clear error instead of sending the question to the main thread.
 
 #### Expected Results
 - Opening Side Chat calls the side fork path and does not navigate to another thread.
@@ -6962,20 +7002,20 @@ Temporary `/side` chat panel for questions against the active thread context.
 3. Keep a second ordinary thread available for checking that main-thread selection is unchanged.
 
 #### Steps
-1. In light theme, open an existing thread and click the `Side` action in the content header.
+1. In light theme, open an existing thread, click the three-dot thread feature menu in the content header, then click `Side`.
 2. Confirm a right-side Side panel opens beside the main conversation, with the main composer still below the main thread.
 3. Type a short question in the Side panel and send it.
 4. Confirm the side message and live answer appear only in the Side panel and do not append to the main transcript.
 5. Trigger `/side <question>` from the main composer and confirm the Side panel opens and sends the text there.
 6. If Codex requests approval or input from the side turn, confirm the request appears inside the Side panel and responses continue the side turn.
 7. Close the Side panel and confirm the selected main thread, its messages, and its composer draft remain intact.
-8. Repeat steps 1-7 in dark theme and confirm the header button, side panel, messages, request panel, and composer all use dark colors without light-theme surfaces.
+8. Repeat steps 1-7 in dark theme and confirm the feature menu, side panel, messages, request panel, and composer all use dark colors without light-theme surfaces.
 9. On a narrow viewport, confirm the Side panel stacks below the main conversation instead of overlapping the composer.
 10. Run `pnpm exec vitest run src/codexSlashCommands.test.ts src/api/codexGateway.test.ts src/composables/useDesktopState.test.ts --reporter=verbose`.
 11. Run `pnpm run build`.
 
 #### Expected Results
-- Side Chat opens from the header button or `/side`.
+- Side Chat opens from the shared thread feature menu or `/side`.
 - Side turns use an ephemeral fork and main-thread messages remain unpolluted.
 - Unsupported ephemeral fork behavior surfaces as a visible error instead of falling back to the main thread.
 - Closing Side Chat clears the temporary side surface without changing the selected main thread.

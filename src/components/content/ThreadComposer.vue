@@ -419,21 +419,6 @@
           </button>
 
           <button
-            v-if="showBrowserAnnotationListen && !isDictationActive"
-            class="thread-composer-listen"
-            :class="{ 'thread-composer-listen--active': isBrowserAnnotationListenerActive }"
-            type="button"
-            :aria-label="browserAnnotationListenerTitle || t('Listen for browser annotations')"
-            :title="browserAnnotationListenerTitle || t('Listen for browser annotations')"
-            :aria-pressed="isBrowserAnnotationListenerActive"
-            :disabled="isInteractionDisabled || isBrowserAnnotationListenerBusy"
-            @click="$emit('toggle-browser-annotation-listener')"
-          >
-            <span v-if="isBrowserAnnotationListenerBusy" class="thread-composer-listen-spinner" aria-hidden="true" />
-            <span>{{ t('Listen') }}</span>
-          </button>
-
-          <button
             v-if="isDictationSupported"
             class="thread-composer-mic"
             :class="{
@@ -604,10 +589,6 @@ const props = defineProps<{
   dictationLanguage?: string
   dictationBackgroundTranscription?: boolean
   dictationStatusMessage?: string
-  showBrowserAnnotationListen?: boolean
-  isBrowserAnnotationListenerActive?: boolean
-  isBrowserAnnotationListenerBusy?: boolean
-  browserAnnotationListenerTitle?: string
 }>()
 
 export type FileAttachment = { label: string; path: string; fsPath: string }
@@ -645,7 +626,6 @@ const emit = defineEmits<{
   'update:selected-reasoning-effort': [effort: ReasoningEffort | '']
   'update:selected-speed-mode': [mode: SpeedMode]
   'dictation-input-updated': [info: DictationAudioInputInfo]
-  'toggle-browser-annotation-listener': []
 }>()
 const { t } = useUiLanguage()
 
@@ -2699,25 +2679,6 @@ watch(
 
 .thread-composer-actions--recording {
   @apply ml-0 flex-1;
-}
-
-.thread-composer-listen {
-  @apply inline-flex h-9 min-w-[4.25rem] shrink-0 items-center justify-center gap-1.5 rounded-full border-0 bg-zinc-900 px-3 text-xs font-medium text-zinc-50 transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-200 disabled:text-zinc-500;
-}
-
-.thread-composer-listen--active {
-  @apply shadow-[0_0_0_2px_rgba(34,197,94,0.35)];
-}
-
-.thread-composer-listen-spinner {
-  @apply h-3 w-3 rounded-full border-2 border-zinc-400 border-t-transparent;
-  animation: thread-composer-listen-spin 700ms linear infinite;
-}
-
-@keyframes thread-composer-listen-spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 .thread-composer-mic {

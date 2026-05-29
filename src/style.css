@@ -304,10 +304,6 @@ html::after {
   @apply bg-zinc-700 text-zinc-500;
 }
 
-:root.dark .thread-composer-listen {
-  @apply bg-zinc-100 text-zinc-950 hover:bg-zinc-200 disabled:bg-zinc-700 disabled:text-zinc-500;
-}
-
 :root.dark .thread-composer-mic {
   @apply bg-zinc-700 text-zinc-400 hover:bg-zinc-600 hover:text-zinc-200;
 }
@@ -394,12 +390,29 @@ html::after {
   @apply border-zinc-700 bg-zinc-950;
 }
 
-:root.dark .content-header-side-chat {
+:root.dark .content-header-feature-trigger {
   @apply border-zinc-700 bg-zinc-900 text-zinc-200 hover:bg-zinc-800 focus:ring-zinc-600;
 }
 
-:root.dark .content-header-side-chat.is-open {
+:root.dark .content-header-feature-trigger.is-open,
+:root.dark .content-header-feature-trigger.is-active {
   @apply border-zinc-100 bg-zinc-100 text-zinc-950 hover:bg-white;
+}
+
+:root.dark .content-header-feature-menu-panel {
+  @apply border-zinc-700 bg-zinc-900 shadow-black/30;
+}
+
+:root.dark .content-header-feature-menu-item {
+  @apply text-zinc-200 hover:bg-zinc-800 focus:bg-zinc-800;
+}
+
+:root.dark .content-header-feature-menu-item.is-active {
+  @apply bg-zinc-800 text-white;
+}
+
+:root.dark .content-header-feature-menu-status {
+  @apply bg-zinc-700 text-zinc-200;
 }
 
 :root.dark .side-chat-panel {

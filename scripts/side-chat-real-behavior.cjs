@@ -123,8 +123,12 @@ async function main() {
     }
     await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {})
 
-    const sideButton = page.getByRole('button', { name: 'Open side chat' })
-    await sideButton.click({ timeout: 30000 })
+    const featureButton = page.getByRole('button', { name: 'Thread features' })
+    await featureButton.click({ timeout: 30000 })
+    await page
+      .getByRole('menu', { name: 'Thread features' })
+      .getByRole('menuitem', { name: /Side/ })
+      .click({ timeout: 30000 })
     const sidePanel = page.locator('.side-chat-panel')
     await sidePanel.waitFor({ state: 'visible', timeout: 30000 })
 

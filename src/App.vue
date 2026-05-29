@@ -649,19 +649,55 @@
             </span>
           </template>
           <template #actions>
-            <button
-              v-if="route.name === 'thread' && selectedThreadId.length > 0"
-              class="content-header-side-chat"
-              :class="{ 'is-open': sideThreadId.length > 0 }"
-              type="button"
-              title="Side chat"
-              aria-label="Open side chat"
-              :aria-pressed="sideThreadId.length > 0"
-              @click="onOpenSideChat"
+            <div
+              v-if="canShowThreadFeatureMenu"
+              ref="threadFeatureMenuRef"
+              class="content-header-feature-menu"
             >
-              <IconTablerGitFork class="content-header-side-chat-icon" />
-              <span class="content-header-side-chat-label">Side</span>
-            </button>
+              <button
+                ref="threadFeatureMenuButtonRef"
+                class="content-header-feature-trigger"
+                :class="{ 'is-open': isThreadFeatureMenuOpen, 'is-active': isThreadFeatureMenuActive }"
+                type="button"
+                :title="threadFeatureMenuTitle"
+                aria-label="Thread features"
+                :aria-expanded="isThreadFeatureMenuOpen"
+                aria-haspopup="menu"
+                @click.stop="toggleThreadFeatureMenu"
+              >
+                <IconTablerDots class="content-header-feature-trigger-icon" />
+              </button>
+              <div
+                v-if="isThreadFeatureMenuOpen"
+                class="content-header-feature-menu-panel"
+                role="menu"
+                aria-label="Thread features"
+              >
+                <button
+                  class="content-header-feature-menu-item"
+                  :class="{ 'is-active': sideThreadId.length > 0 }"
+                  type="button"
+                  role="menuitem"
+                  @click="onOpenSideChatFromFeatureMenu"
+                >
+                  <IconTablerGitFork class="content-header-feature-menu-icon" />
+                  <span class="content-header-feature-menu-text">Side</span>
+                  <span v-if="sideThreadId.length > 0" class="content-header-feature-menu-status">Open</span>
+                </button>
+                <button
+                  class="content-header-feature-menu-item"
+                  :class="{ 'is-active': isBrowserAnnotationListenerActive }"
+                  type="button"
+                  role="menuitem"
+                  :disabled="isBrowserAnnotationListenerBusy"
+                  @click="onToggleBrowserAnnotationFromFeatureMenu"
+                >
+                  <IconTablerBolt class="content-header-feature-menu-icon" />
+                  <span class="content-header-feature-menu-text">{{ browserAnnotationFeatureMenuLabel }}</span>
+                  <span v-if="browserAnnotationFeatureMenuStatus" class="content-header-feature-menu-status">{{ browserAnnotationFeatureMenuStatus }}</span>
+                </button>
+              </div>
+            </div>
             <ComposerDropdown
               v-if="canShowTerminalToggle"
               class="content-header-terminal-command"
@@ -1163,16 +1199,11 @@
                     :dictation-language="dictationLanguage"
                     :dictation-background-transcription="true"
                     :dictation-status-message="activeDictationStatusMessage"
-                    :show-browser-annotation-listen="selectedThreadId.length > 0"
-                    :is-browser-annotation-listener-active="isBrowserAnnotationListenerActive"
-                    :is-browser-annotation-listener-busy="isBrowserAnnotationListenerBusy"
-                    :browser-annotation-listener-title="browserAnnotationButtonTitle"
                     @update:selected-collaboration-mode="onSelectCollaborationMode"
                     @submit="onSubmitThreadMessage" @dictation-recording-ready="onDictationRecordingReady" @slash-command="onSlashCommand" @update:selected-model="onSelectModel"
                     @update:selected-reasoning-effort="onSelectReasoningEffort"
                     @update:selected-speed-mode="onSelectSpeedMode"
                     @dictation-input-updated="onDictationInputUpdated"
-                    @toggle-browser-annotation-listener="toggleBrowserAnnotationListener"
                     @interrupt="onInterruptTurn" />
                 </div>
               </template>
@@ -1292,6 +1323,7 @@ import IconTablerSearch from './components/icons/IconTablerSearch.vue'
 import IconTablerSettings from './components/icons/IconTablerSettings.vue'
 import IconTablerTerminal from './components/icons/IconTablerTerminal.vue'
 import IconTablerGitFork from './components/icons/IconTablerGitFork.vue'
+import IconTablerDots from './components/icons/IconTablerDots.vue'
 import IconTablerX from './components/icons/IconTablerX.vue'
 import IconTablerAlertTriangle from './components/icons/IconTablerAlertTriangle.vue'
 import { useDesktopState } from './composables/useDesktopState'
@@ -1694,6 +1726,8 @@ const sidebarSearchInputRef = ref<HTMLInputElement | null>(null)
 const settingsAreaRef = ref<HTMLElement | null>(null)
 const settingsPanelRef = ref<HTMLElement | null>(null)
 const settingsButtonRef = ref<HTMLElement | null>(null)
+const threadFeatureMenuRef = ref<HTMLElement | null>(null)
+const threadFeatureMenuButtonRef = ref<HTMLElement | null>(null)
 const serverMatchedThreadIds = ref<string[] | null>(null)
 let threadSearchTimer: ReturnType<typeof setTimeout> | null = null
 let terminalKeyboardFocusFallbackTimer: ReturnType<typeof setTimeout> | null = null
@@ -1702,6 +1736,7 @@ let threadBranchCommitsRequestId = 0
 const defaultNewProjectName = ref('New Project (1)')
 const homeDirectory = ref('')
 const isSettingsOpen = ref(false)
+const isThreadFeatureMenuOpen = ref(false)
 const isAccountsSectionCollapsed = ref(loadAccountsSectionCollapsed())
 const isReviewPaneOpen = ref(false)
 const threadBranchOptions = ref<WorktreeBranchOption[]>([])
@@ -1947,6 +1982,24 @@ const {
   toggle: toggleBrowserAnnotationListener,
   copyText: copyBrowserAnnotationText,
 } = useBrowserAnnotationListener(selectedThreadId, selectedThreadListenTitle)
+const canShowThreadFeatureMenu = computed(() => route.name === 'thread' && selectedThreadId.value.length > 0)
+const isThreadFeatureMenuActive = computed(() => (
+  sideThreadId.value.length > 0 ||
+  isBrowserAnnotationListenerActive.value ||
+  isBrowserAnnotationListenerBusy.value
+))
+const threadFeatureMenuTitle = computed(() => (
+  isThreadFeatureMenuOpen.value ? t('Close thread features') : t('Thread features')
+))
+const browserAnnotationFeatureMenuLabel = computed(() => {
+  if (isBrowserAnnotationListenerActive.value) return t('Stop Listen')
+  return t('Listen')
+})
+const browserAnnotationFeatureMenuStatus = computed(() => {
+  if (isBrowserAnnotationListenerBusy.value) return t('Busy')
+  if (isBrowserAnnotationListenerActive.value) return t('Active')
+  return ''
+})
 const composerCwd = computed(() => {
   if (isHomeRoute.value) return newThreadCwd.value.trim()
   return selectedThread.value?.cwd?.trim() ?? ''
@@ -2349,6 +2402,10 @@ watch(visibleFeedbackErrors, (values, oldValues) => {
       recordVisibleFailure(message)
     }
   })
+})
+
+watch([() => route.name, selectedThreadId], () => {
+  isThreadFeatureMenuOpen.value = false
 })
 
 onUnmounted(() => {
@@ -3116,6 +3173,10 @@ function setSidebarCollapsed(nextValue: boolean): void {
 
 function onWindowKeyDown(event: KeyboardEvent): void {
   if (event.defaultPrevented) return
+  if (event.key === 'Escape' && isThreadFeatureMenuOpen.value) {
+    isThreadFeatureMenuOpen.value = false
+    return
+  }
   if (event.key === 'Escape' && isSettingsOpen.value) {
     isSettingsOpen.value = false
     return
@@ -3137,6 +3198,22 @@ function onWindowKeyDown(event: KeyboardEvent): void {
     event.preventDefault()
     toggleComposerTerminal()
   }
+}
+
+function toggleThreadFeatureMenu(): void {
+  if (!canShowThreadFeatureMenu.value) return
+  isThreadFeatureMenuOpen.value = !isThreadFeatureMenuOpen.value
+}
+
+async function onOpenSideChatFromFeatureMenu(): Promise<void> {
+  isThreadFeatureMenuOpen.value = false
+  await onOpenSideChat()
+}
+
+async function onToggleBrowserAnnotationFromFeatureMenu(): Promise<void> {
+  if (isBrowserAnnotationListenerBusy.value) return
+  isThreadFeatureMenuOpen.value = false
+  await toggleBrowserAnnotationListener()
 }
 
 function toggleComposerTerminal(): void {
@@ -3363,6 +3440,14 @@ function onDocumentPointerDown(event: PointerEvent): void {
     const targetElement = target instanceof Element ? target : target.parentElement
     if (!targetElement?.closest('.thread-terminal-panel')) {
       resetTerminalKeyboardFocusState()
+    }
+  }
+  if (isThreadFeatureMenuOpen.value) {
+    const isInsideThreadFeatureMenu =
+      threadFeatureMenuRef.value?.contains(target) ||
+      threadFeatureMenuButtonRef.value?.contains(target)
+    if (!isInsideThreadFeatureMenu) {
+      isThreadFeatureMenuOpen.value = false
     }
   }
   if (!isSettingsOpen.value) return
@@ -5377,28 +5462,70 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
   @apply border-zinc-700 bg-zinc-950;
 }
 
-.content-header-side-chat {
-  @apply inline-flex h-8 items-center gap-1.5 rounded-full border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 outline-none transition hover:bg-zinc-50 focus:ring-2 focus:ring-zinc-300;
+.content-header-feature-menu {
+  @apply relative inline-flex;
 }
 
-.content-header-side-chat.is-open {
+.content-header-feature-trigger {
+  @apply inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 outline-none transition hover:bg-zinc-50 focus:ring-2 focus:ring-zinc-300;
+}
+
+.content-header-feature-trigger.is-open,
+.content-header-feature-trigger.is-active {
   @apply border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800;
 }
 
-.content-header-side-chat-icon {
+.content-header-feature-trigger-icon {
   @apply h-4 w-4;
 }
 
-.content-header-side-chat-label {
-  @apply leading-none;
+.content-header-feature-menu-panel {
+  @apply absolute right-0 top-[calc(100%+0.5rem)] z-30 w-56 overflow-hidden rounded-lg border border-zinc-200 bg-white p-1 shadow-lg shadow-zinc-900/10;
 }
 
-:global(:root.dark) .content-header-side-chat {
+.content-header-feature-menu-item {
+  @apply flex w-full min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm font-medium text-zinc-700 outline-none transition hover:bg-zinc-100 focus:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60;
+}
+
+.content-header-feature-menu-item.is-active {
+  @apply bg-zinc-100 text-zinc-950;
+}
+
+.content-header-feature-menu-icon {
+  @apply h-4 w-4 shrink-0;
+}
+
+.content-header-feature-menu-text {
+  @apply min-w-0 flex-1 truncate;
+}
+
+.content-header-feature-menu-status {
+  @apply shrink-0 rounded-full bg-zinc-200 px-2 py-0.5 text-[11px] font-semibold leading-none text-zinc-700;
+}
+
+:global(:root.dark) .content-header-feature-trigger {
   @apply border-zinc-700 bg-zinc-900 text-zinc-200 hover:bg-zinc-800 focus:ring-zinc-600;
 }
 
-:global(:root.dark) .content-header-side-chat.is-open {
+:global(:root.dark) .content-header-feature-trigger.is-open,
+:global(:root.dark) .content-header-feature-trigger.is-active {
   @apply border-zinc-100 bg-zinc-100 text-zinc-950 hover:bg-white;
+}
+
+:global(:root.dark) .content-header-feature-menu-panel {
+  @apply border-zinc-700 bg-zinc-900 shadow-black/30;
+}
+
+:global(:root.dark) .content-header-feature-menu-item {
+  @apply text-zinc-200 hover:bg-zinc-800 focus:bg-zinc-800;
+}
+
+:global(:root.dark) .content-header-feature-menu-item.is-active {
+  @apply bg-zinc-800 text-white;
+}
+
+:global(:root.dark) .content-header-feature-menu-status {
+  @apply bg-zinc-700 text-zinc-200;
 }
 
 @media (max-width: 900px) {
@@ -5408,12 +5535,8 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 }
 
 @media (max-width: 640px) {
-  .content-header-side-chat {
-    @apply w-8 justify-center px-0;
-  }
-
-  .content-header-side-chat-label {
-    @apply sr-only;
+  .content-header-feature-menu-panel {
+    @apply w-48;
   }
 }
 
