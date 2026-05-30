@@ -1022,7 +1022,7 @@ async function transcribeInlineAudio(message) {
 }
 
 function readInlineAudioPayload(message) {
-  const mimeType = String(message.mimeType || "").trim() || "audio/webm";
+  const mimeType = normalizeVoiceMimeType(message.mimeType);
   const itemId = String(message.itemId || "").trim();
   const recordingToken = String(message.recordingToken || "").trim();
   const durationMs = Number.isFinite(Number(message.durationMs))
@@ -1030,7 +1030,11 @@ function readInlineAudioPayload(message) {
     : 0;
 
   if (typeof Blob !== "undefined" && message.blob instanceof Blob) {
-    return { blob: message.blob, mimeType: message.blob.type || mimeType, itemId, recordingToken, durationMs };
+    const blobMimeType = normalizeVoiceMimeType(message.blob.type || mimeType);
+    const blob = message.blob.type === blobMimeType
+      ? message.blob
+      : message.blob.slice(0, message.blob.size, blobMimeType);
+    return { blob, mimeType: blobMimeType, itemId, recordingToken, durationMs };
   }
 
   const dataUrl = String(message.audioDataUrl || message.dataUrl || "").trim();
@@ -1048,13 +1052,22 @@ function readInlineAudioPayload(message) {
 }
 
 function parseDataUrl(dataUrl, fallbackMimeType) {
-  const match = /^data:([^;,]+)?(;base64)?,(.*)$/i.exec(dataUrl);
-  if (!match) {
+  if (!dataUrl.toLowerCase().startsWith("data:")) {
     return null;
   }
-  const mimeType = match[1] || fallbackMimeType || "audio/webm";
-  const isBase64 = Boolean(match[2]);
-  const raw = match[3] || "";
+  const commaIndex = dataUrl.indexOf(",");
+  if (commaIndex < 0) {
+    return null;
+  }
+
+  const metadata = dataUrl.slice(5, commaIndex);
+  const metadataParts = metadata.split(";").map((part) => part.trim()).filter(Boolean);
+  const mediaType = metadataParts.length > 0 && metadataParts[0].includes("/")
+    ? metadataParts[0]
+    : "";
+  const mimeType = normalizeVoiceMimeType(mediaType || fallbackMimeType);
+  const isBase64 = metadataParts.some((part) => part.toLowerCase() === "base64");
+  const raw = dataUrl.slice(commaIndex + 1);
   const bytes = isBase64
     ? decodeBase64Bytes(raw)
     : new TextEncoder().encode(decodeURIComponent(raw));
@@ -1062,6 +1075,12 @@ function parseDataUrl(dataUrl, fallbackMimeType) {
     mimeType,
     blob: new Blob([bytes], { type: mimeType })
   };
+}
+
+function normalizeVoiceMimeType(value) {
+  const raw = String(value || "").trim();
+  const mediaType = raw.split(";")[0].trim().toLowerCase();
+  return mediaType || "audio/webm";
 }
 
 function decodeBase64Bytes(base64) {

@@ -321,6 +321,7 @@ assert.equal(revokedState.settings.pairingToken, "");
 assert.equal(storage.has(BrowserAnnotationConstants.STORAGE_KEYS.pairingToken), false);
 
 const persistentFetchCalls = [];
+const transcribeRequests = [];
 context.fetch = async (input, init = {}) => {
   const url = String(input);
   const authorization = init.headers && init.headers.Authorization;
@@ -376,6 +377,17 @@ context.fetch = async (input, init = {}) => {
   if (url.includes("/transcribe")) {
     assert.equal(authorization, "Bearer extension-token-smoke");
     assert.equal(url.includes("sessionId=persistent-session"), true);
+    const file = init.body.get("file");
+    assert(file, "transcribe request must include file");
+    assert.equal(file.type, "audio/webm");
+    assert.equal(file.name, "voice.webm");
+    assert.equal(init.body.get("durationMs"), "1234");
+    assert.equal(init.body.get("itemId"), "annotation-voice");
+    transcribeRequests.push({
+      fileType: file.type,
+      fileName: file.name,
+      fileText: Buffer.from(await file.arrayBuffer()).toString("utf8")
+    });
     return jsonResponse({
       ok: true,
       text: "Русский голосовой комментарий",
@@ -441,13 +453,20 @@ const transcript = await context.handleMessage({
   type: BrowserAnnotationConstants.MESSAGE_TYPES.CONTENT_TRANSCRIBE_AUDIO,
   itemId: "annotation-voice",
   recordingToken: "recording-token-smoke",
-  mimeType: "audio/webm",
+  mimeType: "audio/webm;codecs=opus",
   durationMs: 1234,
-  audioDataUrl: `data:audio/webm;base64,${Buffer.from("voice").toString("base64")}`
+  audioDataUrl: `data:audio/webm;codecs=opus;base64,${Buffer.from("voice").toString("base64")}`
 });
 assert.equal(transcript.transcriptText, "Русский голосовой комментарий");
 assert.equal(transcript.itemId, "annotation-voice");
 assert.equal(transcript.recordingToken, "recording-token-smoke");
+assert.deepEqual(transcribeRequests, [
+  {
+    fileType: "audio/webm",
+    fileName: "voice.webm",
+    fileText: "voice"
+  }
+]);
 
 const disconnectedPersistent = await context.handleMessage({
   type: BrowserAnnotationConstants.MESSAGE_TYPES.DISCONNECT_BINDING
