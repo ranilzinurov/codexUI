@@ -651,7 +651,7 @@
     } catch (error) {
       console.warn("Unable to send voice recording for transcription.", error);
       if (isCurrentTranscription(recording.itemId, recording.recordingToken)) {
-        overlay.panelMeta.textContent = "Voice transcription unavailable";
+        overlay.panelMeta.textContent = readTranscriptionErrorMessage(error);
       }
     }
   }
@@ -770,6 +770,19 @@
       return "Microphone unavailable";
     }
     return "Voice recording failed";
+  }
+
+  function readTranscriptionErrorMessage(error) {
+    const message = error && typeof error.message === "string"
+      ? selectionContext.normalizeText(error.message, 96)
+      : "";
+    if (/no audio/i.test(message)) {
+      return "No audio captured";
+    }
+    if (!message) {
+      return "Voice transcription unavailable";
+    }
+    return `Voice transcription unavailable: ${message}`;
   }
 
   function enqueueNoteUpdate(message) {

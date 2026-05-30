@@ -7255,6 +7255,44 @@ Long-lived extension binding, inline OpenAI transcription through the server, fu
 
 ---
 
+### Browser Annotation Voice Codec Transcription And Renewing Binding
+
+#### Feature/Change Name
+Inline mic transcription for `audio/webm;codecs=opus`, default server transcription model, and sliding long-lived extension binding.
+
+#### Prerequisites/Setup
+1. Run from the repository root with dependencies installed.
+2. For manual transcription checks, configure server-side `OPENAI_API_KEY`; `CODEXUI_ANNOTATION_TRANSCRIBE_MODEL` is optional and defaults to `gpt-4o-mini-transcribe`.
+3. Load `extension/browser-annotation` or `dist/browser-annotation-extension/unpacked` in Chrome.
+4. Create one browser annotation pairing token in Codex UI and bind the extension once.
+
+#### Steps
+1. Run `node --check extension/browser-annotation/service-worker/service-worker.js`.
+2. Run `node --check extension/browser-annotation/content/content-script.js`.
+3. Run `node --check scripts/test-codexui-annotation-transcription-env.mjs`.
+4. Run `node extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.mjs`.
+5. Run `node extension/browser-annotation/dev/content-overlay-cancel-smoke.cjs`.
+6. Run `node scripts/test-codexui-annotation-transcription-env.mjs`.
+7. Run `pnpm exec vitest run src/server/browserAnnotationListen.test.ts src/server/browserAnnotationTranscribe.test.ts --reporter=verbose`.
+8. In light theme, select an element, click the inline mic button, speak Russian, stop recording, and confirm the transcript is inserted into that selected item's inline comment.
+9. Add a second selected item, record a second voice comment, and confirm the transcript is applied only to the second item.
+10. In extension Settings, refresh status after sending the queue and confirm the binding remains connected without pasting a new token.
+11. In dark theme, repeat steps 8-10 and confirm recording, transcribing, transcript-added, and transcription-error statuses remain readable beside the selection.
+
+#### Expected Results
+- `data:audio/webm;codecs=opus;base64,...` is accepted by the service worker and uploaded to `/codex-api/extension/transcribe` as `audio/webm`.
+- A failed transcription shows a visible inline error beside the selected annotation instead of failing silently.
+- The OpenAI API key remains server-side; the extension never stores it.
+- The extension binding token remains the same token and its expiry slides forward on authorized requests.
+- Light and dark overlay states stay compact and readable while recording and after transcript insertion.
+
+#### Rollback/Cleanup
+- Click `Disconnect` in extension Settings to revoke the persistent binding if the manual token should be retired.
+- Clear extension local/session storage if test queue items remain.
+- Unset temporary transcription environment variables after testing.
+
+---
+
 ### Codex LB Web Reply Recovery And Side Chat E2E
 
 #### Feature/Change Name

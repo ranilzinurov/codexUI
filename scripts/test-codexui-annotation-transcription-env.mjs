@@ -46,6 +46,7 @@ async function loadAnnotationTranscriptionConfig() {
   const module = await import(pathToFileURL(tempModulePath).href)
   return {
     envKeys: module.ANNOTATION_TRANSCRIPTION_ENV_KEYS,
+    defaultModel: module.DEFAULT_ANNOTATION_TRANSCRIBE_MODEL,
     resolveAnnotationTranscriptionConfig: module.resolveAnnotationTranscriptionConfig,
     getAnnotationTranscriptionEnvStatus: module.getAnnotationTranscriptionEnvStatus,
     cleanup: () => rm(tempDir, { force: true, recursive: true }),
@@ -83,8 +84,10 @@ async function run() {
     let config = module.resolveAnnotationTranscriptionConfig()
     let status = module.getAnnotationTranscriptionEnvStatus(config)
     assertEqual(config.openAiApiKey, '', 'empty OpenAI key when unset')
+    assertEqual(config.model, module.defaultModel, 'default annotation transcription model when unset')
     assertEqual(status.openAiApiKeyPresent, false, 'OpenAI key presence when unset')
-    assertEqual(status.model, null, 'model status when unset')
+    assertEqual(status.modelConfigured, true, 'default model configured status when unset')
+    assertEqual(status.model, module.defaultModel, 'default model status when unset')
     assertEqual(status.fallbackModel, null, 'fallback model status when unset')
 
     process.env[module.envKeys.openAiApiKey] = `  ${fakeKey}  `

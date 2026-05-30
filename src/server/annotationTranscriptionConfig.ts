@@ -5,6 +5,8 @@ export const ANNOTATION_TRANSCRIPTION_ENV_KEYS = {
   fallbackModel: 'CODEXUI_ANNOTATION_TRANSCRIBE_FALLBACK_MODEL',
 } as const
 
+export const DEFAULT_ANNOTATION_TRANSCRIBE_MODEL = 'gpt-4o-mini-transcribe'
+
 export type AnnotationTranscriptionConfig = {
   openAiApiKey: string
   model: string
@@ -26,7 +28,7 @@ function normalizeEnvValue(value: string | undefined): string {
 export function resolveAnnotationTranscriptionConfig(): AnnotationTranscriptionConfig {
   return {
     openAiApiKey: normalizeEnvValue(process.env[ANNOTATION_TRANSCRIPTION_ENV_KEYS.openAiApiKey]),
-    model: normalizeEnvValue(process.env[ANNOTATION_TRANSCRIPTION_ENV_KEYS.model]),
+    model: normalizeEnvValue(process.env[ANNOTATION_TRANSCRIPTION_ENV_KEYS.model]) || DEFAULT_ANNOTATION_TRANSCRIBE_MODEL,
     fallbackModel: normalizeEnvValue(process.env[ANNOTATION_TRANSCRIPTION_ENV_KEYS.fallbackModel]),
   }
 }
