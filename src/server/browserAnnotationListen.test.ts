@@ -1,6 +1,8 @@
 import { createServer, type Server } from 'node:http'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  BROWSER_ANNOTATION_EXTENSION_TOKEN_TTL_MS,
+  BROWSER_ANNOTATION_LISTEN_TTL_MS,
   BrowserAnnotationListenStore,
   handleBrowserAnnotationListenRoutes,
   type BrowserAnnotationListenSessionResponse,
@@ -154,6 +156,82 @@ describe('browser annotation listen endpoints', () => {
     expect(persistentSession.extensionToken).toEqual(expect.any(String))
     expect(persistentSession.pairingToken).toBeUndefined()
     expect(persistentSession.extensionToken).not.toBe(started.pairingToken)
+  })
+
+  it('uses a longer default extension token expiry while keeping the pairing token short-lived', async () => {
+    const now = Date.UTC(2026, 0, 1)
+    const store = new BrowserAnnotationListenStore({ nowMs: () => now })
+    const { baseUrl } = await listenWithStore(store)
+    const start = await requestJson(baseUrl, '/codex-api/extension/listen/start', {
+      method: 'POST',
+      body: JSON.stringify({ threadId: 'thread-default-ttl' }),
+    })
+    const started = sessionFrom(start.body)
+
+    const token = await requestJson(baseUrl, '/codex-api/extension/listen/token', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${started.pairingToken}` },
+      body: JSON.stringify({ sessionId: started.sessionId }),
+    })
+    const persistentSession = sessionFrom(token.body)
+
+    expect(Date.parse(started.expiresAtIso) - now).toBe(BROWSER_ANNOTATION_LISTEN_TTL_MS)
+    expect(Date.parse(persistentSession.expiresAtIso) - now).toBe(BROWSER_ANNOTATION_EXTENSION_TOKEN_TTL_MS)
+    expect(BROWSER_ANNOTATION_EXTENSION_TOKEN_TTL_MS).toBeGreaterThan(BROWSER_ANNOTATION_LISTEN_TTL_MS)
+    expect(persistentSession.tokenType).toBe('extension')
+  })
+
+  it('keeps the same extension token while sliding its expiry forward on authorized requests', async () => {
+    let now = Date.UTC(2026, 0, 1)
+    const store = new BrowserAnnotationListenStore({
+      nowMs: () => now,
+      ttlMs: 60_000,
+      extensionTokenTtlMs: 1_000,
+    })
+    const { baseUrl } = await listenWithStore(store)
+    const start = await requestJson(baseUrl, '/codex-api/extension/listen/start', {
+      method: 'POST',
+      body: JSON.stringify({ threadId: 'thread-sliding-extension' }),
+    })
+    const started = sessionFrom(start.body)
+    const token = await requestJson(baseUrl, '/codex-api/extension/listen/token', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${started.pairingToken}` },
+      body: JSON.stringify({ sessionId: started.sessionId }),
+    })
+    const persistentSession = sessionFrom(token.body)
+    const extensionToken = persistentSession.extensionToken
+    expect(extensionToken).toEqual(expect.any(String))
+    expect(persistentSession.expiresAtIso).toBe('2026-01-01T00:00:01.000Z')
+
+    now += 800
+    const renewed = await requestJson(baseUrl, `/codex-api/extension/listen/status?sessionId=${started.sessionId}`, {
+      headers: { Authorization: `Bearer ${extensionToken}` },
+    })
+    const renewedSession = sessionFrom(renewed.body)
+
+    expect(renewed.status).toBe(200)
+    expect(renewedSession.sessionId).toBe(started.sessionId)
+    expect(renewedSession.threadId).toBe('thread-sliding-extension')
+    expect(renewedSession.tokenType).toBe('extension')
+    expect(renewedSession.extensionToken).toBeUndefined()
+    expect(renewedSession.lastUsedAtIso).toBe('2026-01-01T00:00:00.800Z')
+    expect(renewedSession.expiresAtIso).toBe('2026-01-01T00:00:01.800Z')
+
+    now += 400
+    const stillAuthorized = await requestJson(baseUrl, `/codex-api/extension/listen/status?sessionId=${started.sessionId}`, {
+      headers: { Authorization: `Bearer ${extensionToken}` },
+    })
+
+    expect(stillAuthorized.status).toBe(200)
+    expect(sessionFrom(stillAuthorized.body)).toMatchObject({
+      sessionId: started.sessionId,
+      threadId: 'thread-sliding-extension',
+      status: 'active',
+      tokenType: 'extension',
+      lastUsedAtIso: '2026-01-01T00:00:01.200Z',
+      expiresAtIso: '2026-01-01T00:00:02.200Z',
+    })
   })
 
   it('authorizes status and downstream session lookup with a persistent token after the pairing token expires', async () => {

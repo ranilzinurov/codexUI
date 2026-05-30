@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 
 export const BROWSER_ANNOTATION_LISTEN_BASE_PATH = '/codex-api/extension/listen'
 export const BROWSER_ANNOTATION_LISTEN_TTL_MS = 10 * 60 * 1000
-export const BROWSER_ANNOTATION_EXTENSION_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000
+export const BROWSER_ANNOTATION_EXTENSION_TOKEN_TTL_MS = 365 * 24 * 60 * 60 * 1000
 export const BROWSER_ANNOTATION_LISTEN_MAX_ACTIVE_SESSIONS = 100
 const BROWSER_ANNOTATION_LISTEN_JSON_BODY_LIMIT_BYTES = 16 * 1024
 
@@ -185,7 +185,13 @@ export class BrowserAnnotationListenStore {
         const status = this.getCredentialStatus(credential)
         if (status !== 'active' && !(options.allowRevoked && status === 'revoked')) continue
         if (!doesTokenMatchHash(token, credential.tokenHash)) continue
-        if (status === 'active') credential.lastUsedAtMs = this.nowMs()
+        if (status === 'active') {
+          const now = this.nowMs()
+          credential.lastUsedAtMs = now
+          if (credential.type === 'extension') {
+            credential.expiresAtMs = now + this.extensionTokenTtlMs
+          }
+        }
         return { session, credential }
       }
     }
