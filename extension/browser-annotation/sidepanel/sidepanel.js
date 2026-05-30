@@ -40,6 +40,8 @@
     sendBatch: document.getElementById("sendBatch"),
     message: document.getElementById("message")
   };
+  const tabButtons = Array.from(document.querySelectorAll("[data-tab-target]"));
+  const tabPanels = Array.from(document.querySelectorAll("[data-tab-panel]"));
   let lastState = null;
   let lastDevtoolsStatus = {
     status: "inactive",
@@ -54,6 +56,9 @@
   elements.sendBatch.addEventListener("click", sendBatch);
   elements.queueList.addEventListener("click", handleQueueClick);
   elements.queueList.addEventListener("change", handleQueueChange);
+  for (const button of tabButtons) {
+    button.addEventListener("click", () => activateTab(button.dataset.tabTarget));
+  }
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
       refreshState();
@@ -236,6 +241,22 @@
     elements.injectOverlay.disabled = state.activeTab.restricted;
   }
 
+  function activateTab(targetId) {
+    if (!targetId) {
+      return;
+    }
+    for (const button of tabButtons) {
+      const selected = button.dataset.tabTarget === targetId;
+      button.classList.toggle("is-active", selected);
+      button.setAttribute("aria-selected", selected ? "true" : "false");
+    }
+    for (const panel of tabPanels) {
+      const selected = panel.id === targetId;
+      panel.hidden = !selected;
+      panel.classList.toggle("is-active", selected);
+    }
+  }
+
   async function requestActiveTabHostPermission() {
     const freshTab = await getFreshActiveTab();
     const activeTab = freshTab || (lastState && lastState.activeTab ? lastState.activeTab : null);
@@ -357,25 +378,33 @@
       items.length === 0 ? "Empty" : `${items.length} item${items.length === 1 ? "" : "s"}`;
     elements.queueDetail.textContent =
       items.length === 0
-        ? "Select elements on the page to queue annotation context for later stages."
-        : "Add notes, adjust order, then send one batch to Codex UI.";
+        ? "Select elements on the page, then send them as one batch."
+        : "Adjust order or remove items before sending.";
     renderBatchMeta(items);
     pruneVoiceRecordings(items);
     elements.queueList.replaceChildren(
       ...items.map((item, index) => {
         const row = document.createElement("li");
         row.dataset.annotationId = item.id || "";
+        const content = document.createElement("div");
+        content.className = "queue-content";
         const header = document.createElement("div");
         header.className = "queue-row-header";
         const heading = document.createElement("div");
+        heading.className = "queue-heading";
         const name = document.createElement("strong");
         const context = item.context || {};
         name.textContent = queueItemName(context);
         const meta = document.createElement("span");
-        meta.textContent = context.selector || context.xpath || "No selector";
+        meta.textContent = queueItemMeta(item);
         heading.append(name, meta);
         header.append(heading, createQueueActions(item, index, items.length));
-        row.append(createPreview(item.preview), header, createVoiceRecorder(item), createNoteField(item));
+        content.append(header);
+        const voiceStatus = createVoiceRecorder(item);
+        if (voiceStatus) {
+          content.append(voiceStatus);
+        }
+        row.append(createPreview(item.preview), content);
         return row;
       })
     );
@@ -438,6 +467,9 @@
   function createVoiceRecorder(item) {
     const id = item.id || "";
     const voice = getVoiceState(id);
+    if (!voice || voice.status === "empty") {
+      return null;
+    }
     const wrapper = document.createElement("div");
     wrapper.className = "queue-voice";
     wrapper.dataset.annotationId = id;
@@ -453,21 +485,12 @@
     detail.textContent = voiceStatusText(voice);
     status.append(label, detail);
 
-    const controls = document.createElement("div");
-    controls.className = "queue-voice-controls";
-    controls.append(
-      createVoiceButton("Record voice note", "voice-record", "Record", isVoiceBusy(voice)),
-      createVoiceButton("Stop recording", "voice-stop", "Stop", voice.status !== "recording"),
-      createVoiceButton("Cancel recording", "voice-cancel", "Cancel", voice.status !== "recording"),
-      createVoiceButton("Delete recorded voice note", "voice-delete", "Delete", !voice.blob && !readPersistedVoice(item))
-    );
-
     const duration = document.createElement("span");
     duration.className = "queue-voice-duration";
     duration.dataset.voiceDuration = id;
     duration.textContent = formatDuration(voiceDurationMs(voice));
 
-    wrapper.append(status, controls, duration);
+    wrapper.append(status, duration);
     return wrapper;
   }
 
@@ -1229,9 +1252,60 @@
   }
 
   function queueItemName(context) {
-    const tag = context.tagName || "element";
-    const role = context.role ? ` role=${context.role}` : "";
-    const text = context.text ? ` "${context.text}"` : "";
-    return `${tag}${role}${text}`;
+    const aria = context.aria && typeof context.aria === "object" ? context.aria : {};
+    const nearby = context.nearby && typeof context.nearby === "object" ? context.nearby : {};
+    const labels = Array.isArray(nearby.labels) ? nearby.labels : [];
+    const labelSource = [
+      aria.label,
+      aria.labelledByText,
+      labels.length > 0 && labels[0] ? labels[0].text : "",
+      context.text
+    ].find((value) => typeof value === "string" && value.trim());
+    const shortLabel = truncateText(labelSource || readableElementType(context), 72);
+    return shortLabel || "Selected element";
+  }
+
+  function queueItemMeta(item) {
+    const context = item && item.context ? item.context : {};
+    const role = context.role ? context.role : readableElementType(context);
+    const rect = context.rect && typeof context.rect === "object" ? context.rect : {};
+    const size = Number.isFinite(rect.width) && Number.isFinite(rect.height)
+      ? `${Math.round(rect.width)}x${Math.round(rect.height)}`
+      : "";
+    const page = readQueueItemPage(item);
+    const pageTitle = page.title ? truncateText(page.title, 42) : "";
+    return [role, size, pageTitle].filter(Boolean).join(" - ") || "Selected element";
+  }
+
+  function readableElementType(context) {
+    const tag = String(context && context.tagName ? context.tagName : "element").toLowerCase();
+    const role = context && context.role ? String(context.role) : "";
+    if (role) {
+      return role;
+    }
+    if (tag === "img") {
+      return "Image";
+    }
+    if (/^h[1-6]$/.test(tag)) {
+      return "Heading";
+    }
+    if (tag === "a") {
+      return "Link";
+    }
+    if (tag === "button") {
+      return "Button";
+    }
+    if (tag === "input" || tag === "textarea") {
+      return "Input";
+    }
+    return tag ? tag.charAt(0).toUpperCase() + tag.slice(1) : "Element";
+  }
+
+  function truncateText(value, maxLength) {
+    const text = String(value || "").replace(/\s+/g, " ").trim();
+    if (text.length <= maxLength) {
+      return text;
+    }
+    return `${text.slice(0, Math.max(0, maxLength - 3)).trim()}...`;
   }
 })();

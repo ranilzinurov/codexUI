@@ -43,8 +43,8 @@ body {
 
 .shell {
   display: grid;
-  gap: 12px;
-  padding: 14px;
+  gap: 10px;
+  padding: 10px;
 }
 
 .header,
@@ -57,23 +57,20 @@ body {
 
 .header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
-}
-
-.eyebrow {
-  margin: 0 0 2px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
+  padding-block: 10px;
 }
 
 h1 {
   margin: 0;
-  font-size: 17px;
+  min-width: 0;
+  font-size: 16px;
   line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .badge {
@@ -102,11 +99,88 @@ h1 {
 
 .section {
   display: grid;
-  gap: 10px;
+  gap: 9px;
 }
 
 .section-quiet {
   background: var(--surface-soft);
+}
+
+.tab-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.tab-panel[hidden] {
+  display: none;
+}
+
+.tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.tab-button {
+  min-width: 0;
+  min-height: 30px;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  padding: 6px 4px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tab-button:hover {
+  color: var(--text);
+  background: var(--surface-soft);
+}
+
+.tab-button.is-active {
+  color: var(--text);
+  background: var(--surface-soft);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.status-section {
+  gap: 8px;
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.status-grid > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.status-grid span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.status-grid strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .field {
@@ -187,6 +261,7 @@ textarea:focus {
   font: inherit;
   font-weight: 700;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .button:disabled {
@@ -209,10 +284,45 @@ textarea:focus {
   border-color: var(--border);
 }
 
+.button-compact {
+  min-height: 30px;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
 .button-row {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 8px;
+}
+
+.compact-controls {
+  display: grid;
+  grid-template-columns: minmax(64px, 1fr) minmax(64px, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.checkbox-row {
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  gap: 5px;
+  align-items: center;
+  min-height: 30px;
+  padding: 5px 7px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.checkbox-row input {
+  width: 15px;
+  min-height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
 }
 
 .status-row {
@@ -220,10 +330,12 @@ textarea:focus {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  min-width: 0;
 }
 
 .status-row strong {
   text-align: right;
+  white-space: nowrap;
 }
 
 .status-active {
@@ -255,7 +367,13 @@ textarea:focus {
 
 .message {
   min-height: 18px;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+}
+
+.microcopy {
+  margin: -2px 0 0;
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .message-error {
@@ -280,12 +398,14 @@ textarea:focus {
 
 .queue-list li {
   display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
   gap: 8px;
-  padding: 10px;
+  padding: 8px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .queue-preview {
@@ -293,7 +413,7 @@ textarea:focus {
   place-items: center;
   width: 100%;
   min-height: 48px;
-  margin-bottom: 6px;
+  aspect-ratio: 1;
   color: var(--muted);
   background: var(--surface);
   border: 1px solid var(--border);
@@ -305,8 +425,8 @@ textarea:focus {
 .queue-preview img {
   display: block;
   width: 100%;
-  max-height: 140px;
-  object-fit: contain;
+  height: 100%;
+  object-fit: cover;
 }
 
 .queue-list strong,
@@ -322,19 +442,40 @@ textarea:focus {
 
 .queue-row-header {
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
   align-items: start;
+}
+
+.queue-content {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.queue-heading {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.queue-heading strong,
+.queue-heading span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .queue-actions {
   display: flex;
   gap: 4px;
+  flex: 0 0 auto;
 }
 
 .icon-button {
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
   border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text);
@@ -357,10 +498,10 @@ textarea:focus {
 
 .queue-voice {
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
   align-items: center;
-  padding: 8px;
+  padding: 6px 7px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -371,6 +512,10 @@ textarea:focus {
 }
 
 .queue-voice[data-voice-status="recorded"] {
+  border-color: color-mix(in srgb, var(--success) 48%, var(--border));
+}
+
+.queue-voice[data-voice-status="uploaded"] {
   border-color: color-mix(in srgb, var(--success) 48%, var(--border));
 }
 
@@ -392,6 +537,9 @@ textarea:focus {
 .queue-voice-status span {
   color: var(--muted);
   font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .queue-voice[data-voice-status="recording"] .queue-voice-status span {
@@ -399,6 +547,10 @@ textarea:focus {
 }
 
 .queue-voice[data-voice-status="recorded"] .queue-voice-status span {
+  color: var(--success);
+}
+
+.queue-voice[data-voice-status="uploaded"] .queue-voice-status span {
   color: var(--success);
 }
 
@@ -420,8 +572,6 @@ textarea:focus {
 }
 
 .queue-voice-duration {
-  grid-column: 1 / -1;
-  justify-self: end;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
   font-weight: 700;
@@ -429,15 +579,32 @@ textarea:focus {
 
 .batch-meta {
   display: grid;
-  gap: 4px;
-  padding: 8px;
+  gap: 3px;
+  padding: 7px;
   color: var(--muted);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 6px;
   font-size: 12px;
+  min-width: 0;
 }
 
 .batch-meta strong {
   color: var(--text);
+}
+
+.batch-meta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.help-section h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.help-section p {
+  margin: 0;
+  color: var(--muted);
 }
