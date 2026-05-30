@@ -7139,7 +7139,7 @@ Side Chat feature menu toggle, stable thread layout width, and compact side tran
 ### Codex LB Previous Response Recovery Regression
 
 #### Feature/Change Name
-Codex LB provider requests are routed through the local Responses proxy and recover once from `previous_response_not_found`.
+Codex LB local Responses proxy is opt-in and recovers once from stale previous-response errors when enabled.
 
 #### Prerequisites/Setup
 1. `~/.codex/config.toml` has active `model_provider = "codex-lb"` with `wire_api = "responses"`.
@@ -7148,25 +7148,27 @@ Codex LB provider requests are routed through the local Responses proxy and reco
 
 #### Steps
 1. Start Codex UI normally and open an existing long/tool-heavy thread.
-2. Confirm the spawned app-server receives the runtime override:
+2. Start Codex UI without `CODEXUI_CODEX_LB_PROXY` and confirm the spawned app-server keeps the configured `codex-lb` base URL instead of receiving a local proxy override.
+3. Optionally set `CODEXUI_CODEX_LB_PROXY=1`, restart Codex UI, and confirm the spawned app-server receives the runtime override:
    `model_providers.codex-lb.base_url="http://127.0.0.1:<port>/codex-api/codex-lb-proxy/v1"`.
-3. Trigger a normal turn and confirm it completes through the `codex-lb` provider.
-4. In light theme, keep working in the thread until a provider stale-response condition would previously have surfaced as `previous_response_not_found`.
-5. Confirm the turn continues after a single local proxy retry instead of surfacing the raw provider error in chat.
-6. In dark theme, repeat a normal `codex-lb` turn and confirm no light-theme UI regression appears around the composer, activity row, or error surface.
-7. Run the focused server regression:
+4. Trigger a normal turn and confirm it completes through the `codex-lb` provider.
+5. With `CODEXUI_CODEX_LB_PROXY=1`, in light theme keep working in the thread until a provider stale-response condition would previously have surfaced as `previous_response_not_found`.
+6. Confirm the turn continues after a single local proxy retry instead of surfacing the raw provider error in chat.
+7. In dark theme, repeat a normal `codex-lb` turn and confirm no light-theme UI regression appears around the composer, activity row, or error surface.
+8. Run the focused server regression:
    `pnpm exec vitest run src/server/codexLbProxy.test.ts src/server/unifiedResponsesProxy.test.ts src/server/previousResponseDiagnostics.test.ts --reporter=verbose`
 
 #### Expected Results
-- Codex UI does not rewrite `~/.codex/config.toml`; the override is app-server runtime only.
-- The local route `/codex-api/codex-lb-proxy/v1/responses` forwards bearer auth to the configured upstream `base_url`.
+- Codex UI does not rewrite `~/.codex/config.toml`; the local proxy override is app-server runtime only and only appears when `CODEXUI_CODEX_LB_PROXY=1`.
+- By default, `codex-lb` turns keep the configured upstream path and do not route through the local proxy.
+- When enabled, the local route `/codex-api/codex-lb-proxy/v1/responses` forwards bearer auth to the configured upstream `base_url`.
 - A matching upstream `previous_response_not_found` response is retried once without `previous_response_id` when `input` is present.
 - Retry diagnostics are written with `phase: "retry-started"` and `phase: "retry-finished"` rows.
 - Light and dark themes remain unchanged because the fix is server-side and does not introduce new UI.
 
 #### Rollback/Cleanup
 - Unset `CODEXUI_PREVIOUS_RESPONSE_ERROR_LOG` if it was used.
-- Set `CODEXUI_CODEX_LB_PROXY=0` and restart Codex UI to temporarily bypass the local `codex-lb` proxy.
+- Unset `CODEXUI_CODEX_LB_PROXY` and restart Codex UI to return to the default direct `codex-lb` route.
 
 ---
 
@@ -7210,3 +7212,39 @@ Arbitrary area annotation, inline comment/dictation controls, and compact tabbed
 - Remove the unpacked extension from `chrome://extensions`.
 - Clear extension local/session storage if test queue items or pairing tokens should be removed.
 - Stop any temporary dev server used for manual checks.
+
+---
+
+### Codex LB Web Reply Recovery And Side Chat E2E
+
+#### Feature/Change Name
+Web replies recover after disabling automatic `codex-lb` local proxy routing and updating the Side Chat E2E completion selector.
+
+#### Prerequisites/Setup
+1. Run from the repository root with dependencies installed.
+2. Start the app on the test port without `CODEXUI_CODEX_LB_PROXY`:
+   `pnpm run dev --host 127.0.0.1 --port 4173`
+3. Use an existing `codex-lb` thread that can start a Side Chat turn.
+
+#### Steps
+1. Run the focused unit tests:
+   `pnpm exec vitest run src/server/codexLbProxy.test.ts src/server/unifiedResponsesProxy.test.ts`
+2. In light theme, run:
+   `BASE_URL=http://127.0.0.1:4173 SIDE_CHAT_TIMEOUT_MS=240000 node scripts/side-chat-real-behavior.cjs`
+3. Confirm the JSON output reports `ok: true`, a non-empty `answer`, a `workedSummary` beginning with `Worked for`, a non-empty `sentSideThreadId`, and `turnCompletedStatus: "completed"`.
+4. In dark theme, run:
+   `BASE_URL=http://127.0.0.1:4173 SIDE_CHAT_DARK=1 SIDE_CHAT_TIMEOUT_MS=240000 node scripts/side-chat-real-behavior.cjs`
+5. Confirm the dark run also reports `ok: true`, a non-empty `answer`, a `Worked for` summary, a non-empty `sentSideThreadId`, and `turnCompletedStatus: "completed"`.
+6. Inspect the screenshots:
+   `output/playwright/side-chat-real-behavior-pass.png` and `output/playwright/side-chat-real-behavior-dark.png`.
+
+#### Expected Results
+- `codex-lb` direct routing remains the default, so web replies stream and complete without `CODEXUI_CODEX_LB_PROXY`.
+- The optional local proxy is only enabled with `CODEXUI_CODEX_LB_PROXY=1`.
+- Side Chat renders assistant text and recognizes the compact `.side-chat-worked-text` completion row in both light and dark themes.
+- The E2E output contains `fetchErrors: []`, a completed side thread turn, and fails if a websocket `error` or `systemError` appears after send.
+
+#### Rollback/Cleanup
+- Stop the temporary `4173` dev server when testing is complete.
+- Remove `CODEXUI_CODEX_LB_PROXY` from the environment unless explicitly testing the opt-in proxy path.
+

@@ -23,6 +23,7 @@ function truncate(value, length = 1200) {
 
 function parseJson(value) {
   if (!value) return null
+  if (typeof value === 'object') return value
   try {
     return JSON.parse(value)
   } catch {
@@ -48,6 +49,13 @@ async function main() {
     sideSnapshots: [],
     final: null,
   }
+
+  let sentSideThreadId = ''
+  let turnCompletedOk = false
+  let turnCompletedStatus = ''
+  let turnCompletedError = null
+  let sawPostSendError = false
+  let sawPostSendSystemError = false
 
   const browser = await chromium.launch({ headless: true })
   const page = await browser.newPage({ viewport: { width: 1440, height: 1100 } })
@@ -101,12 +109,29 @@ async function main() {
     evidence.websocket.push({ event: 'open', url: socket.url(), at: new Date().toISOString() })
     socket.on('framereceived', (frame) => {
       const payload = parseJson(frame.payload)
+      const params = payload?.params ? parseJson(payload.params) : null
       evidence.websocket.push({
         event: 'received',
         method: payload?.method || null,
         params: payload?.params ? truncate(payload.params, 1000) : null,
         at: new Date().toISOString(),
       })
+      if (!sentSideThreadId && payload?.method === 'thread/started' && params?.thread?.forkedFromId === THREAD_ID) {
+        sentSideThreadId = params.thread.id || ''
+      }
+      if (sentSideThreadId && params?.threadId === sentSideThreadId) {
+        if (payload?.method === 'error') {
+          sawPostSendError = true
+        }
+        if (payload?.method === 'thread/status/changed' && params?.status?.type === 'systemError') {
+          sawPostSendSystemError = true
+        }
+        if (payload?.method === 'turn/completed') {
+          turnCompletedStatus = params?.turn?.status || ''
+          turnCompletedError = params?.turn?.error || null
+          turnCompletedOk = turnCompletedStatus === 'completed' && !turnCompletedError
+        }
+      }
     })
     socket.on('close', () => {
       evidence.websocket.push({ event: 'close', at: new Date().toISOString() })
@@ -158,20 +183,31 @@ async function main() {
       assistantText = assistantMessages.map((text) => text.trim()).filter(Boolean).join('\n\n')
 
       const workedSummaries = await sidePanel
-        .locator('.side-chat-message.is-system .side-chat-message-text')
+        .locator('.side-chat-message.is-worked .side-chat-worked-text, .side-chat-message.is-system .side-chat-message-text')
         .allInnerTexts()
         .catch(() => [])
       workedSummaryText = workedSummaries.find((text) => text.trim().startsWith('Worked for'))?.trim() || ''
-      if (assistantText.length > 0 && workedSummaryText.length > 0) break
+      if (assistantText.length > 0 && workedSummaryText.length > 0 && turnCompletedOk) break
     }
 
-    if (!assistantText || !workedSummaryText) {
+    if (!assistantText || !workedSummaryText || !turnCompletedOk || sawPostSendError || sawPostSendSystemError) {
       const finalText = await sidePanel.innerText().catch(() => '')
       evidence.final = {
         ok: false,
         reason: !assistantText
           ? `No assistant side-chat answer after ${TIMEOUT_MS}ms`
-          : `Side-chat answer did not reach completed state after ${TIMEOUT_MS}ms`,
+          : !workedSummaryText
+            ? `Side-chat worked summary did not render after ${TIMEOUT_MS}ms`
+            : !turnCompletedOk
+              ? `Side-chat turn did not complete cleanly after ${TIMEOUT_MS}ms`
+              : 'Side-chat websocket reported an error after send',
+        answer: assistantText,
+        workedSummary: workedSummaryText,
+        sentSideThreadId,
+        turnCompletedStatus,
+        turnCompletedError,
+        sawPostSendError,
+        sawPostSendSystemError,
         sidePanelText: truncate(finalText, 3000),
         url: page.url(),
         screenshotPath: SCREENSHOT_PATH,
@@ -198,6 +234,8 @@ async function main() {
       ok: true,
       answer: assistantText,
       workedSummary: workedSummaryText,
+      sentSideThreadId,
+      turnCompletedStatus,
       url: page.url(),
       screenshotPath: PASS_SCREENSHOT_PATH,
     }

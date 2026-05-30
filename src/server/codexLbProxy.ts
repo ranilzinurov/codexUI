@@ -6,6 +6,7 @@ import { handleUnifiedResponsesProxyRequest } from './unifiedResponsesProxy.js'
 
 export const CODEX_LB_PROVIDER_ID = 'codex-lb'
 export const CODEX_LB_PROXY_ROUTE_BASE = '/codex-api/codex-lb-proxy/v1'
+const CODEX_LB_PROXY_BEARER_TOKEN = 'codex-lb-proxy-token'
 
 type CodexLbProviderConfig = {
   providerId: string
@@ -148,9 +149,9 @@ export function readCodexLbProviderConfig(options: HandleProxyOptions = {}): Cod
   return parseCodexLbConfigToml(readFileSync(configPath, 'utf8')).provider
 }
 
-function isProxyDisabledByEnv(): boolean {
+function isProxyEnabledByEnv(): boolean {
   const value = process.env.CODEXUI_CODEX_LB_PROXY?.trim().toLowerCase()
-  return value === '0' || value === 'false' || value === 'no' || value === 'off'
+  return value === '1' || value === 'true' || value === 'yes' || value === 'on'
 }
 
 function isCodexUiProxyBaseUrl(baseUrl: string): boolean {
@@ -166,7 +167,7 @@ function tomlQuote(value: string): string {
 }
 
 export function getCodexLbProxyConfigArgs(options: GetConfigArgsOptions = {}): string[] {
-  if (!options.serverPort || isProxyDisabledByEnv()) return []
+  if (!options.serverPort || !isProxyEnabledByEnv()) return []
   const provider = readCodexLbProviderConfig(options)
   if (!provider || provider.wireApi !== 'responses' || isCodexUiProxyBaseUrl(provider.baseUrl)) return []
 
@@ -174,6 +175,7 @@ export function getCodexLbProxyConfigArgs(options: GetConfigArgsOptions = {}): s
   return [
     '-c', `model_providers.${CODEX_LB_PROVIDER_ID}.base_url=${tomlQuote(proxyBaseUrl)}`,
     '-c', `model_providers.${CODEX_LB_PROVIDER_ID}.wire_api="responses"`,
+    '-c', `model_providers.${CODEX_LB_PROVIDER_ID}.experimental_bearer_token=${tomlQuote(CODEX_LB_PROXY_BEARER_TOKEN)}`,
   ]
 }
 
@@ -185,7 +187,8 @@ function extractBearerToken(req: IncomingMessage): string {
   const authorization = req.headers.authorization
   const value = Array.isArray(authorization) ? authorization[0] : authorization
   const match = value?.match(/^Bearer\s+(.+)$/iu)
-  return match?.[1]?.trim() ?? ''
+  const token = match?.[1]?.trim() ?? ''
+  return token === CODEX_LB_PROXY_BEARER_TOKEN ? '' : token
 }
 
 function sendJson(res: ServerResponse, status: number, body: Record<string, unknown>): void {

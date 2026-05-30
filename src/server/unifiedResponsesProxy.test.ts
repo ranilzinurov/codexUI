@@ -62,6 +62,26 @@ async function readJsonlWhenReady(path: string, expectedRows: number): Promise<R
   return []
 }
 
+function deferred<T = void>(): {
+  promise: Promise<T>
+  resolve: (value?: T | PromiseLike<T>) => void
+  reject: (error?: unknown) => void
+} {
+  let resolve!: (value?: T | PromiseLike<T>) => void
+  let reject!: (error?: unknown) => void
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = (value) => promiseResolve(value as T | PromiseLike<T>)
+    reject = promiseReject
+  })
+  return { promise, resolve, reject }
+}
+
+function timeoutAfter(ms: number, message: string): Promise<never> {
+  return new Promise((_, reject) => {
+    setTimeout(() => reject(new Error(message)), ms)
+  })
+}
+
 describe('unified responses proxy reasoning_content translation', () => {
   it('preserves DeepSeek reasoning_content in translated Responses output', () => {
     const response = chatCompletionToResponsesFormat({
@@ -315,6 +335,156 @@ describe('unified responses proxy reasoning_content translation', () => {
         process.env.CODEXUI_PREVIOUS_RESPONSE_ERROR_LOG = previousLogPath
       }
       await rm(tempDir, { recursive: true, force: true })
+      await close(proxy)
+      await close(upstream)
+    }
+  })
+
+  it('streams raw Responses SSE chunks through before upstream ends', async () => {
+    const firstChunk = 'event: response.output_text.delta\ndata: {"delta":"hel"}\n\n'
+    const finalChunk = 'event: response.completed\ndata: {"id":"resp_streamed"}\n\n'
+    const upstreamRequests: Record<string, unknown>[] = []
+    const upstreamWroteFirstChunk = deferred()
+    const upstreamMayEnd = deferred()
+
+    const upstream = createServer((req, res) => {
+      void (async () => {
+        upstreamRequests.push(await readJsonBody(req))
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+        })
+        res.write(firstChunk)
+        upstreamWroteFirstChunk.resolve()
+        await upstreamMayEnd.promise
+        res.end(finalChunk)
+      })().catch((error) => {
+        upstreamWroteFirstChunk.reject(error)
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: { message: error instanceof Error ? error.message : 'unknown error' } }))
+      })
+    })
+    const upstreamPort = await listen(upstream)
+
+    const proxy = createServer((req, res) => {
+      handleUnifiedResponsesProxyRequest(req, res, {
+        bearerToken: '',
+        requireBearerToken: false,
+        wireApi: 'responses',
+        responsesEndpoint: `http://127.0.0.1:${upstreamPort}/v1/responses`,
+        chatCompletionsEndpoint: `http://127.0.0.1:${upstreamPort}/v1/chat/completions`,
+        missingKeyMessage: 'missing',
+        allowToolFallbackToResponses: false,
+        responsesPayloadFormat: 'raw',
+      })
+    })
+    const proxyPort = await listen(proxy)
+
+    try {
+      const responsePromise = fetch(`http://127.0.0.1:${proxyPort}/v1/responses`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'big-pickle',
+          stream: true,
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      })
+
+      await Promise.race([
+        upstreamWroteFirstChunk.promise,
+        timeoutAfter(1000, 'upstream did not write the first SSE chunk'),
+      ])
+
+      const response = await Promise.race([
+        responsePromise,
+        timeoutAfter(1000, 'proxy did not expose streaming response headers before upstream ended'),
+      ])
+      expect(response.status).toBe(200)
+      expect(response.headers.get('content-type')).toContain('text/event-stream')
+      expect(response.body).not.toBeNull()
+
+      const reader = response.body!.getReader()
+      const { value, done } = await Promise.race([
+        reader.read(),
+        timeoutAfter(1000, 'proxy did not stream the first SSE chunk before upstream ended'),
+      ])
+
+      expect(done).toBe(false)
+      expect(new TextDecoder().decode(value)).toContain(firstChunk)
+      expect(upstreamRequests).toEqual([{
+        model: 'big-pickle',
+        stream: true,
+        input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+      }])
+
+      upstreamMayEnd.resolve()
+      await reader.cancel()
+    } finally {
+      upstreamMayEnd.resolve()
+      await close(proxy)
+      await close(upstream)
+    }
+  })
+
+  it('retries generic raw Responses 400 once without previous_response_id', async () => {
+    const upstreamRequests: Record<string, unknown>[] = []
+    const upstream = createServer((req, res) => {
+      void (async () => {
+        upstreamRequests.push(await readJsonBody(req))
+        if (upstreamRequests.length === 1) {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: { message: 'Unexpected token ( in JSON at position 0' } }))
+          return
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({
+          id: 'resp_recovered_generic',
+          object: 'response',
+          model: 'big-pickle',
+          output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }],
+        }))
+      })().catch((error) => {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: { message: error instanceof Error ? error.message : 'unknown error' } }))
+      })
+    })
+    const upstreamPort = await listen(upstream)
+    const proxy = createServer((req, res) => {
+      handleUnifiedResponsesProxyRequest(req, res, {
+        bearerToken: '',
+        requireBearerToken: false,
+        wireApi: 'responses',
+        responsesEndpoint: `http://127.0.0.1:${upstreamPort}/v1/responses`,
+        chatCompletionsEndpoint: `http://127.0.0.1:${upstreamPort}/v1/chat/completions`,
+        missingKeyMessage: 'missing',
+        allowToolFallbackToResponses: false,
+        responsesPayloadFormat: 'raw',
+      })
+    })
+    const proxyPort = await listen(proxy)
+
+    try {
+      const input = [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'recover generic' }] }]
+      const response = await fetch(`http://127.0.0.1:${proxyPort}/v1/responses`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'big-pickle',
+          previous_response_id: 'resp_generic_parse_error',
+          input,
+        }),
+      })
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(body.id).toBe('resp_recovered_generic')
+      expect(upstreamRequests).toHaveLength(2)
+      expect(upstreamRequests[0]).toMatchObject({ previous_response_id: 'resp_generic_parse_error', input })
+      expect(upstreamRequests[1]).toMatchObject({ model: 'big-pickle', input })
+      expect(upstreamRequests[1]).not.toHaveProperty('previous_response_id')
+    } finally {
       await close(proxy)
       await close(upstream)
     }

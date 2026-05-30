@@ -470,6 +470,35 @@ function copyProxyHeaders(upstreamHeaders: IncomingMessage['headers']): Record<s
   return headers
 }
 
+function isEventStreamResponse(upstreamHeaders: IncomingMessage['headers']): boolean {
+  const contentType = upstreamHeaders['content-type']
+  const value = Array.isArray(contentType) ? contentType.join(',') : contentType ?? ''
+  return value.toLowerCase().includes('text/event-stream')
+}
+
+function forwardRawStreamingResponse(upstreamRes: IncomingMessage, res: ServerResponse, status: number): void {
+  res.writeHead(status, {
+    ...copyProxyHeaders(upstreamRes.headers),
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+  })
+  upstreamRes.on('data', (chunk: Buffer) => {
+    if (!res.writableEnded) {
+      res.write(chunk)
+    }
+  })
+  upstreamRes.on('end', () => {
+    if (!res.writableEnded) {
+      res.end()
+    }
+  })
+  upstreamRes.on('error', () => {
+    if (!res.writableEnded) {
+      res.end()
+    }
+  })
+}
+
 function parseJsonObject(value: string): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(value) as unknown
@@ -539,7 +568,7 @@ function shouldRecoverWithoutPreviousResponseId(
     sanitizedPayload
       && hasOwnKey(sanitizedPayload, 'previous_response_id')
       && hasSafeFullResponsesInput(sanitizedPayload)
-      && isPreviousResponseNotFoundError(status, rawResponseBody),
+      && (isPreviousResponseNotFoundError(status, rawResponseBody) || status === 400),
   )
 }
 
@@ -664,6 +693,10 @@ export function handleUnifiedResponsesProxyRequest(
         const status = upstreamRes.statusCode ?? 502
         if (useChatPayload && effectiveStreaming && status >= 200 && status < 300) {
           forwardStreamingTextResponse(upstreamRes, res, parsedBody.model)
+          return
+        }
+        if (!useChatPayload && isStreaming && status >= 200 && status < 300 && isEventStreamResponse(upstreamRes.headers)) {
+          forwardRawStreamingResponse(upstreamRes, res, status)
           return
         }
 
