@@ -7,6 +7,7 @@
    * @typedef {Object} BrowserAnnotationSettings
    * @property {string} serverUrl Pairing server base URL.
    * @property {string} pairingToken Ephemeral thread listener token pasted from Codex UI.
+   * @property {string=} extensionToken Long-lived scoped token issued after pairing.
    *
    * @typedef {Object} BrowserAnnotationRuntimeMessage
    * @property {string} type One of MESSAGE_TYPES.
@@ -17,24 +18,31 @@
     MESSAGE_TYPES: Object.freeze({
       GET_STATE: "browserAnnotation.getState",
       SAVE_SETTINGS: "browserAnnotation.saveSettings",
+      DISCONNECT_BINDING: "browserAnnotation.disconnectBinding",
       INJECT_OVERLAY: "browserAnnotation.injectOverlay",
+      ADD_PAGE_STATE_ANNOTATION: "browserAnnotation.addPageStateAnnotation",
       UPDATE_ANNOTATION_QUEUE_ITEM: "browserAnnotation.updateAnnotationQueueItem",
       DELETE_ANNOTATION_QUEUE_ITEM: "browserAnnotation.deleteAnnotationQueueItem",
       MOVE_ANNOTATION_QUEUE_ITEM: "browserAnnotation.moveAnnotationQueueItem",
       SEND_ANNOTATION_BATCH: "browserAnnotation.sendAnnotationBatch",
+      TRANSCRIBE_INLINE_AUDIO: "browserAnnotation.transcribeInlineAudio",
       START_DEVTOOLS_CAPTURE: "browserAnnotation.devtools.enable",
       STOP_DEVTOOLS_CAPTURE: "browserAnnotation.devtools.disable",
       GET_DEVTOOLS_CAPTURE_STATUS: "browserAnnotation.devtools.getStatus",
       CONTENT_PING: "browserAnnotation.contentPing",
       CONTENT_START_OVERLAY: "browserAnnotation.contentStartOverlay",
-      CONTENT_ELEMENT_SELECTED: "browserAnnotation.contentElementSelected"
+      CONTENT_ELEMENT_SELECTED: "browserAnnotation.contentElementSelected",
+      CONTENT_TRANSCRIBE_AUDIO: "browserAnnotation.contentTranscribeAudio",
+      CONTENT_TRANSCRIPTION_RESULT: "browserAnnotation.contentTranscriptionResult"
     }),
     DEFAULT_SETTINGS: Object.freeze({
       serverUrl: "https://codex-ui.todo-tg-app.ru",
       pairingToken: ""
     }),
+    LISTEN_BIND_PATH: "/codex-api/extension/listen/bind",
     LISTEN_STATUS_PATH: "/codex-api/extension/listen/status",
     LISTEN_STOP_PATH: "/codex-api/extension/listen/stop",
+    LISTEN_BINDING_REVOKE_PATH: "/codex-api/extension/listen/binding/revoke",
     ANNOTATION_BATCH_PATH: "/codex-api/extension/annotation-batch",
     ASSET_UPLOAD_PATH: "/codex-api/extension/assets/upload",
     TRANSCRIBE_PATH: "/codex-api/extension/transcribe",
@@ -50,6 +58,7 @@
     STORAGE_KEYS: Object.freeze({
       settings: "browserAnnotation.settings",
       pairingToken: "browserAnnotation.pairingToken",
+      binding: "browserAnnotation.binding",
       annotationQueue: "browserAnnotation.annotationQueue",
       devtoolsCapture: "browserAnnotation.devtoolsCapture"
     }),

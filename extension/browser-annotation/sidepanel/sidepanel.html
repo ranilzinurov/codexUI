@@ -44,6 +44,11 @@
               <span>Bodies</span>
             </label>
           </div>
+          <label class="field field-compact">
+            <span>Page note</span>
+            <textarea id="pageStateNote" rows="2" maxlength="2000" placeholder="Short comment for the current page"></textarea>
+          </label>
+          <button id="addPageStateNote" class="button button-secondary button-compact" type="button" disabled>Add page note</button>
           <p id="devtoolsDetail" class="muted">Console and network metadata are captured only when enabled.</p>
           <p id="captureDevtoolsBodiesHelp" class="microcopy">Bodies are off by default.</p>
         </section>
@@ -53,7 +58,7 @@
             <span>Queue</span>
             <strong id="queueStatus">Empty</strong>
           </div>
-          <p id="queueDetail" class="muted">Select elements on the page, then send them as one batch.</p>
+          <p id="queueDetail" class="muted">Select elements or add a page note, then send one batch.</p>
           <div id="batchMeta" class="batch-meta" hidden></div>
           <ol id="queueList" class="queue-list" aria-label="Queued annotations"></ol>
           <button id="sendBatch" class="button button-primary" type="button" disabled>Send Queue</button>
@@ -70,6 +75,13 @@
             <span>Pairing token</span>
             <input id="pairingToken" type="password" autocomplete="off" spellcheck="false" placeholder="Paste token later">
           </label>
+          <div id="persistentBinding" class="persistent-binding" hidden>
+            <div>
+              <strong id="persistentBindingStatus">Persistent binding</strong>
+              <span id="persistentBindingDetail">Not connected</span>
+            </div>
+            <button id="disconnectPersistentBinding" class="button button-secondary button-compact" type="button" hidden>Disconnect</button>
+          </div>
           <button id="saveSettings" class="button button-secondary" type="button">Save and validate</button>
         </section>
       </section>

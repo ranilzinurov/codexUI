@@ -152,6 +152,36 @@ describe('browser annotation transcription endpoint', () => {
     expect(form.get('file')).toBeInstanceOf(Blob)
   })
 
+  it('accepts a persistent extension token for transcription after the pairing token expires', async () => {
+    let now = Date.UTC(2026, 0, 1)
+    const fetchImpl = createFetchMock([
+      createOpenAiJsonResponse({ text: 'persistent token transcript', language: 'ru' }),
+    ])
+    const store = new BrowserAnnotationListenStore({
+      nowMs: () => now,
+      ttlMs: 100,
+      extensionTokenTtlMs: 10_000,
+    })
+    const { baseUrl } = await listenWithStore(store, { fetch: fetchImpl })
+    const session = await startSession(baseUrl)
+    const bound = await requestJson(baseUrl, '/codex-api/extension/listen/bind', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.pairingToken}` },
+      body: JSON.stringify({ sessionId: session.sessionId }),
+    })
+    const boundSession = bound.body.session as BrowserAnnotationListenSessionResponse
+    now += 101
+
+    const response = await transcribeAudio(baseUrl, boundSession, { token: boundSession.extensionToken })
+
+    expect(bound.status).toBe(200)
+    expect(boundSession.tokenType).toBe('extension')
+    expect(response.status).toBe(200)
+    expect(response.body.text).toBe('persistent token transcript')
+    expect(response.body.language).toBe('ru')
+    expect(callsFor(fetchImpl)).toHaveLength(1)
+  })
+
   it('falls back to the configured fallback model after a retryable provider failure', async () => {
     const fetchImpl = createFetchMock([
       createOpenAiJsonResponse({ error: { message: 'temporary provider failure' } }, 500),

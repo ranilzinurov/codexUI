@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as codexGateway from './codexGateway'
 import {
+  createBrowserAnnotationExtensionToken,
   getBrowserAnnotationListenStatus,
   listDirectoryApps,
   listDirectoryComposioConnectors,
@@ -324,6 +325,44 @@ describe('browser annotation listen helpers', () => {
     expect(requests[1].init?.method).toBe('POST')
     expect((requests[1].init?.headers as Record<string, string>).Authorization).toBe('Bearer token-1')
     expect(JSON.parse(String(requests[1].init?.body))).toEqual({ sessionId: 'session-1', threadId: 'thread-1' })
+  })
+
+  it('requests a persistent browser annotation extension token with the pairing bearer', async () => {
+    const requests: Array<{ input: string; init?: RequestInit }> = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ input: String(input), init })
+      return new Response(JSON.stringify({
+        ok: true,
+        session: {
+          sessionId: 'session-1',
+          threadId: 'thread-1',
+          serverUrl: null,
+          serverPath: '/codex-api/extension/listen',
+          expiresAtIso: '2026-06-27T12:00:00.000Z',
+          createdAtIso: '2026-05-28T12:00:00.000Z',
+          status: 'active',
+          tokenType: 'extension',
+          lastUsedAtIso: '2026-05-28T12:00:00.000Z',
+          extensionToken: 'extension-token-1',
+        },
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }))
+
+    const session = await createBrowserAnnotationExtensionToken('pairing-token-1', {
+      sessionId: 'session-1',
+      threadId: 'thread-1',
+    })
+
+    expect(session.extensionToken).toBe('extension-token-1')
+    expect(session.tokenType).toBe('extension')
+    expect(requests).toHaveLength(1)
+    expect(requests[0].input).toBe('/codex-api/extension/listen/token')
+    expect(requests[0].init?.method).toBe('POST')
+    expect((requests[0].init?.headers as Record<string, string>).Authorization).toBe('Bearer pairing-token-1')
+    expect(JSON.parse(String(requests[0].init?.body))).toEqual({ sessionId: 'session-1', threadId: 'thread-1' })
   })
 })
 

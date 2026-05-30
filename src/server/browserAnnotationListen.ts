@@ -3,10 +3,12 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 
 export const BROWSER_ANNOTATION_LISTEN_BASE_PATH = '/codex-api/extension/listen'
 export const BROWSER_ANNOTATION_LISTEN_TTL_MS = 10 * 60 * 1000
+export const BROWSER_ANNOTATION_EXTENSION_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000
 export const BROWSER_ANNOTATION_LISTEN_MAX_ACTIVE_SESSIONS = 100
 const BROWSER_ANNOTATION_LISTEN_JSON_BODY_LIMIT_BYTES = 16 * 1024
 
 export type BrowserAnnotationListenStatus = 'active' | 'expired' | 'revoked'
+export type BrowserAnnotationListenTokenType = 'pairing' | 'extension'
 
 export type BrowserAnnotationListenSessionResponse = {
   sessionId: string
@@ -16,8 +18,11 @@ export type BrowserAnnotationListenSessionResponse = {
   expiresAtIso: string
   createdAtIso: string
   status: BrowserAnnotationListenStatus
+  tokenType?: BrowserAnnotationListenTokenType
+  lastUsedAtIso?: string
   lastReceivedBatch?: BrowserAnnotationListenLastReceivedBatch
   pairingToken?: string
+  extensionToken?: string
 }
 
 export type BrowserAnnotationListenLastReceivedBatch = {
@@ -33,17 +38,25 @@ export type BrowserAnnotationListenLastReceivedBatch = {
 type BrowserAnnotationListenSessionRecord = {
   sessionId: string
   threadId: string
-  tokenHash: string
-  createdAtMs: number
-  expiresAtMs: number
-  revokedAtMs: number | null
   serverUrl: string | null
   serverPath: string
+  pairingCredential: BrowserAnnotationListenCredentialRecord
+  extensionCredential: BrowserAnnotationListenCredentialRecord | null
   lastReceivedBatch: BrowserAnnotationListenLastReceivedBatch | null
+}
+
+type BrowserAnnotationListenCredentialRecord = {
+  type: BrowserAnnotationListenTokenType
+  tokenHash: string
+  createdAtMs: number
+  lastUsedAtMs: number | null
+  expiresAtMs: number
+  revokedAtMs: number | null
 }
 
 type BrowserAnnotationListenStoreOptions = {
   ttlMs?: number
+  extensionTokenTtlMs?: number
   nowMs?: () => number
   tokenBytes?: number
   maxActiveSessions?: number
@@ -58,12 +71,14 @@ type StartSessionInput = {
 export class BrowserAnnotationListenStore {
   private readonly sessions = new Map<string, BrowserAnnotationListenSessionRecord>()
   private readonly ttlMs: number
+  private readonly extensionTokenTtlMs: number
   private readonly nowMs: () => number
   private readonly tokenBytes: number
   private readonly maxActiveSessions: number
 
   constructor(options: BrowserAnnotationListenStoreOptions = {}) {
     this.ttlMs = options.ttlMs ?? BROWSER_ANNOTATION_LISTEN_TTL_MS
+    this.extensionTokenTtlMs = options.extensionTokenTtlMs ?? BROWSER_ANNOTATION_EXTENSION_TOKEN_TTL_MS
     this.nowMs = options.nowMs ?? Date.now
     this.tokenBytes = options.tokenBytes ?? 24
     this.maxActiveSessions = options.maxActiveSessions ?? BROWSER_ANNOTATION_LISTEN_MAX_ACTIVE_SESSIONS
@@ -78,67 +93,101 @@ export class BrowserAnnotationListenStore {
     const session: BrowserAnnotationListenSessionRecord = {
       sessionId: randomBytes(16).toString('hex'),
       threadId: input.threadId,
-      tokenHash: hashPairingToken(pairingToken),
-      createdAtMs: now,
-      expiresAtMs: now + this.ttlMs,
-      revokedAtMs: null,
       serverUrl: input.serverUrl,
       serverPath: input.serverPath,
+      pairingCredential: {
+        type: 'pairing',
+        tokenHash: hashPairingToken(pairingToken),
+        createdAtMs: now,
+        lastUsedAtMs: null,
+        expiresAtMs: now + this.ttlMs,
+        revokedAtMs: null,
+      },
+      extensionCredential: null,
       lastReceivedBatch: null,
     }
     this.sessions.set(session.sessionId, session)
     return {
-      ...this.toResponse(session),
+      ...this.toResponse(session, session.pairingCredential),
       pairingToken,
+    }
+  }
+
+  issueExtensionToken(token: string, selector: { sessionId?: string; threadId?: string } = {}): BrowserAnnotationListenSessionResponse | null {
+    this.pruneExpired()
+    const authorized = this.findAuthorizedCredential(token, selector, { tokenType: 'pairing' })
+    if (!authorized) return null
+    const now = this.nowMs()
+    const extensionToken = randomBytes(this.tokenBytes).toString('base64url')
+    const extensionCredential: BrowserAnnotationListenCredentialRecord = {
+      type: 'extension',
+      tokenHash: hashPairingToken(extensionToken),
+      createdAtMs: now,
+      lastUsedAtMs: now,
+      expiresAtMs: now + this.extensionTokenTtlMs,
+      revokedAtMs: null,
+    }
+    authorized.session.extensionCredential = extensionCredential
+    return {
+      ...this.toResponse(authorized.session, extensionCredential),
+      extensionToken,
     }
   }
 
   getAuthorizedSession(token: string, selector: { sessionId?: string; threadId?: string } = {}): BrowserAnnotationListenSessionResponse | null {
     this.pruneExpired()
-    const session = this.findAuthorizedSession(token, selector)
-    return session ? this.toResponse(session) : null
+    const authorized = this.findAuthorizedCredential(token, selector)
+    return authorized ? this.toResponse(authorized.session, authorized.credential) : null
   }
 
   getAuthorizedSessionStatus(token: string, selector: { sessionId?: string; threadId?: string } = {}): BrowserAnnotationListenSessionResponse | null {
     this.pruneExpired()
-    const session = this.findAuthorizedSession(token, selector, { allowRevoked: true })
-    return session ? this.toResponse(session) : null
+    const authorized = this.findAuthorizedCredential(token, selector, { allowRevoked: true })
+    return authorized ? this.toResponse(authorized.session, authorized.credential) : null
   }
 
   stopAuthorizedSession(token: string, selector: { sessionId?: string; threadId?: string } = {}): BrowserAnnotationListenSessionResponse | null {
     this.pruneExpired()
-    const session = this.findAuthorizedSession(token, selector)
-    if (!session) return null
-    session.revokedAtMs = this.nowMs()
-    return this.toResponse(session)
+    const authorized = this.findAuthorizedCredential(token, selector)
+    if (!authorized) return null
+    this.revokeSession(authorized.session)
+    return this.toResponse(authorized.session, authorized.credential)
   }
 
   getSessionStatus(sessionId: string): BrowserAnnotationListenStatus | null {
     const session = this.sessions.get(sessionId)
-    return session ? this.getStatus(session) : null
+    if (!session) return null
+    if (this.getActiveCredential(session)) return 'active'
+    return this.getCredentialStatus(session.pairingCredential)
   }
 
   recordReceivedBatch(sessionId: string, batch: BrowserAnnotationListenLastReceivedBatch): BrowserAnnotationListenSessionResponse | null {
     const session = this.sessions.get(sessionId)
-    if (!session || this.getStatus(session) !== 'active') return null
+    const activeCredential = this.getActiveCredential(session)
+    if (!session || !activeCredential) return null
     session.lastReceivedBatch = { ...batch }
-    return this.toResponse(session)
+    return this.toResponse(session, activeCredential)
   }
 
-  private findAuthorizedSession(
+  private findAuthorizedCredential(
     token: string,
     selector: { sessionId?: string; threadId?: string },
-    options: { allowRevoked?: boolean } = {},
-  ): BrowserAnnotationListenSessionRecord | null {
+    options: { allowRevoked?: boolean; tokenType?: BrowserAnnotationListenTokenType } = {},
+  ): { session: BrowserAnnotationListenSessionRecord; credential: BrowserAnnotationListenCredentialRecord } | null {
     const candidates = selector.sessionId
       ? [this.sessions.get(selector.sessionId)].filter((session): session is BrowserAnnotationListenSessionRecord => Boolean(session))
       : Array.from(this.sessions.values())
 
     for (const session of candidates) {
       if (selector.threadId && session.threadId !== selector.threadId) continue
-      const status = this.getStatus(session)
-      if (status !== 'active' && !(options.allowRevoked && status === 'revoked')) continue
-      if (doesTokenMatchHash(token, session.tokenHash)) return session
+      for (const credential of this.getCredentials(session)) {
+        if (options.tokenType && credential.type !== options.tokenType) continue
+        const status = this.getCredentialStatus(credential)
+        if (status !== 'active' && !(options.allowRevoked && status === 'revoked')) continue
+        if (!doesTokenMatchHash(token, credential.tokenHash)) continue
+        if (status === 'active') credential.lastUsedAtMs = this.nowMs()
+        return { session, credential }
+      }
     }
     return null
   }
@@ -146,44 +195,74 @@ export class BrowserAnnotationListenStore {
   private pruneExpired(): void {
     const now = this.nowMs()
     for (const [sessionId, session] of this.sessions.entries()) {
-      if (session.expiresAtMs <= now) {
+      const hasRetainedCredential = this.getCredentials(session).some((credential) => {
+        if (credential.revokedAtMs !== null) return true
+        return credential.expiresAtMs > now
+      })
+      if (!hasRetainedCredential) {
         this.sessions.delete(sessionId)
       }
     }
   }
 
   private revokeActiveSessionsForThread(threadId: string): void {
-    const now = this.nowMs()
     for (const session of this.sessions.values()) {
-      if (session.threadId === threadId && this.getStatus(session) === 'active') {
-        session.revokedAtMs = now
+      if (session.threadId === threadId && this.getActiveCredential(session)) {
+        this.revokeSession(session)
       }
     }
   }
 
   private pruneOldestSessionsOverLimit(maxBeforeNewSession: number): void {
     if (this.sessions.size <= maxBeforeNewSession) return
-    const sessionsByAge = Array.from(this.sessions.values()).sort((left, right) => left.createdAtMs - right.createdAtMs)
+    const sessionsByAge = Array.from(this.sessions.values()).sort(
+      (left, right) => left.pairingCredential.createdAtMs - right.pairingCredential.createdAtMs,
+    )
     for (const session of sessionsByAge) {
       if (this.sessions.size <= maxBeforeNewSession) return
       this.sessions.delete(session.sessionId)
     }
   }
 
-  private getStatus(session: BrowserAnnotationListenSessionRecord): BrowserAnnotationListenStatus {
-    if (session.revokedAtMs !== null) return 'revoked'
-    return session.expiresAtMs <= this.nowMs() ? 'expired' : 'active'
+  private getCredentials(session: BrowserAnnotationListenSessionRecord): BrowserAnnotationListenCredentialRecord[] {
+    return [session.pairingCredential, session.extensionCredential].filter(
+      (credential): credential is BrowserAnnotationListenCredentialRecord => Boolean(credential),
+    )
   }
 
-  private toResponse(session: BrowserAnnotationListenSessionRecord): BrowserAnnotationListenSessionResponse {
+  private getActiveCredential(session: BrowserAnnotationListenSessionRecord | undefined): BrowserAnnotationListenCredentialRecord | null {
+    if (!session) return null
+    return this.getCredentials(session).find((credential) => this.getCredentialStatus(credential) === 'active') ?? null
+  }
+
+  private revokeSession(session: BrowserAnnotationListenSessionRecord): void {
+    const now = this.nowMs()
+    for (const credential of this.getCredentials(session)) {
+      if (this.getCredentialStatus(credential) === 'active') {
+        credential.revokedAtMs = now
+      }
+    }
+  }
+
+  private getCredentialStatus(credential: BrowserAnnotationListenCredentialRecord): BrowserAnnotationListenStatus {
+    if (credential.revokedAtMs !== null) return 'revoked'
+    return credential.expiresAtMs <= this.nowMs() ? 'expired' : 'active'
+  }
+
+  private toResponse(
+    session: BrowserAnnotationListenSessionRecord,
+    credential: BrowserAnnotationListenCredentialRecord,
+  ): BrowserAnnotationListenSessionResponse {
     return {
       sessionId: session.sessionId,
       threadId: session.threadId,
       serverUrl: session.serverUrl,
       serverPath: session.serverPath,
-      expiresAtIso: new Date(session.expiresAtMs).toISOString(),
-      createdAtIso: new Date(session.createdAtMs).toISOString(),
-      status: this.getStatus(session),
+      expiresAtIso: new Date(credential.expiresAtMs).toISOString(),
+      createdAtIso: new Date(credential.createdAtMs).toISOString(),
+      status: this.getCredentialStatus(credential),
+      tokenType: credential.type,
+      ...(credential.lastUsedAtMs !== null ? { lastUsedAtIso: new Date(credential.lastUsedAtMs).toISOString() } : {}),
       ...(session.lastReceivedBatch ? { lastReceivedBatch: { ...session.lastReceivedBatch } } : {}),
     }
   }
@@ -246,7 +325,42 @@ export async function handleBrowserAnnotationListenRoutes(
     return true
   }
 
-  if (req.method === 'POST' && routePath === `${BROWSER_ANNOTATION_LISTEN_BASE_PATH}/stop`) {
+  if (
+    req.method === 'POST'
+    && (routePath === `${BROWSER_ANNOTATION_LISTEN_BASE_PATH}/token`
+      || routePath === `${BROWSER_ANNOTATION_LISTEN_BASE_PATH}/bind`)
+  ) {
+    const token = readBrowserAnnotationBearerToken(req)
+    if (!token) {
+      setJson(res, 401, { error: 'Missing extension bearer token' })
+      return true
+    }
+
+    const bodyResult = await readJsonBody(req)
+    if (!bodyResult.ok) {
+      setJson(res, bodyResult.statusCode, { error: bodyResult.error })
+      return true
+    }
+    const body = bodyResult.body
+    const selector = {
+      ...readBrowserAnnotationSessionSelector(url),
+      ...(isRecord(body) ? readBrowserAnnotationSessionSelectorFromRecord(body) : {}),
+    }
+    const session = store.issueExtensionToken(token, selector)
+    if (!session) {
+      setJson(res, 401, { error: 'Invalid or expired pairing token' })
+      return true
+    }
+
+    setJson(res, 200, { ok: true, session })
+    return true
+  }
+
+  if (
+    req.method === 'POST'
+    && (routePath === `${BROWSER_ANNOTATION_LISTEN_BASE_PATH}/stop`
+      || routePath === `${BROWSER_ANNOTATION_LISTEN_BASE_PATH}/binding/revoke`)
+  ) {
     const token = readBrowserAnnotationBearerToken(req)
     if (!token) {
       setJson(res, 401, { error: 'Missing extension bearer token' })

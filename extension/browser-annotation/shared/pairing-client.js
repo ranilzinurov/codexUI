@@ -9,9 +9,19 @@
     return new URL(constants.LISTEN_STATUS_PATH, `${normalizedServerUrl}/`).toString();
   }
 
+  function buildListenBindUrl(serverUrl) {
+    const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
+    return new URL(constants.LISTEN_BIND_PATH, `${normalizedServerUrl}/`).toString();
+  }
+
   function buildListenStopUrl(serverUrl) {
     const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
     return new URL(constants.LISTEN_STOP_PATH, `${normalizedServerUrl}/`).toString();
+  }
+
+  function buildBindingRevokeUrl(serverUrl) {
+    const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
+    return new URL(constants.LISTEN_BINDING_REVOKE_PATH, `${normalizedServerUrl}/`).toString();
   }
 
   function buildAnnotationBatchUrl(serverUrl, session) {
@@ -77,7 +87,7 @@
       return null;
     }
 
-    return {
+    const parsed = {
       sessionId,
       threadId,
       status,
@@ -86,6 +96,20 @@
       expiresAtIso: readString(session.expiresAtIso),
       createdAtIso: readString(session.createdAtIso)
     };
+
+    const tokenType = readString(session.tokenType);
+    const lastUsedAtIso = readString(session.lastUsedAtIso);
+    const extensionToken = readString(session.extensionToken);
+    if (tokenType) {
+      parsed.tokenType = tokenType;
+    }
+    if (lastUsedAtIso) {
+      parsed.lastUsedAtIso = lastUsedAtIso;
+    }
+    if (extensionToken) {
+      parsed.extensionToken = extensionToken;
+    }
+    return parsed;
   }
 
   function readString(value) {
@@ -103,6 +127,8 @@
   globalScope.BrowserAnnotationPairingClient = {
     buildAnnotationBatchUrl,
     buildAssetUploadUrl,
+    buildBindingRevokeUrl,
+    buildListenBindUrl,
     buildListenStopUrl,
     buildListenStatusUrl,
     buildTranscribeUrl,

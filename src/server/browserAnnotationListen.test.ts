@@ -80,6 +80,7 @@ describe('browser annotation listen endpoints', () => {
     expect(started.status).toBe('active')
     expect(started.serverUrl).toMatch(/^http:\/\/127\.0\.0\.1:/)
     expect(started.serverPath).toBe('/codex-api/extension/listen')
+    expect(started.tokenType).toBe('pairing')
     expect(started.pairingToken).toEqual(expect.any(String))
 
     const status = await requestJson(baseUrl, `/codex-api/extension/listen/status?sessionId=${started.sessionId}`, {
@@ -91,6 +92,8 @@ describe('browser annotation listen endpoints', () => {
     expect(statusSession.sessionId).toBe(started.sessionId)
     expect(statusSession.threadId).toBe('thread-1')
     expect(statusSession.status).toBe('active')
+    expect(statusSession.tokenType).toBe('pairing')
+    expect(statusSession.lastUsedAtIso).toBe('2026-01-01T00:00:00.000Z')
     expect(statusSession.pairingToken).toBeUndefined()
 
     store.recordReceivedBatch(started.sessionId, {
@@ -116,6 +119,190 @@ describe('browser annotation listen endpoints', () => {
       consoleCount: 3,
       networkCount: 4,
     })
+  })
+
+  it('exchanges a valid pairing token for a long-lived scoped extension token', async () => {
+    let now = Date.UTC(2026, 0, 1)
+    const store = new BrowserAnnotationListenStore({
+      nowMs: () => now,
+      ttlMs: 60_000,
+      extensionTokenTtlMs: 30 * 24 * 60 * 60 * 1000,
+    })
+    const { baseUrl } = await listenWithStore(store)
+    const start = await requestJson(baseUrl, '/codex-api/extension/listen/start', {
+      method: 'POST',
+      body: JSON.stringify({ threadId: 'thread-persistent' }),
+    })
+    const started = sessionFrom(start.body)
+    now += 5_000
+
+    const token = await requestJson(baseUrl, '/codex-api/extension/listen/token', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${started.pairingToken}` },
+      body: JSON.stringify({ sessionId: started.sessionId, threadId: started.threadId }),
+    })
+
+    expect(token.status).toBe(200)
+    const persistentSession = sessionFrom(token.body)
+    expect(persistentSession.sessionId).toBe(started.sessionId)
+    expect(persistentSession.threadId).toBe('thread-persistent')
+    expect(persistentSession.status).toBe('active')
+    expect(persistentSession.tokenType).toBe('extension')
+    expect(persistentSession.createdAtIso).toBe('2026-01-01T00:00:05.000Z')
+    expect(persistentSession.lastUsedAtIso).toBe('2026-01-01T00:00:05.000Z')
+    expect(persistentSession.expiresAtIso).toBe('2026-01-31T00:00:05.000Z')
+    expect(persistentSession.extensionToken).toEqual(expect.any(String))
+    expect(persistentSession.pairingToken).toBeUndefined()
+    expect(persistentSession.extensionToken).not.toBe(started.pairingToken)
+  })
+
+  it('authorizes status and downstream session lookup with a persistent token after the pairing token expires', async () => {
+    let now = Date.UTC(2026, 0, 1)
+    const store = new BrowserAnnotationListenStore({
+      nowMs: () => now,
+      ttlMs: 100,
+      extensionTokenTtlMs: 10_000,
+    })
+    const { baseUrl } = await listenWithStore(store)
+    const start = await requestJson(baseUrl, '/codex-api/extension/listen/start', {
+      method: 'POST',
+      body: JSON.stringify({ threadId: 'thread-after-pairing' }),
+    })
+    const started = sessionFrom(start.body)
+    const token = await requestJson(baseUrl, '/codex-api/extension/listen/token', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${started.pairingToken}` },
+      body: JSON.stringify({ sessionId: started.sessionId }),
+    })
+    const extensionToken = sessionFrom(token.body).extensionToken
+    expect(extensionToken).toEqual(expect.any(String))
+
+    now += 101
+    const pairingStatus = await requestJson(baseUrl, `/codex-api/extension/listen/status?sessionId=${started.sessionId}`, {
+      headers: { Authorization: `Bearer ${started.pairingToken}` },
+    })
+    const persistentStatus = await requestJson(baseUrl, `/codex-api/extension/listen/status?sessionId=${started.sessionId}`, {
+      headers: { Authorization: `Bearer ${extensionToken}` },
+    })
+    const authorized = store.getAuthorizedSession(extensionToken ?? '', { sessionId: started.sessionId })
+
+    expect(pairingStatus.status).toBe(401)
+    expect(persistentStatus.status).toBe(200)
+    expect(sessionFrom(persistentStatus.body)).toMatchObject({
+      sessionId: started.sessionId,
+      threadId: 'thread-after-pairing',
+      status: 'active',
+      tokenType: 'extension',
+      lastUsedAtIso: '2026-01-01T00:00:00.101Z',
+    })
+    expect(authorized).toMatchObject({
+      sessionId: started.sessionId,
+      threadId: 'thread-after-pairing',
+      status: 'active',
+      tokenType: 'extension',
+    })
+  })
+
+  it('revokes a persistent token through the existing stop endpoint', async () => {
+    let now = Date.UTC(2026, 0, 1)
+    const store = new BrowserAnnotationListenStore({ nowMs: () => now, ttlMs: 60_000, extensionTokenTtlMs: 10_000 })
+    const { baseUrl } = await listenWithStore(store)
+    const start = await requestJson(baseUrl, '/codex-api/extension/listen/start', {
+      method: 'POST',
+      body: JSON.stringify({ threadId: 'thread-disconnect' }),
+    })
+    const started = sessionFrom(start.body)
+    const token = await requestJson(baseUrl, '/codex-api/extension/listen/token', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${started.pairingToken}` },
+      body: JSON.stringify({ sessionId: started.sessionId }),
+    })
+    const extensionToken = sessionFrom(token.body).extensionToken
+    now += 250
+
+    const stopped = await requestJson(baseUrl, '/codex-api/extension/listen/stop', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${extensionToken}` },
+      body: JSON.stringify({ sessionId: started.sessionId }),
+    })
+    const status = await requestJson(baseUrl, `/codex-api/extension/listen/status?sessionId=${started.sessionId}`, {
+      headers: { Authorization: `Bearer ${extensionToken}` },
+    })
+    const authorized = store.getAuthorizedSession(extensionToken ?? '', { sessionId: started.sessionId })
+
+    expect(stopped.status).toBe(200)
+    expect(sessionFrom(stopped.body)).toMatchObject({
+      sessionId: started.sessionId,
+      status: 'revoked',
+      tokenType: 'extension',
+    })
+    expect(status.status).toBe(200)
+    expect(sessionFrom(status.body)).toMatchObject({
+      sessionId: started.sessionId,
+      status: 'revoked',
+      tokenType: 'extension',
+    })
+    expect(authorized).toBeNull()
+  })
+
+  it('supports extension-facing bind and binding revoke aliases', async () => {
+    const store = new BrowserAnnotationListenStore({ nowMs: () => Date.UTC(2026, 0, 1), ttlMs: 60_000 })
+    const { baseUrl } = await listenWithStore(store)
+    const start = await requestJson(baseUrl, '/codex-api/extension/listen/start', {
+      method: 'POST',
+      body: JSON.stringify({ threadId: 'thread-bind-alias' }),
+    })
+    const started = sessionFrom(start.body)
+
+    const bound = await requestJson(baseUrl, '/codex-api/extension/listen/bind', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${started.pairingToken}` },
+      body: JSON.stringify({ sessionId: started.sessionId }),
+    })
+    const boundSession = sessionFrom(bound.body)
+    const revoked = await requestJson(baseUrl, '/codex-api/extension/listen/binding/revoke', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${boundSession.extensionToken}` },
+      body: JSON.stringify({ sessionId: started.sessionId }),
+    })
+
+    expect(bound.status).toBe(200)
+    expect(boundSession.tokenType).toBe('extension')
+    expect(boundSession.extensionToken).toEqual(expect.any(String))
+    expect(revoked.status).toBe(200)
+    expect(sessionFrom(revoked.body)).toMatchObject({
+      sessionId: started.sessionId,
+      status: 'revoked',
+      tokenType: 'extension',
+    })
+  })
+
+  it('does not issue persistent tokens for wrong or already-expired pairing tokens', async () => {
+    let now = Date.UTC(2026, 0, 1)
+    const store = new BrowserAnnotationListenStore({ nowMs: () => now, ttlMs: 100, extensionTokenTtlMs: 10_000 })
+    const { baseUrl } = await listenWithStore(store)
+    const start = await requestJson(baseUrl, '/codex-api/extension/listen/start', {
+      method: 'POST',
+      body: JSON.stringify({ threadId: 'thread-token-reject' }),
+    })
+    const started = sessionFrom(start.body)
+
+    const wrong = await requestJson(baseUrl, '/codex-api/extension/listen/token', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer wrong-token' },
+      body: JSON.stringify({ sessionId: started.sessionId }),
+    })
+    now += 101
+    const expired = await requestJson(baseUrl, '/codex-api/extension/listen/token', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${started.pairingToken}` },
+      body: JSON.stringify({ sessionId: started.sessionId }),
+    })
+
+    expect(wrong.status).toBe(401)
+    expect(wrong.body.error).toBe('Invalid or expired pairing token')
+    expect(expired.status).toBe(401)
+    expect(expired.body.error).toBe('Invalid or expired pairing token')
   })
 
   it('rejects expired pairing tokens', async () => {

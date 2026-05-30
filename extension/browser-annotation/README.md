@@ -1,6 +1,6 @@
 # Codex UI Browser Annotation Extension
 
-Manifest V3 MVP scaffold for browser annotation. This stage includes extension structure, locally stored server URL and pairing token, bearer-token validation against the Codex UI listen status endpoint, connected/disconnected/error side-panel state, restricted-page guards, user-requested overlay injection, element and freeform area overlays, inline comment and speech-dictation controls, visible-tab screenshot capture, selected-region crop previews, explicit DevTools console/network capture, a compact local annotation queue with edit/delete/reorder, and batch send to Codex UI.
+Manifest V3 MVP scaffold for browser annotation. This stage includes extension structure, locally stored server URL plus scoped persistent binding token, bearer-token validation against the Codex UI listen status endpoint, connected/disconnected/error side-panel state, restricted-page guards, user-requested overlay injection, element and freeform area overlays, inline comment and server-side OpenAI transcription controls, visible-tab screenshot capture, selected-region crop previews, explicit DevTools console/network capture, DevTools-only page-state notes, a compact local annotation queue with delete/reorder, and batch send to Codex UI.
 
 No build step is required for local development. The folder is designed to be loaded directly with Chrome's **Load unpacked** flow.
 
@@ -15,9 +15,9 @@ The command writes an unpacked production copy and zip archive under `dist/brows
 ## Files
 
 - `manifest.json` declares MV3, the service worker, side panel, action keyboard shortcut, `activeTab`/`alarms`/`debugger`/`scripting`/`tabs`/`sidePanel` permissions, target host access for Codex UI/annotation server origins, narrow local development host access for `http://127.0.0.1/*` plus `http://localhost/*`, and optional runtime page access for normal `http(s)` sites.
-- `service-worker/service-worker.js` owns side-panel messages, local settings, pairing-token validation, active-tab checks, action-click side-panel behavior, user-gesture content-script injection, visible-tab capture, best-effort crop preview creation, explicit `chrome.debugger` attach/detach, bounded DevTools console/network capture, local selected-element queue storage, queue mutation, and annotation-batch POSTs.
+- `service-worker/service-worker.js` owns side-panel messages, local settings, pairing-token to persistent-token binding, active-tab checks, action-click side-panel behavior, user-gesture content-script injection, visible-tab capture, best-effort crop preview creation, explicit `chrome.debugger` attach/detach, bounded DevTools console/network capture, local selected-element/page-state queue storage, inline audio transcription POSTs, queue mutation, and annotation-batch POSTs.
 - `sidepanel/` contains the load-unpacked tabbed side panel UI.
-- `content/content-script.js` installs a Shadow DOM overlay, tracks hover/selected element boxes, lets the user drag a freeform rectangular area, collects inline comments or speech dictation, and sends selected context back to the service worker.
+- `content/content-script.js` installs a Shadow DOM overlay, tracks hover/selected element boxes, lets the user drag a freeform rectangular area, records inline comments or short mic audio, and sends selected context plus audio transcription requests back to the service worker.
 - `shared/` contains small globals, JSDoc contract typedefs, message names, storage keys, URL rules, pairing status helpers, selection-context helpers, screenshot crop helpers, and defaults used by the service worker, content script, and side panel.
 - `dev/test-page.html` is a static page for manual overlay checks when served over local http.
 - `dev/devtools-fixture-server.mjs` serves a local page that emits predictable console and network events for DevTools capture smoke testing.
@@ -66,24 +66,25 @@ node extension/browser-annotation/dev/content-overlay-cancel-smoke.cjs
 4. Open any normal `http(s)` page. For the included test page, serve the repository locally first, for example `python3 -m http.server 8899`, then open `http://127.0.0.1:8899/extension/browser-annotation/dev/test-page.html`.
 5. Click the extension action, or press `Ctrl+Shift+Y`, to open the side panel and start annotation mode on the active page.
 6. Keep the default server URL (`https://codex-ui.todo-tg-app.ru`) or enter `http://127.0.0.1:<port>` / `http://localhost:<port>` for local testing. Non-local `http://` server URLs are rejected so bearer tokens are not sent in cleartext.
-7. Paste a Codex UI browser annotation pairing token. The token is kept in extension session storage while needed, is removed from extension local storage if an older build stored it there, and is only sent as `Authorization: Bearer <token>` to browser annotation endpoints.
+7. Paste a Codex UI browser annotation pairing token. The extension exchanges it for a scoped persistent binding token, clears the pasted token, and keeps only the revocable extension token in local storage.
 8. Click **Save and validate**.
 9. Confirm the side panel shows **Connected** for an active token, **Disconnected** when no token is stored, and **Error** for invalid, expired, unreachable, or malformed status responses.
 10. If annotation mode is not already active, click **Inject overlay** and approve Chrome's host access prompt for the current site when it appears.
 11. Confirm the page shows a compact annotation panel and a blue hover box follows the button, input, and sample card.
 12. Click the sample button, sample input, and sample card.
-13. Confirm the selected element gets a green box with compact `×`, `Chat`, and `Mic` controls, and the side panel queue count/list updates.
+13. Confirm the selected element gets a green box with compact icon-only comment, mic, and close controls, and the side panel queue count/list updates.
 14. Confirm each queue row includes a visible preview cropped to the selected element when Chrome grants visible-tab capture. On a DPR 2 display, a 120 CSS-pixel wide selected element should produce a 240 pixel wide stored preview unless it exceeds the preview cap.
 15. If Chrome denies visible-tab capture, confirm the element still queues and the row shows `No preview` instead of failing the selection.
 16. Open the extension service worker console and inspect `chrome.storage.local.get("browserAnnotation.annotationQueue")`. Confirm queued items either store `preview.dataUrl`, `preview.cropRect`, and `preview.devicePixelRatio`, or store a short `previewError`; no full-tab screenshot is stored.
-17. Click `Chat`, type a distinct inline comment, and confirm the queue item is updated without a side-panel note textarea.
+17. Click the comment icon, type a distinct inline comment, and confirm the queue item is updated without a side-panel note textarea.
 18. Drag a rectangle across an arbitrary page area and confirm it queues as a freeform selected area with a cropped preview.
 19. Create three queued annotations, move the second row up, and delete the remaining third row from the compact queue.
-20. Optional DevTools smoke: run `node extension/browser-annotation/dev/devtools-fixture-server.mjs`, open `http://127.0.0.1:8899/`, enable **DevTools**, click console/network fixture buttons, and make an annotation.
-21. Click **Send Queue** with a valid connected pairing token and confirm the queue clears after the server accepts the batch. The batch request should be a POST to `/codex-api/extension/annotation-batch` with the pairing token as `Authorization: Bearer <token>`.
-22. Inspect the annotation-batch request body if available. Confirm it contains one top-level `page`, queued `items`, each item note, selector/rect/viewport context, `assets: []`, no `preview.dataUrl` or other screenshot data URL, and `devTools` only when DevTools capture mode was explicitly enabled.
-23. Click the selected element `×` and confirm the selected box disappears, the queued item is removed, and annotation mode remains ready for another selection.
-24. Select another element, press Esc, and confirm the selected annotation is removed and hover tracking stops until **Inject Overlay** is clicked again.
+20. Click the mic icon, speak a short Russian comment, stop recording, and confirm the transcript appears in that selected item's inline comment after the server transcription response returns.
+21. Optional DevTools smoke: run `node extension/browser-annotation/dev/devtools-fixture-server.mjs`, open `http://127.0.0.1:8899/`, enable **DevTools**, click console/network fixture buttons, add a Page note without injecting overlay, and send it.
+22. Click **Send Queue** with a valid connected binding and confirm the queue clears after the server accepts the batch. The batch request should be a POST to `/codex-api/extension/annotation-batch` with the persistent extension token as `Authorization: Bearer <token>`.
+23. Inspect the annotation-batch request body if available. Confirm it contains one top-level `page`, queued `items`, each item note, selector/rect/viewport context when an element or area was selected, `assets: []`, no `preview.dataUrl` or other screenshot data URL, and `devTools` only when DevTools capture mode was explicitly enabled.
+24. Click the selected element close control and confirm the selected box disappears, the queued item is removed, and annotation mode remains ready for another selection.
+25. Select another element, press Esc, and confirm the selected annotation is removed, the overlay host disappears, and hover/click tracking stops until **Inject Overlay** is clicked again.
 
 ## Packaging And Release Notes
 

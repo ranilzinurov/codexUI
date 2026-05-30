@@ -43,12 +43,28 @@ assert.equal(
   "https://annotate.todo-tg-app.ru/codex-api/extension/listen/status"
 );
 
+const defaultBindUrl = BrowserAnnotationPairingClient.buildListenBindUrl(
+  "https://annotate.todo-tg-app.ru/"
+);
+assert.equal(
+  defaultBindUrl,
+  "https://annotate.todo-tg-app.ru/codex-api/extension/listen/bind"
+);
+
 const defaultStopUrl = BrowserAnnotationPairingClient.buildListenStopUrl(
   "https://annotate.todo-tg-app.ru/"
 );
 assert.equal(
   defaultStopUrl,
   "https://annotate.todo-tg-app.ru/codex-api/extension/listen/stop"
+);
+
+const defaultBindingRevokeUrl = BrowserAnnotationPairingClient.buildBindingRevokeUrl(
+  "https://annotate.todo-tg-app.ru/"
+);
+assert.equal(
+  defaultBindingRevokeUrl,
+  "https://annotate.todo-tg-app.ru/codex-api/extension/listen/binding/revoke"
 );
 
 const localStatusUrl = BrowserAnnotationPairingClient.buildListenStatusUrl(
@@ -100,6 +116,9 @@ const session = BrowserAnnotationPairingClient.readSessionFromStatusPayload({
     serverPath: "/codex-api/extension/listen",
     expiresAtIso: "2026-05-28T00:10:00.000Z",
     createdAtIso: "2026-05-28T00:00:00.000Z",
+    tokenType: "extension",
+    lastUsedAtIso: "2026-05-28T00:03:00.000Z",
+    extensionToken: "extension-token-1",
     pairingToken: "must-not-be-used"
   }
 });
@@ -110,7 +129,10 @@ assert.deepEqual(JSON.parse(JSON.stringify(session)), {
   serverUrl: null,
   serverPath: "/codex-api/extension/listen",
   expiresAtIso: "2026-05-28T00:10:00.000Z",
-  createdAtIso: "2026-05-28T00:00:00.000Z"
+  createdAtIso: "2026-05-28T00:00:00.000Z",
+  tokenType: "extension",
+  lastUsedAtIso: "2026-05-28T00:03:00.000Z",
+  extensionToken: "extension-token-1"
 });
 
 const error = BrowserAnnotationPairingClient.readStatusError(

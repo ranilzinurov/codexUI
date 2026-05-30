@@ -15,13 +15,17 @@ let pendingBodyResponse = null;
 
 const context = vm.createContext({
   AbortController,
+  Blob,
   Date,
+  FormData,
   Math,
   Promise,
+  Response,
   Set,
   Symbol,
   TextEncoder,
   URL,
+  atob,
   clearTimeout,
   console,
   fetch,
@@ -316,7 +320,164 @@ assert.equal(revokedState.connection.session.status, "revoked");
 assert.equal(revokedState.settings.pairingToken, "");
 assert.equal(storage.has(BrowserAnnotationConstants.STORAGE_KEYS.pairingToken), false);
 
+const persistentFetchCalls = [];
+context.fetch = async (input, init = {}) => {
+  const url = String(input);
+  const authorization = init.headers && init.headers.Authorization;
+  persistentFetchCalls.push({ url, method: init.method || "GET", authorization });
+  if (url.includes("/listen/binding/revoke")) {
+    assert.equal(authorization, "Bearer extension-token-smoke");
+    return jsonResponse({
+      ok: true,
+      session: {
+        ...persistentSessionPayload(),
+        status: "revoked"
+      }
+    });
+  }
+  if (url.includes("/listen/bind")) {
+    assert.equal(authorization, "Bearer pairing-token-smoke");
+    return jsonResponse({
+      ok: true,
+      session: {
+        sessionId: "persistent-session",
+        threadId: "thread-persistent",
+        status: "active",
+        tokenType: "extension",
+        serverUrl: "https://codex-ui.todo-tg-app.ru",
+        serverPath: "/codex-api/extension/listen",
+        expiresAtIso: "2026-06-29T12:00:00.000Z",
+        createdAtIso: "2026-05-30T12:00:00.000Z",
+        lastUsedAtIso: "2026-05-30T12:00:00.000Z",
+        extensionToken: "extension-token-smoke"
+      }
+    });
+  }
+  if (url.includes("/listen/status")) {
+    assert.equal(authorization, "Bearer extension-token-smoke");
+    return jsonResponse({
+      ok: true,
+      session: persistentSessionPayload()
+    });
+  }
+  if (url.includes("/annotation-batch")) {
+    assert.equal(authorization, "Bearer extension-token-smoke");
+    assert.equal(url.includes("sessionId=persistent-session"), true);
+    return jsonResponse({
+      ok: true,
+      result: {
+        status: "queued",
+        threadId: "thread-persistent",
+        batchId: "batch-smoke",
+        annotationCount: 1
+      }
+    });
+  }
+  if (url.includes("/transcribe")) {
+    assert.equal(authorization, "Bearer extension-token-smoke");
+    assert.equal(url.includes("sessionId=persistent-session"), true);
+    return jsonResponse({
+      ok: true,
+      text: "Русский голосовой комментарий",
+      language: "ru",
+      model: "gpt-4o-mini-transcribe"
+    });
+  }
+  throw new Error(`Unexpected persistent smoke fetch: ${url}`);
+};
+
+const savedPersistentState = await context.handleMessage({
+  type: BrowserAnnotationConstants.MESSAGE_TYPES.SAVE_SETTINGS,
+  settings: {
+    serverUrl: "https://codex-ui.todo-tg-app.ru",
+    pairingToken: "pairing-token-smoke"
+  }
+});
+const binding = storage.get(BrowserAnnotationConstants.STORAGE_KEYS.binding);
+assert.equal(binding.token, "extension-token-smoke");
+assert.equal(binding.sessionId, "persistent-session");
+assert.equal(storage.has(BrowserAnnotationConstants.STORAGE_KEYS.pairingToken), false);
+assert.equal(savedPersistentState.state.connection.status, "connected");
+assert.equal(savedPersistentState.state.connection.session.tokenType, "extension");
+assert.equal(savedPersistentState.state.persistentBinding.status, "active");
+
+activeTabs.splice(0, activeTabs.length, {
+  id: 101,
+  windowId: 7,
+  active: true,
+  title: "Page state auth",
+  url: "https://app.example.test/page-state"
+});
+storage.set(annotationQueueKey, []);
+storage.set(storageKey, BrowserAnnotationDevtoolsCapture.createDevtoolsCaptureState(
+  {
+    id: 101,
+    title: "Page state auth",
+    url: "https://app.example.test/page-state"
+  },
+  {
+    nowMs,
+    timeoutMs: 60000
+  }
+));
+await context.handleMessage({
+  type: BrowserAnnotationConstants.MESSAGE_TYPES.ADD_PAGE_STATE_ANNOTATION,
+  noteText: "Capture current page behavior"
+});
+const pageStateQueue = storage.get(annotationQueueKey);
+assert.equal(pageStateQueue.length, 1);
+assert.equal(pageStateQueue[0].kind, "devtools/page-state");
+assert.equal(pageStateQueue[0].noteText, "Capture current page behavior");
+
+const sentPersistent = await context.handleMessage({
+  type: BrowserAnnotationConstants.MESSAGE_TYPES.SEND_ANNOTATION_BATCH
+});
+assert.equal(sentPersistent.ok, true);
+assert.equal(storage.get(annotationQueueKey).length, 0);
+assert.equal(storage.get(BrowserAnnotationConstants.STORAGE_KEYS.binding).token, "extension-token-smoke");
+assert.equal(persistentFetchCalls.some((call) => call.url.includes("/listen/stop")), false);
+
+const transcript = await context.handleMessage({
+  type: BrowserAnnotationConstants.MESSAGE_TYPES.CONTENT_TRANSCRIBE_AUDIO,
+  itemId: "annotation-voice",
+  recordingToken: "recording-token-smoke",
+  mimeType: "audio/webm",
+  durationMs: 1234,
+  audioDataUrl: `data:audio/webm;base64,${Buffer.from("voice").toString("base64")}`
+});
+assert.equal(transcript.transcriptText, "Русский голосовой комментарий");
+assert.equal(transcript.itemId, "annotation-voice");
+assert.equal(transcript.recordingToken, "recording-token-smoke");
+
+const disconnectedPersistent = await context.handleMessage({
+  type: BrowserAnnotationConstants.MESSAGE_TYPES.DISCONNECT_BINDING
+});
+assert.equal(disconnectedPersistent.ok, true);
+assert.equal(storage.has(BrowserAnnotationConstants.STORAGE_KEYS.binding), false);
+assert.equal(disconnectedPersistent.state.connection.status, "disconnected");
+
 console.log("Extension DevTools service worker persistence smoke passed.");
+
+function persistentSessionPayload() {
+  return {
+    sessionId: "persistent-session",
+    threadId: "thread-persistent",
+    status: "active",
+    tokenType: "extension",
+    serverUrl: "https://codex-ui.todo-tg-app.ru",
+    serverPath: "/codex-api/extension/listen",
+    expiresAtIso: "2026-06-29T12:00:00.000Z",
+    createdAtIso: "2026-05-30T12:00:00.000Z",
+    lastUsedAtIso: "2026-05-30T12:00:01.000Z"
+  };
+}
+
+function jsonResponse(payload, status = 200) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { "Content-Type": "application/json" }
+  });
+}
 
 function createChromeStub(
   localStorage,
@@ -390,6 +551,10 @@ function createChromeStub(
           for (const [key, item] of Object.entries(value)) {
             localStorage.set(key, clone(item));
           }
+        },
+        remove: async (key) => {
+          await delay(0);
+          localStorage.delete(key);
         }
       },
       session: {

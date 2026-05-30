@@ -18,6 +18,10 @@
   const DRAG_THRESHOLD_PX = 6;
   const MIN_AREA_SIZE_PX = 8;
   const NOTE_SAVE_DELAY_MS = 350;
+  const CONTENT_TRANSCRIBE_AUDIO_MESSAGE =
+    MESSAGE_TYPES.CONTENT_TRANSCRIBE_AUDIO || "browserAnnotation.contentTranscribeAudio";
+  const CONTENT_TRANSCRIPTION_RESULT_MESSAGE =
+    MESSAGE_TYPES.CONTENT_TRANSCRIPTION_RESULT || "browserAnnotation.contentTranscriptionResult";
   let overlay = null;
   let active = false;
   let hoveredElement = null;
@@ -31,12 +35,27 @@
   let noteUpdateTimer = 0;
   let pendingNoteText = "";
   let noteUpdateSequence = 0;
-  let speechRecognition = null;
-  let speechActive = false;
+  let voiceRecorder = null;
+  let voiceStream = null;
+  let voiceChunks = [];
+  let voiceRecordingToken = "";
+  let voiceRecordingStartedAt = 0;
+  let voiceRecordingSequence = 0;
+  let activeTranscription = null;
   let noteUpdateQueue = Promise.resolve();
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (!message || message.type !== MESSAGE_TYPES.CONTENT_START_OVERLAY) {
+    if (!message) {
+      return false;
+    }
+
+    if (message.type === CONTENT_TRANSCRIPTION_RESULT_MESSAGE) {
+      applyTranscriptionResult(message);
+      sendResponse({ ok: true });
+      return true;
+    }
+
+    if (message.type !== MESSAGE_TYPES.CONTENT_START_OVERLAY) {
       return false;
     }
 
@@ -89,9 +108,23 @@
     window.removeEventListener("resize", scheduleOverlayUpdate);
 
     if (overlay) {
-      overlay.hoverBox.hidden = true;
-      overlay.dragBox.hidden = true;
-      setIdlePanel("Annotation mode paused");
+      hideOverlayVisuals({ hideHost: true });
+    }
+  }
+
+  function hideOverlayVisuals(options = {}) {
+    if (!overlay) {
+      return;
+    }
+    overlay.hoverBox.hidden = true;
+    overlay.dragBox.hidden = true;
+    overlay.selectedBox.hidden = true;
+    overlay.panel.hidden = true;
+    overlay.noteWrap.hidden = true;
+    overlay.noteButton.setAttribute("aria-expanded", "false");
+    overlay.panel.classList.remove("has-note", "is-selection");
+    if (options.hideHost === true) {
+      overlay.host.hidden = true;
     }
   }
 
@@ -277,9 +310,10 @@
 
   function beginQueuedSelection(context, label, savedLabel) {
     selectedQueueItemId = "";
+    activeTranscription = null;
     pendingNoteText = "";
     clearTimeout(noteUpdateTimer);
-    stopVoiceInput({ silent: true });
+    stopVoiceInput({ discard: true, silent: true });
     overlay.noteInput.value = "";
     overlay.noteWrap.hidden = true;
     overlay.noteButton.setAttribute("aria-expanded", "false");
@@ -333,7 +367,7 @@
       event.preventDefault();
       event.stopPropagation();
       if (selectedSelection || selectedQueueItemId) {
-        cancelSelectedAnnotation({ pause: true });
+        cancelSelectedAnnotation({ pause: true, hideHost: true });
       } else {
         stopAnnotationMode();
       }
@@ -352,13 +386,19 @@
     selectedSelection = null;
     pendingNoteText = "";
     clearTimeout(noteUpdateTimer);
-    stopVoiceInput({ silent: true });
+    activeTranscription = null;
+    stopVoiceInput({ discard: true, silent: true });
     if (overlay) {
       overlay.selectedBox.hidden = true;
       overlay.noteInput.value = "";
       overlay.noteWrap.hidden = true;
       overlay.noteButton.setAttribute("aria-expanded", "false");
-      setIdlePanel(shouldPause ? "Selection canceled" : "Click an element or drag an area");
+      overlay.panel.classList.remove("has-note");
+      if (shouldPause && options.hideHost === true) {
+        hideOverlayVisuals({ hideHost: true });
+      } else {
+        setIdlePanel("Click an element or drag an area");
+      }
     }
     if (queuedItemId) {
       void deleteQueuedAnnotation(queuedItemId);
@@ -436,6 +476,7 @@
     const nextHidden = !overlay.noteWrap.hidden;
     overlay.noteWrap.hidden = nextHidden;
     overlay.noteButton.setAttribute("aria-expanded", String(!nextHidden));
+    overlay.panel.classList.toggle("has-note", !nextHidden);
     updateSelectedOverlay();
     if (!nextHidden) {
       window.setTimeout(() => overlay.noteInput.focus(), 0);
@@ -443,104 +484,261 @@
   }
 
   function toggleVoiceInput() {
-    if (speechActive) {
+    if (voiceRecorder) {
       stopVoiceInput();
       return;
     }
     startVoiceInput();
   }
 
-  function startVoiceInput() {
+  async function startVoiceInput() {
     if (!overlay) {
       return;
     }
-    const Recognition = globalThis.SpeechRecognition || globalThis.webkitSpeechRecognition;
-    if (typeof Recognition !== "function") {
-      overlay.panelMeta.textContent = "Voice input is not available";
+
+    if (!selectedQueueItemId) {
+      overlay.panelMeta.textContent = "Wait for selection to save";
+      return;
+    }
+    if (!globalThis.MediaRecorder || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      overlay.panelMeta.textContent = "Voice recording is not available";
       return;
     }
 
-    if (overlay.noteWrap.hidden) {
-      toggleNoteInput();
-    }
-
-    stopVoiceInput({ silent: true });
-    const recognition = new Recognition();
-    speechRecognition = recognition;
-    speechActive = true;
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = navigator.language || document.documentElement.lang || "en-US";
-    overlay.micButton.textContent = "Stop";
-    overlay.micButton.classList.add("is-recording");
-    overlay.micButton.setAttribute("aria-label", "Stop voice comment");
-    overlay.panelMeta.textContent = "Listening...";
-
-    recognition.addEventListener("result", (event) => {
-      let finalText = "";
-      let interimText = "";
-      for (let index = event.resultIndex; index < event.results.length; index += 1) {
-        const result = event.results[index];
-        const transcript = result && result[0] ? result[0].transcript : "";
-        if (result && result.isFinal) {
-          finalText += transcript;
-        } else {
-          interimText += transcript;
-        }
-      }
-      if (finalText) {
-        appendNoteText(finalText);
-      }
-      overlay.panelMeta.textContent = interimText
-        ? `Listening: ${selectionContext.normalizeText(interimText, 42)}`
-        : "Listening...";
-    });
-
-    recognition.addEventListener("error", (event) => {
-      overlay.panelMeta.textContent = readVoiceErrorMessage(event && event.error);
-    });
-
-    recognition.addEventListener("end", () => {
-      if (speechRecognition === recognition) {
-        speechRecognition = null;
-        speechActive = false;
-        if (overlay) {
-          resetVoiceButton();
-          overlay.panelMeta.textContent = pendingNoteText ? "Note saved" : "Saved";
-        }
-      }
-    });
-
+    stopVoiceInput({ discard: true, silent: true });
+    const recordingToken = createRecordingToken();
+    const queueItemId = selectedQueueItemId;
     try {
-      recognition.start();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (queueItemId !== selectedQueueItemId || recordingToken !== voiceRecordingToken) {
+        stopStream(stream);
+        return;
+      }
+      const mimeType = chooseRecordingMimeType();
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      voiceRecorder = recorder;
+      voiceStream = stream;
+      voiceChunks = [];
+      voiceRecordingStartedAt = performance.now();
+      activeTranscription = null;
+
+      recorder.addEventListener("dataavailable", (event) => {
+        if (event.data && event.data.size > 0) {
+          voiceChunks.push(event.data);
+        }
+      });
+
+      recorder.addEventListener("stop", () => {
+        const chunks = voiceChunks.slice();
+        const stoppedToken = recordingToken;
+        const stoppedQueueItemId = queueItemId;
+        const stoppedMimeType = recorder.mimeType || mimeType || "";
+        const durationMs = Math.max(0, Math.round(performance.now() - voiceRecordingStartedAt));
+        voiceRecorder = null;
+        voiceChunks = [];
+        stopStream(stream);
+        if (voiceStream === stream) {
+          voiceStream = null;
+        }
+        resetVoiceButton();
+        if (stoppedToken !== voiceRecordingToken) {
+          return;
+        }
+        if (stoppedQueueItemId !== selectedQueueItemId) {
+          return;
+        }
+        if (chunks.length === 0) {
+          overlay.panelMeta.textContent = "No audio captured";
+          return;
+        }
+        const blob = new Blob(chunks, { type: stoppedMimeType || "audio/webm" });
+        void sendVoiceRecordingForTranscription({
+          itemId: stoppedQueueItemId,
+          recordingToken: stoppedToken,
+          mimeType: blob.type || stoppedMimeType,
+          durationMs,
+          blob
+        });
+      });
+
+      recorder.start();
     } catch (error) {
-      speechRecognition = null;
-      speechActive = false;
-      console.warn("Unable to start voice input.", error);
+      voiceRecorder = null;
+      voiceChunks = [];
+      if (voiceStream) {
+        stopStream(voiceStream);
+        voiceStream = null;
+      }
+      console.warn("Unable to start voice recording.", error);
       resetVoiceButton();
-      overlay.panelMeta.textContent = "Voice input failed";
+      overlay.panelMeta.textContent = readVoiceErrorMessage(error && error.name);
+      return;
     }
+
+    overlay.micButton.textContent = "■";
+    overlay.micButton.classList.add("is-recording");
+    overlay.micButton.setAttribute("aria-label", "Stop voice recording");
+    overlay.micButton.title = "Stop voice recording";
+    overlay.panelMeta.textContent = "Recording...";
   }
 
   function stopVoiceInput(options = {}) {
-    const recognition = speechRecognition;
-    if (!recognition) {
-      speechActive = false;
+    const recorder = voiceRecorder;
+    if (!recorder) {
       resetVoiceButton();
+      if (options.discard === true) {
+        voiceRecordingToken = "";
+      }
       return;
     }
-    speechRecognition = null;
-    speechActive = false;
+    if (options.discard === true) {
+      voiceRecordingToken = "";
+      voiceChunks = [];
+    }
     try {
-      recognition.stop();
+      recorder.stop();
     } catch (_error) {
-      // Recognition can already be stopped by the browser.
+      // MediaRecorder can already be inactive when the user cancels quickly.
     }
     if (overlay && options.silent !== true) {
       resetVoiceButton();
-      overlay.panelMeta.textContent = pendingNoteText ? "Note saved" : "Saved";
+      overlay.panelMeta.textContent = options.discard === true ? "Recording canceled" : "Transcribing...";
     } else {
       resetVoiceButton();
+    }
+  }
+
+  function createRecordingToken() {
+    voiceRecordingSequence += 1;
+    voiceRecordingToken = `${Date.now()}-${voiceRecordingSequence}`;
+    return voiceRecordingToken;
+  }
+
+  async function sendVoiceRecordingForTranscription(recording) {
+    if (!overlay) {
+      return;
+    }
+    activeTranscription = {
+      itemId: recording.itemId,
+      recordingToken: recording.recordingToken
+    };
+    overlay.panelMeta.textContent = "Transcribing...";
+    try {
+      const audioDataUrl = await readBlobDataUrl(recording.blob);
+      const response = await chrome.runtime.sendMessage({
+        type: CONTENT_TRANSCRIBE_AUDIO_MESSAGE,
+        itemId: recording.itemId,
+        recordingToken: recording.recordingToken,
+        mimeType: recording.mimeType,
+        durationMs: recording.durationMs,
+        byteLength: recording.blob.size,
+        audioDataUrl
+      });
+      if (response && response.ok === false) {
+        throw new Error(response.error || "Voice transcription was not accepted.");
+      }
+      if (response && readTranscriptText(response)) {
+        applyTranscriptionResult({
+          itemId: recording.itemId,
+          recordingToken: recording.recordingToken,
+          transcriptText: readTranscriptText(response)
+        });
+        return;
+      }
+      if (isCurrentTranscription(recording.itemId, recording.recordingToken)) {
+        overlay.panelMeta.textContent = "Transcription pending";
+      }
+    } catch (error) {
+      console.warn("Unable to send voice recording for transcription.", error);
+      if (isCurrentTranscription(recording.itemId, recording.recordingToken)) {
+        overlay.panelMeta.textContent = "Voice transcription unavailable";
+      }
+    }
+  }
+
+  function readBlobDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.addEventListener("load", () => {
+        resolve(typeof reader.result === "string" ? reader.result : "");
+      }, { once: true });
+      reader.addEventListener("error", () => {
+        reject(reader.error || new Error("Unable to read recorded audio."));
+      }, { once: true });
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  function applyTranscriptionResult(message) {
+    const itemId = message && message.itemId ? String(message.itemId) : "";
+    const recordingToken = message && message.recordingToken ? String(message.recordingToken) : "";
+    if (!isCurrentTranscription(itemId, recordingToken)) {
+      return;
+    }
+    const transcript = readTranscriptText(message);
+    if (transcript) {
+      if (overlay && overlay.noteWrap.hidden) {
+        toggleNoteInput();
+      }
+      appendNoteText(transcript);
+      if (overlay) {
+        overlay.panelMeta.textContent = "Transcript added";
+      }
+    } else if (overlay) {
+      overlay.panelMeta.textContent = message && message.error ? "Transcription failed" : "Transcription complete";
+    }
+    activeTranscription = null;
+  }
+
+  function isCurrentTranscription(itemId, recordingToken) {
+    return Boolean(
+      itemId &&
+        recordingToken &&
+        activeTranscription &&
+        activeTranscription.itemId === itemId &&
+        activeTranscription.recordingToken === recordingToken &&
+        selectedQueueItemId === itemId
+    );
+  }
+
+  function readTranscriptText(value) {
+    if (!value || typeof value !== "object") {
+      return "";
+    }
+    if (typeof value.transcriptText === "string") {
+      return selectionContext.normalizeText(value.transcriptText, constants.MAX_ANNOTATION_NOTE_CHARS || 2000);
+    }
+    if (typeof value.text === "string") {
+      return selectionContext.normalizeText(value.text, constants.MAX_ANNOTATION_NOTE_CHARS || 2000);
+    }
+    if (value.transcript && typeof value.transcript.text === "string") {
+      return selectionContext.normalizeText(value.transcript.text, constants.MAX_ANNOTATION_NOTE_CHARS || 2000);
+    }
+    return "";
+  }
+
+  function chooseRecordingMimeType() {
+    if (!globalThis.MediaRecorder || typeof MediaRecorder.isTypeSupported !== "function") {
+      return "";
+    }
+    for (const mimeType of ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]) {
+      if (MediaRecorder.isTypeSupported(mimeType)) {
+        return mimeType;
+      }
+    }
+    return "";
+  }
+
+  function stopStream(stream) {
+    if (!stream || typeof stream.getTracks !== "function") {
+      return;
+    }
+    for (const track of stream.getTracks()) {
+      try {
+        track.stop();
+      } catch (_error) {
+        // Ignore track shutdown races.
+      }
     }
   }
 
@@ -558,22 +756,20 @@
     if (!overlay) {
       return;
     }
-    overlay.micButton.textContent = "Mic";
+    overlay.micButton.textContent = "●";
     overlay.micButton.classList.remove("is-recording");
-    overlay.micButton.setAttribute("aria-label", "Start voice comment");
+    overlay.micButton.setAttribute("aria-label", "Start voice recording");
+    overlay.micButton.title = "Record voice comment";
   }
 
   function readVoiceErrorMessage(errorName) {
-    if (errorName === "not-allowed" || errorName === "service-not-allowed") {
-      return "Voice permission needed";
+    if (errorName === "NotAllowedError" || errorName === "SecurityError") {
+      return "Microphone permission needed";
     }
-    if (errorName === "no-speech") {
-      return "No speech heard";
-    }
-    if (errorName === "audio-capture") {
+    if (errorName === "NotFoundError" || errorName === "DevicesNotFoundError") {
       return "Microphone unavailable";
     }
-    return "Voice input stopped";
+    return "Voice recording failed";
   }
 
   function enqueueNoteUpdate(message) {
@@ -672,6 +868,7 @@
     }
     overlay.panel.hidden = false;
     overlay.panel.classList.add("is-idle");
+    overlay.panel.classList.remove("is-selection", "has-note");
     overlay.panelLabel.textContent = label;
     overlay.panelMeta.textContent = "Esc to exit";
     overlay.actions.hidden = true;
@@ -688,6 +885,8 @@
     }
     overlay.panel.hidden = false;
     overlay.panel.classList.remove("is-idle");
+    overlay.panel.classList.add("is-selection");
+    overlay.panel.classList.toggle("has-note", !overlay.noteWrap.hidden);
     overlay.panelLabel.textContent = label;
     overlay.panelMeta.textContent = meta;
     overlay.actions.hidden = false;
@@ -705,7 +904,7 @@
     overlay.panel.style.bottom = "auto";
     const gap = 8;
     const margin = 8;
-    const panelWidth = overlay.panel.offsetWidth || 240;
+    const panelWidth = overlay.panel.offsetWidth || 132;
     const panelHeight = overlay.panel.offsetHeight || 44;
     const left = clamp(rect.left, margin, window.innerWidth - panelWidth - margin);
     let top = rect.bottom + gap;
@@ -791,8 +990,35 @@
         width: min(280px, calc(100vw - 32px));
       }
 
+      .panel.is-selection {
+        grid-template-columns: auto;
+        gap: 0;
+        max-width: min(320px, calc(100vw - 16px));
+        color: #172033;
+        background: #f8fafc;
+        border-color: rgba(15, 23, 42, 0.18);
+        border-radius: 999px;
+        box-shadow: 0 10px 28px rgba(15, 23, 42, 0.22);
+        padding: 4px;
+      }
+
+      .panel.is-selection.has-note {
+        border-radius: 8px;
+        gap: 6px;
+      }
+
       .copy {
         min-width: 0;
+      }
+
+      .panel.is-selection .copy {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        clip-path: inset(50%);
+        white-space: nowrap;
       }
 
       .label {
@@ -833,6 +1059,17 @@
         padding: 0 8px;
       }
 
+      .panel.is-selection .action {
+        width: 30px;
+        min-width: 30px;
+        color: #172033;
+        background: transparent;
+        border-color: transparent;
+        border-radius: 6px;
+        font-size: 15px;
+        padding: 0;
+      }
+
       .action.icon {
         width: 30px;
         min-width: 30px;
@@ -842,6 +1079,10 @@
 
       .action:hover:not(:disabled) {
         background: #374151;
+      }
+
+      .panel.is-selection .action:hover:not(:disabled) {
+        background: #e2e8f0;
       }
 
       .action:disabled {
@@ -856,6 +1097,11 @@
         border-color: rgba(254, 202, 202, 0.45);
       }
 
+      .panel.is-selection .action.is-recording {
+        color: #fef2f2;
+        background: #b91c1c;
+      }
+
       .action:focus-visible,
       .note-input:focus-visible {
         outline: 2px solid #93c5fd;
@@ -864,6 +1110,10 @@
 
       .note-wrap {
         grid-column: 1 / -1;
+      }
+
+      .panel.is-selection .note-wrap {
+        padding: 0 2px 2px;
       }
 
       .note-input {
@@ -878,6 +1128,10 @@
         border-radius: 6px;
         font: 13px/1.35 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         padding: 8px;
+      }
+
+      .panel.is-selection .note-input {
+        width: min(280px, calc(100vw - 32px));
       }
 
       .box {
@@ -947,14 +1201,14 @@
     noteButton.title = "Add comment";
     noteButton.setAttribute("aria-label", "Add comment");
     noteButton.setAttribute("aria-expanded", "false");
-    noteButton.textContent = "Chat";
+    noteButton.textContent = "✎";
 
     const micButton = document.createElement("button");
     micButton.className = "action";
     micButton.type = "button";
-    micButton.title = "Dictate comment";
-    micButton.setAttribute("aria-label", "Start voice comment");
-    micButton.textContent = "Mic";
+    micButton.title = "Record voice comment";
+    micButton.setAttribute("aria-label", "Start voice recording");
+    micButton.textContent = "●";
 
     const noteWrap = document.createElement("div");
     noteWrap.className = "note-wrap";
@@ -978,7 +1232,7 @@
       toggleVoiceInput();
     });
 
-    actions.append(cancelButton, noteButton, micButton);
+    actions.append(noteButton, micButton, cancelButton);
     noteWrap.append(noteInput);
     copy.append(label, meta);
     panel.append(copy, actions, noteWrap);

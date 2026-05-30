@@ -223,6 +223,7 @@ export type DirectoryComposioLinkResult = {
 }
 
 export type BrowserAnnotationListenStatus = 'active' | 'expired' | 'revoked'
+export type BrowserAnnotationListenTokenType = 'pairing' | 'extension'
 
 export type BrowserAnnotationListenSession = {
   sessionId: string
@@ -232,8 +233,11 @@ export type BrowserAnnotationListenSession = {
   expiresAtIso: string
   createdAtIso: string
   status: BrowserAnnotationListenStatus
+  tokenType?: BrowserAnnotationListenTokenType
+  lastUsedAtIso?: string
   lastReceivedBatch?: BrowserAnnotationLastReceivedBatch
   pairingToken?: string
+  extensionToken?: string
 }
 
 export type BrowserAnnotationLastReceivedBatch = {
@@ -3780,6 +3784,21 @@ export async function startBrowserAnnotationListenSession(threadId: string): Pro
     body: JSON.stringify({ threadId }),
   })
   return parseBrowserAnnotationListenResponse(response, 'Failed to start browser annotation listener')
+}
+
+export async function createBrowserAnnotationExtensionToken(
+  pairingToken: string,
+  selector?: BrowserAnnotationListenSelector,
+): Promise<BrowserAnnotationListenSession> {
+  const response = await fetch(`${BROWSER_ANNOTATION_LISTEN_BASE_PATH}/token`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${pairingToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(selector ?? {}),
+  })
+  return parseBrowserAnnotationListenResponse(response, 'Failed to create browser annotation extension token')
 }
 
 export async function getBrowserAnnotationListenStatus(

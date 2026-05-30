@@ -24,8 +24,11 @@ const {
 } = globalThis.BrowserAnnotationUrlUtils;
 const {
   buildAnnotationBatchUrl,
+  buildBindingRevokeUrl,
+  buildListenBindUrl,
   buildListenStatusUrl,
   buildListenStopUrl,
+  buildTranscribeUrl,
   readJsonSafely,
   readStatusError,
   readSessionFromStatusPayload
@@ -69,6 +72,7 @@ const DEVTOOLS_CAPTURE_TIMEOUT_ALARM = "browserAnnotation.devtoolsCaptureTimeout
 const STATUS_FETCH_TIMEOUT_MS = 8000;
 const BATCH_SEND_TIMEOUT_MS = 30000;
 const REVOKE_FETCH_TIMEOUT_MS = 8000;
+const TRANSCRIBE_FETCH_TIMEOUT_MS = 60000;
 
 let devtoolsCaptureTimer = null;
 let devtoolsCaptureTabId = null;
@@ -184,14 +188,19 @@ async function handleMessage(message, sender) {
   }
 
   if (message.type === MESSAGE_TYPES.SAVE_SETTINGS) {
-    const settings = sanitizeSettings(message.settings || {});
-    await chrome.storage.local.set({ [STORAGE_KEYS.settings]: { serverUrl: settings.serverUrl } });
-    await writePairingToken(settings.pairingToken);
-    return { ok: true, state: await getPanelState() };
+    return saveSettings(message.settings || {});
+  }
+
+  if (message.type === MESSAGE_TYPES.DISCONNECT_BINDING) {
+    return disconnectBinding();
   }
 
   if (message.type === MESSAGE_TYPES.INJECT_OVERLAY) {
     return injectOverlayIntoActiveTab();
+  }
+
+  if (message.type === MESSAGE_TYPES.ADD_PAGE_STATE_ANNOTATION) {
+    return addPageStateAnnotation(message.noteText);
   }
 
   if (message.type === MESSAGE_TYPES.UPDATE_ANNOTATION_QUEUE_ITEM) {
@@ -230,6 +239,13 @@ async function handleMessage(message, sender) {
     return saveSelectedElementContext(message.context, sender);
   }
 
+  if (
+    message.type === MESSAGE_TYPES.CONTENT_TRANSCRIBE_AUDIO ||
+    message.type === MESSAGE_TYPES.TRANSCRIBE_INLINE_AUDIO
+  ) {
+    return transcribeInlineAudio(message);
+  }
+
   throw new Error(`Unsupported extension message type: ${message.type}`);
 }
 
@@ -241,14 +257,15 @@ async function getPanelState() {
     readAnnotationQueue(),
     readDevtoolsCaptureState()
   ]);
+  const binding = await readBinding();
 
   const visibleSettings = connection.clearPairingToken
     ? { ...settings, pairingToken: "" }
     : settings;
-  return buildPanelState(visibleSettings, connection, activeTab, queue, devtoolsCapture);
+  return buildPanelState(visibleSettings, toPublicConnection(connection), activeTab, queue, devtoolsCapture, binding);
 }
 
-async function buildPanelState(settings, connection, activeTab, queue, devtoolsCapture) {
+async function buildPanelState(settings, connection, activeTab, queue, devtoolsCapture, binding = null) {
   const tabUrl = activeTab && activeTab.url ? activeTab.url : "";
   const restricted = isRestrictedTabUrl(tabUrl);
   const hostPermissionPattern = restricted ? "" : getTabOriginPattern(tabUrl);
@@ -260,6 +277,7 @@ async function buildPanelState(settings, connection, activeTab, queue, devtoolsC
   return {
     settings,
     connection,
+    persistentBinding: buildPersistentBindingState(binding, connection),
     queue,
     devtoolsCapture: buildDevtoolsCaptureStatus(captureState),
     activeTab: activeTab
@@ -290,6 +308,23 @@ function enableActionSidePanelBehavior() {
     });
 }
 
+async function saveSettings(rawSettings) {
+  const settings = sanitizeSettings(rawSettings);
+  const previousBinding = await readBinding();
+  await chrome.storage.local.set({ [STORAGE_KEYS.settings]: { serverUrl: settings.serverUrl } });
+
+  if (settings.pairingToken) {
+    await bindPairingToken(settings);
+  } else {
+    await clearPairingToken();
+    if (previousBinding && previousBinding.serverUrl && previousBinding.serverUrl !== settings.serverUrl) {
+      await clearBinding();
+    }
+  }
+
+  return { ok: true, state: await getPanelState() };
+}
+
 async function readSettings() {
   const [stored, pairingToken] = await Promise.all([
     chrome.storage.local.get(STORAGE_KEYS.settings),
@@ -304,6 +339,58 @@ async function readSettings() {
     ...DEFAULT_SETTINGS,
     ...safeStoredSettings,
     pairingToken
+  };
+}
+
+async function readBinding() {
+  const stored = await chrome.storage.local.get(STORAGE_KEYS.binding);
+  return sanitizeBinding(stored[STORAGE_KEYS.binding]);
+}
+
+async function writeBinding(binding) {
+  const safeBinding = sanitizeBinding(binding);
+  if (!safeBinding) {
+    await clearBinding();
+    return null;
+  }
+  await chrome.storage.local.set({ [STORAGE_KEYS.binding]: safeBinding });
+  return safeBinding;
+}
+
+async function clearBinding() {
+  if (chrome.storage.local.remove) {
+    await chrome.storage.local.remove(STORAGE_KEYS.binding);
+    return;
+  }
+  await chrome.storage.local.set({ [STORAGE_KEYS.binding]: null });
+}
+
+function sanitizeBinding(value) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const token = String(value.token || value.extensionToken || "").trim();
+  const sessionId = String(value.sessionId || (value.session && value.session.sessionId) || "").trim();
+  const threadId = String(value.threadId || (value.session && value.session.threadId) || "").trim();
+  if (!token || !sessionId || !threadId) {
+    return null;
+  }
+  let serverUrl = "";
+  try {
+    serverUrl = value.serverUrl ? normalizeServerUrl(value.serverUrl) : "";
+  } catch (_error) {
+    serverUrl = "";
+  }
+  return {
+    token,
+    sessionId,
+    threadId,
+    tokenType: "extension",
+    serverUrl,
+    serverPath: String(value.serverPath || "").trim(),
+    createdAtIso: String(value.createdAtIso || "").trim(),
+    expiresAtIso: String(value.expiresAtIso || "").trim(),
+    lastUsedAtIso: String(value.lastUsedAtIso || "").trim()
   };
 }
 
@@ -338,16 +425,89 @@ function sanitizeSettings(settings) {
   };
 }
 
-async function validateConnection(settings) {
+async function bindPairingToken(settings) {
+  let bindUrl;
+  try {
+    bindUrl = buildListenBindUrl(settings.serverUrl);
+  } catch (error) {
+    throw new Error(error instanceof Error ? error.message : "Invalid server URL.");
+  }
+
+  const response = await fetchWithTimeout(bindUrl, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${settings.pairingToken}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({}),
+    cache: "no-store"
+  }, STATUS_FETCH_TIMEOUT_MS);
+  const payload = await readJsonSafely(response);
+  if (!response.ok) {
+    throw new Error(readStatusError(payload, `Persistent binding failed (${response.status}).`));
+  }
+
+  const session = readSessionFromStatusPayload(payload);
+  if (!session || !session.extensionToken) {
+    throw new Error("Persistent binding response did not include a valid extension token.");
+  }
+
+  await writeBinding({
+    token: session.extensionToken,
+    sessionId: session.sessionId,
+    threadId: session.threadId,
+    tokenType: "extension",
+    serverUrl: settings.serverUrl,
+    serverPath: session.serverPath || "",
+    createdAtIso: session.createdAtIso || "",
+    expiresAtIso: session.expiresAtIso || "",
+    lastUsedAtIso: session.lastUsedAtIso || ""
+  });
+  await clearPairingToken();
+}
+
+async function validateConnection(settings, options = {}) {
+  const binding = await readBinding();
+  const bindingAuth = buildBindingAuth(settings, binding);
+  if (bindingAuth) {
+    const result = await validateAuthToken(settings, bindingAuth, options);
+    if (result.status === "connected" || result.status === "error" || !settings.pairingToken) {
+      return result;
+    }
+  }
+
   if (!settings.pairingToken) {
     return {
       status: "disconnected",
       checkedAtIso: null,
       session: null,
-      detail: "Paste a pairing token from Codex UI to connect."
+      detail: "Paste a pairing token from Codex UI to connect.",
+      persistentBinding: binding ? buildPersistentBindingState(binding, null) : null
     };
   }
 
+  return validateAuthToken(settings, {
+    token: settings.pairingToken,
+    tokenType: "pairing"
+  }, options);
+}
+
+function buildBindingAuth(settings, binding) {
+  if (!binding || !binding.token) {
+    return null;
+  }
+  if (binding.serverUrl && binding.serverUrl !== settings.serverUrl) {
+    return null;
+  }
+  return {
+    token: binding.token,
+    tokenType: "extension",
+    binding
+  };
+}
+
+async function validateAuthToken(settings, auth, options = {}) {
   const checkedAtIso = new Date().toISOString();
   let statusUrl;
   try {
@@ -366,32 +526,37 @@ async function validateConnection(settings) {
       method: "GET",
       headers: {
         Accept: "application/json",
-        Authorization: `Bearer ${settings.pairingToken}`
+        Authorization: `Bearer ${auth.token}`
       },
       cache: "no-store"
     }, STATUS_FETCH_TIMEOUT_MS);
     const payload = await readJsonSafely(response);
     if (!response.ok) {
       throw new Error(
-        readStatusError(payload, `Pairing status check failed (${response.status}).`)
+        readStatusError(payload, `Connection status check failed (${response.status}).`)
       );
     }
 
     const session = readSessionFromStatusPayload(payload);
     if (!session) {
-      throw new Error("Pairing status response did not include a valid session.");
+      throw new Error("Connection status response did not include a valid session.");
     }
 
     if (session.status !== "active") {
-      await clearPairingToken();
+      if (auth.tokenType === "extension") {
+        await clearBinding();
+      } else {
+        await clearPairingToken();
+      }
       return {
         status: "disconnected",
         checkedAtIso,
         session,
-        clearPairingToken: true,
+        ...(auth.tokenType === "pairing" ? { clearPairingToken: true } : {}),
+        tokenType: auth.tokenType,
         detail: session.status === "revoked"
-          ? "Listener stopped in Codex UI. Start Listen again and paste the new token."
-          : "Listener expired. Start Listen again and paste a fresh token."
+          ? "Listener stopped in Codex UI. Create a fresh binding to connect again."
+          : "Listener expired. Create a fresh binding to connect again."
       };
     }
 
@@ -399,16 +564,65 @@ async function validateConnection(settings) {
       status: "connected",
       checkedAtIso,
       session,
-      detail: `Connected to thread ${session.threadId}.`
+      tokenType: auth.tokenType,
+      ...(options.includeAuth ? { authToken: auth.token } : {}),
+      detail: auth.tokenType === "extension"
+        ? `Connected to thread ${session.threadId} with persistent binding.`
+        : `Connected to thread ${session.threadId}.`
     };
   } catch (error) {
+    if (auth.tokenType === "extension" && isInvalidTokenError(error)) {
+      await clearBinding();
+      return {
+        status: "disconnected",
+        checkedAtIso,
+        session: null,
+        tokenType: auth.tokenType,
+        detail: "Persistent binding is no longer valid. Paste a fresh pairing token to bind again."
+      };
+    }
     return {
       status: "error",
       checkedAtIso,
       session: null,
+      tokenType: auth.tokenType,
       detail: error instanceof Error ? error.message : "Unable to validate pairing token."
     };
   }
+}
+
+function isInvalidTokenError(error) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /invalid|expired|revoked/i.test(message);
+}
+
+function toPublicConnection(connection) {
+  if (!connection || typeof connection !== "object") {
+    return connection;
+  }
+  const { authToken: _authToken, ...publicConnection } = connection;
+  return publicConnection;
+}
+
+function buildPersistentBindingState(binding, connection) {
+  if (!binding) {
+    return null;
+  }
+  const session = connection && connection.session && connection.session.tokenType === "extension"
+    ? connection.session
+    : null;
+  const status = session ? session.status : "configured";
+  return {
+    status,
+    revocable: true,
+    sessionId: binding.sessionId,
+    threadId: binding.threadId,
+    expiresAtIso: session && session.expiresAtIso ? session.expiresAtIso : binding.expiresAtIso,
+    lastUsedAtIso: session && session.lastUsedAtIso ? session.lastUsedAtIso : binding.lastUsedAtIso,
+    detail: status === "active"
+      ? `Thread ${binding.threadId}. Persistent token remains available after sending.`
+      : `Thread ${binding.threadId}.`
+  };
 }
 
 async function getActiveTab() {
@@ -557,12 +771,74 @@ async function moveQueuedAnnotation(id, direction) {
   });
 }
 
-async function sendAnnotationBatch() {
+async function addPageStateAnnotation(noteText) {
+  const text = String(noteText || "").trim();
+  if (!text) {
+    throw new Error("Add a short page note first.");
+  }
+
+  const tab = await getActiveTab();
+  if (!tab || typeof tab.id !== "number") {
+    throw new Error("No active browser tab is available.");
+  }
+  if (isRestrictedTabUrl(tab.url)) {
+    throw new Error(describeRestrictedUrl(tab.url));
+  }
+  const devtoolsCapture = await readDevtoolsCaptureState();
+  if (!devtoolsCapture || devtoolsCapture.active !== true) {
+    throw new Error("Enable DevTools capture before adding a page note.");
+  }
+
+  return enqueueAnnotationQueueMutation(async () => {
+    const queue = await readAnnotationQueue();
+    const page = {
+      title: tab.title || "",
+      url: tab.url || ""
+    };
+    const item = {
+      id: `page-state-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      kind: "devtools/page-state",
+      createdAtIso: new Date().toISOString(),
+      tab: {
+        id: tab.id,
+        title: page.title,
+        url: page.url
+      },
+      context: {
+        kind: "devtools/page-state",
+        page
+      },
+      noteText: text,
+      preview: null
+    };
+    const nextQueue = await writeAnnotationQueue([...queue, item]);
+    return {
+      ok: true,
+      queue: nextQueue,
+      queueCount: nextQueue.length,
+      item,
+      state: await getPanelState()
+    };
+  });
+}
+
+async function resolveAuthContext() {
   const settings = await readSettings();
-  const connection = await validateConnection(settings);
-  if (connection.status !== "connected" || !connection.session) {
+  const connection = await validateConnection(settings, { includeAuth: true });
+  if (connection.status !== "connected" || !connection.session || !connection.authToken) {
     throw new Error(connection.detail || "Connect the extension before sending annotations.");
   }
+  return {
+    settings,
+    connection,
+    token: connection.authToken,
+    tokenType: connection.session.tokenType || connection.tokenType || "pairing"
+  };
+}
+
+async function sendAnnotationBatch() {
+  const auth = await resolveAuthContext();
+  const { settings, connection } = auth;
 
   const queue = await readSettledAnnotationQueue();
   if (queue.length === 0) {
@@ -587,7 +863,7 @@ async function sendAnnotationBatch() {
     method: "POST",
     headers: {
       Accept: "application/json",
-      Authorization: `Bearer ${settings.pairingToken}`,
+      Authorization: `Bearer ${auth.token}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify(batch),
@@ -598,25 +874,35 @@ async function sendAnnotationBatch() {
     throw new Error(readStatusError(payload, `Annotation batch send failed (${response.status}).`));
   }
 
-  const revokeResult = await revokeListenSessionAfterSuccessfulSend(settings, connection.session);
   await removeSentAnnotationQueueItems(sentQueueItemIds);
-  await clearPairingToken();
   const devtoolsStop = await stopDevtoolsCaptureIfActive("send-complete");
   const activeTab = await getActiveTab();
   const stoppedDevtoolsCapture = await readDevtoolsCaptureState();
-  const disconnected = {
-    status: "disconnected",
-    checkedAtIso: null,
-    session: null,
-    detail: revokeResult.ok
-      ? "Annotation batch sent and pairing token revoked. Paste a fresh pairing token to connect again."
-      : "Annotation batch sent. Pairing token was cleared locally and will expire on the server."
-  };
+  let nextConnection;
+  if (auth.tokenType === "extension") {
+    await clearPairingToken();
+    nextConnection = {
+      ...toPublicConnection(connection),
+      detail: "Annotation batch sent. Persistent binding remains connected."
+    };
+  } else {
+    const revokeResult = await revokeListenSessionAfterSuccessfulSend(settings, connection.session, auth.token);
+    await clearPairingToken();
+    nextConnection = {
+      status: "disconnected",
+      checkedAtIso: null,
+      session: null,
+      detail: revokeResult.ok
+        ? "Annotation batch sent and pairing token revoked. Paste a fresh pairing token to connect again."
+        : "Annotation batch sent. Pairing token was cleared locally and will expire on the server."
+    };
+  }
+  const binding = await readBinding();
   return {
     ok: true,
     result: payload && payload.result ? payload.result : null,
     devtoolsStop,
-    state: await buildPanelState({ ...settings, pairingToken: "" }, disconnected, activeTab, [], stoppedDevtoolsCapture)
+    state: await buildPanelState({ ...settings, pairingToken: "" }, nextConnection, activeTab, [], stoppedDevtoolsCapture, binding)
   };
 }
 
@@ -640,13 +926,13 @@ function enqueueAnnotationQueueMutation(task) {
   return next;
 }
 
-async function revokeListenSessionAfterSuccessfulSend(settings, session) {
+async function revokeListenSessionAfterSuccessfulSend(settings, session, token) {
   try {
     const response = await fetchWithTimeout(buildListenStopUrl(settings.serverUrl), {
       method: "POST",
       headers: {
         Accept: "application/json",
-        Authorization: `Bearer ${settings.pairingToken}`,
+        Authorization: `Bearer ${token}`,
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
@@ -665,6 +951,140 @@ async function revokeListenSessionAfterSuccessfulSend(settings, session) {
     console.warn("Browser annotation listen session revoke failed.", error);
     return { ok: false };
   }
+}
+
+async function disconnectBinding() {
+  const settings = await readSettings();
+  const binding = await readBinding();
+  if (binding && binding.token) {
+    try {
+      await fetchWithTimeout(buildBindingRevokeUrl(binding.serverUrl || settings.serverUrl), {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${binding.token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          sessionId: binding.sessionId,
+          threadId: binding.threadId
+        }),
+        cache: "no-store"
+      }, REVOKE_FETCH_TIMEOUT_MS);
+    } catch (error) {
+      console.warn("Browser annotation persistent binding revoke failed.", error);
+    }
+  }
+  await clearBinding();
+  await clearPairingToken();
+  return { ok: true, state: await getPanelState() };
+}
+
+async function transcribeInlineAudio(message) {
+  const auth = await resolveAuthContext();
+  const recording = readInlineAudioPayload(message);
+  if (!recording.blob || recording.blob.size === 0) {
+    throw new Error("No audio was captured for transcription.");
+  }
+
+  const form = new FormData();
+  form.append("file", recording.blob, voiceFileName(recording.mimeType || recording.blob.type));
+  if (recording.durationMs > 0) {
+    form.append("durationMs", String(recording.durationMs));
+  }
+  if (recording.itemId) {
+    form.append("itemId", recording.itemId);
+  }
+
+  const response = await fetchWithTimeout(buildTranscribeUrl(auth.settings.serverUrl, auth.connection.session), {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${auth.token}`
+    },
+    body: form,
+    cache: "no-store"
+  }, TRANSCRIBE_FETCH_TIMEOUT_MS);
+  const payload = await readJsonSafely(response);
+  if (!response.ok || !payload || payload.ok !== true) {
+    throw new Error(readStatusError(payload, `Voice transcription failed (${response.status}).`));
+  }
+
+  return {
+    ok: true,
+    itemId: recording.itemId,
+    recordingToken: recording.recordingToken,
+    transcriptText: typeof payload.text === "string" ? payload.text : "",
+    text: typeof payload.text === "string" ? payload.text : "",
+    language: typeof payload.language === "string" ? payload.language : "",
+    model: typeof payload.model === "string" ? payload.model : ""
+  };
+}
+
+function readInlineAudioPayload(message) {
+  const mimeType = String(message.mimeType || "").trim() || "audio/webm";
+  const itemId = String(message.itemId || "").trim();
+  const recordingToken = String(message.recordingToken || "").trim();
+  const durationMs = Number.isFinite(Number(message.durationMs))
+    ? Math.max(0, Math.round(Number(message.durationMs)))
+    : 0;
+
+  if (typeof Blob !== "undefined" && message.blob instanceof Blob) {
+    return { blob: message.blob, mimeType: message.blob.type || mimeType, itemId, recordingToken, durationMs };
+  }
+
+  const dataUrl = String(message.audioDataUrl || message.dataUrl || "").trim();
+  if (!dataUrl) {
+    return { blob: null, mimeType, itemId, recordingToken, durationMs };
+  }
+  const parsed = parseDataUrl(dataUrl, mimeType);
+  return {
+    blob: parsed ? parsed.blob : null,
+    mimeType: parsed ? parsed.mimeType : mimeType,
+    itemId,
+    recordingToken,
+    durationMs
+  };
+}
+
+function parseDataUrl(dataUrl, fallbackMimeType) {
+  const match = /^data:([^;,]+)?(;base64)?,(.*)$/i.exec(dataUrl);
+  if (!match) {
+    return null;
+  }
+  const mimeType = match[1] || fallbackMimeType || "audio/webm";
+  const isBase64 = Boolean(match[2]);
+  const raw = match[3] || "";
+  const bytes = isBase64
+    ? decodeBase64Bytes(raw)
+    : new TextEncoder().encode(decodeURIComponent(raw));
+  return {
+    mimeType,
+    blob: new Blob([bytes], { type: mimeType })
+  };
+}
+
+function decodeBase64Bytes(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+function voiceFileName(mimeType) {
+  const normalized = String(mimeType || "").toLowerCase();
+  if (normalized.includes("mp4")) {
+    return "voice.mp4";
+  }
+  if (normalized.includes("wav")) {
+    return "voice.wav";
+  }
+  if (normalized.includes("mpeg") || normalized.includes("mp3")) {
+    return "voice.mp3";
+  }
+  return "voice.webm";
 }
 
 async function fetchWithTimeout(url, init, timeoutMs) {

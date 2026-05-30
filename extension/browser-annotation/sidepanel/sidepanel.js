@@ -3,19 +3,10 @@
 
   const { MESSAGE_TYPES, STORAGE_KEYS } = globalThis.BrowserAnnotationConstants;
   const {
-    buildAssetUploadUrl,
-    buildTranscribeUrl,
-    readJsonSafely,
-    readStatusError
-  } = globalThis.BrowserAnnotationPairingClient;
-  const {
     describeRestrictedUrl,
     getTabOriginPattern,
     isRestrictedTabUrl
   } = globalThis.BrowserAnnotationUrlUtils;
-
-  const VOICE_UPLOAD_TIMEOUT_MS = 60000;
-  const VOICE_TRANSCRIBE_TIMEOUT_MS = 60000;
 
   const elements = {
     connectionBadge: document.getElementById("connectionBadge"),
@@ -33,11 +24,17 @@
     captureDevtoolsBodiesHelp: document.getElementById("captureDevtoolsBodiesHelp"),
     enableDevtools: document.getElementById("enableDevtools"),
     disableDevtools: document.getElementById("disableDevtools"),
+    pageStateNote: document.getElementById("pageStateNote"),
+    addPageStateNote: document.getElementById("addPageStateNote"),
     queueStatus: document.getElementById("queueStatus"),
     queueDetail: document.getElementById("queueDetail"),
     batchMeta: document.getElementById("batchMeta"),
     queueList: document.getElementById("queueList"),
     sendBatch: document.getElementById("sendBatch"),
+    persistentBinding: document.getElementById("persistentBinding"),
+    persistentBindingStatus: document.getElementById("persistentBindingStatus"),
+    persistentBindingDetail: document.getElementById("persistentBindingDetail"),
+    disconnectPersistentBinding: document.getElementById("disconnectPersistentBinding"),
     message: document.getElementById("message")
   };
   const tabButtons = Array.from(document.querySelectorAll("[data-tab-target]"));
@@ -47,12 +44,14 @@
     status: "inactive",
     detail: "DevTools capture is off."
   };
-  const voiceRecordings = new Map();
 
   elements.saveSettings.addEventListener("click", saveSettings);
   elements.injectOverlay.addEventListener("click", injectOverlay);
   elements.enableDevtools.addEventListener("click", enableDevtoolsCapture);
   elements.disableDevtools.addEventListener("click", disableDevtoolsCapture);
+  elements.pageStateNote.addEventListener("input", () => updatePageStateButton(false));
+  elements.addPageStateNote.addEventListener("click", addPageStateNote);
+  elements.disconnectPersistentBinding.addEventListener("click", disconnectPersistentBinding);
   elements.sendBatch.addEventListener("click", sendBatch);
   elements.queueList.addEventListener("click", handleQueueClick);
   elements.queueList.addEventListener("change", handleQueueChange);
@@ -196,6 +195,52 @@
     }
   }
 
+  async function addPageStateNote() {
+    const noteText = elements.pageStateNote.value.trim();
+    if (!noteText) {
+      setMessage("Add a short page note first.", "error");
+      return;
+    }
+    if (!isDevtoolsCaptureActive()) {
+      setMessage("Enable DevTools capture before adding a page note.", "error");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const response = await sendRuntimeMessage({
+        type: MESSAGE_TYPES.ADD_PAGE_STATE_ANNOTATION,
+        noteText
+      });
+      elements.pageStateNote.value = "";
+      renderState(response.state);
+      setMessage("Page state note added to the queue.", "ok");
+    } catch (error) {
+      setMessage(error.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function disconnectPersistentBinding() {
+    setBusy(true);
+    try {
+      const response = await sendRuntimeMessage({
+        type: MESSAGE_TYPES.DISCONNECT_BINDING
+      });
+      if (response.state) {
+        renderState(response.state);
+      } else {
+        await refreshState();
+      }
+      setMessage("Persistent binding disconnected.", "ok");
+    } catch (error) {
+      setMessage(error.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function sendRuntimeMessage(message) {
     const response = await chrome.runtime.sendMessage(message);
     if (!response || response.ok !== true) {
@@ -221,6 +266,7 @@
     elements.connectionBadge.classList.toggle("badge-muted", !connected && !error);
     elements.connectionStatus.textContent = connectionLabel(state.connection.status);
     elements.connectionDetail.textContent = connectionDetail(state.connection);
+    renderPersistentBinding(state);
     renderQueue(state.queue);
     renderDevtoolsStatus(state.devtoolsCapture || lastDevtoolsStatus);
     updateSendButton(false);
@@ -313,7 +359,11 @@
     elements.saveSettings.disabled = isBusy;
     elements.injectOverlay.disabled =
       isBusy || !lastState || !lastState.activeTab || lastState.activeTab.restricted;
+    if (!elements.disconnectPersistentBinding.hidden) {
+      elements.disconnectPersistentBinding.disabled = isBusy;
+    }
     updateDevtoolsButtons(isBusy);
+    updatePageStateButton(isBusy);
     updateSendButton(isBusy);
   }
 
@@ -353,12 +403,83 @@
       return "Settings saved locally in the extension.";
     }
     if (connection.status === "connected") {
-      return "Pairing token validated.";
+      return connection.session && connection.session.tokenType === "extension"
+        ? "Persistent binding connected."
+        : "Pairing token validated.";
     }
     if (connection.status === "error") {
       return connection.detail || "Pairing token could not be validated.";
     }
     return "Settings saved locally in the extension.";
+  }
+
+  function renderPersistentBinding(state) {
+    const binding = readPersistentBinding(state);
+    if (!binding) {
+      elements.persistentBinding.hidden = true;
+      elements.disconnectPersistentBinding.hidden = true;
+      elements.disconnectPersistentBinding.disabled = true;
+      return;
+    }
+
+    const status = String(binding.status || (binding.connected ? "connected" : "configured"));
+    elements.persistentBindingStatus.textContent = `Persistent: ${persistentBindingLabel(status)}`;
+    elements.persistentBindingDetail.textContent = persistentBindingDetail(binding);
+    elements.persistentBinding.hidden = false;
+    const canDisconnect = binding.revocable === true ||
+      Boolean(binding.token || binding.persistentToken || binding.session || binding.sessionId || binding.bindingId);
+    elements.disconnectPersistentBinding.hidden = !canDisconnect;
+    elements.disconnectPersistentBinding.disabled = !canDisconnect;
+  }
+
+  function readPersistentBinding(state) {
+    if (!state || typeof state !== "object") {
+      return null;
+    }
+    const candidates = [
+      state.persistentBinding,
+      state.persistent,
+      state.connection && state.connection.persistentBinding,
+      state.connection && state.connection.persistent,
+      state.settings && state.settings.persistentBinding
+    ];
+    return candidates.find((candidate) => candidate && typeof candidate === "object") || null;
+  }
+
+  function persistentBindingLabel(status) {
+    if (status === "connected" || status === "active") {
+      return "Connected";
+    }
+    if (status === "revocable" || status === "disconnectable") {
+      return "Revocable";
+    }
+    if (status === "revoked" || status === "disconnected") {
+      return "Disconnected";
+    }
+    if (status === "error") {
+      return "Error";
+    }
+    return "Configured";
+  }
+
+  function persistentBindingDetail(binding) {
+    if (binding.detail) {
+      return String(binding.detail);
+    }
+    const session = binding.session && typeof binding.session === "object" ? binding.session : {};
+    const threadId = binding.threadId || session.threadId;
+    const expiresAtIso = binding.expiresAtIso || session.expiresAtIso;
+    const expiry = formatDateTime(expiresAtIso);
+    if (threadId && expiry) {
+      return `Thread ${threadId}. Expires ${expiry}.`;
+    }
+    if (threadId) {
+      return `Thread ${threadId}.`;
+    }
+    if (expiry) {
+      return `Expires ${expiry}.`;
+    }
+    return "Persistent session is available.";
   }
 
   function formatDateTime(value) {
@@ -378,10 +499,9 @@
       items.length === 0 ? "Empty" : `${items.length} item${items.length === 1 ? "" : "s"}`;
     elements.queueDetail.textContent =
       items.length === 0
-        ? "Select elements on the page, then send them as one batch."
+        ? "Select elements or add a page note, then send one batch."
         : "Adjust order or remove items before sending.";
     renderBatchMeta(items);
-    pruneVoiceRecordings(items);
     elements.queueList.replaceChildren(
       ...items.map((item, index) => {
         const row = document.createElement("li");
@@ -400,11 +520,7 @@
         heading.append(name, meta);
         header.append(heading, createQueueActions(item, index, items.length));
         content.append(header);
-        const voiceStatus = createVoiceRecorder(item);
-        if (voiceStatus) {
-          content.append(voiceStatus);
-        }
-        row.append(createPreview(item.preview), content);
+        row.append(createPreview(item.preview, item), content);
         return row;
       })
     );
@@ -450,61 +566,6 @@
     return button;
   }
 
-  function createNoteField(item) {
-    const label = document.createElement("label");
-    label.className = "queue-note-label";
-    const text = document.createElement("span");
-    text.textContent = "Note";
-    const textarea = document.createElement("textarea");
-    textarea.dataset.annotationId = item.id || "";
-    textarea.maxLength = 2000;
-    textarea.placeholder = "What should Codex inspect here?";
-    textarea.value = item.noteText || "";
-    label.append(text, textarea);
-    return label;
-  }
-
-  function createVoiceRecorder(item) {
-    const id = item.id || "";
-    const voice = getVoiceState(id);
-    if (!voice || voice.status === "empty") {
-      return null;
-    }
-    const wrapper = document.createElement("div");
-    wrapper.className = "queue-voice";
-    wrapper.dataset.annotationId = id;
-    wrapper.dataset.voiceStatus = voice.status;
-
-    const status = document.createElement("div");
-    status.className = "queue-voice-status";
-
-    const label = document.createElement("strong");
-    label.textContent = "Voice note";
-    const detail = document.createElement("span");
-    detail.dataset.voiceStatusText = id;
-    detail.textContent = voiceStatusText(voice);
-    status.append(label, detail);
-
-    const duration = document.createElement("span");
-    duration.className = "queue-voice-duration";
-    duration.dataset.voiceDuration = id;
-    duration.textContent = formatDuration(voiceDurationMs(voice));
-
-    wrapper.append(status, duration);
-    return wrapper;
-  }
-
-  function createVoiceButton(label, action, text, disabled) {
-    const button = document.createElement("button");
-    button.className = "button button-secondary queue-voice-button";
-    button.type = "button";
-    button.title = label;
-    button.dataset.queueAction = action;
-    button.textContent = text;
-    button.disabled = disabled;
-    return button;
-  }
-
   async function handleQueueClick(event) {
     const button = event.target.closest("[data-queue-action]");
     if (!button || button.disabled) {
@@ -517,11 +578,6 @@
     }
 
     const action = button.dataset.queueAction;
-    if (action.startsWith("voice-")) {
-      await handleVoiceAction(action, id);
-      return;
-    }
-
     setBusy(true);
     try {
       if (action === "delete") {
@@ -566,496 +622,9 @@
     applyQueueResponse(response);
   }
 
-  async function handleVoiceAction(action, id) {
-    if (action === "voice-record") {
-      await startVoiceRecording(id);
-      return;
-    }
-    if (action === "voice-stop") {
-      stopVoiceRecording(id);
-      return;
-    }
-    if (action === "voice-cancel") {
-      await cancelVoiceRecording(id);
-      return;
-    }
-    if (action === "voice-delete") {
-      await deleteVoiceRecording(id);
-    }
-  }
-
-  async function startVoiceRecording(id) {
-    if (!id) {
-      return;
-    }
-    if (!globalThis.MediaRecorder || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setVoiceError(id, "Voice recording is not available in this browser context.");
-      return;
-    }
-
-    const existing = voiceRecordings.get(id);
-    if (existing && (existing.status === "recording" || existing.status === "stopping")) {
-      return;
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType = chooseVoiceMimeType();
-      const recorder = mimeType
-        ? new MediaRecorder(stream, { mimeType })
-        : new MediaRecorder(stream);
-      const chunks = [];
-      const startedAt = Date.now();
-      const voice = {
-        status: "recording",
-        startedAt,
-        durationMs: 0,
-        blob: null,
-        mimeType: recorder.mimeType || mimeType || "audio/webm",
-        recorder,
-        stream,
-        chunks,
-        timerId: null,
-        abortController: null,
-        error: "",
-        token: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
-      };
-      recorder.addEventListener("dataavailable", (event) => {
-        if (event.data && event.data.size > 0) {
-          chunks.push(event.data);
-        }
-      });
-      recorder.addEventListener("stop", () => {
-        finishVoiceRecording(id, voice.token);
-      }, { once: true });
-      voiceRecordings.set(id, voice);
-      recorder.start();
-      voice.timerId = setInterval(() => updateVoiceRow(id), 500);
-      updateVoiceRow(id);
-      setMessage("Recording voice note.", "neutral");
-    } catch (error) {
-      setVoiceError(id, error.message || "Unable to start voice recording.");
-    }
-  }
-
-  function stopVoiceRecording(id) {
-    const voice = voiceRecordings.get(id);
-    if (!voice || voice.status !== "recording" || !voice.recorder) {
-      return;
-    }
-    voice.status = "stopping";
-    voice.durationMs = Math.max(0, Date.now() - voice.startedAt);
-    updateVoiceRow(id);
-    voice.recorder.stop();
-  }
-
-  async function cancelVoiceRecording(id) {
-    const voice = voiceRecordings.get(id);
-    if (!voice) {
-      return;
-    }
-    cleanupVoiceRecording(voice);
-    voiceRecordings.delete(id);
-    updateVoiceRow(id);
-    updateSendButton(false);
-    setMessage("Voice recording canceled.", "neutral");
-  }
-
-  async function deleteVoiceRecording(id) {
-    const voice = voiceRecordings.get(id);
-    if (voice) {
-      cleanupVoiceRecording(voice);
-      voiceRecordings.delete(id);
-    }
-    try {
-      await patchQueueVoice(id, null);
-      updateVoiceRow(id);
-      updateSendButton(false);
-      setMessage("Voice note deleted.", "neutral");
-    } catch (error) {
-      setVoiceError(id, error.message || "Unable to delete voice note.");
-    }
-  }
-
-  function finishVoiceRecording(id, token) {
-    const voice = voiceRecordings.get(id);
-    if (!voice || voice.token !== token) {
-      return;
-    }
-    cleanupVoiceRecording(voice);
-    const durationMs = voice.startedAt ? Math.max(0, Date.now() - voice.startedAt) : voice.durationMs;
-    voice.status = "recorded";
-    voice.durationMs = durationMs;
-    voice.blob = new Blob(voice.chunks, { type: voice.mimeType || "audio/webm" });
-    voice.recorder = null;
-    voice.stream = null;
-    voice.chunks = [];
-    voice.error = "";
-    updateVoiceRow(id);
-    setMessage("Voice note recorded. Uploading audio for transcription...", "neutral");
-    uploadAndTranscribeVoice(id, voice, token).catch((error) => {
-      if (!voiceRecordings.has(id) || voiceRecordings.get(id).token !== token) {
-        return;
-      }
-      setVoiceError(id, error.message || "Unable to upload voice note.");
-    });
-  }
-
-  async function uploadAndTranscribeVoice(id, voice, token) {
-    if (!lastState || !lastState.connection || lastState.connection.status !== "connected" || !lastState.connection.session) {
-      throw new Error("Connect the extension before uploading voice notes.");
-    }
-    if (!voice || voice.token !== token || !voice.blob) {
-      return;
-    }
-
-    voice.status = "uploading";
-    voice.error = "";
-    voice.abortController = new AbortController();
-    updateVoiceRow(id);
-
-    const settings = lastState.settings || {};
-    const session = lastState.connection.session;
-    const uploadPayload = await uploadVoiceBlob(settings, session, voice.blob, voice.abortController.signal);
-    if (!voiceRecordings.has(id) || voiceRecordings.get(id).token !== token) {
-      return;
-    }
-
-    voice.status = "transcribing";
-    updateVoiceRow(id);
-    const transcript = await transcribeVoiceBlob(settings, session, voice.blob, voice.abortController.signal);
-    if (!voiceRecordings.has(id) || voiceRecordings.get(id).token !== token) {
-      return;
-    }
-
-    const voicePatch = buildVoicePatch(uploadPayload.asset, voice, transcript);
-    voice.status = transcript.ok ? "uploaded" : "error";
-    voice.error = transcript.ok ? "" : voicePatch.transcriptError;
-    voice.abortController = null;
-    await patchQueueVoice(id, voicePatch);
-    updateVoiceRow(id);
-    updateSendButton(false);
-    setMessage(
-      transcript.ok
-        ? "Voice note uploaded and transcribed."
-        : "Voice note uploaded, but transcription failed. It will be sent with the error.",
-      transcript.ok ? "ok" : "error"
-    );
-  }
-
-  async function uploadVoiceBlob(settings, session, blob, signal) {
-    const form = new FormData();
-    form.append("kind", "audio");
-    form.append("file", blob, voiceFileName(blob.type));
-    const response = await fetchWithTimeout(buildAssetUploadUrl(settings.serverUrl, session), {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${settings.pairingToken || ""}`
-      },
-      body: form,
-      cache: "no-store",
-      signal
-    }, VOICE_UPLOAD_TIMEOUT_MS);
-    const payload = await readJsonSafely(response);
-    if (!response.ok || !payload || !payload.asset) {
-      throw new Error(readStatusError(payload, `Voice upload failed (${response.status}).`));
-    }
-    return payload;
-  }
-
-  async function transcribeVoiceBlob(settings, session, blob, signal) {
-    const form = new FormData();
-    form.append("file", blob, voiceFileName(blob.type));
-    try {
-      const response = await fetchWithTimeout(buildTranscribeUrl(settings.serverUrl, session), {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          Authorization: `Bearer ${settings.pairingToken || ""}`
-        },
-        body: form,
-        cache: "no-store",
-        signal
-      }, VOICE_TRANSCRIBE_TIMEOUT_MS);
-      const payload = await readJsonSafely(response);
-      if (!response.ok || !payload || payload.ok !== true) {
-        return {
-          ok: false,
-          error: readStatusError(payload, `Voice transcription failed (${response.status}).`)
-        };
-      }
-      return {
-        ok: true,
-        text: typeof payload.text === "string" ? payload.text : "",
-        language: typeof payload.language === "string" ? payload.language : ""
-      };
-    } catch (error) {
-      return {
-        ok: false,
-        error: error.message || "Voice transcription request failed."
-      };
-    }
-  }
-
-  function buildVoicePatch(asset, voice, transcript) {
-    return {
-      id: `voice-note-${asset.id}`,
-      assetId: asset.id,
-      mimeType: asset.mimeType || voice.blob.type || "audio/webm",
-      byteLength: asset.sizeBytes || voice.blob.size,
-      durationMs: voice.durationMs,
-      uploadedAtIso: new Date().toISOString(),
-      storageKey: asset.absolutePath || "",
-      transcriptStatus: transcript.ok ? "complete" : "failed",
-      transcriptText: transcript.ok ? transcript.text : "",
-      transcriptError: transcript.ok ? "" : transcript.error,
-      language: transcript.ok ? transcript.language : ""
-    };
-  }
-
-  async function fetchWithTimeout(url, init, timeoutMs) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      return await fetch(url, {
-        ...init,
-        signal: init && init.signal ? anySignal([init.signal, controller.signal]) : controller.signal
-      });
-    } catch (error) {
-      if (controller.signal.aborted) {
-        throw new Error(`Request timed out after ${timeoutMs}ms.`);
-      }
-      throw error;
-    } finally {
-      clearTimeout(timeoutId);
-    }
-  }
-
-  function anySignal(signals) {
-    const controller = new AbortController();
-    const abort = () => controller.abort();
-    for (const signal of signals) {
-      if (signal.aborted) {
-        abort();
-        break;
-      }
-      signal.addEventListener("abort", abort, { once: true });
-    }
-    return controller.signal;
-  }
-
-  async function patchQueueVoice(id, voice) {
-    const response = await sendRuntimeMessage({
-      type: MESSAGE_TYPES.UPDATE_ANNOTATION_QUEUE_ITEM,
-      id,
-      patch: { voice }
-    });
-    applyQueueResponse(response);
-  }
-
-  function setVoiceError(id, message) {
-    const voice = voiceRecordings.get(id);
-    if (voice) {
-      cleanupVoiceRecording(voice);
-    }
-    voiceRecordings.set(id, {
-      status: "error",
-      startedAt: 0,
-      durationMs: 0,
-      blob: null,
-      mimeType: "",
-      recorder: null,
-      stream: null,
-      chunks: [],
-      timerId: null,
-      abortController: null,
-      error: message
-    });
-    updateVoiceRow(id);
-    setMessage(message, "error");
-  }
-
-  function cleanupVoiceRecording(voice) {
-    if (voice.timerId) {
-      clearInterval(voice.timerId);
-      voice.timerId = null;
-    }
-    if (voice.stream) {
-      for (const track of voice.stream.getTracks()) {
-        track.stop();
-      }
-    }
-    if (voice.abortController) {
-      voice.abortController.abort();
-      voice.abortController = null;
-    }
-  }
-
-  function pruneVoiceRecordings(items) {
-    const liveIds = new Set(items.map((item) => item && item.id).filter(Boolean));
-    for (const [id, voice] of voiceRecordings) {
-      if (!liveIds.has(id)) {
-        cleanupVoiceRecording(voice);
-        voiceRecordings.delete(id);
-      }
-    }
-  }
-
-  function getVoiceState(id) {
-    const active = voiceRecordings.get(id);
-    if (active && active.status !== "empty") {
-      return active;
-    }
-    const persisted = readPersistedVoice(readQueueItem(id));
-    if (persisted) {
-      return {
-        status: persisted.transcriptStatus === "failed" ? "error" : "uploaded",
-        startedAt: 0,
-        durationMs: persisted.durationMs || 0,
-        blob: null,
-        mimeType: persisted.mimeType || "",
-        error: persisted.transcriptError || ""
-      };
-    }
-    return voiceRecordings.get(id) || {
-      status: "empty",
-      startedAt: 0,
-      durationMs: 0,
-      blob: null,
-      error: ""
-    };
-  }
-
-  function voiceDurationMs(voice) {
-    if (voice.status === "recording" && voice.startedAt) {
-      return Math.max(0, Date.now() - voice.startedAt);
-    }
-    return voice.durationMs || 0;
-  }
-
-  function updateVoiceRow(id) {
-    const voice = getVoiceState(id);
-    const wrapper = Array.from(elements.queueList.querySelectorAll(".queue-voice"))
-      .find((element) => element.dataset.annotationId === id);
-    if (!wrapper) {
-      return;
-    }
-    wrapper.dataset.voiceStatus = voice.status;
-    const status = wrapper.querySelector("[data-voice-status-text]");
-    const duration = wrapper.querySelector("[data-voice-duration]");
-    if (status) {
-      status.textContent = voiceStatusText(voice);
-    }
-    if (duration) {
-      duration.textContent = formatDuration(voiceDurationMs(voice));
-    }
-    for (const button of wrapper.querySelectorAll("[data-queue-action]")) {
-      const action = button.dataset.queueAction;
-      button.disabled =
-        (action === "voice-record" && isVoiceBusy(voice)) ||
-        (action === "voice-stop" && voice.status !== "recording") ||
-        (action === "voice-cancel" && voice.status !== "recording") ||
-        (action === "voice-delete" && !voice.blob && !readPersistedVoice(readQueueItem(id)));
-    }
-  }
-
-  function voiceStatusText(voice) {
-    if (voice.status === "recording") {
-      return "Recording...";
-    }
-    if (voice.status === "stopping") {
-      return "Finalizing recording...";
-    }
-    if (voice.status === "recorded") {
-      const size = voice.blob ? `, ${formatBytes(voice.blob.size)}` : "";
-      return `Recorded${size}. Waiting to upload.`;
-    }
-    if (voice.status === "uploading") {
-      return "Uploading audio...";
-    }
-    if (voice.status === "transcribing") {
-      return "Transcribing audio...";
-    }
-    if (voice.status === "uploaded") {
-      return "Voice note ready to send.";
-    }
-    if (voice.status === "error") {
-      return voice.error || "Recording failed.";
-    }
-    return "No voice note.";
-  }
-
-  function formatDuration(durationMs) {
-    const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = String(totalSeconds % 60).padStart(2, "0");
-    return `${minutes}:${seconds}`;
-  }
-
-  function formatBytes(size) {
-    if (!Number.isFinite(size) || size <= 0) {
-      return "0 B";
-    }
-    if (size < 1024) {
-      return `${size} B`;
-    }
-    return `${(size / 1024).toFixed(1)} KB`;
-  }
-
-  function isVoiceBusy(voice) {
-    return voice.status === "recording" ||
-      voice.status === "stopping" ||
-      voice.status === "uploading" ||
-      voice.status === "transcribing";
-  }
-
-  function chooseVoiceMimeType() {
-    if (!globalThis.MediaRecorder || typeof MediaRecorder.isTypeSupported !== "function") {
-      return "";
-    }
-    for (const mimeType of ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]) {
-      if (MediaRecorder.isTypeSupported(mimeType)) {
-        return mimeType;
-      }
-    }
-    return "";
-  }
-
-  function voiceFileName(mimeType) {
-    const normalized = String(mimeType || "").toLowerCase();
-    if (normalized.includes("mp4")) {
-      return "voice.mp4";
-    }
-    if (normalized.includes("wav")) {
-      return "voice.wav";
-    }
-    if (normalized.includes("mpeg") || normalized.includes("mp3")) {
-      return "voice.mp3";
-    }
-    return "voice.webm";
-  }
-
-  function readQueueItem(id) {
-    const queue = lastState && Array.isArray(lastState.queue) ? lastState.queue : [];
-    return queue.find((item) => item && item.id === id) || null;
-  }
-
-  function readPersistedVoice(item) {
-    return item && item.voice && typeof item.voice === "object" ? item.voice : null;
-  }
-
-  async function persistVisibleNotes() {
-    const fields = Array.from(elements.queueList.querySelectorAll("textarea[data-annotation-id]"));
-    for (const field of fields) {
-      await saveQueueNote(field.dataset.annotationId, field.value);
-    }
-  }
-
   async function sendBatch() {
     setBusy(true);
     try {
-      await persistVisibleNotes();
       const response = await sendRuntimeMessage({
         type: MESSAGE_TYPES.SEND_ANNOTATION_BATCH
       });
@@ -1075,8 +644,7 @@
   function updateSendButton(isBusy) {
     const itemCount = lastState && Array.isArray(lastState.queue) ? lastState.queue.length : 0;
     const connected = lastState && lastState.connection.status === "connected";
-    const voiceBusy = Array.from(voiceRecordings.values()).some(isVoiceBusy);
-    elements.sendBatch.disabled = isBusy || voiceBusy || itemCount === 0 || !connected;
+    elements.sendBatch.disabled = isBusy || itemCount === 0 || !connected;
   }
 
   function applyQueueResponse(response) {
@@ -1184,6 +752,17 @@
     elements.captureDevtoolsBodies.disabled = isBusy || state === "active" || state === "pending";
     elements.enableDevtools.disabled = isBusy || activeTabUnavailable || state === "active" || state === "pending";
     elements.disableDevtools.disabled = isBusy || state !== "active";
+    updatePageStateButton(isBusy);
+  }
+
+  function updatePageStateButton(isBusy) {
+    const noteText = elements.pageStateNote.value.trim();
+    const activeTabUnavailable = !lastState || !lastState.activeTab || lastState.activeTab.restricted;
+    elements.addPageStateNote.disabled = isBusy || activeTabUnavailable || !isDevtoolsCaptureActive() || !noteText;
+  }
+
+  function isDevtoolsCaptureActive() {
+    return lastDevtoolsStatus && lastDevtoolsStatus.status === "active";
   }
 
   function readDevtoolsCaptureOptions() {
@@ -1233,11 +812,16 @@
     };
   }
 
-  function createPreview(preview) {
+  function createPreview(preview, item) {
     const frame = document.createElement("div");
     frame.className = "queue-preview";
     if (!preview || !preview.dataUrl) {
-      frame.textContent = "No preview";
+      if (isPageStateItem(item)) {
+        frame.dataset.previewKind = "page-state";
+        frame.textContent = "Page";
+      } else {
+        frame.textContent = "No preview";
+      }
       return frame;
     }
 
@@ -1251,7 +835,15 @@
     return frame;
   }
 
+  function isPageStateItem(item) {
+    const context = item && item.context && typeof item.context === "object" ? item.context : {};
+    return item && (item.kind === "devtools/page-state" || context.kind === "devtools/page-state");
+  }
+
   function queueItemName(context) {
+    if (context && context.kind === "devtools/page-state") {
+      return "Page state";
+    }
     const aria = context.aria && typeof context.aria === "object" ? context.aria : {};
     const nearby = context.nearby && typeof context.nearby === "object" ? context.nearby : {};
     const labels = Array.isArray(nearby.labels) ? nearby.labels : [];
@@ -1266,6 +858,11 @@
   }
 
   function queueItemMeta(item) {
+    if (isPageStateItem(item)) {
+      const page = readQueueItemPage(item);
+      const pageTitle = page.title ? truncateText(page.title, 42) : "";
+      return ["devtools/page-state", pageTitle].filter(Boolean).join(" - ");
+    }
     const context = item && item.context ? item.context : {};
     const role = context.role ? context.role : readableElementType(context);
     const rect = context.rect && typeof context.rect === "object" ? context.rect : {};

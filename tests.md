@@ -7204,7 +7204,7 @@ Arbitrary area annotation, inline comment/dictation controls, and compact tabbed
 - Element click selection still queues a normal element context.
 - Drag selection queues an area context with bounded viewport `rect` and continues to use the existing crop/queue pipeline.
 - Inline comment text saves through `browserAnnotation.updateAnnotationQueueItem`.
-- `Mic` uses browser speech recognition as inline dictation into the comment box when supported; unsupported browsers show a compact inline status.
+- `Mic` records inline audio and sends it to the Codex UI server transcription endpoint; unsupported browsers show a compact inline status.
 - The queue no longer renders long CSS selector/xpath/div-path text, note textareas, or old record/stop/cancel voice controls.
 - Light and dark side-panel surfaces do not wrap words letter-by-letter or overflow the narrow panel.
 
@@ -7212,6 +7212,46 @@ Arbitrary area annotation, inline comment/dictation controls, and compact tabbed
 - Remove the unpacked extension from `chrome://extensions`.
 - Clear extension local/session storage if test queue items or pairing tokens should be removed.
 - Stop any temporary dev server used for manual checks.
+
+---
+
+### Browser Annotation Persistent Binding, Server Transcription, And Page-State Queue
+
+#### Feature/Change Name
+Long-lived extension binding, inline OpenAI transcription through the server, full Escape cleanup, and DevTools-only page-state annotations.
+
+#### Prerequisites/Setup
+1. Run from the repository root with dependencies installed.
+2. For manual transcription checks, configure server-side `OPENAI_API_KEY` and `CODEXUI_ANNOTATION_TRANSCRIBE_MODEL`; do not put an OpenAI API key into the extension.
+3. Load `extension/browser-annotation` or `dist/browser-annotation-extension/unpacked` in Chrome.
+4. Open a Codex UI thread and create a browser annotation pairing token once.
+
+#### Steps
+1. Run `node extension/browser-annotation/dev/pairing-client-smoke.mjs`.
+2. Run `node extension/browser-annotation/dev/annotation-queue-smoke.mjs`.
+3. Run `node extension/browser-annotation/dev/content-overlay-cancel-smoke.cjs`.
+4. Run `node extension/browser-annotation/dev/sidepanel-host-permission-smoke.cjs`.
+5. Run `node extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.mjs`.
+6. Run `pnpm exec vitest run src/server/browserAnnotationListen.test.ts src/api/codexGateway.test.ts --reporter=verbose`.
+7. Run `pnpm exec vitest run src/server/browserAnnotationBatch.test.ts src/server/browserAnnotationAssets.test.ts src/server/browserAnnotationTranscribe.test.ts --reporter=verbose`.
+8. In light theme, paste the pairing token in extension Settings, click save, and confirm Settings shows a persistent binding while the pairing input clears.
+9. Select an element, click the inline mic button, speak Russian, stop recording, and confirm the transcript is inserted into that selected item's inline comment.
+10. Add two selected comments with separate mic recordings and confirm each transcript lands on its own selected item.
+11. Press `Esc` while the idle overlay or a selection toolbar is visible and confirm the overlay host disappears and the next page click does not queue anything until `Inject Overlay` is clicked again.
+12. Enable DevTools capture without injecting overlay, type a Page note, click `Add page note`, and send the queue.
+13. In dark theme, repeat steps 8-12 and confirm the Settings binding state, page-note queue item, inline toolbar, and Russian help tab stay readable.
+
+#### Expected Results
+- The extension stores only a scoped persistent Codex UI binding token; OpenAI credentials remain server-side.
+- `/listen/bind` exchanges a short pairing token for a revocable long-lived extension token, and `Send Queue` no longer disconnects that binding.
+- Inline mic transcription uses `/codex-api/extension/transcribe` with `itemId` plus `recordingToken`, so multiple queued recordings do not cross-apply.
+- Page-state queue items can be sent with DevTools console/network context and without selecting a DOM element or injecting overlay.
+- Playwright screenshots are written under `output/playwright/` for light and dark overlay/page-state checks.
+
+#### Rollback/Cleanup
+- Click `Disconnect` in extension Settings to revoke the persistent binding.
+- Clear extension local/session storage if test queue items remain.
+- Unset temporary transcription environment variables after testing.
 
 ---
 
@@ -7247,4 +7287,3 @@ Web replies recover after disabling automatic `codex-lb` local proxy routing and
 #### Rollback/Cleanup
 - Stop the temporary `4173` dev server when testing is complete.
 - Remove `CODEXUI_CODEX_LB_PROXY` from the environment unless explicitly testing the opt-in proxy path.
-

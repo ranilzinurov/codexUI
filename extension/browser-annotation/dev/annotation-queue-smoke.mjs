@@ -138,6 +138,51 @@ const blankNoteBatch = BrowserAnnotationQueue.buildAnnotationBatchPayload(
 );
 assert.equal(blankNoteBatch.items[0].noteText, "");
 
+const pageStateBatch = BrowserAnnotationQueue.buildAnnotationBatchPayload(
+  [
+    {
+      id: "page-state-note",
+      kind: "devtools/page-state",
+      createdAtIso: "2026-05-28T10:02:30.000Z",
+      tab: {
+        id: 7,
+        title: "Queue smoke",
+        url: "https://app.example.test/settings"
+      },
+      context: {
+        kind: "devtools/page-state",
+        page: {
+          title: "Queue smoke",
+          url: "https://app.example.test/settings"
+        }
+      },
+      noteText: "The page is stuck after clicking save.",
+      preview: null
+    }
+  ],
+  {
+    batchId: "annotation-batch-page-state",
+    createdAtIso: "2026-05-28T10:02:31.000Z",
+    devtoolsCapture: {
+      active: true,
+      startedAtIso: "2026-05-28T10:02:00.000Z",
+      consoleRows: [
+        {
+          id: "console-page-state",
+          level: "error",
+          text: "save failed",
+          timestampIso: "2026-05-28T10:02:29.000Z"
+        }
+      ],
+      networkRows: []
+    }
+  }
+);
+assert.equal(pageStateBatch.items[0].kind, "mixed");
+assert.equal(pageStateBatch.items[0].noteText, "The page is stuck after clicking save.");
+assert.equal(pageStateBatch.items[0].target, undefined);
+assert.deepEqual(pageStateBatch.items[0].devToolsContext.consoleEntryIds, ["console-page-state"]);
+
 const devtoolsBatch = BrowserAnnotationQueue.buildAnnotationBatchPayload(
   [
     {
