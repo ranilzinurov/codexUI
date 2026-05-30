@@ -7085,19 +7085,53 @@ Mic/stop dictation in the Side Chat composer transcribes speech and auto-sends i
 6. Confirm the main transcript and main composer do not receive the dictated side question.
 7. Repeat steps 1-6 in dark theme and confirm the mic, stop, spinner, status text, input, and send button use dark-theme surfaces.
 8. Run the mocked light Playwright regression:
-   `BASE_URL=http://127.0.0.1:4174 node scripts/side-chat-voice-dictation.cjs`
+   `BASE_URL=http://127.0.0.1:4174 SIDE_CHAT_MOCK_TURN=1 node scripts/side-chat-voice-dictation.cjs`
 9. Run the mocked dark Playwright regression:
-   `BASE_URL=http://127.0.0.1:4174 SIDE_CHAT_DARK=1 node scripts/side-chat-voice-dictation.cjs`
+   `BASE_URL=http://127.0.0.1:4174 SIDE_CHAT_MOCK_TURN=1 SIDE_CHAT_DARK=1 node scripts/side-chat-voice-dictation.cjs`
 
 #### Expected Results
 - Stop triggers `/codex-api/transcribe` and the returned transcript is submitted through the existing Side Chat send path.
 - The voice transcript starts a turn against the ephemeral side thread, not the selected main thread.
-- The side turn payload contains the dictated user message while the main transcript remains unchanged.
+- The side turn payload contains the dictated user message, and the Side panel renders that question as a right-aligned user bubble while the main transcript remains unchanged.
+- The completed `Worked for ...` side summary renders as a compact separator row, not a separate Codex message card.
 - The send button stays disabled while recording/transcribing, preventing duplicate sends.
 - Screenshots are written to `output/playwright/side-chat-voice-dictation-light.png` and `output/playwright/side-chat-voice-dictation-dark.png`.
 
 #### Rollback/Cleanup
 - Close the Side panel after testing.
+- Stop the temporary `4174` dev server.
+
+---
+
+### Side Chat Layout and Feature Menu Toggle Regression
+
+#### Feature/Change Name
+Side Chat feature menu toggle, stable thread layout width, and compact side transcript rendering.
+
+#### Prerequisites/Setup
+1. Run the app on a non-production port:
+   `pnpm run dev --host 127.0.0.1 --port 4174`
+2. Open a real thread with long plan, command, or reasoning output.
+
+#### Steps
+1. In light theme, open a thread and let a live response render plan, command, or reasoning blocks.
+2. Confirm the main conversation remains pinned within the content column and no horizontal page shift appears.
+3. Open the header feature menu and click `Side`.
+4. Confirm the Side panel opens and the main conversation shrinks without horizontal overflow.
+5. Open the header feature menu again and click `Side`.
+6. Confirm the Side panel closes.
+7. Re-open Side, send a typed or dictated side question, and wait for completion.
+8. Confirm the side question is visible as a user bubble and the `Worked for ...` summary is a compact row.
+9. Repeat the same checks in dark theme.
+
+#### Expected Results
+- Long live blocks cannot expand the thread beyond the viewport.
+- The Side menu item toggles the panel open and closed.
+- Side Chat user messages remain visible until the panel is closed or the side thread is replaced.
+- Side `Worked for ...` appears as a compact separator row in light and dark theme.
+
+#### Rollback/Cleanup
+- Close the Side panel.
 - Stop the temporary `4174` dev server.
 
 ---

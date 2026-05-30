@@ -5454,7 +5454,7 @@ onBeforeUnmount(() => {
 }
 
 .worked-separator {
-  @apply w-full flex items-center justify-start gap-1.5 border-0 border-b border-solid border-zinc-200 bg-transparent px-0 pb-2 pt-0 text-left cursor-pointer transition-colors hover:border-zinc-300;
+  @apply w-full min-w-0 flex items-center justify-start gap-1.5 overflow-hidden border-0 border-b border-solid border-zinc-200 bg-transparent px-0 pb-2 pt-0 text-left cursor-pointer transition-colors hover:border-zinc-300;
 }
 
 .worked-chevron {
@@ -5470,7 +5470,8 @@ onBeforeUnmount(() => {
 }
 
 .worked-separator-text {
-  @apply m-0 inline-flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs leading-5 font-medium text-zinc-600;
+  @apply m-0 inline-flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-0.5 break-words text-xs leading-5 font-medium text-zinc-600;
+  overflow-wrap: anywhere;
 }
 
 .worked-details {

@@ -3210,6 +3210,10 @@ function toggleThreadFeatureMenu(): void {
 
 async function onOpenSideChatFromFeatureMenu(): Promise<void> {
   isThreadFeatureMenuOpen.value = false
+  if (sideThreadId.value.length > 0) {
+    onCloseSideChat()
+    return
+  }
   await onOpenSideChat()
 }
 
@@ -5450,11 +5454,11 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 }
 
 .content-thread {
-  @apply flex-1 min-h-0;
+  @apply flex-1 min-h-0 min-w-0 overflow-x-hidden;
 }
 
 .thread-side-layout {
-  @apply flex min-h-0 flex-1 overflow-hidden rounded-none border border-transparent;
+  @apply flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-none border border-transparent;
 }
 
 .thread-side-layout.has-side-chat {

@@ -16,14 +16,23 @@
         v-for="message in messages"
         :key="message.id"
         class="side-chat-message"
-        :class="`is-${message.role}`"
+        :class="[`is-${message.role}`, { 'is-worked': isWorkedMessage(message) }]"
       >
-        <p class="side-chat-message-role">{{ message.role === 'user' ? 'You' : 'Codex' }}</p>
-        <p class="side-chat-message-text">{{ message.text }}</p>
+        <template v-if="isWorkedMessage(message)">
+          <div class="side-chat-worked-row">
+            <span class="side-chat-worked-chevron" aria-hidden="true">▶</span>
+            <span class="side-chat-worked-text">{{ message.text }}</span>
+          </div>
+        </template>
+        <template v-else>
+          <p class="side-chat-message-role">{{ message.role === 'user' ? 'You' : 'Codex' }}</p>
+          <p class="side-chat-message-text">{{ message.text }}</p>
+        </template>
       </article>
       <section v-if="liveOverlay" class="side-chat-live">
         <p class="side-chat-live-label">{{ liveOverlay.activityLabel }}</p>
         <p v-if="liveOverlay.reasoningText" class="side-chat-live-text">{{ liveOverlay.reasoningText }}</p>
+        <p v-if="liveOverlay.errorText" class="side-chat-live-error">{{ liveOverlay.errorText }}</p>
       </section>
     </div>
 
@@ -158,13 +167,17 @@ function onToggleDictation(): void {
   dictationFeedback.value = ''
   toggleRecording()
 }
+
+function isWorkedMessage(message: UiMessage): boolean {
+  return message.messageType === 'worked'
+}
 </script>
 
 <style scoped>
 .side-chat-panel {
   display: flex;
   min-height: 0;
-  width: min(360px, 34vw);
+  width: clamp(300px, 30vw, 380px);
   flex-shrink: 0;
   flex-direction: column;
   overflow: hidden;
@@ -245,6 +258,7 @@ function onToggleDictation(): void {
 }
 
 .side-chat-message {
+  min-width: 0;
   max-width: 100%;
   border: 1px solid rgb(228 228 231);
   border-radius: 8px;
@@ -253,9 +267,50 @@ function onToggleDictation(): void {
 }
 
 .side-chat-message.is-user {
-  margin-left: 28px;
-  border-color: rgb(191 219 254);
-  background: rgb(239 246 255);
+  width: fit-content;
+  max-width: min(280px, 100%);
+  align-self: flex-end;
+  border-color: transparent;
+  border-radius: 16px;
+  background: rgb(226 232 240);
+  padding: 10px 12px;
+}
+
+.side-chat-message.is-user .side-chat-message-role {
+  display: none;
+}
+
+.side-chat-message.is-worked {
+  width: 100%;
+  max-width: 100%;
+  border: 0;
+  border-top: 1px solid rgb(228 228 231);
+  border-radius: 0;
+  background: transparent;
+  padding: 7px 0 0;
+}
+
+.side-chat-worked-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.side-chat-worked-chevron {
+  flex-shrink: 0;
+  color: rgb(161 161 170);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.side-chat-worked-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: rgb(82 82 91);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
 }
 
 .side-chat-message-role {
@@ -273,6 +328,16 @@ function onToggleDictation(): void {
   font-size: 13px;
   line-height: 1.45;
   color: rgb(39 39 42);
+}
+
+.side-chat-live-error {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: rgb(190 18 60);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
 }
 
 .side-chat-live {
@@ -317,6 +382,7 @@ function onToggleDictation(): void {
 
 .side-chat-input {
   min-height: 68px;
+  min-width: 0;
   flex: 1;
   resize: none;
   border: 1px solid rgb(228 228 231);
@@ -405,8 +471,21 @@ function onToggleDictation(): void {
 }
 
 :global(:root.dark .side-chat-message.is-user) {
-  border-color: rgb(30 64 175);
-  background: rgb(23 37 84);
+  border-color: transparent;
+  background: rgb(63 63 70);
+}
+
+:global(:root.dark .side-chat-message.is-worked) {
+  border-color: rgb(63 63 70);
+  background: transparent;
+}
+
+:global(:root.dark .side-chat-worked-text) {
+  color: rgb(161 161 170);
+}
+
+:global(:root.dark .side-chat-worked-chevron) {
+  color: rgb(113 113 122);
 }
 
 :global(:root.dark .side-chat-live) {
@@ -416,6 +495,10 @@ function onToggleDictation(): void {
 
 :global(:root.dark .side-chat-live-label) {
   color: rgb(212 212 216);
+}
+
+:global(:root.dark .side-chat-live-error) {
+  color: rgb(251 113 133);
 }
 
 @media (max-width: 900px) {

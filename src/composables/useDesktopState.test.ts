@@ -630,12 +630,34 @@ describe('side-chat state API', () => {
     await sideState.sendMessageToSideChat('side transcript', ['blob:side-image'])
     await state.sendMessageToSelectedThread('main transcript')
 
+    expect(sideState.sideMessages.value).toEqual([
+      expect.objectContaining({
+        role: 'user',
+        text: 'side transcript',
+        messageType: 'sideUser.optimistic',
+      }),
+    ])
+    expect(state.messages.value).toEqual([])
     expect(gatewayMocks.startThreadTurn).toHaveBeenCalledTimes(2)
     expect(gatewayMocks.startThreadTurn.mock.calls[0][0]).toBe('side-thread')
     expect(gatewayMocks.startThreadTurn.mock.calls[0][1]).toBe('side transcript')
     expect(gatewayMocks.startThreadTurn.mock.calls[0][2]).toEqual(['blob:side-image'])
     expect(gatewayMocks.startThreadTurn.mock.calls[1][0]).toBe('main-thread')
     expect(gatewayMocks.startThreadTurn.mock.calls[1][1]).toBe('main transcript')
+    expect(state.selectedThreadId.value).toBe('main-thread')
+  })
+
+  it('removes optimistic side-chat user text when side turn start fails', async () => {
+    installTestWindow({ 'codex-web-local.selected-thread-id.v1': 'main-thread' })
+    gatewayMocks.startThreadTurn.mockRejectedValue(new Error('side failed'))
+    const state = useDesktopState()
+    const sideState = expectSideChatState(state)
+
+    await sideState.openSideChatForSelectedThread()
+    await expect(sideState.sendMessageToSideChat('side transcript')).rejects.toThrow('side failed')
+
+    expect(sideState.sideMessages.value).toEqual([])
+    expect(state.messages.value).toEqual([])
     expect(state.selectedThreadId.value).toBe('main-thread')
   })
 
@@ -728,7 +750,13 @@ describe('side-chat state API', () => {
       atIso: '2026-05-28T00:00:02.000Z',
     })
 
-    expect(sideState.sideMessages.value).toEqual([expect.objectContaining(liveSideAnswer)])
+    expect(sideState.sideMessages.value).toEqual([
+      expect.objectContaining({
+        role: 'user',
+        text: 'What is the main chat about?',
+      }),
+      expect.objectContaining(liveSideAnswer),
+    ])
 
     const scheduledBeforeCompletion = scheduledWindowTimeoutCallbacks().length
     notify({
@@ -753,6 +781,12 @@ describe('side-chat state API', () => {
 
     expect(sideState.sideLiveOverlay.value).toBe(null)
     expect(sideState.sideMessages.value).toEqual(expect.arrayContaining([expect.objectContaining(liveSideAnswer)]))
+    expect(sideState.sideMessages.value).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: 'user',
+        text: 'What is the main chat about?',
+      }),
+    ]))
     expect(gatewayMocks.getThreadDetail).not.toHaveBeenCalledWith('side-thread')
     expect(state.messages.value).toEqual(mainMessagesBeforeCompletion)
     expect(state.selectedThreadId.value).toBe('main-thread')

@@ -1590,6 +1590,7 @@ export function useDesktopState() {
   const persistedMessagesByThreadId = ref<Record<string, UiMessage[]>>({})
   const livePlanMessagesByThreadId = ref<Record<string, UiMessage[]>>({})
   const liveAgentMessagesByThreadId = ref<Record<string, UiMessage[]>>({})
+  const sideUserMessagesByThreadId = ref<Record<string, UiMessage[]>>({})
   const liveReasoningTextByThreadId = ref<Record<string, string>>({})
   const liveCommandsByThreadId = ref<Record<string, UiMessage[]>>({})
   const liveFileChangeMessagesByThreadId = ref<Record<string, UiMessage[]>>({})
@@ -1742,6 +1743,7 @@ export function useDesktopState() {
   const turnDiffSummaryByTurnId = new Map<string, TurnChangeSummary>()
   const fallbackRetryInFlightThreadIds = new Set<string>()
   const locallyArchivedThreadIds = new Set<string>()
+  let sideUserMessageCounter = 0
 
 
   const allThreads = computed(() => flattenThreads(projectGroups.value))
@@ -1806,11 +1808,18 @@ export function useDesktopState() {
     if (!normalizedThreadId) return []
 
     const persisted = persistedMessagesByThreadId.value[normalizedThreadId] ?? []
+    const persistedUserTexts = new Set(
+      persisted
+        .filter((message) => message.role === 'user')
+        .map((message) => normalizeMessageText(message.text)),
+    )
+    const sideUser = (sideUserMessagesByThreadId.value[normalizedThreadId] ?? [])
+      .filter((message) => !persistedUserTexts.has(normalizeMessageText(message.text)))
     const livePlan = livePlanMessagesByThreadId.value[normalizedThreadId] ?? []
     const liveAgent = liveAgentMessagesByThreadId.value[normalizedThreadId] ?? []
     const liveCommands = liveCommandsByThreadId.value[normalizedThreadId] ?? []
     const liveFileChanges = liveFileChangeMessagesByThreadId.value[normalizedThreadId] ?? []
-    const combined = [...persisted, ...livePlan, ...liveCommands, ...liveFileChanges, ...liveAgent]
+    const combined = [...persisted, ...sideUser, ...livePlan, ...liveCommands, ...liveFileChanges, ...liveAgent]
 
     const summary = turnSummaryByThreadId.value[normalizedThreadId]
     if (!summary) return combined
@@ -2436,6 +2445,7 @@ export function useDesktopState() {
     resumedThreadById.value = pruneThreadStateMap(resumedThreadById.value, activeThreadIds)
     turnIndexByTurnIdByThreadId.value = pruneThreadStateMap(turnIndexByTurnIdByThreadId.value, activeThreadIds)
     persistedMessagesByThreadId.value = pruneThreadStateMap(persistedMessagesByThreadId.value, activeThreadIds)
+    sideUserMessagesByThreadId.value = pruneThreadStateMap(sideUserMessagesByThreadId.value, activeThreadIds)
     liveAgentMessagesByThreadId.value = pruneThreadStateMap(liveAgentMessagesByThreadId.value, activeThreadIds)
     liveReasoningTextByThreadId.value = pruneThreadStateMap(liveReasoningTextByThreadId.value, activeThreadIds)
     liveCommandsByThreadId.value = pruneThreadStateMap(liveCommandsByThreadId.value, activeThreadIds)
@@ -2724,6 +2734,39 @@ export function useDesktopState() {
       ...persistedMessagesByThreadId.value,
       [threadId]: nextMessages,
     }
+  }
+
+  function appendSideUserMessage(threadId: string, text: string): string {
+    const normalizedThreadId = threadId.trim()
+    const normalizedText = text.trim()
+    if (!normalizedThreadId || !normalizedText) return ''
+    sideUserMessageCounter += 1
+    const messageId = `side-user:${normalizedThreadId}:${sideUserMessageCounter}`
+    const previous = sideUserMessagesByThreadId.value[normalizedThreadId] ?? []
+    sideUserMessagesByThreadId.value = {
+      ...sideUserMessagesByThreadId.value,
+      [normalizedThreadId]: [
+        ...previous,
+        {
+          id: messageId,
+          role: 'user',
+          text: normalizedText,
+          messageType: 'sideUser.optimistic',
+        },
+      ],
+    }
+    return messageId
+  }
+
+  function removeSideUserMessage(threadId: string, messageId: string): void {
+    const normalizedThreadId = threadId.trim()
+    if (!normalizedThreadId || !messageId) return
+    const previous = sideUserMessagesByThreadId.value[normalizedThreadId] ?? []
+    const next = previous.filter((message) => message.id !== messageId)
+    if (next.length === previous.length) return
+    sideUserMessagesByThreadId.value = next.length > 0
+      ? { ...sideUserMessagesByThreadId.value, [normalizedThreadId]: next }
+      : omitKey(sideUserMessagesByThreadId.value, normalizedThreadId)
   }
 
   function setLiveAgentMessagesForThread(threadId: string, nextMessages: UiMessage[]): void {
@@ -5658,22 +5701,32 @@ export function useDesktopState() {
   ): Promise<SendMessageResult> {
     const targetSideThreadId = sideThreadId.value.trim()
     if (!targetSideThreadId) return 'ignored'
-    return sendMessageToThreadInternal(
-      targetSideThreadId,
-      text,
-      imageUrls,
-      skills,
-      mode,
-      fileAttachments,
-      undefined,
-      readSelectedCollaborationMode(selectedCollaborationModeByContext.value, targetSideThreadId),
-      {
-        refreshThreadStatus: false,
-        surfaceGlobalError: false,
-        enableAutoScroll: false,
-        requireQueuePersistence: false,
-      },
-    )
+    const optimisticMessageId = appendSideUserMessage(targetSideThreadId, text)
+    try {
+      const result = await sendMessageToThreadInternal(
+        targetSideThreadId,
+        text,
+        imageUrls,
+        skills,
+        mode,
+        fileAttachments,
+        undefined,
+        readSelectedCollaborationMode(selectedCollaborationModeByContext.value, targetSideThreadId),
+        {
+          refreshThreadStatus: false,
+          surfaceGlobalError: false,
+          enableAutoScroll: false,
+          requireQueuePersistence: false,
+        },
+      )
+      if (result === 'ignored') {
+        removeSideUserMessage(targetSideThreadId, optimisticMessageId)
+      }
+      return result
+    } catch (unknownError) {
+      removeSideUserMessage(targetSideThreadId, optimisticMessageId)
+      throw unknownError
+    }
   }
 
   function closeSideChat(): void {
@@ -5682,6 +5735,9 @@ export function useDesktopState() {
     if (!closingThreadId) return
 
     clearLiveAgentMessagesForThread(closingThreadId)
+    if (sideUserMessagesByThreadId.value[closingThreadId]) {
+      sideUserMessagesByThreadId.value = omitKey(sideUserMessagesByThreadId.value, closingThreadId)
+    }
     clearLivePlansForThread(closingThreadId)
     clearLiveFileChangesForThread(closingThreadId)
     clearLiveReasoningForThread(closingThreadId)

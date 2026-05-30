@@ -457,7 +457,19 @@ html::after {
 }
 
 :root.dark .side-chat-message.is-user {
-  @apply border-blue-900 bg-blue-950;
+  @apply border-transparent bg-zinc-700;
+}
+
+:root.dark .side-chat-message.is-worked {
+  @apply border-zinc-700 bg-transparent;
+}
+
+:root.dark .side-chat-worked-text {
+  @apply text-zinc-400;
+}
+
+:root.dark .side-chat-worked-chevron {
+  @apply text-zinc-500;
 }
 
 :root.dark .side-chat-live {

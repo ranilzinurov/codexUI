@@ -6,6 +6,8 @@ const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:4174'
 const THREAD_ID = process.env.THREAD_ID || '019e72fd-945e-7030-9b4a-830e39a6443c'
 const DARK_MODE = process.env.SIDE_CHAT_DARK === '1'
 const TIMEOUT_MS = Number(process.env.SIDE_CHAT_TIMEOUT_MS || 180000)
+const TEST_MODEL = process.env.SIDE_CHAT_MODEL || 'gpt-5.4-mini'
+const MOCK_TURN = process.env.SIDE_CHAT_MOCK_TURN === '1'
 const MARKER = `SIDE_VOICE_${Date.now()}`
 const TRANSCRIPT = process.env.SIDE_CHAT_VOICE_TRANSCRIPT || `${MARKER}: answer briefly what is being discussed in the main chat`
 const OUT_DIR = path.resolve(process.cwd(), 'output/playwright')
@@ -37,6 +39,7 @@ async function main() {
     marker: MARKER,
     transcript: TRANSCRIPT,
     darkMode: DARK_MODE,
+    mockTurn: MOCK_TURN,
     startedAt: new Date().toISOString(),
     rpc: [],
     fetchErrors: [],
@@ -160,6 +163,82 @@ async function main() {
       window.localStorage.setItem('codex-web-local.dark-mode.v1', 'dark')
     })
   }
+  await page.addInitScript(({ threadId, model }) => {
+    const key = 'codex-web-local.selected-model-by-context.v1'
+    const existing = (() => {
+      try {
+        return JSON.parse(window.localStorage.getItem(key) || '{}')
+      } catch {
+        return {}
+      }
+    })()
+    window.localStorage.setItem(key, JSON.stringify({
+      ...existing,
+      '__new-thread__': model,
+      [threadId]: model,
+    }))
+  }, { threadId: THREAD_ID, model: TEST_MODEL })
+
+  if (MOCK_TURN) {
+    await page.addInitScript(() => {
+      Object.defineProperty(window, 'WebSocket', {
+        configurable: true,
+        writable: true,
+        value: undefined,
+      })
+
+      const sources = []
+      class FakeEventSource {
+        constructor(url) {
+          this.url = url
+          this.readyState = 1
+          this.onmessage = null
+          this.onerror = null
+          this.listeners = new Map()
+          sources.push(this)
+          setTimeout(() => this.emit('ready', { ok: true }), 0)
+        }
+
+        addEventListener(type, listener) {
+          const rows = this.listeners.get(type) || []
+          rows.push(listener)
+          this.listeners.set(type, rows)
+        }
+
+        removeEventListener(type, listener) {
+          const rows = this.listeners.get(type) || []
+          this.listeners.set(type, rows.filter((row) => row !== listener))
+        }
+
+        close() {
+          this.readyState = 2
+        }
+
+        emit(type, payload) {
+          const event = { data: JSON.stringify(payload) }
+          for (const listener of this.listeners.get(type) || []) {
+            listener(event)
+          }
+          if (type === 'message') {
+            this.onmessage?.(event)
+          }
+        }
+      }
+
+      Object.defineProperty(window, 'EventSource', {
+        configurable: true,
+        writable: true,
+        value: FakeEventSource,
+      })
+      window.__emitCodexNotification = (payload) => {
+        for (const source of sources) {
+          if (source.readyState === 1) {
+            source.emit('message', payload)
+          }
+        }
+      }
+    })
+  }
 
   page.on('request', (request) => {
     if (request.url().includes('/codex-api/transcribe')) {
@@ -195,6 +274,82 @@ async function main() {
     })
   })
 
+  if (MOCK_TURN) {
+    let sideThreadCounter = 0
+    await page.route('**/codex-api/rpc', async (route) => {
+      const body = parseJson(route.request().postData())
+      if (body?.method === 'thread/fork' && body.params?.ephemeral === true) {
+        sideThreadCounter += 1
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            result: {
+              thread: {
+                id: `mock-side-thread-${sideThreadCounter}`,
+                cwd: '/tmp/codex-ui-side-chat',
+              },
+              model: TEST_MODEL,
+            },
+          }),
+        })
+        return
+      }
+      if (body?.method === 'turn/start' && String(body.params?.threadId || '').startsWith('mock-side-thread-')) {
+        const threadId = String(body.params.threadId)
+        const turnId = `mock-side-turn-${Date.now()}`
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ result: { turn: { id: turnId } } }),
+        })
+        setTimeout(() => {
+          void page.evaluate(({ threadId: emittedThreadId, turnId: emittedTurnId }) => {
+            const emit = window.__emitCodexNotification
+            if (typeof emit !== 'function') return
+            const startedAt = new Date(Date.now() - 1400).toISOString()
+            const completedAt = new Date().toISOString()
+            emit({
+              method: 'turn/started',
+              params: {
+                threadId: emittedThreadId,
+                turnId: emittedTurnId,
+                turn: { id: emittedTurnId, startedAt },
+              },
+              atIso: startedAt,
+            })
+            emit({
+              method: 'item/agentMessage/delta',
+              params: {
+                threadId: emittedThreadId,
+                turnId: emittedTurnId,
+                itemId: 'mock-side-answer',
+                delta: 'Mock side answer confirms the main chat context is available.',
+              },
+              atIso: new Date().toISOString(),
+            })
+            emit({
+              method: 'turn/completed',
+              params: {
+                threadId: emittedThreadId,
+                turnId: emittedTurnId,
+                durationMs: 1400,
+                turn: {
+                  id: emittedTurnId,
+                  startedAt,
+                  completedAt,
+                },
+              },
+              atIso: completedAt,
+            })
+          }, { threadId, turnId }).catch(() => {})
+        }, 300)
+        return
+      }
+      await route.continue()
+    })
+  }
+
   try {
     await page.goto(`${BASE_URL}/#/thread/${THREAD_ID}`, { waitUntil: 'domcontentloaded', timeout: 30000 })
     await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {})
@@ -207,6 +362,18 @@ async function main() {
       .click({ timeout: 30000 })
 
     const sidePanel = page.locator('.side-chat-panel')
+    await sidePanel.waitFor({ state: 'visible', timeout: 30000 })
+    await page.getByRole('button', { name: 'Thread features' }).click({ timeout: 30000 })
+    await page
+      .getByRole('menu', { name: 'Thread features' })
+      .getByRole('menuitem', { name: /Side/ })
+      .click({ timeout: 30000 })
+    await sidePanel.waitFor({ state: 'hidden', timeout: 30000 })
+    await page.getByRole('button', { name: 'Thread features' }).click({ timeout: 30000 })
+    await page
+      .getByRole('menu', { name: 'Thread features' })
+      .getByRole('menuitem', { name: /Side/ })
+      .click({ timeout: 30000 })
     await sidePanel.waitFor({ state: 'visible', timeout: 30000 })
     await sidePanel.getByRole('button', { name: 'Start side chat dictation' }).click({ timeout: 30000 })
     await sidePanel.getByRole('button', { name: 'Stop and send dictation' }).click({ timeout: 30000 })
@@ -245,6 +412,9 @@ async function main() {
       item?.type === 'text' && typeof item.text === 'string' && item.text.includes(MARKER))) {
       throw new Error('Side voice transcript was not submitted in the side turn/start input')
     }
+    if (!sideUserText.includes(MARKER)) {
+      throw new Error('Side voice transcript was not rendered as a side user message')
+    }
     if (evidence.fetchErrors.length > 0) {
       throw new Error('Codex API returned errors during side voice dictation')
     }
@@ -260,7 +430,7 @@ async function main() {
         .catch(() => [])
       assistantText = assistantMessages.map((text) => text.trim()).filter(Boolean).join('\n\n')
       const workedSummaries = await sidePanel
-        .locator('.side-chat-message.is-system .side-chat-message-text')
+        .locator('.side-chat-message.is-worked .side-chat-worked-text')
         .allInnerTexts()
         .catch(() => [])
       workedSummaryText = workedSummaries.find((text) => text.trim().startsWith('Worked for'))?.trim() || ''
@@ -272,6 +442,25 @@ async function main() {
         ? `No assistant side-chat answer after ${TIMEOUT_MS}ms`
         : `Side-chat voice answer did not reach completed state after ${TIMEOUT_MS}ms`)
     }
+    const workedCardCount = await sidePanel.locator('.side-chat-message.is-worked').count()
+    const workedRoleCount = await sidePanel
+      .locator('.side-chat-message.is-worked .side-chat-message-role')
+      .count()
+    if (workedCardCount < 1 || workedRoleCount > 0) {
+      throw new Error('Side worked summary was not rendered as the compact worked row')
+    }
+    const layoutMetrics = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+      bodyScrollWidth: document.body.scrollWidth,
+      bodyClientWidth: document.body.clientWidth,
+    }))
+    if (
+      layoutMetrics.scrollWidth > layoutMetrics.clientWidth + 2 ||
+      layoutMetrics.bodyScrollWidth > layoutMetrics.bodyClientWidth + 2
+    ) {
+      throw new Error(`Thread layout overflowed horizontally: ${JSON.stringify(layoutMetrics)}`)
+    }
 
     evidence.final = {
       ok: true,
@@ -282,6 +471,7 @@ async function main() {
       transcriptSubmitted: sideThreadTurn.params.input?.some((item) =>
         item?.type === 'text' && typeof item.text === 'string' && item.text.includes(MARKER)),
       sideThreadId: sideThreadTurn.params.threadId,
+      layoutMetrics,
       screenshotPath: SCREENSHOT_PATH,
     }
     await page.screenshot({ path: SCREENSHOT_PATH, fullPage: true })
