@@ -320,6 +320,90 @@ describe('unified responses proxy reasoning_content translation', () => {
     }
   })
 
+  it('retries raw Responses when previous_response_not_found is nested in a stringified upstream error', async () => {
+    const upstreamRequests: Record<string, unknown>[] = []
+    const previousLogPath = process.env.CODEXUI_PREVIOUS_RESPONSE_ERROR_LOG
+    const tempDir = await mkdtemp(join(tmpdir(), 'codexui-prev-response-nested-'))
+    process.env.CODEXUI_PREVIOUS_RESPONSE_ERROR_LOG = join(tempDir, 'diagnostics.jsonl')
+    const upstream = createServer((req, res) => {
+      void (async () => {
+        upstreamRequests.push(await readJsonBody(req))
+        if (upstreamRequests.length === 1) {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({
+            error: {
+              message: JSON.stringify({
+                type: 'error',
+                error: {
+                  type: 'invalid_request_error',
+                  code: 'previous_response_not_found',
+                  message: "Previous response with id 'resp_nested' not found.",
+                  param: 'previous_response_id',
+                },
+                status: 400,
+              }),
+            },
+          }))
+          return
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({
+          id: 'resp_recovered',
+          object: 'response',
+          model: 'big-pickle',
+          output: [],
+        }))
+      })().catch((error) => {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: { message: error instanceof Error ? error.message : 'unknown error' } }))
+      })
+    })
+    const upstreamPort = await listen(upstream)
+    const proxy = createServer((req, res) => {
+      handleUnifiedResponsesProxyRequest(req, res, {
+        bearerToken: '',
+        requireBearerToken: false,
+        wireApi: 'responses',
+        responsesEndpoint: `http://127.0.0.1:${upstreamPort}/v1/responses`,
+        chatCompletionsEndpoint: `http://127.0.0.1:${upstreamPort}/v1/chat/completions`,
+        missingKeyMessage: 'missing',
+        allowToolFallbackToResponses: false,
+        responsesPayloadFormat: 'raw',
+      })
+    })
+    const proxyPort = await listen(proxy)
+
+    try {
+      const input = [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'recover nested' }] }]
+      const response = await fetch(`http://127.0.0.1:${proxyPort}/v1/responses`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'big-pickle',
+          previous_response_id: 'resp_nested',
+          input,
+        }),
+      })
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(body.id).toBe('resp_recovered')
+      expect(upstreamRequests).toHaveLength(2)
+      expect(upstreamRequests[1]).not.toHaveProperty('previous_response_id')
+      expect(upstreamRequests[1]).toMatchObject({ model: 'big-pickle', input })
+    } finally {
+      if (previousLogPath === undefined) {
+        delete process.env.CODEXUI_PREVIOUS_RESPONSE_ERROR_LOG
+      } else {
+        process.env.CODEXUI_PREVIOUS_RESPONSE_ERROR_LOG = previousLogPath
+      }
+      await rm(tempDir, { recursive: true, force: true })
+      await close(proxy)
+      await close(upstream)
+    }
+  })
+
   it('forwards non-matching raw Responses upstream errors without retrying', async () => {
     const upstreamRequests: Record<string, unknown>[] = []
     const upstreamError = {

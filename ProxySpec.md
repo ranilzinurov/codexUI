@@ -1,6 +1,6 @@
 # Provider Proxy Spec
 
-This document describes the local provider proxy used by Codex Web Local for OpenRouter, OpenCode Zen, and custom OpenAI-compatible endpoints.
+This document describes the local provider proxy used by Codex Web Local for OpenRouter, OpenCode Zen, custom OpenAI-compatible endpoints, and the local `codex-lb` provider.
 
 ## Goal
 
@@ -23,6 +23,7 @@ The app server exposes one Responses-compatible route per provider:
 | OpenRouter | `/codex-api/openrouter-proxy/v1/responses` | `https://openrouter.ai/api/v1/responses` | `https://openrouter.ai/api/v1/chat/completions` |
 | OpenCode Zen | `/codex-api/zen-proxy/v1/responses` | `https://opencode.ai/zen/v1/responses` | `https://opencode.ai/zen/v1/chat/completions` |
 | Custom endpoint | `/codex-api/custom-proxy/v1/responses` | `<baseUrl>/responses` | `<baseUrl>/chat/completions` |
+| Codex LB | `/codex-api/codex-lb-proxy/v1/responses` | `<codex-lb baseUrl>/responses` | `<codex-lb baseUrl>/chat/completions` |
 
 Even when the user selects Completions mode, Codex is configured to call the local `/responses` route. The proxy performs the final upstream protocol conversion.
 
@@ -58,6 +59,16 @@ model_providers.custom-endpoint.experimental_bearer_token = "custom-proxy-token"
 ```
 
 The token in Codex config is only a local proxy placeholder. The real provider key is read by the app server from `~/.codex/webui-free-mode.json`.
+
+Codex LB:
+
+```toml
+model_provider = "codex-lb"
+model_providers.codex-lb.base_url = "http://127.0.0.1:<port>/codex-api/codex-lb-proxy/v1"
+model_providers.codex-lb.wire_api = "responses"
+```
+
+The Codex LB override is applied only at app-server spawn time, only when the active configured provider is `codex-lb`, and only when free mode has not already routed the provider through a local proxy. Codex UI reads the original upstream `base_url` and `env_key` from `~/.codex/config.toml`; it does not rewrite that file. Set `CODEXUI_CODEX_LB_PROXY=0` to opt out.
 
 ## Mode Selection
 
@@ -192,6 +203,16 @@ Custom endpoint wrapper:
 - Does not apply provider-specific tool sanitization.
 - Returns upstream errors without rewriting them when possible.
 
+### Codex LB
+
+Codex LB wrapper:
+
+- Reads the active `codex-lb` provider from `~/.codex/config.toml`.
+- Preserves the configured upstream `base_url`, `wire_api`, and `env_key`.
+- Rewrites only the app-server runtime `base_url` to the local proxy route.
+- Forwards the bearer token received from the child app-server; if absent, it falls back to the configured `env_key`.
+- Restricts the local route to loopback clients.
+
 ## Why Direct Chat Mode Was Not Enough
 
 Directly setting Codex to `wire_api="chat"` is not reliable for this app because Codex and the app server expect Responses-shaped tool-loop semantics. A plain Chat Completions provider can return valid text, but Codex may not receive the function-call output shape it needs to continue with bash/tool execution.
@@ -217,6 +238,8 @@ Rules:
 - Non-JSON upstream failures are returned as JSON with the raw response prefix as the message.
 - Network/proxy failures return `502` with `Proxy error: <message>`.
 - The proxy must not replace provider errors with unrelated auth-refresh errors.
+- Raw Responses requests that fail with `previous_response_not_found` are retried once without `previous_response_id` when the request still contains a safe `input` payload. Retry start, finish, and failure diagnostics are written to `output/previous-response-errors.jsonl` or `CODEXUI_PREVIOUS_RESPONSE_ERROR_LOG`.
+- Nested or stringified upstream error shapes are classified with the same matcher as app-server diagnostics, so provider wrappers do not each maintain their own stale-response parser.
 
 ## Caveats
 

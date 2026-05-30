@@ -7099,3 +7099,37 @@ Mic/stop dictation in the Side Chat composer transcribes speech and auto-sends i
 #### Rollback/Cleanup
 - Close the Side panel after testing.
 - Stop the temporary `4174` dev server.
+
+---
+
+### Codex LB Previous Response Recovery Regression
+
+#### Feature/Change Name
+Codex LB provider requests are routed through the local Responses proxy and recover once from `previous_response_not_found`.
+
+#### Prerequisites/Setup
+1. `~/.codex/config.toml` has active `model_provider = "codex-lb"` with `wire_api = "responses"`.
+2. `CODEX_LB_API_KEY` is available if the configured provider uses `env_key = "CODEX_LB_API_KEY"`.
+3. Optional: set `CODEXUI_PREVIOUS_RESPONSE_ERROR_LOG` to a temporary JSONL path when manually inspecting diagnostics.
+
+#### Steps
+1. Start Codex UI normally and open an existing long/tool-heavy thread.
+2. Confirm the spawned app-server receives the runtime override:
+   `model_providers.codex-lb.base_url="http://127.0.0.1:<port>/codex-api/codex-lb-proxy/v1"`.
+3. Trigger a normal turn and confirm it completes through the `codex-lb` provider.
+4. In light theme, keep working in the thread until a provider stale-response condition would previously have surfaced as `previous_response_not_found`.
+5. Confirm the turn continues after a single local proxy retry instead of surfacing the raw provider error in chat.
+6. In dark theme, repeat a normal `codex-lb` turn and confirm no light-theme UI regression appears around the composer, activity row, or error surface.
+7. Run the focused server regression:
+   `pnpm exec vitest run src/server/codexLbProxy.test.ts src/server/unifiedResponsesProxy.test.ts src/server/previousResponseDiagnostics.test.ts --reporter=verbose`
+
+#### Expected Results
+- Codex UI does not rewrite `~/.codex/config.toml`; the override is app-server runtime only.
+- The local route `/codex-api/codex-lb-proxy/v1/responses` forwards bearer auth to the configured upstream `base_url`.
+- A matching upstream `previous_response_not_found` response is retried once without `previous_response_id` when `input` is present.
+- Retry diagnostics are written with `phase: "retry-started"` and `phase: "retry-finished"` rows.
+- Light and dark themes remain unchanged because the fix is server-side and does not introduce new UI.
+
+#### Rollback/Cleanup
+- Unset `CODEXUI_PREVIOUS_RESPONSE_ERROR_LOG` if it was used.
+- Set `CODEXUI_CODEX_LB_PROXY=0` and restart Codex UI to temporarily bypass the local `codex-lb` proxy.

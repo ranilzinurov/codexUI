@@ -492,17 +492,7 @@ function hasSafeFullResponsesInput(payload: Record<string, unknown>): boolean {
 
 function isPreviousResponseNotFoundError(status: number, rawResponseBody: string): boolean {
   if (status < 400) return false
-  const upstreamPayload = parseJsonObject(rawResponseBody)
-  const error = upstreamPayload?.error
-  if (!error || typeof error !== 'object' || Array.isArray(error)) return false
-
-  const errorRecord = error as Record<string, unknown>
-  if (errorRecord.code === 'previous_response_not_found') return true
-
-  const message = typeof errorRecord.message === 'string' ? errorRecord.message : ''
-  const messageLooksLikeMissingPreviousResponse =
-    /previous[_\s-]+response/i.test(message) && /not[_\s-]+found/i.test(message)
-  return errorRecord.param === 'previous_response_id' && messageLooksLikeMissingPreviousResponse
+  return isPreviousResponseNotFoundLike(parseJsonObject(rawResponseBody) ?? rawResponseBody)
 }
 
 function buildPreviousResponseDiagnosticContext(input: {

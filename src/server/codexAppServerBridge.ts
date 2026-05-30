@@ -34,6 +34,7 @@ import {
 import { handleOpenRouterProxyRequest } from './openRouterProxy.js'
 import { handleZenProxyRequest } from './zenProxy.js'
 import { handleCustomEndpointProxyRequest } from './customEndpointProxy.js'
+import { getCodexLbProxyConfigArgs, handleCodexLbProxyRequest } from './codexLbProxy.js'
 import {
   isPreviousResponseNotFoundLike,
   redactDiagnosticUrl,
@@ -5742,14 +5743,22 @@ class AppServerProcess {
     let extraEnv: Record<string, string> = {}
     const serverPort = parseInt(process.env.CODEXUI_SERVER_PORT ?? '', 10) || undefined
     const statePath = join(getCodexHomeDir(), FREE_MODE_STATE_FILE)
+    let routedThroughFreeModeProxy = false
     try {
       const state = ensureDefaultFreeModeStateForMissingAuthSync(statePath)
       if (state) {
-        args.push(...getFreeModeConfigArgs(state, serverPort))
+        const freeModeArgs = getFreeModeConfigArgs(state, serverPort)
+        if (freeModeArgs.length > 0) {
+          args.push(...freeModeArgs)
+          routedThroughFreeModeProxy = true
+        }
         extraEnv = getFreeModeEnvVars(state)
       }
     } catch {
       // No free-mode state or invalid — use defaults
+    }
+    if (!routedThroughFreeModeProxy) {
+      args.push(...getCodexLbProxyConfigArgs({ serverPort, codexHomeDir: getCodexHomeDir() }))
     }
     return { args, env: extraEnv }
   }
@@ -7098,6 +7107,15 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
           baseUrl = state.customBaseUrl ?? ''
         } catch { /* use empty */ }
         handleCustomEndpointProxyRequest(req, res, { baseUrl, bearerToken, wireApi })
+        return
+      }
+
+      if (url.pathname === '/codex-api/codex-lb-proxy/v1/responses' && req.method === 'POST') {
+        if (!isLoopbackRemoteAddress(req.socket.remoteAddress)) {
+          setJson(res, 403, { error: 'Codex LB proxy is only available from localhost' })
+          return
+        }
+        handleCodexLbProxyRequest(req, res, { codexHomeDir: getCodexHomeDir() })
         return
       }
 
