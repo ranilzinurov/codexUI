@@ -7133,3 +7133,46 @@ Codex LB provider requests are routed through the local Responses proxy and reco
 #### Rollback/Cleanup
 - Unset `CODEXUI_PREVIOUS_RESPONSE_ERROR_LOG` if it was used.
 - Set `CODEXUI_CODEX_LB_PROXY=0` and restart Codex UI to temporarily bypass the local `codex-lb` proxy.
+
+---
+
+### Browser Annotation Inline Area Comments And Compact Sidepanel
+
+#### Feature/Change Name
+Arbitrary area annotation, inline comment/dictation controls, and compact tabbed extension side panel.
+
+#### Prerequisites/Setup
+1. Run from the repository root.
+2. Chrome/Playwright dependencies are installed through the repository `node_modules`.
+3. For manual extension checks, load `extension/browser-annotation` or `dist/browser-annotation-extension/unpacked` in Chrome.
+4. For a connected send check, create a fresh browser annotation pairing token in Codex UI.
+
+#### Steps
+1. Run `node --check extension/browser-annotation/content/content-script.js`.
+2. Run `node --check extension/browser-annotation/sidepanel/sidepanel.js`.
+3. Run `node extension/browser-annotation/dev/content-overlay-cancel-smoke.cjs`.
+4. Run `node extension/browser-annotation/dev/sidepanel-host-permission-smoke.cjs`.
+5. Run `node extension/browser-annotation/dev/selection-context-smoke.mjs`.
+6. Run `node extension/browser-annotation/dev/annotation-queue-smoke.mjs`.
+7. Run `node extension/browser-annotation/dev/screenshot-crop-smoke.mjs`.
+8. Run `pnpm run pack:browser-annotation`.
+9. In light theme, open an http(s) test page, click `Inject Overlay`, click a specific element, and confirm the green selection plus compact inline `close`, `Chat`, and `Mic` controls appear beside the selection.
+10. Click `Chat`, type a short comment, and confirm the side-panel queue item keeps a short visual label without selector/xpath text.
+11. Drag across a blank/custom part of the page and confirm a freeform rectangular area is queued.
+12. Press `Esc` after a selection and confirm the selected queue item is removed and page interaction resumes.
+13. In dark theme, repeat steps 9-12 and confirm the overlay, side panel tabs, compact queue, DevTools controls, and help/settings panels remain readable.
+14. In the side panel, confirm `Server URL` and `Pairing token` live under `Settings`, and the Russian help copy lives under `Help`.
+
+#### Expected Results
+- Static checks and Playwright smokes pass.
+- Element click selection still queues a normal element context.
+- Drag selection queues an area context with bounded viewport `rect` and continues to use the existing crop/queue pipeline.
+- Inline comment text saves through `browserAnnotation.updateAnnotationQueueItem`.
+- `Mic` uses browser speech recognition as inline dictation into the comment box when supported; unsupported browsers show a compact inline status.
+- The queue no longer renders long CSS selector/xpath/div-path text, note textareas, or old record/stop/cancel voice controls.
+- Light and dark side-panel surfaces do not wrap words letter-by-letter or overflow the narrow panel.
+
+#### Rollback/Cleanup
+- Remove the unpacked extension from `chrome://extensions`.
+- Clear extension local/session storage if test queue items or pairing tokens should be removed.
+- Stop any temporary dev server used for manual checks.

@@ -21,18 +21,13 @@
 
       <section id="mainPanel" class="tab-panel is-active" data-tab-panel>
         <section class="section status-section">
-          <div class="status-grid">
-            <div>
-              <span>Connection</span>
-              <strong id="connectionStatus">Checking...</strong>
-            </div>
-            <div>
-              <span>Active tab</span>
-              <strong id="tabStatus">Checking...</strong>
-            </div>
+          <div class="status-strip">
+            <span>Status</span>
+            <strong id="connectionStatus">Checking...</strong>
           </div>
           <p id="connectionDetail" class="muted">Paste a pairing token from Codex UI.</p>
-          <p id="tabDetail" class="muted">Inject the overlay on an http(s) page to select elements.</p>
+          <span id="tabStatus" class="sr-only">Checking...</span>
+          <p id="tabDetail" class="sr-only">Inject the overlay on an http(s) page to select elements.</p>
           <button id="injectOverlay" class="button button-primary" type="button">Inject Overlay</button>
         </section>
 
