@@ -36,6 +36,9 @@
       @respond-server-request="$emit('respondServerRequest', $event)"
     />
 
+    <p v-if="dictationStatusText" class="side-chat-dictation-status" role="status">
+      {{ dictationStatusText }}
+    </p>
     <form class="side-chat-composer" @submit.prevent="onSubmit">
       <textarea
         v-model="draft"
@@ -45,10 +48,24 @@
         @keydown.enter.exact.prevent="onSubmit"
       />
       <button
+        v-if="isDictationSupported"
+        class="side-chat-dictation"
+        :class="{ 'is-recording': isDictationRecording }"
+        type="button"
+        :aria-label="dictationButtonLabel"
+        :title="dictationButtonLabel"
+        :disabled="liveOverlay !== null || isDictationTranscribing"
+        @click="onToggleDictation"
+      >
+        <IconTablerPlayerStopFilled v-if="isDictationRecording" />
+        <span v-else-if="isDictationTranscribing" class="side-chat-dictation-spinner" aria-hidden="true" />
+        <IconTablerMicrophone v-else />
+      </button>
+      <button
         class="side-chat-send"
         type="submit"
         aria-label="Send side chat message"
-        :disabled="draft.trim().length === 0 || liveOverlay !== null"
+        :disabled="draft.trim().length === 0 || liveOverlay !== null || isDictationRecording || isDictationTranscribing"
       >
         <IconTablerArrowUp />
       </button>
@@ -57,31 +74,89 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import IconTablerArrowUp from '../icons/IconTablerArrowUp.vue'
+import IconTablerMicrophone from '../icons/IconTablerMicrophone.vue'
+import IconTablerPlayerStopFilled from '../icons/IconTablerPlayerStopFilled.vue'
 import IconTablerX from '../icons/IconTablerX.vue'
 import ThreadPendingRequestPanel from './ThreadPendingRequestPanel.vue'
+import { useDictation, type DictationAudioInputInfo } from '../../composables/useDictation'
 import type { UiLiveOverlay, UiMessage, UiServerRequest, UiServerRequestReply } from '../../types/codex'
 
-defineProps<{
+const props = defineProps<{
   messages: UiMessage[]
   liveOverlay: UiLiveOverlay | null
   pendingRequests: UiServerRequest[]
+  activeThreadId: string
+  dictationLanguage?: string
 }>()
 
 const emit = defineEmits<{
   close: []
   submit: [text: string]
   respondServerRequest: [payload: UiServerRequestReply]
+  'dictation-input-updated': [info: DictationAudioInputInfo]
 }>()
 
 const draft = ref('')
+const dictationFeedback = ref('')
+
+const {
+  state: dictationState,
+  isSupported: isDictationSupported,
+  hasPendingTranscription,
+  toggleRecording,
+} = useDictation({
+  getStorageKey: () => `side-thread:${props.activeThreadId || 'unassigned'}`,
+  getLanguage: () => props.dictationLanguage ?? 'auto',
+  onAudioInput: (info) => {
+    emit('dictation-input-updated', info)
+  },
+  onTranscript: (text) => {
+    const transcript = text.trim()
+    if (!transcript) return
+    const message = draft.value.trim() ? `${draft.value.trim()}\n${transcript}` : transcript
+    draft.value = ''
+    dictationFeedback.value = ''
+    emit('submit', message)
+  },
+  onEmpty: () => {
+    dictationFeedback.value = 'No speech detected. Try again.'
+  },
+  onError: (error) => {
+    if (error instanceof DOMException && error.name === 'NotAllowedError') {
+      dictationFeedback.value = 'Microphone access was denied.'
+      return
+    }
+    dictationFeedback.value = error instanceof Error ? error.message : 'Dictation failed.'
+  },
+})
+
+const isDictationRecording = computed(() => dictationState.value === 'recording' || dictationState.value === 'paused')
+const isDictationTranscribing = computed(() => dictationState.value === 'transcribing')
+const dictationButtonLabel = computed(() => {
+  if (isDictationRecording.value) return 'Stop and send dictation'
+  if (isDictationTranscribing.value) return 'Transcribing dictation'
+  if (hasPendingTranscription.value) return 'Transcribe saved side chat dictation'
+  return 'Start side chat dictation'
+})
+const dictationStatusText = computed(() => {
+  if (isDictationRecording.value) return 'Recording...'
+  if (isDictationTranscribing.value) return 'Transcribing...'
+  return dictationFeedback.value
+})
 
 function onSubmit(): void {
   const text = draft.value.trim()
   if (!text) return
   draft.value = ''
   emit('submit', text)
+}
+
+function onToggleDictation(): void {
+  if (props.liveOverlay !== null || isDictationTranscribing.value) return
+  dictationFeedback.value = ''
+  toggleRecording()
 }
 </script>
 
@@ -124,6 +199,7 @@ function onSubmit(): void {
 }
 
 .side-chat-icon-button,
+.side-chat-dictation,
 .side-chat-send {
   display: inline-flex;
   height: 32px;
@@ -139,10 +215,17 @@ function onSubmit(): void {
 }
 
 .side-chat-icon-button:hover,
+.side-chat-dictation:hover:not(:disabled),
 .side-chat-send:hover:not(:disabled) {
   border-color: rgb(212 212 216);
   background: rgb(244 244 245);
   color: rgb(24 24 27);
+}
+
+.side-chat-dictation.is-recording {
+  border-color: rgb(254 202 202);
+  background: rgb(254 242 242);
+  color: rgb(220 38 38);
 }
 
 .side-chat-messages {
@@ -215,6 +298,15 @@ function onSubmit(): void {
   border-radius: 8px;
 }
 
+.side-chat-dictation-status {
+  margin: 0;
+  border-top: 1px solid rgb(228 228 231);
+  padding: 8px 10px 0;
+  color: rgb(82 82 91);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .side-chat-composer {
   display: flex;
   align-items: flex-end;
@@ -246,6 +338,26 @@ function onSubmit(): void {
   opacity: 0.5;
 }
 
+.side-chat-dictation:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.side-chat-dictation-spinner {
+  height: 16px;
+  width: 16px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 999px;
+  animation: side-chat-dictation-spin 700ms linear infinite;
+}
+
+@keyframes side-chat-dictation-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 :global(:root.dark .side-chat-panel) {
   border-left-color: rgb(63 63 70);
   background: rgb(24 24 27);
@@ -253,6 +365,7 @@ function onSubmit(): void {
 
 :global(:root.dark .side-chat-header),
 :global(:root.dark .side-chat-composer),
+:global(:root.dark .side-chat-dictation-status),
 :global(:root.dark .side-chat-pending-request) {
   border-color: rgb(63 63 70);
 }
@@ -270,12 +383,25 @@ function onSubmit(): void {
 }
 
 :global(:root.dark .side-chat-icon-button),
+:global(:root.dark .side-chat-dictation),
+:global(.dark .side-chat-dictation),
 :global(:root.dark .side-chat-send),
 :global(:root.dark .side-chat-message),
 :global(:root.dark .side-chat-input) {
   border-color: rgb(63 63 70);
   background: rgb(39 39 42);
   color: rgb(244 244 245);
+}
+
+:global(:root.dark .side-chat-dictation.is-recording),
+:global(.dark .side-chat-dictation.is-recording) {
+  border-color: rgb(127 29 29);
+  background: rgb(69 10 10);
+  color: rgb(254 202 202);
+}
+
+:global(:root.dark .side-chat-dictation-status) {
+  color: rgb(161 161 170);
 }
 
 :global(:root.dark .side-chat-message.is-user) {

@@ -1140,9 +1140,12 @@
                     :messages="sideMessages"
                     :live-overlay="sideLiveOverlay"
                     :pending-requests="sideThreadServerRequests"
+                    :active-thread-id="sideThreadId"
+                    :dictation-language="dictationLanguage"
                     @close="onCloseSideChat"
                     @submit="onSubmitSideChat"
                     @respond-server-request="onRespondServerRequest"
+                    @dictation-input-updated="onDictationInputUpdated"
                   />
                 </div>
 

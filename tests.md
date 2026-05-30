@@ -7062,3 +7062,40 @@ Side Chat keeps the side answer visible after the ephemeral side turn completes.
 #### Rollback/Cleanup
 - Stop the temporary `4174` dev server after verification.
 - Close the Side panel. Ephemeral side thread UI state remains temporary.
+
+---
+
+### Side Chat Voice Dictation Regression
+
+#### Feature/Change Name
+Mic/stop dictation in the Side Chat composer transcribes speech and auto-sends it only to the side thread.
+
+#### Prerequisites/Setup
+1. Run the merged main worktree on a non-production port:
+   `pnpm run dev --host 127.0.0.1 --port 4174`
+2. Open a real existing thread with enough context for a follow-up question.
+3. Use a browser profile that allows microphone access, or run the mocked Playwright script below.
+
+#### Steps
+1. In light theme, open Side Chat from the header feature menu.
+2. Confirm a microphone button appears beside the Side composer send button.
+3. Click the microphone button and confirm it changes to a stop control with a compact recording status.
+4. Speak a short side-only question.
+5. Click stop and confirm the recording transcribes, auto-sends, and produces a Side Chat response.
+6. Confirm the main transcript and main composer do not receive the dictated side question.
+7. Repeat steps 1-6 in dark theme and confirm the mic, stop, spinner, status text, input, and send button use dark-theme surfaces.
+8. Run the mocked light Playwright regression:
+   `BASE_URL=http://127.0.0.1:4174 node scripts/side-chat-voice-dictation.cjs`
+9. Run the mocked dark Playwright regression:
+   `BASE_URL=http://127.0.0.1:4174 SIDE_CHAT_DARK=1 node scripts/side-chat-voice-dictation.cjs`
+
+#### Expected Results
+- Stop triggers `/codex-api/transcribe` and the returned transcript is submitted through the existing Side Chat send path.
+- The voice transcript starts a turn against the ephemeral side thread, not the selected main thread.
+- The side turn payload contains the dictated user message while the main transcript remains unchanged.
+- The send button stays disabled while recording/transcribing, preventing duplicate sends.
+- Screenshots are written to `output/playwright/side-chat-voice-dictation-light.png` and `output/playwright/side-chat-voice-dictation-dark.png`.
+
+#### Rollback/Cleanup
+- Close the Side panel after testing.
+- Stop the temporary `4174` dev server.
