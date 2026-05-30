@@ -31,6 +31,8 @@
   let noteUpdateTimer = 0;
   let pendingNoteText = "";
   let noteUpdateSequence = 0;
+  let speechRecognition = null;
+  let speechActive = false;
   let noteUpdateQueue = Promise.resolve();
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -277,6 +279,7 @@
     selectedQueueItemId = "";
     pendingNoteText = "";
     clearTimeout(noteUpdateTimer);
+    stopVoiceInput({ silent: true });
     overlay.noteInput.value = "";
     overlay.noteWrap.hidden = true;
     overlay.noteButton.setAttribute("aria-expanded", "false");
@@ -349,6 +352,7 @@
     selectedSelection = null;
     pendingNoteText = "";
     clearTimeout(noteUpdateTimer);
+    stopVoiceInput({ silent: true });
     if (overlay) {
       overlay.selectedBox.hidden = true;
       overlay.noteInput.value = "";
@@ -423,6 +427,153 @@
         overlay.panelMeta.textContent = "Could not save note";
       }
     }
+  }
+
+  function toggleNoteInput() {
+    if (!overlay) {
+      return;
+    }
+    const nextHidden = !overlay.noteWrap.hidden;
+    overlay.noteWrap.hidden = nextHidden;
+    overlay.noteButton.setAttribute("aria-expanded", String(!nextHidden));
+    updateSelectedOverlay();
+    if (!nextHidden) {
+      window.setTimeout(() => overlay.noteInput.focus(), 0);
+    }
+  }
+
+  function toggleVoiceInput() {
+    if (speechActive) {
+      stopVoiceInput();
+      return;
+    }
+    startVoiceInput();
+  }
+
+  function startVoiceInput() {
+    if (!overlay) {
+      return;
+    }
+    const Recognition = globalThis.SpeechRecognition || globalThis.webkitSpeechRecognition;
+    if (typeof Recognition !== "function") {
+      overlay.panelMeta.textContent = "Voice input is not available";
+      return;
+    }
+
+    if (overlay.noteWrap.hidden) {
+      toggleNoteInput();
+    }
+
+    stopVoiceInput({ silent: true });
+    const recognition = new Recognition();
+    speechRecognition = recognition;
+    speechActive = true;
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = navigator.language || document.documentElement.lang || "en-US";
+    overlay.micButton.textContent = "Stop";
+    overlay.micButton.classList.add("is-recording");
+    overlay.micButton.setAttribute("aria-label", "Stop voice comment");
+    overlay.panelMeta.textContent = "Listening...";
+
+    recognition.addEventListener("result", (event) => {
+      let finalText = "";
+      let interimText = "";
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        const result = event.results[index];
+        const transcript = result && result[0] ? result[0].transcript : "";
+        if (result && result.isFinal) {
+          finalText += transcript;
+        } else {
+          interimText += transcript;
+        }
+      }
+      if (finalText) {
+        appendNoteText(finalText);
+      }
+      overlay.panelMeta.textContent = interimText
+        ? `Listening: ${selectionContext.normalizeText(interimText, 42)}`
+        : "Listening...";
+    });
+
+    recognition.addEventListener("error", (event) => {
+      overlay.panelMeta.textContent = readVoiceErrorMessage(event && event.error);
+    });
+
+    recognition.addEventListener("end", () => {
+      if (speechRecognition === recognition) {
+        speechRecognition = null;
+        speechActive = false;
+        if (overlay) {
+          resetVoiceButton();
+          overlay.panelMeta.textContent = pendingNoteText ? "Note saved" : "Saved";
+        }
+      }
+    });
+
+    try {
+      recognition.start();
+    } catch (error) {
+      speechRecognition = null;
+      speechActive = false;
+      console.warn("Unable to start voice input.", error);
+      resetVoiceButton();
+      overlay.panelMeta.textContent = "Voice input failed";
+    }
+  }
+
+  function stopVoiceInput(options = {}) {
+    const recognition = speechRecognition;
+    if (!recognition) {
+      speechActive = false;
+      resetVoiceButton();
+      return;
+    }
+    speechRecognition = null;
+    speechActive = false;
+    try {
+      recognition.stop();
+    } catch (_error) {
+      // Recognition can already be stopped by the browser.
+    }
+    if (overlay && options.silent !== true) {
+      resetVoiceButton();
+      overlay.panelMeta.textContent = pendingNoteText ? "Note saved" : "Saved";
+    } else {
+      resetVoiceButton();
+    }
+  }
+
+  function appendNoteText(text) {
+    const normalized = selectionContext.normalizeText(text, 1000);
+    if (!normalized || !overlay) {
+      return;
+    }
+    const current = overlay.noteInput.value.trim();
+    overlay.noteInput.value = current ? `${current} ${normalized}` : normalized;
+    scheduleNoteUpdate();
+  }
+
+  function resetVoiceButton() {
+    if (!overlay) {
+      return;
+    }
+    overlay.micButton.textContent = "Mic";
+    overlay.micButton.classList.remove("is-recording");
+    overlay.micButton.setAttribute("aria-label", "Start voice comment");
+  }
+
+  function readVoiceErrorMessage(errorName) {
+    if (errorName === "not-allowed" || errorName === "service-not-allowed") {
+      return "Voice permission needed";
+    }
+    if (errorName === "no-speech") {
+      return "No speech heard";
+    }
+    if (errorName === "audio-capture") {
+      return "Microphone unavailable";
+    }
+    return "Voice input stopped";
   }
 
   function enqueueNoteUpdate(message) {
@@ -699,6 +850,12 @@
         opacity: 0.65;
       }
 
+      .action.is-recording {
+        color: #fee2e2;
+        background: #991b1b;
+        border-color: rgba(254, 202, 202, 0.45);
+      }
+
       .action:focus-visible,
       .note-input:focus-visible {
         outline: 2px solid #93c5fd;
@@ -777,7 +934,7 @@
     cancelButton.type = "button";
     cancelButton.title = "Close annotation";
     cancelButton.setAttribute("aria-label", "Close annotation");
-    cancelButton.textContent = "x";
+    cancelButton.textContent = "×";
     cancelButton.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -790,14 +947,13 @@
     noteButton.title = "Add comment";
     noteButton.setAttribute("aria-label", "Add comment");
     noteButton.setAttribute("aria-expanded", "false");
-    noteButton.textContent = "Note";
+    noteButton.textContent = "Chat";
 
     const micButton = document.createElement("button");
     micButton.className = "action";
     micButton.type = "button";
-    micButton.title = "Voice comments are pending side panel wiring.";
-    micButton.setAttribute("aria-label", "Voice comment unavailable");
-    micButton.disabled = true;
+    micButton.title = "Dictate comment";
+    micButton.setAttribute("aria-label", "Start voice comment");
     micButton.textContent = "Mic";
 
     const noteWrap = document.createElement("div");
@@ -813,13 +969,13 @@
     noteButton.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      const nextHidden = !noteWrap.hidden ? true : false;
-      noteWrap.hidden = nextHidden;
-      noteButton.setAttribute("aria-expanded", String(!nextHidden));
-      updateSelectedOverlay();
-      if (!nextHidden) {
-        window.setTimeout(() => noteInput.focus(), 0);
-      }
+      toggleNoteInput();
+    });
+
+    micButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleVoiceInput();
     });
 
     actions.append(cancelButton, noteButton, micButton);
