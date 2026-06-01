@@ -605,6 +605,127 @@ describe('target thread message sender', () => {
   })
 })
 
+describe('previous response auto-continue watcher', () => {
+  it('sends one normal continuation message when previous_response_not_found is surfaced', async () => {
+    installTestWindow({ 'codex-web-local.selected-thread-id.v1': 'target-thread' })
+    const notify = installNotificationListener()
+    gatewayMocks.resumeThread.mockResolvedValue({ model: 'gpt-5.4' })
+    gatewayMocks.startThreadTurn.mockResolvedValue('auto-turn')
+    const state = useDesktopState()
+    state.startPolling()
+
+    const scheduledBeforeError = scheduledWindowTimeoutCallbacks().length
+    notify({
+      method: 'error',
+      params: {
+        threadId: 'target-thread',
+        error: {
+          message: JSON.stringify({
+            type: 'error',
+            error: {
+              type: 'invalid_request_error',
+              code: 'previous_response_not_found',
+              message: "Previous response with id 'resp_auto' not found.",
+              param: 'previous_response_id',
+            },
+            status: 400,
+          }),
+        },
+        willRetry: false,
+      },
+      atIso: '2026-06-01T00:00:00.000Z',
+    })
+    for (const callback of scheduledWindowTimeoutCallbacks().slice(scheduledBeforeError)) {
+      callback()
+    }
+    await flushAsyncWork()
+
+    expect(gatewayMocks.startThreadTurn).toHaveBeenCalledTimes(1)
+    expect(gatewayMocks.startThreadTurn.mock.calls[0][0]).toBe('target-thread')
+    expect(gatewayMocks.startThreadTurn.mock.calls[0][1]).toContain('У нас была ошибка')
+    expect(gatewayMocks.startThreadTurn.mock.calls[0][1]).toContain('resp_auto')
+    expect(gatewayMocks.startThreadTurn.mock.calls[0][1]).toContain('Продолжи с того места')
+    expect(state.selectedThreadId.value).toBe('target-thread')
+  })
+
+  it('dedupes repeated previous_response_not_found notifications for the same response id', async () => {
+    installTestWindow({ 'codex-web-local.selected-thread-id.v1': 'target-thread' })
+    const notify = installNotificationListener()
+    gatewayMocks.resumeThread.mockResolvedValue({ model: 'gpt-5.4' })
+    gatewayMocks.startThreadTurn.mockResolvedValue('auto-turn')
+    const state = useDesktopState()
+    state.startPolling()
+
+    const notification = {
+      method: 'error',
+      params: {
+        threadId: 'target-thread',
+        error: {
+          message: "Previous response with id 'resp_dupe' not found.",
+        },
+        willRetry: false,
+      },
+      atIso: '2026-06-01T00:00:00.000Z',
+    }
+
+    let scheduledBeforeError = scheduledWindowTimeoutCallbacks().length
+    notify(notification)
+    notify(notification)
+    for (const callback of scheduledWindowTimeoutCallbacks().slice(scheduledBeforeError)) {
+      callback()
+    }
+    await flushAsyncWork()
+
+    scheduledBeforeError = scheduledWindowTimeoutCallbacks().length
+    notify(notification)
+    for (const callback of scheduledWindowTimeoutCallbacks().slice(scheduledBeforeError)) {
+      callback()
+    }
+    await flushAsyncWork()
+
+    expect(gatewayMocks.startThreadTurn).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores thread-not-found and unrelated errors', async () => {
+    installTestWindow({ 'codex-web-local.selected-thread-id.v1': 'target-thread' })
+    const notify = installNotificationListener()
+    gatewayMocks.resumeThread.mockResolvedValue({ model: 'gpt-5.4' })
+    gatewayMocks.startThreadTurn.mockResolvedValue('auto-turn')
+    const state = useDesktopState()
+    state.startPolling()
+
+    const scheduledBeforeError = scheduledWindowTimeoutCallbacks().length
+    notify({
+      method: 'error',
+      params: {
+        threadId: 'target-thread',
+        error: {
+          message: 'RPC turn/start failed with HTTP 502: thread not found: target-thread',
+        },
+        willRetry: false,
+      },
+      atIso: '2026-06-01T00:00:00.000Z',
+    })
+    notify({
+      method: 'error',
+      params: {
+        threadId: 'target-thread',
+        error: {
+          message: 'rate_limit_exceeded',
+        },
+        willRetry: false,
+      },
+      atIso: '2026-06-01T00:00:01.000Z',
+    })
+    for (const callback of scheduledWindowTimeoutCallbacks().slice(scheduledBeforeError)) {
+      callback()
+    }
+    await flushAsyncWork()
+
+    expect(gatewayMocks.startThreadTurn).not.toHaveBeenCalled()
+  })
+})
+
 describe('side-chat state API', () => {
   it('opens a side chat for the selected thread without changing selectedThreadId', async () => {
     installTestWindow({ 'codex-web-local.selected-thread-id.v1': 'main-thread' })

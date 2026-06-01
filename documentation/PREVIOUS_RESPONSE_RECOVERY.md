@@ -28,6 +28,24 @@ In captured sessions, the missing `resp_*` value usually referred to an earlier 
 
 The retry sends the same raw Responses payload after removing only `previous_response_id`.
 
+## UI Auto-Continue Watcher
+
+Some stale previous-response failures can still surface to the browser after the provider turn has already stopped. For those cases, the frontend watches realtime `error` and failed `turn/completed` notifications with a browser-safe classifier in `src/api/previousResponseErrors.ts`.
+
+When the watcher sees `previous_response_not_found`, it schedules one normal user message to the same thread:
+
+```text
+У нас была ошибка "<provider error>". Продолжи с того места, где остановился.
+```
+
+Safety rules:
+
+- only `previous_response_not_found`-style errors match;
+- `thread not found`, rate limits, and generic HTTP failures do not match;
+- each `resp_*` signature is sent once per browser session;
+- each thread gets at most one auto-continue attempt until a later successful turn clears the attempt guard;
+- transient `error` notifications with `willRetry: true` are ignored so the UI does not race an app-server retry.
+
 ## Codex LB Routing
 
 The user-level Codex config remains the source of truth:

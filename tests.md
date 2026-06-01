@@ -7325,3 +7325,35 @@ Web replies recover after disabling automatic `codex-lb` local proxy routing and
 #### Rollback/Cleanup
 - Stop the temporary `4173` dev server when testing is complete.
 - Remove `CODEXUI_CODEX_LB_PROXY` from the environment unless explicitly testing the opt-in proxy path.
+
+---
+
+### Previous Response Auto-Continue Watcher
+
+#### Feature/Change Name
+The chat UI automatically sends a guarded continuation message after a surfaced `previous_response_not_found` error.
+
+#### Prerequisites/Setup
+1. Run from the repository root with dependencies installed.
+2. Use a thread that can reproduce or simulate a provider stale-response error.
+3. Light and dark themes are available from Settings.
+
+#### Steps
+1. Run the focused unit tests:
+   `pnpm exec vitest run src/api/previousResponseErrors.test.ts src/api/codexErrors.test.ts src/composables/useDesktopState.test.ts --reporter=verbose`
+2. In light theme, trigger a `previous_response_not_found` failure in an active thread.
+3. Confirm the UI sends one ordinary user message to the same thread with text beginning `У нас была ошибка`.
+4. Confirm the message asks Codex to continue from where it stopped and includes the surfaced provider error text.
+5. Trigger or replay the same `resp_*` error signature again and confirm no duplicate auto-continue message is sent.
+6. Trigger an unrelated error such as `thread not found` or `rate_limit_exceeded` and confirm no auto-continue message is sent.
+7. Repeat steps 2-6 in dark theme and confirm the existing error/composer surfaces remain readable.
+
+#### Expected Results
+- Only `previous_response_not_found` and equivalent nested/stringified provider payloads trigger the watcher.
+- The auto-continue message is sent through the normal thread message path, so Codex sees it as a regular user instruction.
+- The watcher dedupes by `resp_*` when available and keeps a per-thread attempt guard to avoid loops.
+- A successful later turn clears the per-thread attempt guard so future independent stale-response failures can be resurrected.
+- Light and dark themes are unchanged because the patch adds behavior, not new visual components.
+
+#### Rollback/Cleanup
+- Reload the page to clear in-memory watcher dedupe state.

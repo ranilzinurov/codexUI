@@ -71,3 +71,10 @@
 - Created wiki page: `concepts/runtime-activity-panel.md`.
 - Documents: `UiLiveOverlay.mcpActivities`, live MCP notification handling, pending MCP/server request display, and one-line collapsed composer summaries.
 - Updated `index.md`.
+
+## 2026-06-01
+
+- Added source notes for the `previous_response_not_found` auto-continue watcher.
+- Created wiki page: `concepts/previous-response-recovery.md`.
+- Documents the server proxy retry layer, browser-safe classifier, per-response dedupe, and per-thread loop guard.
+- Updated `index.md`.

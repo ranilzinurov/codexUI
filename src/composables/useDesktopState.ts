@@ -49,6 +49,7 @@ import {
   toUiFileChanges,
 } from '../api/normalizers/v2'
 import { safeLocalStorageGetItem, safeLocalStorageRemoveItem, safeLocalStorageSetItem } from '../browserCompat'
+import { classifyPreviousResponseNotFound } from '../api/previousResponseErrors'
 import type {
   CollaborationModeKind,
   CollaborationModeOption,
@@ -102,6 +103,8 @@ const BACKGROUND_THREAD_PAGINATION_DELAY_MS = 10_000
 const RATE_LIMIT_REFRESH_DEBOUNCE_MS = 500
 const TURN_START_FOLLOW_UP_SYNC_DELAY_MS = 3000
 const RECENT_THREAD_MESSAGE_LOAD_REUSE_MS = 2000
+const PREVIOUS_RESPONSE_AUTO_CONTINUE_DELAY_MS = 900
+const PREVIOUS_RESPONSE_AUTO_CONTINUE_PREFIX = 'У нас была ошибка'
 const REASONING_EFFORT_OPTIONS: ReasoningEffort[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh']
 const GLOBAL_SERVER_REQUEST_SCOPE = '__global__'
 const MODEL_FALLBACK_ID = 'gpt-5.4-mini'
@@ -115,6 +118,16 @@ function isCodexCliMissingError(error: unknown): boolean {
 function isTurnStartThreadNotFoundError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error ?? '')
   return message.includes('turn/start') && /thread not found/iu.test(message)
+}
+
+function truncateAutoContinueErrorMessage(message: string): string {
+  const normalized = message.replace(/\s+/gu, ' ').trim()
+  return normalized.length > 500 ? `${normalized.slice(0, 500)}...` : normalized
+}
+
+function buildPreviousResponseAutoContinueMessage(errorMessage: string): string {
+  const message = truncateAutoContinueErrorMessage(errorMessage)
+  return `${PREVIOUS_RESPONSE_AUTO_CONTINUE_PREFIX} "${message}". Продолжи с того места, где остановился.`
 }
 
 function loadReadStateMap(): Record<string, string> {
@@ -1742,6 +1755,9 @@ export function useDesktopState() {
   const pendingTurnStartsById = new Map<string, TurnStartedInfo>()
   const turnDiffSummaryByTurnId = new Map<string, TurnChangeSummary>()
   const fallbackRetryInFlightThreadIds = new Set<string>()
+  const previousResponseAutoContinueSignatures = new Set<string>()
+  const previousResponseAutoContinueAttemptByThreadId = new Map<string, number>()
+  const previousResponseAutoContinueTimerByThreadId = new Map<string, number>()
   const locallyArchivedThreadIds = new Set<string>()
   let sideUserMessageCounter = 0
 
@@ -2093,6 +2109,53 @@ export function useDesktopState() {
     } finally {
       fallbackRetryInFlightThreadIds.delete(threadId)
     }
+  }
+
+  function clearPreviousResponseAutoContinueAttempt(threadId: string): void {
+    previousResponseAutoContinueAttemptByThreadId.delete(threadId)
+  }
+
+  function schedulePreviousResponseAutoContinue(threadId: string, errorPayload: unknown): void {
+    const normalizedThreadId = threadId.trim()
+    if (!normalizedThreadId || typeof window === 'undefined') return
+    if (previousResponseAutoContinueTimerByThreadId.has(normalizedThreadId)) return
+
+    const match = classifyPreviousResponseNotFound(errorPayload)
+    if (!match) return
+
+    const signature = `${normalizedThreadId}:${match.signature}`
+    if (previousResponseAutoContinueSignatures.has(signature)) return
+
+    const attemptCount = previousResponseAutoContinueAttemptByThreadId.get(normalizedThreadId) ?? 0
+    if (attemptCount > 0) return
+
+    previousResponseAutoContinueSignatures.add(signature)
+    previousResponseAutoContinueAttemptByThreadId.set(normalizedThreadId, attemptCount + 1)
+
+    const timeoutId = window.setTimeout(() => {
+      previousResponseAutoContinueTimerByThreadId.delete(normalizedThreadId)
+      const autoContinueMessage = buildPreviousResponseAutoContinueMessage(match.message)
+      void sendMessageToThreadInternal(
+        normalizedThreadId,
+        autoContinueMessage,
+        [],
+        [],
+        'steer',
+        [],
+        undefined,
+        undefined,
+        {
+          refreshThreadStatus: false,
+          surfaceGlobalError: normalizedThreadId === selectedThreadId.value,
+          enableAutoScroll: normalizedThreadId === selectedThreadId.value,
+          requireQueuePersistence: false,
+        },
+      ).catch(() => {
+        // Keep the original visible error; the user can still continue manually.
+      })
+    }, PREVIOUS_RESPONSE_AUTO_CONTINUE_DELAY_MS)
+
+    previousResponseAutoContinueTimerByThreadId.set(normalizedThreadId, timeoutId)
   }
 
   function setSelectedReasoningEffort(effort: ReasoningEffort | ''): void {
@@ -4450,12 +4513,16 @@ export function useDesktopState() {
         clearPendingTurnRequest(completedTurn.threadId)
         scheduleQueueStateRefresh(completedTurn.threadId)
       }
+      if (!turnErrorMessage) {
+        clearPreviousResponseAutoContinueAttempt(completedTurn.threadId)
+      }
     }
 
     if (turnErrorMessage) {
       const failedThreadId = completedTurn?.threadId || extractThreadIdFromNotification(notification)
       if (failedThreadId) {
         setTurnErrorForThread(failedThreadId, turnErrorMessage)
+        schedulePreviousResponseAutoContinue(failedThreadId, notification)
       }
       error.value = turnErrorMessage
       if (failedThreadId && shouldRetryWithFallback) {
@@ -4474,6 +4541,9 @@ export function useDesktopState() {
         })
       }
       error.value = notificationErrorState.message
+      if (errorThreadId && !notificationErrorState.transient) {
+        schedulePreviousResponseAutoContinue(errorThreadId, notification)
+      }
       if (errorThreadModelId !== MODEL_FALLBACK_ID && isUnsupportedChatGptModelError(new Error(notificationErrorState.message))) {
         if (errorThreadId) {
           void retryPendingTurnWithFallback(errorThreadId)
@@ -4619,6 +4689,9 @@ export function useDesktopState() {
         if (!shouldRetryWithFallback) {
           clearPendingTurnRequest(completedThreadId)
           scheduleQueueStateRefresh(completedThreadId)
+        }
+        if (!turnErrorMessage) {
+          clearPreviousResponseAutoContinueAttempt(completedThreadId)
         }
       }
     }

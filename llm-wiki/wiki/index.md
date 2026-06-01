@@ -16,6 +16,7 @@
 - [concepts/skills-route-ui.md](./concepts/skills-route-ui.md): Skills route naming, first-launch Plugins card persistence, dark-theme fixes, and verification lessons.
 - [concepts/thread-heartbeat-automations.md](./concepts/thread-heartbeat-automations.md): thread-scoped heartbeat automation storage, multi-automation management, and manual run behavior.
 - [concepts/project-cron-automations.md](./concepts/project-cron-automations.md): project-scoped cron automation storage and sidebar management UI.
+- [concepts/previous-response-recovery.md](./concepts/previous-response-recovery.md): provider stale-response retry and UI auto-continue behavior for `previous_response_not_found`.
 
 ## Sources
 - [../raw/features/integrated-terminal.md](../raw/features/integrated-terminal.md): source facts for the integrated terminal implementation and follow-up tests.
@@ -30,3 +31,4 @@
 - [../raw/fixes/codex-thread-link-pr174.md](../raw/fixes/codex-thread-link-pr174.md): source facts for PR #174 chat link parsing fixes, review-bot findings, and dynamic-origin thread URLs.
 - [../raw/fixes/opencode-zen-big-pickle-codex-cli.md](../raw/fixes/opencode-zen-big-pickle-codex-cli.md): Big Pickle + Codex CLI fix details.
 - [../raw/fixes/opencode-zen-reasoning-content-proxy.md](../raw/fixes/opencode-zen-reasoning-content-proxy.md): Codex Web Local Zen proxy reasoning_content round-trip fix and Docker verification.
+- [../raw/fixes/previous-response-auto-continue.md](../raw/fixes/previous-response-auto-continue.md): source facts for the `previous_response_not_found` UI auto-continue watcher.
