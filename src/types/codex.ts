@@ -210,6 +210,16 @@ export type UiTurnSummary = {
   removedLineCount?: number
 }
 
+export type UiMcpToolCallStatus = 'inProgress' | 'completed' | 'failed'
+
+export type UiMcpToolCall = {
+  server: string
+  tool: string
+  status: UiMcpToolCallStatus
+  durationMs: number | null
+  errorMessage: string
+}
+
 export type UiMessage = {
   id: string
   role: 'user' | 'assistant' | 'system'
@@ -223,6 +233,7 @@ export type UiMessage = {
   rawPayload?: string
   isUnhandled?: boolean
   commandExecution?: CommandExecutionData
+  mcpToolCall?: UiMcpToolCall
   plan?: UiPlanData
   turnSummary?: UiTurnSummary
   turnId?: string

@@ -78,3 +78,10 @@
 - Created wiki page: `concepts/previous-response-recovery.md`.
 - Documents the server proxy retry layer, browser-safe classifier, per-response dedupe, and per-thread loop guard.
 - Updated `index.md`.
+
+## 2026-06-02
+
+- Added source notes for MCP runtime status, persisted MCP history rows, richer MCP server metadata, and app-server stdio fallback.
+- Updated wiki page: `concepts/runtime-activity-panel.md`.
+- Documents completed MCP aggregation, active row ordering, persisted MCP diagnostics, Directory `serverInfo` fallback behavior, and `codex app-server --stdio` compatibility retry.
+- Updated `index.md`.

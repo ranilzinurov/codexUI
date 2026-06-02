@@ -690,12 +690,20 @@ function toUiMessages(item: ThreadItem): UiMessage[] {
     const tool = readTrimmedString(raw.tool)
     const label = [server, tool].filter(Boolean).join('.')
     if (!label) return []
+    const error = raw.error && typeof raw.error === 'object' ? raw.error as Record<string, unknown> : null
     return [
       {
         id: item.id,
         role: 'system',
         text: label,
         messageType: 'mcpToolCall',
+        mcpToolCall: {
+          server,
+          tool,
+          status: normalizeMcpToolCallStatus(raw.status),
+          durationMs: readFiniteNumber(raw.durationMs),
+          errorMessage: readTrimmedString(error?.message),
+        },
         rawPayload: toRawPayload(raw),
       },
     ]
@@ -708,6 +716,16 @@ function normalizeCommandStatus(value: unknown): CommandExecutionData['status'] 
   if (value === 'completed' || value === 'failed' || value === 'declined' || value === 'interrupted') return value
   if (value === 'inProgress' || value === 'in_progress') return 'inProgress'
   return 'completed'
+}
+
+function normalizeMcpToolCallStatus(value: unknown): NonNullable<UiMessage['mcpToolCall']>['status'] {
+  if (value === 'failed') return 'failed'
+  if (value === 'inProgress' || value === 'in_progress') return 'inProgress'
+  return 'completed'
+}
+
+function readFiniteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
 function pickThreadName(summary: Thread): string {

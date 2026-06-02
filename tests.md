@@ -7357,3 +7357,41 @@ The chat UI automatically sends a guarded continuation message after a surfaced 
 
 #### Rollback/Cleanup
 - Reload the page to clear in-memory watcher dedupe state.
+
+---
+
+### MCP Runtime Activity And Server Metadata
+
+#### Feature/Change Name
+MCP runtime rows show active work instead of completed clutter, MCP history rows are compact and expandable, Directory Hub reads richer `serverInfo`, and app-server launches with `--stdio` when supported.
+
+#### Prerequisites/Setup
+1. Run from the repository root with dependencies installed.
+2. Start or confirm the app server on `http://127.0.0.1:4173`:
+   `pnpm run dev --host 127.0.0.1 --port 4173`
+3. Use a Codex CLI version that supports MCP tool calls. To verify richer metadata, prefer Codex CLI `0.136.0` or newer.
+4. Configure at least one MCP server with multiple tools. For fallback testing, optionally test once with an older Codex CLI that does not accept `codex app-server --stdio`.
+
+#### Steps
+1. Run the focused tests:
+   `pnpm exec vitest run src/composables/useDesktopState.test.ts src/api/codexGateway.test.ts src/api/normalizers/v2.test.ts src/server/codexAppServerBridge.stdioFallback.test.ts src/server/freeMode.test.ts src/server/codexLbProxy.test.ts`
+2. Run the frontend type/build check:
+   `pnpm run build:frontend`
+3. In light theme, start a turn that performs several MCP tool calls, including at least one still-running or waiting request.
+4. Confirm the composer runtime panel shows only active MCP rows (`failed`, `waiting`, `running`) and aggregates completed calls as a done count instead of rendering each completed row.
+5. Confirm failed MCP rows sort above waiting/running rows and remain visible while the turn is active.
+6. After the turn completes, inspect the thread history and expand an MCP row. Confirm it shows server, tool, status/duration, error text when present, and raw JSON only inside the expanded area.
+7. Open Directory Hub > MCP in light theme and confirm servers with `serverInfo` show title/description/version/website/icon metadata when available, while older servers still show the config name and tool/resource counts.
+8. Repeat steps 3-7 in dark theme and confirm the composer panel, MCP history row, expanded raw payload, and Directory Hub MCP metadata remain readable without light surfaces on dark backgrounds.
+9. Restart the dev server with a Codex CLI that supports `--stdio` and confirm app-server starts normally. If testing an older CLI, confirm startup retries without `--stdio` and still initializes.
+
+#### Expected Results
+- Composer MCP activity reads as current operational state, not an event log: completed calls are counted, not listed.
+- MCP history rows preserve diagnostic access without flooding the conversation.
+- Directory Hub gracefully consumes `serverInfo`/`server_info` when present and remains compatible with older app-server responses.
+- `codex app-server --stdio` is preferred for new CLI versions, with one fallback retry for older CLI versions.
+- Light and dark themes both keep MCP runtime, history, and Directory Hub metadata legible.
+
+#### Rollback/Cleanup
+- Stop the temporary `4173` dev server when testing is complete.
+- Revert to the previous Codex CLI binary if you temporarily swapped versions for fallback testing.

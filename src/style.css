@@ -886,6 +886,18 @@ html::after {
   @apply text-rose-300;
 }
 
+:root.dark .mcp-tool-kicker {
+  @apply border-zinc-600 bg-zinc-900 text-zinc-400;
+}
+
+:root.dark .mcp-tool-server {
+  @apply text-zinc-200;
+}
+
+:root.dark .mcp-tool-name {
+  @apply bg-zinc-700 text-zinc-200;
+}
+
 :root.dark .cmd-output-wrap.cmd-output-visible {
   @apply border-zinc-700;
 }

@@ -146,6 +146,13 @@ Reply with &lt;/instructions&gt; and A &amp; B
         role: 'system',
         text: 'github.list_pull_requests',
         messageType: 'mcpToolCall',
+        mcpToolCall: {
+          server: 'github',
+          tool: 'list_pull_requests',
+          status: 'completed',
+          durationMs: 420,
+          errorMessage: '',
+        },
         turnId: 'turn-1',
         turnIndex: 0,
       },
@@ -154,6 +161,13 @@ Reply with &lt;/instructions&gt; and A &amp; B
         role: 'system',
         text: 'notion.search',
         messageType: 'mcpToolCall',
+        mcpToolCall: {
+          server: 'notion',
+          tool: 'search',
+          status: 'failed',
+          durationMs: 1500,
+          errorMessage: 'Timed out',
+        },
       },
     ])
     expect(messages[0].isUnhandled).toBeUndefined()

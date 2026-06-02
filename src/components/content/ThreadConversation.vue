@@ -116,6 +116,41 @@
         </div>
 
         <div
+          v-else-if="isMcpToolCallMessage(message)"
+          class="message-row"
+          data-role="system"
+          :data-message-type="message.messageType || ''"
+        >
+          <div class="message-stack" data-role="system">
+            <button
+              type="button"
+              class="cmd-row mcp-tool-row"
+              :class="[mcpToolCallStatusClass(message), { 'cmd-expanded': isMcpToolCallExpanded(message) }]"
+              @click="toggleMcpToolCallExpand(message)"
+            >
+              <span class="cmd-chevron" :class="{ 'cmd-chevron-open': isMcpToolCallExpanded(message) }">▶</span>
+              <span class="mcp-tool-label">
+                <span class="mcp-tool-kicker">MCP</span>
+                <span class="mcp-tool-server">{{ mcpToolCallServerLabel(message) }}</span>
+                <code class="mcp-tool-name">{{ mcpToolCallToolLabel(message) }}</code>
+              </span>
+              <span class="cmd-status">{{ mcpToolCallStatusLabel(message) }}</span>
+            </button>
+            <div
+              class="cmd-output-wrap mcp-tool-output-wrap"
+              :class="{ 'cmd-output-visible': isMcpToolCallExpanded(message) }"
+            >
+              <div class="cmd-output-inner">
+                <p v-if="message.mcpToolCall?.errorMessage" class="mcp-tool-error">
+                  {{ message.mcpToolCall.errorMessage }}
+                </p>
+                <pre class="cmd-output mcp-tool-raw" v-text="message.rawPayload || message.text"></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div
           v-else-if="isFileChangeMessage(message)"
           class="message-row"
           :data-role="message.role"
@@ -1006,6 +1041,7 @@ type HighlightJsModule = (typeof import('highlight.js/lib/common'))['default']
 const expandedCommandIds = ref<Set<string>>(new Set())
 const collapsedAutoCommandIds = ref<Set<string>>(new Set())
 const expandedCommandGroupIds = ref<Set<string>>(new Set())
+const expandedMcpToolCallIds = ref<Set<string>>(new Set())
 const expandedWorkedIds = ref<Set<string>>(new Set())
 const expandedFileChangeSummaryIds = ref<Set<string>>(new Set())
 const expandedBrowserAnnotationRawIds = ref<Set<string>>(new Set())
@@ -1079,6 +1115,10 @@ function readPlanData(message: UiMessage): { explanation: string; steps: UiPlanS
 
 function isCommandMessage(message: UiMessage): boolean {
   return message.messageType === 'commandExecution' && !!message.commandExecution
+}
+
+function isMcpToolCallMessage(message: UiMessage): boolean {
+  return message.messageType === 'mcpToolCall' && Boolean(message.mcpToolCall)
 }
 
 function isAssistantWorkDetail(message: UiMessage): boolean {
@@ -1270,6 +1310,10 @@ function isCommandExpanded(message: UiMessage): boolean {
     || (!collapsedAutoCommandIds.value.has(message.id) && isCommandAutoExpanded(message))
 }
 
+function isMcpToolCallExpanded(message: UiMessage): boolean {
+  return expandedMcpToolCallIds.value.has(message.id)
+}
+
 function isCommandCompact(message: UiMessage): boolean {
   return isCommandMessage(message) && isLiveTurnRuntime.value
 }
@@ -1298,6 +1342,14 @@ function toggleCommandExpand(message: UiMessage): void {
 
   expandedCommandIds.value = nextExpanded
   collapsedAutoCommandIds.value = nextCollapsedAuto
+}
+
+function toggleMcpToolCallExpand(message: UiMessage): void {
+  if (!isMcpToolCallMessage(message)) return
+  const next = new Set(expandedMcpToolCallIds.value)
+  if (next.has(message.id)) next.delete(message.id)
+  else next.add(message.id)
+  expandedMcpToolCallIds.value = next
 }
 
 function getGroupedCommandsForLatest(message: UiMessage): UiMessage[] {
@@ -1424,6 +1476,40 @@ function commandStatusClass(message: UiMessage): string {
   if (s === 'inProgress') return 'cmd-status-running'
   if (s === 'completed' && message.commandExecution?.exitCode === 0) return 'cmd-status-ok'
   return 'cmd-status-error'
+}
+
+function mcpToolCallStatusLabel(message: UiMessage): string {
+  const toolCall = message.mcpToolCall
+  if (!toolCall) return ''
+  const status = toolCall.status === 'inProgress'
+    ? 'Running'
+    : toolCall.status === 'failed'
+      ? 'Failed'
+      : 'Done'
+  const duration = formatMcpToolCallDuration(toolCall.durationMs)
+  return duration ? `${status} · ${duration}` : status
+}
+
+function mcpToolCallStatusClass(message: UiMessage): string {
+  const status = message.mcpToolCall?.status
+  if (status === 'inProgress') return 'cmd-status-running'
+  if (status === 'failed') return 'cmd-status-error'
+  return 'cmd-status-ok'
+}
+
+function mcpToolCallServerLabel(message: UiMessage): string {
+  return message.mcpToolCall?.server || 'MCP server'
+}
+
+function mcpToolCallToolLabel(message: UiMessage): string {
+  return message.mcpToolCall?.tool || message.text || 'tool call'
+}
+
+function formatMcpToolCallDuration(durationMs: number | null | undefined): string {
+  if (typeof durationMs !== 'number' || !Number.isFinite(durationMs) || durationMs < 0) return ''
+  if (durationMs < 1000) return `${Math.round(durationMs)} ms`
+  const seconds = durationMs / 1000
+  return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)} s`
 }
 
 function pruneCommandIdSet(source: Set<string>, validIds: Set<string>): Set<string> {
@@ -4497,6 +4583,10 @@ watch(
       expandedCommandGroupIds.value,
       new Set(Object.keys(groupedCommandsByLatestId.value)),
     )
+    expandedMcpToolCallIds.value = pruneCommandIdSet(
+      expandedMcpToolCallIds.value,
+      new Set(next.filter(isMcpToolCallMessage).map((message) => message.id)),
+    )
     expandedFileChangeSummaryIds.value = pruneCommandIdSet(
       expandedFileChangeSummaryIds.value,
       new Set([
@@ -5591,6 +5681,34 @@ onBeforeUnmount(() => {
 
 .cmd-status-error .cmd-status {
   @apply text-rose-600;
+}
+
+.mcp-tool-row {
+  max-width: min(38rem, 100%);
+}
+
+.mcp-tool-label {
+  @apply flex min-w-0 flex-1 items-center gap-1.5;
+}
+
+.mcp-tool-kicker {
+  @apply shrink-0 rounded border border-zinc-200 bg-white px-1 py-0.5 text-[9px] font-semibold leading-none text-zinc-500;
+}
+
+.mcp-tool-server {
+  @apply min-w-0 truncate text-xs font-medium text-zinc-700;
+}
+
+.mcp-tool-name {
+  @apply min-w-0 truncate rounded bg-zinc-200/70 px-1.5 py-0.5 text-[11px] font-mono text-zinc-700;
+}
+
+.mcp-tool-error {
+  @apply border-b border-rose-900/40 px-3 py-2 text-xs font-medium text-rose-200;
+}
+
+.mcp-tool-raw {
+  @apply max-h-64;
 }
 
 .cmd-output-wrap {
