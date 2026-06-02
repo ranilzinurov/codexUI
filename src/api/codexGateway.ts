@@ -150,6 +150,12 @@ export type DirectoryAppInfo = {
 
 export type DirectoryMcpServerStatus = {
   name: string
+  displayName: string
+  serverInfoName: string
+  version: string
+  description: string
+  icons: string[]
+  websiteUrl: string
   authStatus: string
   tools: Array<{ name: string; title: string; description: string }>
   resources: Array<{ name: string; title: string; uri: string; description: string }>
@@ -2406,6 +2412,15 @@ function normalizeDirectoryMcpServer(value: unknown): DirectoryMcpServerStatus |
   if (!record) return null
   const name = readString(record.name)
   if (!name) return null
+  const serverInfo = asRecord(record.serverInfo ?? record.server_info)
+  const serverInfoName = readString(serverInfo?.name) ?? ''
+  const title = readString(serverInfo?.title) ?? ''
+  const displayName = title || serverInfoName || name
+  const rawIcons = Array.isArray(serverInfo?.icons) ? serverInfo.icons : []
+  const icons = rawIcons.map((raw) => {
+    const icon = asRecord(raw)
+    return readString(raw) ?? readString(icon?.src ?? icon?.url ?? icon?.href) ?? ''
+  }).filter(Boolean)
   const toolsRecord = asRecord(record.tools) ?? {}
   const tools = Object.entries(toolsRecord).map(([fallbackName, raw]) => {
     const tool = asRecord(raw)
@@ -2441,6 +2456,12 @@ function normalizeDirectoryMcpServer(value: unknown): DirectoryMcpServerStatus |
 
   return {
     name,
+    displayName,
+    serverInfoName,
+    version: readString(serverInfo?.version) ?? '',
+    description: readString(serverInfo?.description) ?? '',
+    icons,
+    websiteUrl: readString(serverInfo?.websiteUrl ?? serverInfo?.website_url) ?? '',
     authStatus: readString(record.authStatus ?? record.auth_status) ?? 'unsupported',
     tools,
     resources,

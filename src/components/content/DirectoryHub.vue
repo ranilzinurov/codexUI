@@ -388,20 +388,41 @@
               <div v-else-if="visibleMcpServers.length === 0" class="directory-empty">No MCP servers configured.</div>
               <div v-else class="mcp-skill-grid">
                 <article v-for="server in visibleMcpServers" :key="server.name">
-                  <button class="mcp-skill-card skill-card" type="button" @click="toggleMcpExpanded(server.name)">
+                  <div class="mcp-skill-card skill-card">
+                    <button class="mcp-skill-card-toggle" type="button" @click="toggleMcpExpanded(server.name)">
                     <div class="mcp-skill-card-top">
-                      <div class="mcp-skill-avatar-fallback">{{ server.name.charAt(0) }}</div>
+                      <img
+                        v-if="mcpIconSrc(server)"
+                        class="mcp-skill-avatar"
+                        :src="mcpIconSrc(server)"
+                        :alt="mcpDisplayName(server)"
+                        loading="lazy"
+                      />
+                      <div v-else class="mcp-skill-avatar-fallback">{{ mcpDisplayName(server).charAt(0) }}</div>
                       <div class="mcp-skill-info">
                         <div class="mcp-skill-header">
-                          <span class="mcp-skill-name">{{ server.name }}</span>
+                          <span class="mcp-skill-name">{{ mcpDisplayName(server) }}</span>
                           <span class="mcp-skill-badge" :class="mcpCardBadgeClass(server.authStatus)">{{ formatMcpAuthStatus(server.name) }}</span>
                         </div>
-                        <span class="mcp-skill-owner">mcp</span>
+                        <span class="mcp-skill-owner">{{ mcpMetaLabel(server) }}</span>
                       </div>
                       <span class="mcp-skill-chevron" :class="{ 'is-open': expandedMcpNames.has(server.name) }">›</span>
                     </div>
+                    </button>
                     <p class="mcp-skill-meta">{{ server.tools.length }} tools · {{ server.resources.length + server.resourceTemplates.length }} resources</p>
                     <div v-if="expandedMcpNames.has(server.name)" class="directory-mcp-detail">
+                      <p v-if="server.description" class="directory-mini-list">{{ server.description }}</p>
+                      <div v-if="server.version || server.websiteUrl" class="directory-chip-row">
+                        <span v-if="server.version" class="directory-chip">v{{ server.version }}</span>
+                        <button
+                          v-if="server.websiteUrl"
+                          class="directory-action-link directory-chip-action"
+                          type="button"
+                          @click="openExternalUrl(server.websiteUrl)"
+                        >
+                          Website
+                        </button>
+                      </div>
                       <div v-if="server.tools.length > 0">
                         <h3 class="directory-mini-heading">Tools</h3>
                         <p class="directory-mini-list">{{ server.tools.map((tool) => tool.title || tool.name).join(', ') }}</p>
@@ -413,7 +434,7 @@
                         </p>
                       </div>
                     </div>
-                  </button>
+                  </div>
                 </article>
               </div>
             </div>
@@ -473,10 +494,11 @@
                   <h4 class="directory-detail-heading">MCP servers</h4>
                   <div v-for="serverName in selectedPluginDetail.mcpServers" :key="serverName" class="directory-include-row">
                     <span>
-                      {{ serverName }}
+                      {{ mcpDisplayNameForName(serverName) }}
                       <span class="directory-auth-status" :class="mcpAuthStatusClass(serverName)">
                         {{ formatMcpAuthStatus(serverName) }}
                       </span>
+                      <span v-if="mcpDetailMetaForName(serverName)" class="directory-card-meta">{{ mcpDetailMetaForName(serverName) }}</span>
                     </span>
                     <button
                       v-if="shouldShowMcpLogin(serverName)"
@@ -485,6 +507,13 @@
                       @click="loginMcpServer(serverName)"
                     >
                       {{ mcpLoginServerName === serverName ? 'Opening...' : 'Authenticate' }}
+                    </button>
+                    <button
+                      v-else-if="mcpWebsiteForName(serverName)"
+                      type="button"
+                      @click="openExternalUrl(mcpWebsiteForName(serverName))"
+                    >
+                      Website
                     </button>
                   </div>
                 </div>
@@ -1028,6 +1057,37 @@ function appMetaLabel(app: DirectoryAppInfo): string {
   return app.developer || formatDistributionChannel(app.distributionChannel) || 'App'
 }
 
+function mcpDisplayName(server: DirectoryMcpServerStatus): string {
+  return server.displayName || server.name
+}
+
+function mcpDisplayNameForName(serverName: string): string {
+  const server = mcpStatusByName.value.get(serverName)
+  return server ? mcpDisplayName(server) : serverName
+}
+
+function mcpMetaLabel(server: DirectoryMcpServerStatus): string {
+  const parts = [
+    server.serverInfoName && server.serverInfoName !== mcpDisplayName(server) ? server.serverInfoName : '',
+    server.version ? `v${server.version}` : '',
+  ].filter(Boolean)
+  return parts.join(' · ') || server.name
+}
+
+function mcpDetailMetaForName(serverName: string): string {
+  const server = mcpStatusByName.value.get(serverName)
+  if (!server) return ''
+  return [server.version ? `v${server.version}` : '', server.description].filter(Boolean).join(' · ')
+}
+
+function mcpWebsiteForName(serverName: string): string {
+  return mcpStatusByName.value.get(serverName)?.websiteUrl ?? ''
+}
+
+function mcpIconSrc(server: DirectoryMcpServerStatus): string {
+  return server.icons.find((icon) => /^https?:\/\//i.test(icon) || icon.startsWith('data:')) || ''
+}
+
 function getMcpAuthStatus(serverName: string): string {
   return mcpStatusByName.value.get(serverName)?.authStatus ?? 'unknown'
 }
@@ -1140,7 +1200,7 @@ function mcpPopularScore(server: DirectoryMcpServerStatus): number {
     (server.authStatus === 'bearerToken' ? 140 : 0) +
     Math.min(server.tools.length, 50) * 6 +
     Math.min(server.resources.length + server.resourceTemplates.length, 30) * 3 +
-    bonusForName(server.name, POPULAR_MCP_NAME_BONUSES)
+    bonusForName(`${server.displayName} ${server.name} ${server.description}`, POPULAR_MCP_NAME_BONUSES)
   )
 }
 
@@ -1157,9 +1217,9 @@ function sortApps(rows: DirectoryAppInfo[], sortMode: DirectorySortMode): Direct
 }
 
 function sortMcpServers(rows: DirectoryMcpServerStatus[], sortMode: DirectorySortMode): DirectoryMcpServerStatus[] {
-  if (sortMode === 'name') return [...rows].sort((a, b) => a.name.localeCompare(b.name))
+  if (sortMode === 'name') return [...rows].sort((a, b) => mcpDisplayName(a).localeCompare(mcpDisplayName(b)))
   if (sortMode === 'date') return [...rows]
-  return [...rows].sort((a, b) => (mcpPopularScore(b) - mcpPopularScore(a)) || a.name.localeCompare(b.name))
+  return [...rows].sort((a, b) => (mcpPopularScore(b) - mcpPopularScore(a)) || mcpDisplayName(a).localeCompare(mcpDisplayName(b)))
 }
 
 function showToast(text: string, type: 'success' | 'error' = 'success'): void {
@@ -1772,11 +1832,19 @@ onMounted(async () => {
 }
 
 .mcp-skill-card {
-  @apply flex w-full flex-col gap-1.5 rounded-xl border border-zinc-200 bg-white p-3 text-left transition hover:border-zinc-300 hover:shadow-sm cursor-pointer;
+  @apply flex w-full flex-col gap-1.5 rounded-xl border border-zinc-200 bg-white p-3 text-left transition hover:border-zinc-300 hover:shadow-sm;
+}
+
+.mcp-skill-card-toggle {
+  @apply w-full border-0 bg-transparent p-0 text-left cursor-pointer;
 }
 
 .mcp-skill-card-top {
   @apply flex items-start gap-2.5;
+}
+
+.mcp-skill-avatar {
+  @apply w-8 h-8 rounded-full shrink-0 object-cover;
 }
 
 .mcp-skill-avatar-fallback {
@@ -1918,6 +1986,10 @@ button.directory-card {
 
 .directory-chip {
   @apply rounded-md border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500;
+}
+
+.directory-chip-action {
+  @apply rounded-md border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 text-[10px] font-medium leading-normal;
 }
 
 .directory-card-actions {

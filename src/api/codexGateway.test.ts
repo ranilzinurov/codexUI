@@ -5,6 +5,7 @@ import {
   getBrowserAnnotationListenStatus,
   listDirectoryApps,
   listDirectoryComposioConnectors,
+  listDirectoryMcpServers,
   startBrowserAnnotationListenSession,
   startThreadTurn,
   stopBrowserAnnotationListenSession,
@@ -238,6 +239,116 @@ describe('listDirectoryComposioConnectors', () => {
     await listDirectoryComposioConnectors('instagram', '50', 25)
 
     expect(requests).toEqual(['/codex-api/composio/connectors?query=instagram&cursor=50&limit=25'])
+  })
+})
+
+describe('listDirectoryMcpServers', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('normalizes richer serverInfo metadata while preserving legacy rows', async () => {
+    const requests = mockRpcFetchWith((request) => {
+      expect(request.method).toBe('mcpServerStatus/list')
+      return {
+        result: {
+          data: [
+            {
+              name: 'github',
+              authStatus: 'oAuth',
+              serverInfo: {
+                name: 'github-mcp',
+                title: 'GitHub MCP',
+                version: '1.2.3',
+                description: 'Repository automation',
+                icons: [
+                  'https://example.test/github.png',
+                  { src: 'https://example.test/github-dark.png' },
+                ],
+                websiteUrl: 'https://github.test',
+              },
+              tools: {
+                list_issues: {
+                  title: 'List issues',
+                  description: 'List repository issues',
+                },
+              },
+              resources: [
+                { name: 'repo', title: 'Repository', uri: 'github://repo' },
+              ],
+              resourceTemplates: [
+                { name: 'issue', title: 'Issue', uriTemplate: 'github://issue/{id}' },
+              ],
+            },
+            {
+              name: 'filesystem',
+              auth_status: 'unsupported',
+              server_info: {
+                name: 'filesystem-mcp',
+                description: 'Local files',
+                website_url: 'https://filesystem.test',
+              },
+            },
+            {
+              name: 'legacy',
+              auth_status: 'notLoggedIn',
+            },
+          ],
+          next_cursor: null,
+        },
+      }
+    })
+
+    const servers = await listDirectoryMcpServers()
+
+    expect(requests.requests).toEqual([{ method: 'mcpServerStatus/list', params: {} }])
+    expect(servers).toEqual([
+      {
+        name: 'github',
+        displayName: 'GitHub MCP',
+        serverInfoName: 'github-mcp',
+        version: '1.2.3',
+        description: 'Repository automation',
+        icons: ['https://example.test/github.png', 'https://example.test/github-dark.png'],
+        websiteUrl: 'https://github.test',
+        authStatus: 'oAuth',
+        tools: [
+          { name: 'list_issues', title: 'List issues', description: 'List repository issues' },
+        ],
+        resources: [
+          { name: 'repo', title: 'Repository', uri: 'github://repo', description: '' },
+        ],
+        resourceTemplates: [
+          { name: 'issue', title: 'Issue', uriTemplate: 'github://issue/{id}', description: '' },
+        ],
+      },
+      {
+        name: 'filesystem',
+        displayName: 'filesystem-mcp',
+        serverInfoName: 'filesystem-mcp',
+        version: '',
+        description: 'Local files',
+        icons: [],
+        websiteUrl: 'https://filesystem.test',
+        authStatus: 'unsupported',
+        tools: [],
+        resources: [],
+        resourceTemplates: [],
+      },
+      {
+        name: 'legacy',
+        displayName: 'legacy',
+        serverInfoName: '',
+        version: '',
+        description: '',
+        icons: [],
+        websiteUrl: '',
+        authStatus: 'notLoggedIn',
+        tools: [],
+        resources: [],
+        resourceTemplates: [],
+      },
+    ])
   })
 })
 
