@@ -5701,13 +5701,29 @@ type CapturedItem = {
   completed: boolean
 }
 
+export function isUnknownStdioAppServerError(stderr: string): boolean {
+  const lower = stderr.toLowerCase()
+  if (!lower.includes('--stdio')) return false
+
+  return (
+    lower.includes('unknown option') ||
+    lower.includes('unknown argument') ||
+    lower.includes('unrecognized option') ||
+    lower.includes('unrecognized argument') ||
+    lower.includes('unexpected argument') ||
+    lower.includes('invalid option') ||
+    lower.includes('no such option') ||
+    lower.includes('found argument')
+  )
+}
+
 const MERGEABLE_ITEM_TYPES = new Set([
   'commandExecution',
   'fileChange',
   'collabAgentToolCall',
 ])
 
-class AppServerProcess {
+export class AppServerProcess {
   private process: ChildProcessWithoutNullStreams | null = null
   private initialized = false
   private initializePromise: Promise<void> | null = null
@@ -5717,7 +5733,7 @@ class AppServerProcess {
   private readonly pending = new Map<number, PendingRpcRequest>()
   private readonly notificationListeners = new Set<(value: { method: string; params: unknown }) => void>()
   private readonly pendingServerRequests = new Map<number, PendingServerRequest>()
-  private readonly appServerArgs = buildAppServerArgs()
+  private prefersStdioAppServer = true
   private readonly streamEventsByThreadId = new Map<string, StreamEventFrame[]>()
   private readonly lastThreadReadSnapshotByThreadId = new Map<string, unknown>()
   private lastAppListUpdatedSnapshot: unknown[] | null = null
@@ -5738,8 +5754,8 @@ class AppServerProcess {
     return codexCommand
   }
 
-  private buildAppServerConfig(): { args: string[]; env: Record<string, string> } {
-    const args = [...this.appServerArgs]
+  private buildAppServerConfig(options: { stdio: boolean }): { args: string[]; env: Record<string, string> } {
+    const args = buildAppServerArgs({ stdio: options.stdio })
     let extraEnv: Record<string, string> = {}
     const serverPort = parseInt(process.env.CODEXUI_SERVER_PORT ?? '', 10) || undefined
     const statePath = join(getCodexHomeDir(), FREE_MODE_STATE_FILE)
@@ -5767,13 +5783,15 @@ class AppServerProcess {
     if (this.process) return
 
     this.stopping = false
-    const config = this.buildAppServerConfig()
+    const launchedWithStdio = this.prefersStdioAppServer
+    const config = this.buildAppServerConfig({ stdio: launchedWithStdio })
     const invocation = getSpawnInvocation(this.getCodexCommand(), config.args)
     const spawnEnv = Object.keys(config.env).length > 0
       ? { ...process.env, ...config.env }
       : undefined
     const proc = spawn(invocation.command, invocation.args, { stdio: ['pipe', 'pipe', 'pipe'], ...(spawnEnv ? { env: spawnEnv } : {}) })
     this.process = proc
+    let startupStderr = ''
 
     proc.stdout.setEncoding('utf8')
     proc.stdout.on('data', (chunk: string) => {
@@ -5793,12 +5811,31 @@ class AppServerProcess {
     })
 
     proc.stderr.setEncoding('utf8')
-    proc.stderr.on('data', () => {
+    proc.stderr.on('data', (chunk: string) => {
+      if (launchedWithStdio && !this.initialized) {
+        startupStderr += chunk
+        if (isUnknownStdioAppServerError(startupStderr)) {
+          try {
+            proc.kill('SIGTERM')
+          } catch {
+            // ignore termination errors; the exit handler performs the retry.
+          }
+        }
+      }
       // Keep stderr silent in dev middleware; JSON-RPC errors are forwarded via responses.
     })
 
     proc.on('exit', () => {
       if (this.process !== proc) {
+        return
+      }
+
+      if (!this.stopping && launchedWithStdio && !this.initialized && isUnknownStdioAppServerError(startupStderr)) {
+        this.prefersStdioAppServer = false
+        this.process = null
+        this.readBuffer = ''
+        this.start()
+        this.resendPendingRequests()
         return
       }
 
@@ -5814,6 +5851,17 @@ class AppServerProcess {
       this.initializePromise = null
       this.readBuffer = ''
     })
+  }
+
+  private resendPendingRequests(): void {
+    for (const [id, request] of this.pending) {
+      this.sendLine({
+        jsonrpc: '2.0',
+        id,
+        method: request.method,
+        params: request.params,
+      } satisfies JsonRpcCall)
+    }
   }
 
   private sendLine(payload: Record<string, unknown>): void {

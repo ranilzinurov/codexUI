@@ -19,6 +19,10 @@ type AppServerRuntimeConfig = {
   approvalPolicy: CodexApprovalPolicy
 }
 
+type BuildAppServerArgsOptions = {
+  stdio?: boolean
+}
+
 const DEFAULT_RUNTIME_CONFIG: AppServerRuntimeConfig = {
   sandboxMode: 'danger-full-access',
   approvalPolicy: 'never',
@@ -51,10 +55,11 @@ export function resolveAppServerRuntimeConfig(): AppServerRuntimeConfig {
   }
 }
 
-export function buildAppServerArgs(): string[] {
+export function buildAppServerArgs(options: BuildAppServerArgsOptions = {}): string[] {
   const config = resolveAppServerRuntimeConfig()
   return [
     'app-server',
+    ...(options.stdio ? ['--stdio'] : []),
     '-c',
     `approval_policy="${config.approvalPolicy}"`,
     '-c',
