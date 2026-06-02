@@ -1035,6 +1035,121 @@ describe('sub-agent live status', () => {
   })
 })
 
+describe('MCP live status', () => {
+  it('keeps server, tool, duration, and error metadata on realtime MCP activity', () => {
+    installTestWindow({ 'codex-web-local.selected-thread-id.v1': 'target-thread' })
+    const notify = installNotificationListener()
+    const state = useDesktopState()
+    state.startPolling()
+
+    notify({
+      method: 'turn/started',
+      params: { threadId: 'target-thread', turnId: 'turn-1' },
+      atIso: '2026-05-29T00:00:00.000Z',
+    })
+    notify({
+      method: 'item/started',
+      params: {
+        threadId: 'target-thread',
+        turnId: 'turn-1',
+        item: {
+          type: 'mcpToolCall',
+          id: 'mcp-1',
+          server: 'context7',
+          tool: 'query-docs',
+          status: 'running',
+        },
+      },
+      atIso: '2026-05-29T00:00:01.000Z',
+    })
+    notify({
+      method: 'item/completed',
+      params: {
+        threadId: 'target-thread',
+        turnId: 'turn-1',
+        item: {
+          type: 'mcpToolCall',
+          id: 'mcp-1',
+          server: 'context7',
+          tool: 'query-docs',
+          status: 'failed',
+          durationMs: 1420.6,
+          error: { message: 'Docs unavailable' },
+        },
+      },
+      atIso: '2026-05-29T00:00:02.000Z',
+    })
+
+    expect(state.selectedLiveOverlay.value?.mcpActivities).toEqual([
+      expect.objectContaining({
+        id: 'mcp-1',
+        name: 'context7 MCP',
+        server: 'context7',
+        tool: 'query-docs',
+        status: 'failed',
+        durationMs: 1421,
+        errorMessage: 'Docs unavailable',
+        detail: 'Docs unavailable',
+      }),
+    ])
+  })
+
+  it('builds MCP activity metadata from pending MCP server requests', async () => {
+    installTestWindow({ 'codex-web-local.selected-thread-id.v1': 'target-thread' })
+    gatewayMocks.getPendingServerRequests.mockResolvedValue([
+      {
+        id: 1,
+        method: 'mcpServer/elicitation/request',
+        threadId: 'target-thread',
+        turnId: 'turn-1',
+        params: {
+          threadId: 'target-thread',
+          serverName: 'browser',
+          mode: 'url',
+          message: 'Open browser login?',
+        },
+        receivedAtIso: '2026-05-29T00:00:00.000Z',
+      },
+      {
+        id: 2,
+        method: 'item/tool/call',
+        threadId: 'target-thread',
+        turnId: 'turn-1',
+        params: {
+          tool: 'mcp__context7__query_docs',
+          duration_ms: 900,
+          errorMessage: 'Waiting on docs',
+        },
+        receivedAtIso: '2026-05-29T00:00:01.000Z',
+      },
+    ])
+    const state = useDesktopState()
+    state.startPolling()
+
+    await flushAsyncWork()
+
+    expect(state.selectedLiveOverlay.value?.mcpActivities).toEqual([
+      expect.objectContaining({
+        id: 'request:1',
+        name: 'browser MCP',
+        server: 'browser',
+        status: 'waiting',
+        detail: 'Open browser login?',
+      }),
+      expect.objectContaining({
+        id: 'request:2',
+        name: 'context7 MCP',
+        server: 'context7 MCP',
+        tool: 'query docs',
+        status: 'running',
+        durationMs: 900,
+        errorMessage: 'Waiting on docs',
+        detail: 'Waiting on docs',
+      }),
+    ])
+  })
+})
+
 describe('Codex CLI availability', () => {
   it('surfaces a chat runtime error when the app-server bridge cannot find Codex CLI', async () => {
     installTestWindow()

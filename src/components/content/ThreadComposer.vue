@@ -36,10 +36,10 @@
             </template>
           </div>
         </section>
-        <section v-if="liveMcpActivities.length > 0" class="thread-composer-activity-section">
-          <p class="thread-composer-activity-section-title">MCP</p>
+        <section v-if="hasMcpActivitySection" class="thread-composer-activity-section">
+          <p class="thread-composer-activity-section-title">{{ mcpSectionTitle }}</p>
           <div class="thread-composer-agent-rows thread-composer-mcp-rows">
-            <template v-for="activity in liveMcpActivities" :key="activity.id">
+            <template v-for="activity in visibleMcpActivities" :key="activity.id">
               <span
                 class="thread-composer-agent-dot"
                 :data-status="activity.status"
@@ -47,7 +47,12 @@
                 aria-hidden="true"
               />
               <span class="thread-composer-agent-name" :title="activity.name">{{ activity.name }}</span>
-              <span class="thread-composer-agent-task" :title="mcpTaskTitle(activity)">{{ activity.detail || 'working' }}</span>
+              <span class="thread-composer-agent-task" :title="mcpTaskTitle(activity)">{{ mcpActivityDetail(activity) }}</span>
+            </template>
+            <template v-if="hiddenMcpActivityCount > 0">
+              <span class="thread-composer-agent-dot" data-status="pending" aria-hidden="true" />
+              <span class="thread-composer-agent-name">+{{ hiddenMcpActivityCount }}</span>
+              <span class="thread-composer-agent-task">more active</span>
             </template>
           </div>
         </section>
@@ -629,38 +634,67 @@ const emit = defineEmits<{
 }>()
 const { t } = useUiLanguage()
 
+const MAX_VISIBLE_MCP_ACTIVITIES = 3
+const MCP_ACTIVITY_STATUS_ORDER: Record<UiMcpActivity['status'], number> = {
+  failed: 0,
+  waiting: 1,
+  running: 2,
+  completed: 3,
+}
+
 const liveCollabAgents = computed<UiCollabAgentStatus[]>(() => props.liveOverlay?.collabAgents ?? [])
 const liveMcpActivities = computed<UiMcpActivity[]>(() => props.liveOverlay?.mcpActivities ?? [])
+const activeMcpActivities = computed<UiMcpActivity[]>(() =>
+  liveMcpActivities.value
+    .filter((activity) => activity.status === 'failed' || activity.status === 'waiting' || activity.status === 'running')
+    .sort((first, second) => MCP_ACTIVITY_STATUS_ORDER[first.status] - MCP_ACTIVITY_STATUS_ORDER[second.status]),
+)
+const visibleMcpActivities = computed<UiMcpActivity[]>(() => activeMcpActivities.value.slice(0, MAX_VISIBLE_MCP_ACTIVITIES))
+const hiddenMcpActivityCount = computed(() => Math.max(0, activeMcpActivities.value.length - visibleMcpActivities.value.length))
+const completedMcpActivityCount = computed(() =>
+  liveMcpActivities.value.filter((activity) => activity.status === 'completed').length,
+)
+const hasMcpActivitySection = computed(() => activeMcpActivities.value.length > 0 || completedMcpActivityCount.value > 0)
+const mcpSectionTitle = computed(() => {
+  const completed = completedMcpActivityCount.value
+  return completed > 0 ? `MCP · ${completed} done` : 'MCP'
+})
 const isRuntimeActivityCollapsed = ref(false)
-const hasRuntimeActivity = computed(() => liveCollabAgents.value.length > 0 || liveMcpActivities.value.length > 0)
-const canCollapseRuntimeActivity = computed(() => liveCollabAgents.value.length + liveMcpActivities.value.length > 1)
+const hasRuntimeActivity = computed(() => liveCollabAgents.value.length > 0 || hasMcpActivitySection.value)
+const runtimeCollabActivityCount = computed(() =>
+  liveCollabAgents.value.filter((agent) => agent.status !== 'completed').length,
+)
+const runtimeMcpActivityCount = computed(() => activeMcpActivities.value.length)
+const canCollapseRuntimeActivity = computed(() => {
+  const mcpGroups = activeMcpActivities.value.length + (completedMcpActivityCount.value > 0 ? 1 : 0)
+  return liveCollabAgents.value.length + mcpGroups > 1
+})
 const liveActivityLabel = computed(() => {
   const label = props.liveOverlay?.activityLabel.trim() ?? ''
   return label && hasRuntimeActivity.value ? label : ''
 })
 const runtimeActivityTitle = computed(() => liveActivityLabel.value || 'Working')
 const runtimeActivitySummary = computed(() => {
-  const total = liveCollabAgents.value.length + liveMcpActivities.value.length
-  if (total === 0) return ''
-  return `${total} active`
+  const active = runtimeCollabActivityCount.value + runtimeMcpActivityCount.value
+  if (active === 0) return completedMcpActivityCount.value > 0 ? `${completedMcpActivityCount.value} done` : ''
+  return `${active} active`
 })
 const collapsedRuntimeActivitySummary = computed(() => {
   const parts: string[] = []
   if (liveCollabAgents.value.length > 0) {
     parts.push(`Agents ${formatStatusCounts(liveCollabAgents.value.map((agent) => agent.status))}`)
   }
-  if (liveMcpActivities.value.length > 0) {
+  if (hasMcpActivitySection.value) {
     parts.push(`MCP ${formatStatusCounts(liveMcpActivities.value.map((activity) => activity.status))}`)
   }
   return parts.join(' · ')
 })
 
 function formatStatusCounts(statuses: string[]): string {
-  const total = statuses.length
   const completed = statuses.filter((status) => status === 'completed').length
   const failed = statuses.filter((status) => status === 'failed').length
   const active = statuses.filter((status) => status === 'running' || status === 'pending' || status === 'waiting').length
-  const parts = [`${total} total`]
+  const parts: string[] = []
   if (active > 0) parts.push(`${active} active`)
   if (completed > 0) parts.push(`${completed} done`)
   if (failed > 0) parts.push(`${failed} failed`)
@@ -681,12 +715,33 @@ function agentTaskTitle(agent: UiCollabAgentStatus): string {
 }
 
 function mcpStatusTitle(activity: UiMcpActivity): string {
-  return `${activity.name}: ${activity.status}`
+  const parts = [`${activity.name}: ${activity.status}`]
+  if (typeof activity.durationMs === 'number') parts.push(formatMcpDuration(activity.durationMs))
+  return parts.join(' · ')
 }
 
 function mcpTaskTitle(activity: UiMcpActivity): string {
-  const task = activity.detail.trim()
-  return task ? `${activity.name}: ${task}` : activity.name
+  const parts = [activity.name]
+  if (activity.tool?.trim()) parts.push(activity.tool.trim())
+  const detail = mcpActivityDetail(activity).trim()
+  if (detail) parts.push(detail)
+  return parts.join(': ')
+}
+
+function mcpActivityDetail(activity: UiMcpActivity): string {
+  const detail = (activity.errorMessage || activity.detail || '').trim()
+  if (!detail) return 'working'
+  if (typeof activity.durationMs !== 'number') return detail
+  return `${detail} · ${formatMcpDuration(activity.durationMs)}`
+}
+
+function formatMcpDuration(durationMs: number): string {
+  if (!Number.isFinite(durationMs) || durationMs <= 0) return '<1s'
+  const seconds = Math.max(1, Math.round(durationMs / 1000))
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  const remainingSeconds = seconds % 60
+  return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`
 }
 
 type SelectedImage = {

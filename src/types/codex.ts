@@ -276,6 +276,10 @@ export type UiMcpActivity = {
   name: string
   detail: string
   status: UiMcpActivityStatus
+  server?: string
+  tool?: string
+  durationMs?: number
+  errorMessage?: string
 }
 
 export type UiCreditsSnapshot = {

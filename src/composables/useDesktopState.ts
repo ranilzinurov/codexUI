@@ -3197,6 +3197,26 @@ export function useDesktopState() {
     return typeof value === 'number' && Number.isFinite(value) ? value : null
   }
 
+  function readOptionalDurationMs(record: Record<string, unknown> | null | undefined): number | undefined {
+    if (!record) return undefined
+    const value = (
+      readNumber(record.durationMs) ??
+      readNumber(record.duration_ms) ??
+      readNumber(record.elapsedMs) ??
+      readNumber(record.elapsed_ms)
+    )
+    return typeof value === 'number' ? Math.max(0, Math.round(value)) : undefined
+  }
+
+  function readOptionalErrorMessage(record: Record<string, unknown> | null | undefined): string {
+    if (!record) return ''
+    return sanitizeDisplayText(
+      readString(record.errorMessage) ||
+      readString(record.error_message) ||
+      readString(asRecord(record.error)?.message),
+    )
+  }
+
   function getRateLimitSnapshotKey(snapshot: UiRateLimitSnapshot): string {
     return snapshot.limitId?.trim() || snapshot.limitName?.trim() || '__default__'
   }
@@ -3548,6 +3568,8 @@ export function useDesktopState() {
     return requests
       .map((request): UiMcpActivity | null => {
         const params = asRecord(request.params)
+        const durationMs = readOptionalDurationMs(params)
+        const errorMessage = readOptionalErrorMessage(params)
         if (request.method === 'mcpServer/elicitation/request') {
           const serverName = sanitizeDisplayText(readString(params?.serverName)) || 'MCP server'
           const message = sanitizeDisplayText(readString(params?.message))
@@ -3555,8 +3577,11 @@ export function useDesktopState() {
           return {
             id: `request:${String(request.id)}`,
             name: formatMcpServerName(serverName),
-            detail: message || (mode === 'url' ? 'Waiting for URL confirmation' : 'Waiting for input'),
+            detail: errorMessage || message || (mode === 'url' ? 'Waiting for URL confirmation' : 'Waiting for input'),
             status: 'waiting' as const,
+            server: serverName,
+            durationMs,
+            errorMessage: errorMessage || undefined,
           }
         }
 
@@ -3572,8 +3597,12 @@ export function useDesktopState() {
         return {
           id: `request:${String(request.id)}`,
           name: parsed.serverName,
-          detail: parsed.toolName ? `Calling ${parsed.toolName}` : 'Calling MCP tool',
+          detail: errorMessage || (parsed.toolName ? `Calling ${parsed.toolName}` : 'Calling MCP tool'),
           status: 'running' as const,
+          server: parsed.serverName,
+          tool: parsed.toolName || rawTool,
+          durationMs,
+          errorMessage: errorMessage || undefined,
         }
       })
       .filter((activity): activity is UiMcpActivity => activity !== null)
@@ -4295,15 +4324,19 @@ export function useDesktopState() {
     if (item.type !== 'mcpToolCall') return null
     const id = readString(item.id)
     if (!id) return null
-    const server = sanitizeDisplayText(readString(item.server))
-    const tool = sanitizeDisplayText(readString(item.tool))
-    const error = asRecord(item.error)
-    const errorMessage = sanitizeDisplayText(readString(error?.message))
+    const server = sanitizeDisplayText(readString(item.server) || readString(item.serverName) || readString(item.server_name))
+    const tool = sanitizeDisplayText(readString(item.tool) || readString(item.toolName) || readString(item.tool_name))
+    const errorMessage = readOptionalErrorMessage(item)
+    const durationMs = readOptionalDurationMs(item)
     return {
       id,
       name: formatMcpServerName(server),
       detail: errorMessage || fallbackDetail || (tool ? `Calling ${tool}` : 'Calling MCP tool'),
       status: normalizeMcpToolCallStatus(item.status),
+      server: server || undefined,
+      tool: tool || undefined,
+      durationMs,
+      errorMessage: errorMessage || undefined,
     }
   }
 
@@ -4317,11 +4350,16 @@ export function useDesktopState() {
       const itemId = readString(params.itemId)
       if (!itemId) return
       const previous = liveMcpActivitiesByThreadId.value[threadId]?.find((activity) => activity.id === itemId)
+      const errorMessage = readOptionalErrorMessage(params)
       upsertLiveMcpActivity(threadId, {
         id: itemId,
         name: previous?.name ?? 'MCP server',
-        detail: sanitizeDisplayText(readString(params.message)) || previous?.detail || 'Working',
+        detail: errorMessage || sanitizeDisplayText(readString(params.message)) || previous?.detail || 'Working',
         status: 'running',
+        server: previous?.server,
+        tool: previous?.tool,
+        durationMs: readOptionalDurationMs(params) ?? previous?.durationMs,
+        errorMessage: errorMessage || previous?.errorMessage,
       })
       return
     }
