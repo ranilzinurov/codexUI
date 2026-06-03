@@ -265,6 +265,29 @@ describe('normalizeCollabAgentsFromItems', () => {
       { id: 'agent-thread-6', name: 'Ken', task: 'Waiting for turn', status: 'pending' },
     ])
   })
+
+  it('normalizes snake_case collab agent tool call fields', () => {
+    const agents = normalizeCollabAgentsFromItems([{
+      type: 'collabAgentToolCall',
+      id: 'collab-snake',
+      tool: 'wait',
+      status: 'inProgress',
+      sender_thread_id: 'parent-thread',
+      receiver_thread_ids: ['agent-thread-snake'],
+      prompt: 'Inspect runtime status',
+      agents_states: {
+        'agent-thread-snake': { status: 'running', message: 'Reading thread composer' },
+      },
+    }])
+
+    expect(agents).toMatchObject([
+      {
+        id: 'agent-thread-snake',
+        task: 'Reading thread composer',
+        status: 'running',
+      },
+    ])
+  })
 })
 
 describe('normalizeThreadSummaryV2', () => {

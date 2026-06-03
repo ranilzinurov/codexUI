@@ -326,9 +326,36 @@ html::after {
   @apply text-zinc-200;
 }
 
+:root.dark .thread-composer-agent-row:hover,
+:root.dark .thread-composer-agent-row:focus-visible,
+:root.dark .thread-composer-agent-row.is-selected {
+  @apply bg-zinc-800;
+}
+
+:root.dark .thread-composer-agent-row:focus-visible {
+  @apply ring-zinc-600;
+}
+
 :root.dark .thread-composer-agent-toggle,
 :root.dark .thread-composer-activity-collapsed {
   @apply border-zinc-700 bg-zinc-800/70 text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100;
+}
+
+:root.dark .thread-composer-agent-detail {
+  @apply border-zinc-700 bg-zinc-800/70 text-zinc-300;
+}
+
+:root.dark .thread-composer-agent-detail-label {
+  @apply text-zinc-500;
+}
+
+:root.dark .thread-composer-agent-detail-value,
+:root.dark .thread-composer-agent-detail-text {
+  @apply text-zinc-300;
+}
+
+:root.dark .thread-composer-agent-detail-code {
+  @apply border-zinc-700 bg-zinc-900 text-zinc-200;
 }
 
 :root.dark .thread-composer-dictation-error {

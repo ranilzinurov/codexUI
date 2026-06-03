@@ -58,6 +58,7 @@ import type {
   ReasoningEffort,
   SpeedMode,
   UiFileChange,
+  UiCollabAgentRuntimeDetail,
   UiCollabAgentStatus,
   UiLiveOverlay,
   UiMessage,
@@ -941,8 +942,24 @@ function areCollabAgentRowsEqual(first: UiCollabAgentStatus[], second: UiCollabA
     const a = first[index]
     const b = second[index]
     if (a.id !== b.id || a.name !== b.name || a.task !== b.task || a.status !== b.status) return false
+    if (!areCollabAgentRuntimeDetailsEqual(a.details, b.details)) return false
   }
   return true
+}
+
+function areCollabAgentRuntimeDetailsEqual(
+  first?: UiCollabAgentRuntimeDetail,
+  second?: UiCollabAgentRuntimeDetail,
+): boolean {
+  if (!first && !second) return true
+  if (!first || !second) return false
+  return (
+    first.reasoningSummary === second.reasoningSummary &&
+    first.latestTask === second.latestTask &&
+    first.status === second.status &&
+    areStringArraysEqual(first.commands, second.commands) &&
+    areStringArraysEqual(first.changedPaths, second.changedPaths)
+  )
 }
 
 function countUnifiedDiffLines(value: string): { addedLineCount: number; removedLineCount: number } {
@@ -1612,6 +1629,7 @@ export function useDesktopState() {
   const collabAgentDisplayNameByThreadId = ref<Record<string, string>>({})
   const collabAgentParentThreadIdByThreadId = ref<Record<string, string>>({})
   const collabAgentReasoningSummaryByThreadId = ref<Record<string, string>>({})
+  const collabAgentRuntimeDetailsByThreadId = ref<Record<string, UiCollabAgentRuntimeDetail>>({})
   const inProgressById = ref<Record<string, boolean>>({})
   type FileAttachment = { label: string; path: string; fsPath: string }
   type QueuedMessage = {
@@ -1798,7 +1816,7 @@ export function useDesktopState() {
       ? (liveReasoningTextByThreadId.value[normalizedThreadId] ?? '').trim()
       : ''
     const errorText = (turnErrorByThreadId.value[normalizedThreadId]?.message ?? '').trim()
-    const collabAgents = isInProgress ? (liveCollabAgentsByThreadId.value[normalizedThreadId] ?? []) : []
+    const collabAgents = liveCollabAgentsByThreadId.value[normalizedThreadId] ?? []
     const mcpActivities = [
       ...(isInProgress ? (liveMcpActivitiesByThreadId.value[normalizedThreadId] ?? []) : []),
       ...buildMcpActivities(requests),
@@ -2957,10 +2975,8 @@ export function useDesktopState() {
   }
 
   function rememberCollabAgentParents(parentThreadId: string, item: Record<string, unknown>): void {
-    const senderThreadId = readString(item.senderThreadId) || parentThreadId
-    const receiverThreadIds = Array.isArray(item.receiverThreadIds)
-      ? item.receiverThreadIds.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-      : []
+    const senderThreadId = readString(item.senderThreadId ?? item.sender_thread_id) || parentThreadId
+    const receiverThreadIds = readStringArrayField(item.receiverThreadIds ?? item.receiver_thread_ids)
     if (!senderThreadId || receiverThreadIds.length === 0) return
 
     let changed = false
@@ -2975,6 +2991,94 @@ export function useDesktopState() {
     }
   }
 
+  function readStringArrayField(value: unknown): string[] {
+    return Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      : []
+  }
+
+  function trimUniqueRecent(values: string[], limit: number): string[] {
+    const seen = new Set<string>()
+    const next: string[] = []
+    for (const value of values) {
+      const trimmed = sanitizeDisplayText(value)
+      if (!trimmed || seen.has(trimmed)) continue
+      seen.add(trimmed)
+      next.push(trimmed)
+      if (next.length >= limit) break
+    }
+    return next
+  }
+
+  function collabAgentDetailFor(agentThreadId: string, fallback: UiCollabAgentStatus): UiCollabAgentRuntimeDetail {
+    const existing = collabAgentRuntimeDetailsByThreadId.value[agentThreadId]
+    return {
+      reasoningSummary: existing?.reasoningSummary ?? '',
+      latestTask: existing?.latestTask || fallback.task,
+      status: existing?.status ?? fallback.status,
+      commands: existing?.commands ?? [],
+      changedPaths: existing?.changedPaths ?? [],
+    }
+  }
+
+  function updateCollabAgentRuntimeDetail(
+    agentThreadId: string,
+    patch: Partial<UiCollabAgentRuntimeDetail>,
+  ): UiCollabAgentRuntimeDetail | null {
+    const normalizedAgentThreadId = agentThreadId.trim()
+    if (!normalizedAgentThreadId) return null
+    const previous = collabAgentRuntimeDetailsByThreadId.value[normalizedAgentThreadId] ?? {
+      reasoningSummary: '',
+      latestTask: '',
+      status: 'running' as const,
+      commands: [],
+      changedPaths: [],
+    }
+    const next: UiCollabAgentRuntimeDetail = {
+      reasoningSummary: sanitizeDisplayText(patch.reasoningSummary ?? previous.reasoningSummary).slice(0, 320),
+      latestTask: sanitizeDisplayText(patch.latestTask ?? previous.latestTask).slice(0, 160),
+      status: patch.status ?? previous.status,
+      commands: patch.commands ? trimUniqueRecent(patch.commands, 3) : previous.commands,
+      changedPaths: patch.changedPaths ? trimUniqueRecent(patch.changedPaths, 5) : previous.changedPaths,
+    }
+    if (areCollabAgentRuntimeDetailsEqual(previous, next)) return previous
+    collabAgentRuntimeDetailsByThreadId.value = {
+      ...collabAgentRuntimeDetailsByThreadId.value,
+      [normalizedAgentThreadId]: next,
+    }
+    return next
+  }
+
+  function decorateCollabAgent(agent: UiCollabAgentStatus): UiCollabAgentStatus {
+    return {
+      ...agent,
+      details: collabAgentDetailFor(agent.id, agent),
+    }
+  }
+
+  function readCommandFromItem(item: Record<string, unknown>): string {
+    const commandExecution = asRecord(item.commandExecution ?? item.command_execution)
+    return sanitizeDisplayText(
+      readString(item.command) ||
+      readString(commandExecution?.command) ||
+      readString(asRecord(item.action)?.command),
+    )
+  }
+
+  function readChangedPathsFromItem(item: Record<string, unknown>): string[] {
+    const rawChanges = item.changes ?? item.fileChanges ?? item.file_changes
+    if (!Array.isArray(rawChanges)) return []
+    const paths: string[] = []
+    for (const rawChange of rawChanges) {
+      const change = asRecord(rawChange)
+      const path = sanitizeDisplayText(readString(change?.path))
+      if (path) paths.push(path)
+      const movedToPath = sanitizeDisplayText(readString(change?.movedToPath ?? change?.moved_to_path))
+      if (movedToPath) paths.push(movedToPath)
+    }
+    return paths
+  }
+
   function updateLiveCollabAgent(
     agentThreadId: string,
     update: { task?: string; status?: UiCollabAgentStatus['status'] },
@@ -2982,18 +3086,36 @@ export function useDesktopState() {
     const parentThreadId = collabAgentParentThreadIdByThreadId.value[agentThreadId]
     if (!parentThreadId) return
     const currentAgents = liveCollabAgentsByThreadId.value[parentThreadId] ?? []
-    if (currentAgents.length === 0) return
+    if (currentAgents.length === 0) {
+      const displayName = collabAgentDisplayNameByThreadId.value[agentThreadId] ?? ''
+      const task = sanitizeDisplayText(update.task ?? '') || 'Working'
+      const status = update.status ?? 'running'
+      updateCollabAgentRuntimeDetail(agentThreadId, { latestTask: task, status })
+      setLiveCollabAgentsForThread(parentThreadId, [decorateCollabAgent({
+        id: agentThreadId,
+        name: displayName || `agent ${agentThreadId.slice(0, 7)}`,
+        task,
+        status,
+      })])
+      return
+    }
 
     const displayName = collabAgentDisplayNameByThreadId.value[agentThreadId] ?? ''
     const nextTask = update.task !== undefined ? sanitizeDisplayText(update.task) : undefined
+    if (nextTask || update.status) {
+      updateCollabAgentRuntimeDetail(agentThreadId, {
+        ...(nextTask ? { latestTask: nextTask } : {}),
+        ...(update.status ? { status: update.status } : {}),
+      })
+    }
     const nextAgents = currentAgents.map((agent) => {
       if (agent.id !== agentThreadId) return agent
-      return {
+      return decorateCollabAgent({
         ...agent,
         ...(displayName ? { name: displayName } : {}),
         ...(nextTask ? { task: nextTask } : {}),
         ...(update.status ? { status: update.status } : {}),
-      }
+      })
     })
     setLiveCollabAgentsForThread(parentThreadId, nextAgents)
   }
@@ -4231,11 +4353,18 @@ export function useDesktopState() {
     const item = asRecord(params?.item)
     if (!item || item.type !== 'collabAgentToolCall') return null
     rememberCollabAgentParents(threadId, item)
+    const agents = normalizeCollabAgentsFromItems([item], {
+      agentDisplayNames: collabAgentDisplayNameByThreadId.value,
+    }).map((agent) => {
+      updateCollabAgentRuntimeDetail(agent.id, {
+        latestTask: agent.task,
+        status: agent.status,
+      })
+      return decorateCollabAgent(agent)
+    })
     return {
       threadId,
-      agents: normalizeCollabAgentsFromItems([item], {
-        agentDisplayNames: collabAgentDisplayNameByThreadId.value,
-      }),
+      agents,
     }
   }
 
@@ -4247,6 +4376,11 @@ export function useDesktopState() {
       ...collabAgentReasoningSummaryByThreadId.value,
       [agentThreadId]: nextSummary,
     }
+    updateCollabAgentRuntimeDetail(agentThreadId, {
+      reasoningSummary: nextSummary,
+      latestTask: nextSummary,
+      status: 'running',
+    })
     return nextSummary
   }
 
@@ -4279,10 +4413,28 @@ export function useDesktopState() {
         return
       }
       if (itemType === 'commandexecution') {
+        const command = readCommandFromItem(item ?? {})
+        const previous = collabAgentRuntimeDetailsByThreadId.value[agentThreadId]
+        if (command) {
+          updateCollabAgentRuntimeDetail(agentThreadId, {
+            latestTask: 'Running command',
+            status: 'running',
+            commands: [command, ...(previous?.commands ?? [])],
+          })
+        }
         updateLiveCollabAgent(agentThreadId, { task: 'Running command', status: 'running' })
         return
       }
       if (itemType === 'filechange') {
+        const changedPaths = readChangedPathsFromItem(item ?? {})
+        const previous = collabAgentRuntimeDetailsByThreadId.value[agentThreadId]
+        if (changedPaths.length > 0) {
+          updateCollabAgentRuntimeDetail(agentThreadId, {
+            latestTask: 'Applying changes',
+            status: 'running',
+            changedPaths: [...changedPaths, ...(previous?.changedPaths ?? [])],
+          })
+        }
         updateLiveCollabAgent(agentThreadId, { task: 'Applying changes', status: 'running' })
       }
       return
@@ -4307,8 +4459,16 @@ export function useDesktopState() {
 
     if (notification.method === 'turn/completed') {
       const errorMessage = readTurnErrorMessage(notification)
+      const finalTask = errorMessage ? errorMessage : (collabAgentReasoningSummaryByThreadId.value[agentThreadId] || 'Completed')
+      updateCollabAgentRuntimeDetail(agentThreadId, {
+        latestTask: finalTask,
+        status: errorMessage ? 'failed' : 'completed',
+        ...(collabAgentReasoningSummaryByThreadId.value[agentThreadId]
+          ? { reasoningSummary: collabAgentReasoningSummaryByThreadId.value[agentThreadId] }
+          : {}),
+      })
       updateLiveCollabAgent(agentThreadId, {
-        task: errorMessage ? errorMessage : (collabAgentReasoningSummaryByThreadId.value[agentThreadId] || 'Completed'),
+        task: finalTask,
         status: errorMessage ? 'failed' : 'completed',
       })
     }
@@ -4615,7 +4775,7 @@ export function useDesktopState() {
       const mergedAgentsById = new Map(previousAgents.map((agent) => [agent.id, agent]))
       for (const agent of collabAgentsUpdate.agents) {
         const summaryTask = collabAgentReasoningSummaryByThreadId.value[agent.id]
-        mergedAgentsById.set(agent.id, summaryTask ? { ...agent, task: summaryTask } : agent)
+        mergedAgentsById.set(agent.id, decorateCollabAgent(summaryTask ? { ...agent, task: summaryTask } : agent))
         scheduleCollabAgentNameLookup(agent.id)
       }
       setLiveCollabAgentsForThread(collabAgentsUpdate.threadId, Array.from(mergedAgentsById.values()))
@@ -5172,7 +5332,7 @@ export function useDesktopState() {
       setPersistedMessagesForThread(threadId, mergedMessages)
 
       const previousLiveAgent = liveAgentMessagesByThreadId.value[threadId] ?? []
-      if (inProgress) {
+      if (inProgress || collabAgents.length > 0) {
         const nextLiveAgent = removeRedundantLiveAgentMessages(previousLiveAgent, nextMessages)
         setLiveAgentMessagesForThread(threadId, nextLiveAgent)
         if (collabAgents.length > 0) {
@@ -5186,11 +5346,11 @@ export function useDesktopState() {
             }
             const displayName = collabAgentDisplayNameByThreadId.value[agent.id]
             const summaryTask = collabAgentReasoningSummaryByThreadId.value[agent.id]
-            return {
+            return decorateCollabAgent({
               ...agent,
               ...(displayName ? { name: displayName } : {}),
               ...(summaryTask ? { task: summaryTask } : {}),
-            }
+            })
           })
           if (parentMapChanged) {
             collabAgentParentThreadIdByThreadId.value = nextParentMap
@@ -6553,6 +6713,7 @@ export function useDesktopState() {
     collabAgentDisplayNameByThreadId.value = {}
     collabAgentParentThreadIdByThreadId.value = {}
     collabAgentReasoningSummaryByThreadId.value = {}
+    collabAgentRuntimeDetailsByThreadId.value = {}
     pendingCollabAgentNameLookupIds.clear()
     turnIndexByTurnIdByThreadId.value = {}
     turnActivityByThreadId.value = {}

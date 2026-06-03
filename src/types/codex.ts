@@ -273,11 +273,20 @@ export type UiLiveOverlay = {
 
 export type UiCollabAgentStatusKind = 'pending' | 'running' | 'completed' | 'failed' | 'shutdown' | 'notFound'
 
+export type UiCollabAgentRuntimeDetail = {
+  reasoningSummary: string
+  latestTask: string
+  status: UiCollabAgentStatusKind
+  commands: string[]
+  changedPaths: string[]
+}
+
 export type UiCollabAgentStatus = {
   id: string
   name: string
   task: string
   status: UiCollabAgentStatusKind
+  details?: UiCollabAgentRuntimeDetail
 }
 
 export type UiMcpActivityStatus = 'running' | 'waiting' | 'completed' | 'failed'

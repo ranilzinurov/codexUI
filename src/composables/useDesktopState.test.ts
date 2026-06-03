@@ -1031,6 +1031,133 @@ describe('sub-agent live status', () => {
       name: 'Hilbert',
       task: 'Reviewing the agent status UI and checking how summaries should fit.',
       status: 'running',
+      details: {
+        reasoningSummary: 'Reviewing the agent status UI and checking how summaries should fit.',
+        latestTask: 'Reviewing the agent status UI and checking how summaries should fit.',
+      },
+    })
+
+    notify({
+      method: 'item/started',
+      params: {
+        threadId: 'agent-thread',
+        turnId: 'agent-turn',
+        item: {
+          type: 'commandExecution',
+          id: 'cmd-1',
+          commandExecution: { command: 'rg ThreadComposer src/components/content/ThreadComposer.vue' },
+        },
+      },
+      atIso: '2026-05-20T00:00:04.000Z',
+    })
+
+    expect(state.selectedLiveOverlay.value?.collabAgents[0].details?.commands).toEqual([
+      'rg ThreadComposer src/components/content/ThreadComposer.vue',
+    ])
+
+    notify({
+      method: 'item/started',
+      params: {
+        threadId: 'agent-thread',
+        turnId: 'agent-turn',
+        item: {
+          type: 'fileChange',
+          id: 'file-1',
+          changes: [
+            { path: 'src/components/content/ThreadComposer.vue' },
+            { path: 'src/style.css' },
+          ],
+        },
+      },
+      atIso: '2026-05-20T00:00:05.000Z',
+    })
+
+    expect(state.selectedLiveOverlay.value?.collabAgents[0].details?.changedPaths).toEqual([
+      'src/components/content/ThreadComposer.vue',
+      'src/style.css',
+    ])
+  })
+
+  it('restores a sub-agent row when agent updates arrive after the parent live state was cleared', () => {
+    installTestWindow({ 'codex-web-local.selected-thread-id.v1': 'parent-thread' })
+    const notify = installNotificationListener()
+    const state = useDesktopState()
+    state.startPolling()
+
+    notify({
+      method: 'thread/started',
+      params: {
+        thread: {
+          id: 'agent-thread',
+          agentNickname: 'Noether',
+          source: {
+            subAgent: {
+              thread_spawn: {
+                parent_thread_id: 'parent-thread',
+                depth: 1,
+                agent_nickname: 'Noether',
+              },
+            },
+          },
+        },
+      },
+      atIso: '2026-05-20T00:00:00.000Z',
+    })
+    notify({
+      method: 'item/completed',
+      params: {
+        threadId: 'parent-thread',
+        turnId: 'parent-turn',
+        item: {
+          type: 'collabAgentToolCall',
+          id: 'collab-restore',
+          tool: 'wait',
+          status: 'inProgress',
+          senderThreadId: 'parent-thread',
+          receiverThreadIds: ['agent-thread'],
+          prompt: null,
+          agentsStates: {
+            'agent-thread': { status: 'running', message: 'Initial task' },
+          },
+        },
+      },
+      atIso: '2026-05-20T00:00:01.000Z',
+    })
+    notify({
+      method: 'turn/completed',
+      params: {
+        threadId: 'parent-thread',
+        turnId: 'parent-turn',
+        turn: { id: 'parent-turn', status: 'completed', items: [], error: null },
+      },
+      atIso: '2026-05-20T00:00:02.000Z',
+    })
+
+    expect(state.selectedLiveOverlay.value?.collabAgents[0]).toMatchObject({
+      name: 'Noether',
+      task: 'Initial task',
+      status: 'running',
+    })
+
+    notify({
+      method: 'item/reasoning/summaryTextDelta',
+      params: {
+        threadId: 'agent-thread',
+        turnId: 'agent-turn',
+        itemId: 'reasoning-restore',
+        summaryIndex: 0,
+        delta: 'Still checking files after parent completion.',
+      },
+      atIso: '2026-05-20T00:00:03.000Z',
+    })
+
+    expect(state.selectedLiveOverlay.value?.collabAgents[0]).toMatchObject({
+      name: 'Noether',
+      task: 'Still checking files after parent completion.',
+      status: 'running',
+      details: {
+        reasoningSummary: 'Still checking files after parent completion.',
+      },
     })
   })
 })

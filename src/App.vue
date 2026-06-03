@@ -1703,6 +1703,8 @@ const terminalHeaderDropdownValue = ref('')
 const editingQueuedMessageState = ref<{ threadId: string; queueIndex: number } | null>(null)
 const isRouteSyncInProgress = ref(false)
 const directoryTryInFlightKey = ref('')
+const isCreatingHomeThread = ref(false)
+const homeCreatedThreadIds = new Set<string>()
 let hasPendingRouteSync = false
 const hasInitialized = ref(false)
 const newThreadCwd = ref('')
@@ -4970,6 +4972,10 @@ function threadExistsInSidebar(threadId: string): boolean {
   return projectGroups.value.some((group) => group.threads.some((thread) => thread.id === threadId))
 }
 
+function canSelectRouteThread(threadId: string): boolean {
+  return threadExistsInSidebar(threadId) || homeCreatedThreadIds.has(threadId)
+}
+
 async function syncThreadSelectionWithRoute(): Promise<void> {
   if (isRouteSyncInProgress.value) {
     hasPendingRouteSync = true
@@ -4982,6 +4988,9 @@ async function syncThreadSelectionWithRoute(): Promise<void> {
       hasPendingRouteSync = false
 
       if (route.name === 'home' || route.name === 'skills' || route.name === 'automations') {
+        if (route.name === 'home' && isCreatingHomeThread.value && selectedThreadId.value !== '') {
+          continue
+        }
         if (selectedThreadId.value !== '') {
           await selectThread('')
         }
@@ -4993,7 +5002,7 @@ async function syncThreadSelectionWithRoute(): Promise<void> {
         if (!threadId) continue
 
         if (selectedThreadId.value !== threadId) {
-          if (!threadExistsInSidebar(threadId)) {
+          if (!canSelectRouteThread(threadId)) {
             if (selectedThreadId.value) {
               await router.replace({ name: 'thread', params: { threadId: selectedThreadId.value } })
             } else {
@@ -5198,6 +5207,7 @@ async function submitFirstMessageForNewThread(
   fileAttachments: Array<{ label: string; path: string; fsPath: string }> = [],
 ): Promise<void> {
   try {
+    isCreatingHomeThread.value = true
     worktreeInitStatus.value = { phase: 'idle', title: '', message: '' }
     let targetCwd = newThreadCwd.value
     if (newThreadRuntime.value === 'worktree') {
@@ -5226,10 +5236,13 @@ async function submitFirstMessageForNewThread(
     }
     const threadId = await sendMessageToNewThread(text, targetCwd, imageUrls, skills, fileAttachments)
     if (!threadId) return
+    homeCreatedThreadIds.add(threadId)
     await router.replace({ name: 'thread', params: { threadId } })
     scheduleMobileConversationJumpToLatest()
   } catch {
     // Error is already reflected in state.
+  } finally {
+    isCreatingHomeThread.value = false
   }
 }
 
@@ -5260,14 +5273,17 @@ async function onTryDirectoryItem(payload: DirectoryTryItemPayload): Promise<voi
     ? [{ name: payload.name, path: payload.skillPath }]
     : []
   try {
+    isCreatingHomeThread.value = true
     const targetCwd = directoryCwd.value.trim() || composerCwd.value.trim()
     const threadId = await sendMessageToNewThread(text, targetCwd, [], skills, [])
     if (!threadId) return
+    homeCreatedThreadIds.add(threadId)
     await router.replace({ name: 'thread', params: { threadId } })
     scheduleMobileConversationJumpToLatest()
   } catch {
     // Error is already reflected in shared thread state.
   } finally {
+    isCreatingHomeThread.value = false
     directoryTryInFlightKey.value = ''
   }
 }

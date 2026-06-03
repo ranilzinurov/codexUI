@@ -140,9 +140,7 @@ export function normalizeCollabAgentsFromItems(
       ? rawItem as Record<string, unknown>
       : null
     if (!item || item.type !== 'collabAgentToolCall') continue
-    const receiverThreadIds = Array.isArray(item.receiverThreadIds)
-      ? item.receiverThreadIds.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-      : []
+    const receiverThreadIds = readStringArray(item.receiverThreadIds ?? item.receiver_thread_ids)
     for (const receiverThreadId of receiverThreadIds) {
       if (!allReceiverThreadIds.includes(receiverThreadId)) {
         allReceiverThreadIds.push(receiverThreadId)
@@ -159,11 +157,10 @@ export function normalizeCollabAgentsFromItems(
     const tool = readTrimmedString(item.tool)
     const prompt = normalizeCollabAgentTask(readTrimmedString(item.prompt))
     const fallbackTask = prompt || collabToolFallbackTask(tool)
-    const receiverThreadIds = Array.isArray(item.receiverThreadIds)
-      ? item.receiverThreadIds.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-      : []
-    const states = item.agentsStates && typeof item.agentsStates === 'object' && !Array.isArray(item.agentsStates)
-      ? item.agentsStates as Record<string, unknown>
+    const receiverThreadIds = readStringArray(item.receiverThreadIds ?? item.receiver_thread_ids)
+    const rawStates = item.agentsStates ?? item.agents_states
+    const states = rawStates && typeof rawStates === 'object' && !Array.isArray(rawStates)
+      ? rawStates as Record<string, unknown>
       : {}
 
     receiverThreadIds.forEach((receiverThreadId, index) => {
@@ -181,6 +178,12 @@ export function normalizeCollabAgentsFromItems(
   }
 
   return Array.from(byId.values()).filter((agent) => agent.task.length > 0 || agent.name.length > 0)
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : []
 }
 
 export function normalizeActiveCollabAgentsFromResponse(

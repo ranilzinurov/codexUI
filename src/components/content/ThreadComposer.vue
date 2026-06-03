@@ -1,6 +1,12 @@
 <template>
   <form class="thread-composer" @submit.prevent="onSubmit(isTurnInProgress ? activeInProgressMode : 'steer')">
-    <div v-if="hasRuntimeActivity" class="thread-composer-agent-status" :data-collapsed="isRuntimeActivityCollapsed" aria-live="polite">
+    <div
+      v-if="hasRuntimeActivity"
+      class="thread-composer-agent-status"
+      :data-collapsed="isRuntimeActivityCollapsed"
+      aria-live="polite"
+      @keydown.esc="closeRuntimeAgentDetail"
+    >
       <div class="thread-composer-agent-header">
         <p class="thread-composer-agent-activity">
           {{ runtimeActivityTitle }}
@@ -24,16 +30,60 @@
         <section v-if="liveCollabAgents.length > 0" class="thread-composer-activity-section">
           <p v-if="liveMcpActivities.length > 0" class="thread-composer-activity-section-title">Agents</p>
           <div class="thread-composer-agent-rows">
-            <template v-for="agent in liveCollabAgents" :key="agent.id">
-              <span
-                class="thread-composer-agent-dot"
-                :data-status="agent.status"
-                :title="agentStatusTitle(agent)"
-                aria-hidden="true"
-              />
-              <span class="thread-composer-agent-name" :title="agent.name">{{ agent.name }}</span>
-              <span class="thread-composer-agent-task" :title="agentTaskTitle(agent)">{{ agent.task || 'working' }}</span>
-            </template>
+            <div v-for="agent in liveCollabAgents" :key="agent.id" class="thread-composer-agent-entry">
+              <button
+                type="button"
+                class="thread-composer-agent-row"
+                :class="{ 'is-selected': selectedRuntimeAgentId === agent.id }"
+                :aria-expanded="selectedRuntimeAgentId === agent.id"
+                :aria-controls="runtimeAgentDetailId(agent)"
+                :title="agentTaskTitle(agent)"
+                @click="toggleRuntimeAgentDetail(agent.id)"
+              >
+                <span
+                  class="thread-composer-agent-dot"
+                  :data-status="agent.status"
+                  :title="agentStatusTitle(agent)"
+                  aria-hidden="true"
+                />
+                <span class="thread-composer-agent-name" :title="agent.name">{{ agent.name }}</span>
+                <span class="thread-composer-agent-task">{{ agent.task || 'working' }}</span>
+              </button>
+              <div
+                v-if="selectedRuntimeAgentId === agent.id"
+                :id="runtimeAgentDetailId(agent)"
+                class="thread-composer-agent-detail"
+                role="region"
+                :aria-label="`${agent.name} details`"
+              >
+                <div class="thread-composer-agent-detail-grid">
+                  <span class="thread-composer-agent-detail-label">Status</span>
+                  <span class="thread-composer-agent-detail-value">{{ agentStatusLabel(agent) }}</span>
+                  <span class="thread-composer-agent-detail-label">Latest</span>
+                  <span class="thread-composer-agent-detail-value">{{ agent.details?.latestTask || agent.task || 'working' }}</span>
+                </div>
+                <div class="thread-composer-agent-detail-section">
+                  <p class="thread-composer-agent-detail-label">Reasoning</p>
+                  <p class="thread-composer-agent-detail-text">{{ agent.details?.reasoningSummary || 'No reasoning summary yet' }}</p>
+                </div>
+                <div v-if="agent.details?.commands.length" class="thread-composer-agent-detail-section">
+                  <p class="thread-composer-agent-detail-label">Commands</p>
+                  <code
+                    v-for="command in agent.details.commands"
+                    :key="`${agent.id}:command:${command}`"
+                    class="thread-composer-agent-detail-code"
+                  >{{ command }}</code>
+                </div>
+                <div v-if="agent.details?.changedPaths.length" class="thread-composer-agent-detail-section">
+                  <p class="thread-composer-agent-detail-label">Changed paths</p>
+                  <code
+                    v-for="path in agent.details.changedPaths"
+                    :key="`${agent.id}:path:${path}`"
+                    class="thread-composer-agent-detail-code"
+                  >{{ path }}</code>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
         <section v-if="hasMcpActivitySection" class="thread-composer-activity-section">
@@ -660,6 +710,7 @@ const mcpSectionTitle = computed(() => {
   return completed > 0 ? `MCP · ${completed} done` : 'MCP'
 })
 const isRuntimeActivityCollapsed = ref(false)
+const selectedRuntimeAgentId = ref('')
 const hasRuntimeActivity = computed(() => liveCollabAgents.value.length > 0 || hasMcpActivitySection.value)
 const runtimeCollabActivityCount = computed(() =>
   liveCollabAgents.value.filter((agent) => agent.status !== 'completed').length,
@@ -703,16 +754,43 @@ function formatStatusCounts(statuses: string[]): string {
 
 function toggleRuntimeActivityCollapsed(): void {
   isRuntimeActivityCollapsed.value = !isRuntimeActivityCollapsed.value
+  if (isRuntimeActivityCollapsed.value) {
+    selectedRuntimeAgentId.value = ''
+  }
+}
+
+function toggleRuntimeAgentDetail(agentId: string): void {
+  selectedRuntimeAgentId.value = selectedRuntimeAgentId.value === agentId ? '' : agentId
+}
+
+function closeRuntimeAgentDetail(): void {
+  selectedRuntimeAgentId.value = ''
+}
+
+function runtimeAgentDetailId(agent: UiCollabAgentStatus): string {
+  return `runtime-agent-detail-${agent.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`
 }
 
 function agentStatusTitle(agent: UiCollabAgentStatus): string {
   return `${agent.name}: ${agent.status}`
 }
 
+function agentStatusLabel(agent: UiCollabAgentStatus): string {
+  if (agent.status === 'notFound') return 'not found'
+  return agent.status
+}
+
 function agentTaskTitle(agent: UiCollabAgentStatus): string {
   const task = agent.task.trim()
   return task ? `${agent.name}: ${task}` : agent.name
 }
+
+watch(liveCollabAgents, (agents) => {
+  if (!selectedRuntimeAgentId.value) return
+  if (!agents.some((agent) => agent.id === selectedRuntimeAgentId.value)) {
+    selectedRuntimeAgentId.value = ''
+  }
+})
 
 function mcpStatusTitle(activity: UiMcpActivity): string {
   const parts = [`${activity.name}: ${activity.status}`]
@@ -2826,6 +2904,34 @@ watch(
   align-items: start;
 }
 
+.thread-composer-agent-entry {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.thread-composer-agent-row {
+  display: grid;
+  grid-template-columns: 0.5rem minmax(3.5rem, 0.55fr) minmax(0, 1.45fr);
+  width: 100%;
+  min-width: 0;
+  align-items: start;
+  column-gap: 0.4375rem;
+  border-radius: 0.375rem;
+  padding: 0.125rem 0.25rem;
+  text-align: left;
+  transition: background-color 160ms ease-out, box-shadow 160ms ease-out;
+}
+
+.thread-composer-agent-row:hover,
+.thread-composer-agent-row:focus-visible,
+.thread-composer-agent-row.is-selected {
+  @apply bg-zinc-100;
+}
+
+.thread-composer-agent-row:focus-visible {
+  @apply outline-none ring-2 ring-zinc-300;
+}
+
 .thread-composer-agent-dot {
   width: 0.40625rem;
   height: 0.40625rem;
@@ -2882,6 +2988,31 @@ watch(
 .thread-composer-agent-task::after {
   content: ')';
   color: rgb(161 161 170);
+}
+
+.thread-composer-agent-detail {
+  @apply mt-1 rounded-md border border-zinc-200 bg-zinc-50/90 px-2.5 py-2 text-[11px] text-zinc-600;
+}
+
+.thread-composer-agent-detail-grid {
+  @apply grid grid-cols-[3.5rem_minmax(0,1fr)] gap-x-2 gap-y-1;
+}
+
+.thread-composer-agent-detail-section {
+  @apply mt-2 min-w-0;
+}
+
+.thread-composer-agent-detail-label {
+  @apply m-0 text-[10px] font-semibold uppercase tracking-normal text-zinc-400;
+}
+
+.thread-composer-agent-detail-value,
+.thread-composer-agent-detail-text {
+  @apply m-0 min-w-0 break-words text-zinc-600;
+}
+
+.thread-composer-agent-detail-code {
+  @apply mt-1 block truncate rounded border border-zinc-200 bg-white px-1.5 py-1 font-mono text-[10px] text-zinc-700;
 }
 
 .thread-composer-submit {

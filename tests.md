@@ -7395,3 +7395,41 @@ MCP runtime rows show active work instead of completed clutter, MCP history rows
 #### Rollback/Cleanup
 - Stop the temporary `4173` dev server when testing is complete.
 - Revert to the previous Codex CLI binary if you temporarily swapped versions for fallback testing.
+
+---
+
+### Sub-Agent Runtime Rows And Detail Drawer
+
+#### Feature/Change Name
+Sub-agent runtime rows remain visible for the active turn, restore after parent-thread realtime gaps, and open an inline detail drawer with compact agent history.
+
+#### Prerequisites/Setup
+1. Run from the repository root with dependencies installed.
+2. Start or confirm the app server on `http://127.0.0.1:4173`:
+   `pnpm run dev --host 127.0.0.1 --port 4173`
+3. Use a Codex CLI/app-server version with collaboration mode and sub-agent events enabled.
+
+#### Steps
+1. Run the focused tests:
+   `pnpm exec vitest run src/composables/useDesktopState.test.ts src/api/normalizers/v2.test.ts`
+2. Run the frontend type/build check:
+   `pnpm run build:frontend`
+3. Run the end-to-end Playwright check:
+   `node scripts/e2e-agent-runtime-panel.cjs`
+4. In light theme, start a new thread from a project and send a prompt in Plan mode that asks Codex to launch sub-agents.
+5. Confirm the runtime panel stays on the newly created thread, shows at least one sub-agent row with name and current task/status, and does not jump back to the previously selected thread.
+6. Click a sub-agent row and confirm the inline detail drawer opens with Status, Latest, and Reasoning sections. If commands or changed paths were observed, confirm they appear as compact lists.
+7. Switch to dark theme and repeat the click/open check. Confirm the row, drawer, code chips, and focus outline remain readable without light-theme surfaces.
+
+#### Expected Results
+- New-thread sends do not lose the selected thread while the route and sidebar list catch up.
+- Sub-agent rows render from both camelCase and snake_case app-server payloads.
+- Agent rows can restore when child-agent realtime events arrive after the parent thread's live state has been cleared.
+- Clicking an agent row opens one inline detail drawer; pressing Escape or collapsing runtime activity closes it.
+- The Playwright script saves passing screenshots to:
+  - `output/playwright/agent-runtime-panel-light.png`
+  - `output/playwright/agent-runtime-panel-dark.png`
+
+#### Rollback/Cleanup
+- Stop the temporary `4173` dev server when testing is complete.
+- Delete `output/playwright/agent-runtime-panel-*.png` and `output/playwright/agent-runtime-panel-diagnostics.json` if you want to remove local evidence artifacts.
