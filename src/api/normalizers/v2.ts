@@ -288,7 +288,7 @@ function parseUserMessageContent(
 ): {
   text: string
   images: string[]
-  skills: Array<{ name: string; path: string }>
+  skills: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }>
   fileAttachments: UiFileAttachment[]
   rawBlocks: UiMessage[]
   isAutomationRun: boolean
@@ -300,7 +300,7 @@ function parseUserMessageContent(
 
   const textChunks: string[] = []
   const images: string[] = []
-  const skills: Array<{ name: string; path: string }> = []
+  const skills: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }> = []
   const rawBlocks: UiMessage[] = []
 
   for (const [index, block] of content.entries()) {
@@ -313,15 +313,22 @@ function parseUserMessageContent(
     if (block.type === 'localImage' && typeof block.path === 'string' && block.path.trim().length > 0) {
       images.push(toLocalImageUrl(block.path.trim()))
     }
-    if (block.type === 'skill') {
+    if (block.type === 'skill' || block.type === 'mention') {
       const name = typeof block.name === 'string' ? block.name.trim() : ''
       const path = typeof block.path === 'string' ? block.path.trim() : ''
-      if (name && path) {
-        skills.push({ name, path })
+      if (name && path && (block.type === 'skill' || path.startsWith('plugin://'))) {
+        const kind: 'skill' | 'plugin' = path.startsWith('plugin://') ? 'plugin' : 'skill'
+        skills.push({ name, path, kind })
       }
     }
 
-    if (block.type !== 'text' && block.type !== 'image' && block.type !== 'localImage' && block.type !== 'skill') {
+    if (
+      block.type !== 'text'
+      && block.type !== 'image'
+      && block.type !== 'localImage'
+      && block.type !== 'skill'
+      && !(block.type === 'mention' && typeof block.path === 'string' && block.path.trim().startsWith('plugin://'))
+    ) {
       rawBlocks.push({
         id: `${itemId}:user-content:${index}`,
         role: 'user',

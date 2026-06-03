@@ -327,7 +327,7 @@ export type StoredQueuedMessage = {
   id: string
   text: string
   imageUrls: string[]
-  skills: Array<{ name: string; path: string }>
+  skills: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }>
   fileAttachments: Array<{ label: string; path: string; fsPath: string }>
   collaborationMode: CollaborationModeKind
 }
@@ -1972,7 +1972,7 @@ export async function startThreadTurn(
   imageUrls: string[] = [],
   model?: string,
   effort?: ReasoningEffort,
-  skills?: Array<{ name: string; path: string }>,
+  skills?: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }>,
   fileAttachments: FileAttachmentParam[] = [],
   collaborationMode?: CollaborationModeKind,
 ): Promise<string> {
@@ -2012,7 +2012,11 @@ export async function startThreadTurn(
     }
     if (skills) {
       for (const skill of skills) {
-        input.push({ type: 'skill', name: skill.name, path: skill.path })
+        input.push({
+          type: skill.kind === 'plugin' || skill.path.startsWith('plugin://') ? 'mention' : 'skill',
+          name: skill.name,
+          path: skill.path,
+        })
       }
     }
     const attachments = dedupedFileAttachments.map((f) => ({ label: f.label, path: f.path, fsPath: f.fsPath }))
@@ -2469,27 +2473,53 @@ function normalizeDirectoryMcpServer(value: unknown): DirectoryMcpServerStatus |
   }
 }
 
+const DIRECTORY_PLUGIN_LIST_CACHE_TTL_MS = 60_000
+const directoryPluginListCache = new Map<string, { loadedAt: number; promise: Promise<DirectoryPluginSummary[]> }>()
+
+function directoryPluginListCacheKey(cwds?: string[]): string {
+  return JSON.stringify((cwds ?? []).map((cwd) => cwd.trim()).filter(Boolean).sort())
+}
+
+function clearDirectoryPluginListCache(): void {
+  directoryPluginListCache.clear()
+}
+
 export async function listDirectoryPlugins(cwds?: string[]): Promise<DirectoryPluginSummary[]> {
+  const cacheKey = directoryPluginListCacheKey(cwds)
+  const now = Date.now()
+  const cached = directoryPluginListCache.get(cacheKey)
+  if (cached && now - cached.loadedAt < DIRECTORY_PLUGIN_LIST_CACHE_TTL_MS) {
+    return cached.promise
+  }
+
   const params: Record<string, unknown> = {}
   if (cwds && cwds.length > 0) params.cwds = cwds
-  const payload = await callRpc<{ marketplaces?: unknown[] }>('plugin/list', params)
-  const plugins: DirectoryPluginSummary[] = []
-  for (const marketplaceValue of payload.marketplaces ?? []) {
-    const marketplace = asRecord(marketplaceValue)
-    if (!marketplace) continue
-    const iface = asRecord(marketplace.interface)
-    const meta = {
-      name: readString(marketplace.name) ?? '',
-      displayName: readString(iface?.displayName ?? iface?.display_name) ?? '',
-      path: readString(marketplace.path),
-    }
-    const rows = Array.isArray(marketplace.plugins) ? marketplace.plugins : []
-    for (const row of rows) {
-      const plugin = normalizeDirectoryPluginSummary(row, meta)
-      if (plugin) plugins.push(plugin)
-    }
-  }
-  return plugins
+  const promise = callRpc<{ marketplaces?: unknown[] }>('plugin/list', params)
+    .then((payload) => {
+      const plugins: DirectoryPluginSummary[] = []
+      for (const marketplaceValue of payload.marketplaces ?? []) {
+        const marketplace = asRecord(marketplaceValue)
+        if (!marketplace) continue
+        const iface = asRecord(marketplace.interface)
+        const meta = {
+          name: readString(marketplace.name) ?? '',
+          displayName: readString(iface?.displayName ?? iface?.display_name) ?? '',
+          path: readString(marketplace.path),
+        }
+        const rows = Array.isArray(marketplace.plugins) ? marketplace.plugins : []
+        for (const row of rows) {
+          const plugin = normalizeDirectoryPluginSummary(row, meta)
+          if (plugin) plugins.push(plugin)
+        }
+      }
+      return plugins
+    })
+    .catch((error) => {
+      directoryPluginListCache.delete(cacheKey)
+      throw error
+    })
+  directoryPluginListCache.set(cacheKey, { loadedAt: now, promise })
+  return promise
 }
 
 export async function readDirectoryPlugin(plugin: DirectoryPluginSummary): Promise<DirectoryPluginDetail> {
@@ -2522,6 +2552,7 @@ export async function installDirectoryPlugin(plugin: DirectoryPluginSummary): Pr
   if (plugin.marketplacePath) params.marketplacePath = plugin.marketplacePath
   if (plugin.remoteMarketplaceName) params.remoteMarketplaceName = plugin.remoteMarketplaceName
   const payload = await callRpc<{ authPolicy?: string; auth_policy?: string; appsNeedingAuth?: unknown[]; apps_needing_auth?: unknown[] }>('plugin/install', params)
+  clearDirectoryPluginListCache()
   const apps = payload.appsNeedingAuth ?? payload.apps_needing_auth ?? []
   return {
     authPolicy: readString(payload.authPolicy ?? payload.auth_policy) ?? '',
@@ -2531,6 +2562,7 @@ export async function installDirectoryPlugin(plugin: DirectoryPluginSummary): Pr
 
 export async function uninstallDirectoryPlugin(pluginId: string): Promise<void> {
   await callRpc('plugin/uninstall', { pluginId })
+  clearDirectoryPluginListCache()
 }
 
 export async function setDirectoryPluginEnabled(pluginId: string, enabled: boolean): Promise<void> {
@@ -2540,6 +2572,7 @@ export async function setDirectoryPluginEnabled(pluginId: string, enabled: boole
     expectedVersion: null,
     reloadUserConfig: true,
   })
+  clearDirectoryPluginListCache()
 }
 
 export async function listDirectoryApps(threadId?: string): Promise<DirectoryAppInfo[]> {
@@ -2777,7 +2810,8 @@ function normalizeStoredQueuedMessage(value: unknown): StoredQueuedMessage | nul
       const itemRecord = item as Record<string, unknown>
       const name = typeof itemRecord.name === 'string' ? itemRecord.name.trim() : ''
       const path = typeof itemRecord.path === 'string' ? itemRecord.path.trim() : ''
-      return name && path ? [{ name, path }] : []
+      const kind: 'skill' | 'plugin' = itemRecord.kind === 'plugin' || path.startsWith('plugin://') ? 'plugin' : 'skill'
+      return name && path ? [{ name, path, kind }] : []
     })
     : []
   const fileAttachments = Array.isArray(record.fileAttachments)

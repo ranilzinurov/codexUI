@@ -68,6 +68,26 @@ describe('normalizeThreadMessagesV2', () => {
     expect(messages[0].isUnhandled).toBeUndefined()
   })
 
+  it('preserves plugin mentions on the rendered user message', () => {
+    const messages = normalizeThreadMessagesV2(threadReadResponseWithContent([{
+      type: 'userMessage',
+      id: 'user-plugin-1',
+      content: [
+        { type: 'text', text: 'Use Product Design', text_elements: [] },
+        { type: 'mention', name: 'Product Design', path: 'plugin://product-design@openai-curated-remote' },
+      ],
+    }]))
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0]).toMatchObject({
+      id: 'user-plugin-1',
+      role: 'user',
+      text: 'Use Product Design',
+      skills: [{ name: 'Product Design', path: 'plugin://product-design@openai-curated-remote', kind: 'plugin' }],
+    })
+    expect(messages[0].isUnhandled).toBeUndefined()
+  })
+
   it('decodes escaped heartbeat instructions without exposing raw XML', () => {
     const messages = normalizeThreadMessagesV2(threadReadResponseWithContent([{
       type: 'userMessage',

@@ -94,7 +94,7 @@ type SideChatDesktopState = ReturnType<typeof useDesktopState> & {
   sendMessageToSideChat: (
     text: string,
     imageUrls?: string[],
-    skills?: Array<{ name: string; path: string }>,
+    skills?: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }>,
     mode?: 'steer' | 'queue',
     fileAttachments?: Array<{ label: string; path: string; fsPath?: string }>,
   ) => Promise<unknown>

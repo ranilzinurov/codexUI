@@ -4772,7 +4772,7 @@ export type StoredQueuedMessage = {
   id: string
   text: string
   imageUrls: string[]
-  skills: Array<{ name: string; path: string }>
+  skills: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }>
   fileAttachments: Array<{ label: string; path: string; fsPath: string }>
   collaborationMode: 'default' | 'plan'
 }
@@ -4801,14 +4801,15 @@ function normalizeStoredQueuedMessage(value: unknown): StoredQueuedMessage | nul
   const id = typeof record.id === 'string' ? record.id.trim() : ''
   if (!id) return null
 
-  const normalizeNamedPathItems = (items: unknown): Array<{ name: string; path: string }> => {
+  const normalizeNamedPathItems = (items: unknown): Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }> => {
     if (!Array.isArray(items)) return []
     return items.flatMap((item) => {
       const itemRecord = asRecord(item)
       if (!itemRecord) return []
       const name = typeof itemRecord.name === 'string' ? itemRecord.name.trim() : ''
       const path = typeof itemRecord.path === 'string' ? itemRecord.path.trim() : ''
-      return name && path ? [{ name, path }] : []
+      const kind: 'skill' | 'plugin' = itemRecord.kind === 'plugin' || path.startsWith('plugin://') ? 'plugin' : 'skill'
+      return name && path ? [{ name, path, kind }] : []
     })
   }
 
@@ -6677,7 +6678,11 @@ export class BackendQueueProcessor {
     }
 
     for (const skill of turn.message.skills) {
-      input.push({ type: 'skill', name: skill.name, path: skill.path })
+      input.push({
+        type: skill.kind === 'plugin' || skill.path.startsWith('plugin://') ? 'mention' : 'skill',
+        name: skill.name,
+        path: skill.path,
+      })
     }
 
     const params: Record<string, unknown> = {

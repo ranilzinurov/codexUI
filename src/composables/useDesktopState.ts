@@ -1636,14 +1636,14 @@ export function useDesktopState() {
     id: string
     text: string
     imageUrls: string[]
-    skills: Array<{ name: string; path: string }>
+    skills: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }>
     fileAttachments: FileAttachment[]
     collaborationMode: CollaborationModeKind
   }
   type SendMessageResult = 'ignored' | 'answered-request' | 'queued' | 'started'
   type SendMessageToThreadOptions = {
     imageUrls?: string[]
-    skills?: Array<{ name: string; path: string }>
+    skills?: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }>
     fileAttachments?: FileAttachment[]
     queueInsertIndex?: number
     mode?: 'steer' | 'queue'
@@ -1652,7 +1652,7 @@ export function useDesktopState() {
   type PendingTurnRequest = {
     text: string
     imageUrls: string[]
-    skills: Array<{ name: string; path: string }>
+    skills: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }>
     fileAttachments: FileAttachment[]
     effort: ReasoningEffort | ''
     collaborationMode: CollaborationModeKind
@@ -5096,7 +5096,7 @@ export function useDesktopState() {
         id: message.id,
         text: message.text,
         imageUrls: [...message.imageUrls],
-        skills: message.skills.map((skill) => ({ name: skill.name, path: skill.path })),
+        skills: message.skills.map((skill) => ({ name: skill.name, path: skill.path, kind: skill.kind === 'plugin' ? 'plugin' as const : 'skill' as const })),
         fileAttachments: message.fileAttachments.map((attachment) => ({
           label: attachment.label,
           path: attachment.path,
@@ -5721,7 +5721,7 @@ export function useDesktopState() {
     threadId: string,
     text: string,
     imageUrls: string[] = [],
-    skills: Array<{ name: string; path: string }> = [],
+    skills: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }> = [],
     fileAttachments: FileAttachment[] = [],
   ): Promise<boolean> {
     if (!threadId || !text.trim()) return false
@@ -5772,7 +5772,7 @@ export function useDesktopState() {
     threadId: string,
     text: string,
     imageUrls: string[],
-    skills: Array<{ name: string; path: string }>,
+    skills: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }>,
     fileAttachments: FileAttachment[],
     queueInsertIndex: number | undefined,
     collaborationModeOverride?: CollaborationModeKind,
@@ -5789,7 +5789,7 @@ export function useDesktopState() {
       id,
       text,
       imageUrls: [...imageUrls],
-      skills: skills.map((skill) => ({ name: skill.name, path: skill.path })),
+      skills: skills.map((skill) => ({ name: skill.name, path: skill.path, kind: skill.kind === 'plugin' ? 'plugin' as const : 'skill' as const })),
       fileAttachments: fileAttachments.map((file) => ({ ...file })),
       collaborationMode: resolveSendCollaborationMode(collaborationModeOverride),
     })
@@ -5808,7 +5808,7 @@ export function useDesktopState() {
     threadId: string,
     text: string,
     imageUrls: string[],
-    skills: Array<{ name: string; path: string }>,
+    skills: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }>,
     busyMode: 'steer' | 'queue',
     fileAttachments: FileAttachment[],
     queueInsertIndex: number | undefined,
@@ -5920,7 +5920,7 @@ export function useDesktopState() {
   async function sendMessageToSelectedThread(
     text: string,
     imageUrls: string[] = [],
-    skills: Array<{ name: string; path: string }> = [],
+    skills: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }> = [],
     mode: 'steer' | 'queue' = 'steer',
     fileAttachments: FileAttachment[] = [],
     queueInsertIndex?: number,
@@ -5966,7 +5966,7 @@ export function useDesktopState() {
   async function sendMessageToSideChat(
     text: string,
     imageUrls: string[] = [],
-    skills: Array<{ name: string; path: string }> = [],
+    skills: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }> = [],
     mode: 'steer' | 'queue' = 'steer',
     fileAttachments: FileAttachment[] = [],
   ): Promise<SendMessageResult> {
@@ -6058,7 +6058,7 @@ export function useDesktopState() {
     text: string,
     cwd: string,
     imageUrls: string[] = [],
-    skills: Array<{ name: string; path: string }> = [],
+    skills: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }> = [],
     fileAttachments: FileAttachment[] = [],
   ): Promise<string> {
     if (isUpdatingSpeedMode.value) return ''
@@ -6147,7 +6147,7 @@ export function useDesktopState() {
     threadId: string,
     nextText: string,
     imageUrls: string[] = [],
-    skills: Array<{ name: string; path: string }> = [],
+    skills: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }> = [],
     fileAttachments: FileAttachment[] = [],
     collaborationModeOverride?: CollaborationModeKind,
   ): Promise<void> {
@@ -6166,7 +6166,7 @@ export function useDesktopState() {
         normalizedImageUrls.push(latestAttachedImageUrl)
       }
     }
-    const normalizedSkills = skills.map((skill) => ({ name: skill.name, path: skill.path }))
+    const normalizedSkills = skills.map((skill) => ({ name: skill.name, path: skill.path, kind: skill.kind === 'plugin' ? 'plugin' as const : 'skill' as const }))
     const normalizedFileAttachments = fileAttachments.map((file) => ({ ...file }))
 
     setPendingTurnRequest(threadId, {

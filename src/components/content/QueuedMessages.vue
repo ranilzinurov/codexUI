@@ -54,7 +54,7 @@ type QueuedMessageRow = {
   id: string
   text: string
   imageUrls?: string[]
-  skills?: Array<{ name: string; path: string }>
+  skills?: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }>
   fileAttachments?: Array<{ label: string; path: string; fsPath: string }>
 }
 
@@ -112,11 +112,13 @@ function getMessagePreview(message: QueuedMessageRow): string {
   const parts: string[] = []
   const imageCount = message.imageUrls?.length ?? 0
   const fileCount = message.fileAttachments?.length ?? 0
-  const skillCount = message.skills?.length ?? 0
+  const pluginCount = message.skills?.filter((skill) => skill.kind === 'plugin' || skill.path.startsWith('plugin://')).length ?? 0
+  const skillCount = (message.skills?.length ?? 0) - pluginCount
 
   if (imageCount > 0) parts.push(`${imageCount} ${t(imageCount === 1 ? 'image' : 'images')}`)
   if (fileCount > 0) parts.push(`${fileCount} ${t(fileCount === 1 ? 'file' : 'files')}`)
   if (skillCount > 0) parts.push(`${skillCount} ${t(skillCount === 1 ? 'skill' : 'skills')}`)
+  if (pluginCount > 0) parts.push(`${pluginCount} ${t(pluginCount === 1 ? 'plugin' : 'plugins')}`)
 
   return parts.join(', ') || t('(empty queued message)')
 }

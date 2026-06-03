@@ -6,7 +6,7 @@ export type ComposerDraftPayload = {
   text: string
   imageUrls: string[]
   fileAttachments: Array<{ label: string; path: string; fsPath: string }>
-  skills: Array<{ name: string; path: string }>
+  skills: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }>
 }
 
 export function createEmptyComposerDraftPayload(): ComposerDraftPayload {
@@ -52,11 +52,15 @@ export function loadPersistedDraftForThread(threadId: string): ComposerDraftPayl
         ))
         : [],
       skills: Array.isArray(parsed.skills)
-        ? parsed.skills.filter((skill): skill is { name: string; path: string } => (
+        ? parsed.skills.filter((skill): skill is { name: string; path: string; kind?: 'skill' | 'plugin' } => (
           Boolean(skill)
           && typeof skill.name === 'string'
           && typeof skill.path === 'string'
-        ))
+        )).map((skill) => ({
+          name: skill.name,
+          path: skill.path,
+          kind: skill.kind === 'plugin' ? 'plugin' as const : 'skill' as const,
+        }))
         : [],
     }
   } catch {

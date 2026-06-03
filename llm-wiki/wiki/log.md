@@ -85,3 +85,10 @@
 - Updated wiki page: `concepts/runtime-activity-panel.md`.
 - Documents completed MCP aggregation, active row ordering, persisted MCP diagnostics, Directory `serverInfo` fallback behavior, and `codex app-server --stdio` compatibility retry.
 - Updated `index.md`.
+
+## 2026-06-03
+
+- Added source notes for composer plugin mentions.
+- Created wiki page: `concepts/composer-plugin-mentions.md`.
+- Documents `$` picker plugin rows, `plugin://` mention paths, draft/queue preservation, and history rendering.
+- Updated `index.md`.

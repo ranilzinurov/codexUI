@@ -225,7 +225,7 @@ export type UiMessage = {
   role: 'user' | 'assistant' | 'system'
   text: string
   images?: string[]
-  skills?: Array<{ name: string; path: string }>
+  skills?: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }>
   fileAttachments?: UiFileAttachment[]
   fileChanges?: UiFileChange[]
   fileChangeStatus?: UiFileChangeStatus

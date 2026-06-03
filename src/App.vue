@@ -1444,7 +1444,7 @@ type DirectoryTryItemPayload = {
   displayName: string
   skillPath?: string
   prompt?: string
-  attachedSkills?: Array<{ name: string; path: string }>
+  attachedSkills?: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }>
 }
 
 type ChatWidthPreset = {
@@ -3530,7 +3530,7 @@ async function syncAfterMobileResume(): Promise<void> {
   }
 }
 
-function onSubmitThreadMessage(payload: { text: string; imageUrls: string[]; fileAttachments: Array<{ label: string; path: string; fsPath: string }>; skills: Array<{ name: string; path: string }>; mode: 'steer' | 'queue' }): void {
+function onSubmitThreadMessage(payload: { text: string; imageUrls: string[]; fileAttachments: Array<{ label: string; path: string; fsPath: string }>; skills: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }>; mode: 'steer' | 'queue' }): void {
   const text = payload.text
   scheduleMobileConversationJumpToLatest()
   const editingState = editingQueuedMessageState.value
@@ -5203,7 +5203,7 @@ watch(isMobile, (mobile) => {
 async function submitFirstMessageForNewThread(
   text: string,
   imageUrls: string[] = [],
-  skills: Array<{ name: string; path: string }> = [],
+  skills: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }> = [],
   fileAttachments: Array<{ label: string; path: string; fsPath: string }> = [],
 ): Promise<void> {
   try {

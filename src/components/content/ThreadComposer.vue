@@ -172,12 +172,17 @@
       </div>
 
       <div v-if="selectedSkills.length > 0" class="thread-composer-skill-chips">
-        <span v-for="skill in selectedSkills" :key="skill.path" class="thread-composer-skill-chip">
+        <span
+          v-for="skill in selectedSkills"
+          :key="skill.path"
+          class="thread-composer-skill-chip"
+          :class="{ 'is-plugin': skill.kind === 'plugin' || skill.path.startsWith('plugin://') }"
+        >
           <button
             class="thread-composer-skill-chip-name"
             type="button"
-            :title="skillMarkdownPath(skill.path)"
-            :aria-label="`Open ${skill.displayName || skill.name} SKILL.md`"
+            :title="skill.kind === 'plugin' || skill.path.startsWith('plugin://') ? 'Plugin' : skillMarkdownPath(skill.path)"
+            :aria-label="skill.kind === 'plugin' || skill.path.startsWith('plugin://') ? `${skill.displayName || skill.name} plugin` : `Open ${skill.displayName || skill.name} SKILL.md`"
             @click="openSkillMarkdown(skill)"
           >
             {{ skill.displayName || skill.name }}
@@ -403,7 +408,7 @@
             :options="skillDropdownOptions"
             :selected-values="selectedSkillPaths"
             :placeholder="t('Skills')"
-            :search-placeholder="t('Search skills and prompts...')"
+            :search-placeholder="t('Search skills, plugins, and prompts...')"
             :create-label="t('Add new prompt')"
             :allow-remove="true"
             :remove-label="t('Remove prompt')"
@@ -583,11 +588,13 @@ import { useUiLanguage } from '../../composables/useUiLanguage'
 import {
   createComposerPrompt,
   getComposerPrompts,
+  listDirectoryPlugins,
   removeComposerPrompt,
   searchComposerFiles,
   uploadFile,
   type ComposerFileSuggestion,
   type ComposerPromptInfo,
+  type DirectoryPluginSummary,
 } from '../../api/codexGateway'
 import IconTablerArrowUp from '../icons/IconTablerArrowUp.vue'
 import IconTablerBolt from '../icons/IconTablerBolt.vue'
@@ -616,7 +623,11 @@ type SkillSourceBadge = {
   badgeTone: 'repo' | 'system' | 'plugin' | 'user' | 'prompt'
 }
 
-type SkillItem = { name: string; displayName?: string; description: string; path: string; scope?: string; enabled?: boolean }
+type ComposerReferenceKind = 'skill' | 'plugin'
+type SkillItem = { name: string; displayName?: string; description: string; path: string; scope?: string; enabled?: boolean; kind?: ComposerReferenceKind }
+
+const COMPOSER_PLUGIN_CACHE_TTL_MS = 60_000
+const composerPluginCache = new Map<string, { loadedAt: number; promise: Promise<SkillItem[]> }>()
 
 const props = defineProps<{
   activeThreadId: string
@@ -652,7 +663,7 @@ export type SubmitPayload = {
   text: string
   imageUrls: string[]
   fileAttachments: FileAttachment[]
-  skills: Array<{ name: string; path: string }>
+  skills: Array<{ name: string; path: string; kind?: ComposerReferenceKind }>
   mode: 'steer' | 'queue'
 }
 
@@ -854,6 +865,7 @@ const PROMPT_OPTION_PREFIX = 'prompt:'
 const draft = ref('')
 const selectedImages = ref<SelectedImage[]>([])
 const selectedSkills = ref<SkillItem[]>([])
+const composerPlugins = ref<SkillItem[]>([])
 const savedPrompts = ref<ComposerPromptInfo[]>([])
 const fileAttachments = ref<FileAttachment[]>([])
 const folderUploadGroups = ref<FolderUploadGroup[]>([])
@@ -1001,7 +1013,10 @@ const isPlanModeWaitingForModel = computed(() =>
   props.selectedCollaborationMode === 'plan' && props.selectedModel.trim().length === 0,
 )
 
-const skillOptions = computed<SkillItem[]>(() => props.skills ?? [])
+const skillOptions = computed<SkillItem[]>(() => [
+  ...(props.skills ?? []).map((skill) => ({ ...skill, kind: 'skill' as const })),
+  ...composerPlugins.value,
+])
 const slashCommandOptions = computed(() => CODEX_SLASH_COMMANDS)
 const filteredSlashCommandOptions = computed(() => {
   const query = slashCommandQuery.value.toLowerCase().trim()
@@ -1026,6 +1041,15 @@ const skillDropdownOptions = computed(() =>
         removable: false,
       }
     }),
+    ...composerPlugins.value.map((plugin) => ({
+      value: plugin.path,
+      label: plugin.displayName || plugin.name,
+      description: plugin.description,
+      badge: 'P',
+      badgeLabel: 'Plugin',
+      badgeTone: 'plugin' as const,
+      removable: false,
+    })),
     ...savedPrompts.value.map((prompt) => ({
       value: promptOptionValue(prompt.path),
       label: prompt.name,
@@ -1134,7 +1158,7 @@ const placeholderText = computed(() =>
     ? t('Select a thread to send a message')
     : isPlanModeWaitingForModel.value
       ? t('Loading models for plan mode...')
-      : t('Type a message... (@ for files, / for commands, $ for skills)'),
+      : t('Type a message... (@ for files, / for commands, $ for skills/plugins)'),
 )
 const hasSubmitContent = computed(() =>
   draft.value.trim().length > 0 || selectedImages.value.length > 0 || fileAttachments.value.length > 0,
@@ -1386,7 +1410,7 @@ function onSubmit(mode: 'steer' | 'queue' = 'steer'): void {
     text,
     imageUrls: selectedImages.value.map((image) => image.url),
     fileAttachments: [...fileAttachments.value],
-    skills: selectedSkills.value.map((s) => ({ name: s.name, path: s.path })),
+    skills: selectedSkills.value.map((s) => ({ name: s.name, path: s.path, kind: s.kind === 'plugin' ? 'plugin' as const : 'skill' as const })),
     mode,
   })
   clearPersistedDraftForThread(props.activeThreadId)
@@ -1451,8 +1475,8 @@ function replaceDraftState(payload: ComposerDraftPayload): void {
     url,
   }))
   selectedSkills.value = payload.skills.map((skill) => (
-    (props.skills ?? []).find((item) => item.path === skill.path)
-    ?? { name: skill.name, displayName: undefined, description: '', path: skill.path }
+    skillOptions.value.find((item) => item.path === skill.path)
+    ?? { name: skill.name, displayName: undefined, description: '', path: skill.path, kind: skill.kind === 'plugin' ? 'plugin' as const : 'skill' as const }
   ))
   fileAttachments.value = payload.fileAttachments.map((attachment) => ({ ...attachment }))
   folderUploadGroups.value = []
@@ -1475,7 +1499,7 @@ function getCurrentDraftPayload(): ComposerDraftPayload {
     text: draft.value,
     imageUrls: selectedImages.value.map((image) => image.url),
     fileAttachments: fileAttachments.value.map((attachment) => ({ ...attachment })),
-    skills: selectedSkills.value.map((skill) => ({ name: skill.name, path: skill.path })),
+    skills: selectedSkills.value.map((skill) => ({ name: skill.name, path: skill.path, kind: skill.kind === 'plugin' ? 'plugin' as const : 'skill' as const })),
   }
 }
 
@@ -1650,11 +1674,13 @@ function removeSkill(path: string): void {
 
 function skillMarkdownPath(path: string): string {
   const trimmed = path.trim()
+  if (trimmed.startsWith('plugin://')) return ''
   if (!trimmed) return ''
   return trimmed.endsWith('/SKILL.md') ? trimmed : `${trimmed.replace(/\/+$/, '')}/SKILL.md`
 }
 
 function openSkillMarkdown(skill: SkillItem): void {
+  if (skill.kind === 'plugin' || skill.path.startsWith('plugin://')) return
   const markdownPath = skillMarkdownPath(skill.path)
   if (!markdownPath || typeof window === 'undefined') return
   window.open(`/codex-local-browse${encodeURI(markdownPath)}`, '_blank', 'noopener,noreferrer')
@@ -2249,6 +2275,52 @@ async function reloadPrompts(): Promise<void> {
   savedPrompts.value = await getComposerPrompts()
 }
 
+function pluginMentionPath(plugin: DirectoryPluginSummary): string {
+  const marketplace = plugin.marketplaceName || plugin.remoteMarketplaceName || plugin.marketplaceDisplayName
+  return marketplace ? `plugin://${plugin.name}@${marketplace}` : `plugin://${plugin.name}`
+}
+
+function pluginToComposerReference(plugin: DirectoryPluginSummary): SkillItem {
+  const description = plugin.description || plugin.longDescription || plugin.capabilities.slice(0, 3).join(', ')
+  return {
+    name: plugin.name,
+    displayName: plugin.displayName,
+    description,
+    path: pluginMentionPath(plugin),
+    enabled: plugin.enabled,
+    kind: 'plugin',
+  }
+}
+
+function readCachedComposerPlugins(cwd: string): Promise<SkillItem[]> {
+  const key = cwd.trim()
+  const now = Date.now()
+  const cached = composerPluginCache.get(key)
+  if (cached && now - cached.loadedAt < COMPOSER_PLUGIN_CACHE_TTL_MS) {
+    return cached.promise
+  }
+
+  const promise = listDirectoryPlugins(key ? [key] : undefined)
+    .then((plugins) => plugins
+      .filter((plugin) => plugin.installed && plugin.enabled)
+      .map(pluginToComposerReference))
+    .catch((error) => {
+      composerPluginCache.delete(key)
+      throw error
+    })
+  composerPluginCache.set(key, { loadedAt: now, promise })
+  return promise
+}
+
+async function loadComposerPlugins(): Promise<void> {
+  try {
+    const cwd = props.cwd?.trim()
+    composerPlugins.value = await readCachedComposerPlugins(cwd ?? '')
+  } catch {
+    composerPlugins.value = []
+  }
+}
+
 function promptOptionValue(path: string): string {
   return `${PROMPT_OPTION_PREFIX}${path}`
 }
@@ -2336,6 +2408,9 @@ function onSkillPickerSelect(skill: SkillItem): void {
 }
 
 function skillSourceBadge(skill: SkillItem): SkillSourceBadge {
+  if (skill.kind === 'plugin' || skill.path.startsWith('plugin://')) {
+    return { badge: 'P', badgeLabel: 'Plugin', badgeTone: 'plugin' }
+  }
   const path = skill.path.toLowerCase()
   if (path.includes('/plugins/cache/')) {
     return { badge: 'P', badgeLabel: 'Plugin', badgeTone: 'plugin' }
@@ -2361,7 +2436,7 @@ function onSkillDropdownToggle(path: string, checked: boolean): void {
   }
 
   if (checked) {
-    const skill = (props.skills ?? []).find((s) => s.path === path)
+    const skill = skillOptions.value.find((s) => s.path === path)
     if (skill && !selectedSkills.value.some((s) => s.path === path)) {
       selectedSkills.value = [...selectedSkills.value, skill]
     }
@@ -2387,6 +2462,7 @@ onMounted(() => {
   window.addEventListener('resize', scheduleComposerInputResize)
   scheduleComposerInputResize()
   void reloadPrompts()
+  void loadComposerPlugins()
   queueComposerOverflowMeasurement()
 })
 
@@ -2436,6 +2512,10 @@ watch(
   },
   { immediate: true },
 )
+
+watch(() => props.cwd, () => {
+  void loadComposerPlugins()
+})
 
 watch([draft, selectedImages, fileAttachments, selectedSkills], () => {
   if (!lastActiveThreadId) return
@@ -2564,12 +2644,24 @@ watch(
   @apply inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700;
 }
 
+.thread-composer-skill-chip.is-plugin {
+  @apply border-violet-200 bg-violet-50 text-violet-700;
+}
+
 .thread-composer-skill-chip-name {
   @apply min-w-0 max-w-[12rem] truncate border-0 bg-transparent p-0 text-left font-medium text-inherit underline-offset-2 transition hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-500;
 }
 
+.thread-composer-skill-chip.is-plugin .thread-composer-skill-chip-name {
+  @apply hover:no-underline focus-visible:ring-violet-500;
+}
+
 .thread-composer-skill-chip-remove {
   @apply ml-0.5 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border-0 bg-transparent text-emerald-500 transition hover:bg-emerald-200 hover:text-emerald-700 text-xs leading-none p-0;
+}
+
+.thread-composer-skill-chip.is-plugin .thread-composer-skill-chip-remove {
+  @apply text-violet-500 hover:bg-violet-200 hover:text-violet-700;
 }
 
 .thread-composer-rate-limit {

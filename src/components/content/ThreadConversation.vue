@@ -270,10 +270,11 @@
                   v-for="skill in message.skills"
                   :key="`${message.id}:${skill.path}`"
                   class="message-skill-chip"
-                  :href="toBrowseUrl(skill.path)"
+                  :class="{ 'is-plugin': skill.kind === 'plugin' || skill.path.startsWith('plugin://') }"
+                  :href="skill.kind === 'plugin' || skill.path.startsWith('plugin://') ? undefined : toBrowseUrl(skill.path)"
                   :title="skill.path"
                 >
-                  <span class="message-skill-chip-prefix">Skill</span>
+                  <span class="message-skill-chip-prefix">{{ skill.kind === 'plugin' || skill.path.startsWith('plugin://') ? 'Plugin' : 'Skill' }}</span>
                   <span class="message-skill-chip-name">{{ skill.name }}</span>
                 </a>
               </div>
@@ -5003,8 +5004,16 @@ onBeforeUnmount(() => {
   @apply inline-flex max-w-full items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-800 no-underline transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-900;
 }
 
+.message-skill-chip.is-plugin {
+  @apply border-violet-200 bg-violet-50 text-violet-800 hover:border-violet-300 hover:bg-violet-100 hover:text-violet-900;
+}
+
 .message-skill-chip-prefix {
   @apply shrink-0 font-medium text-emerald-700;
+}
+
+.message-skill-chip.is-plugin .message-skill-chip-prefix {
+  @apply text-violet-700;
 }
 
 .message-skill-chip-name {
@@ -5529,8 +5538,16 @@ onBeforeUnmount(() => {
   @apply border-emerald-800/70 bg-emerald-950/50 text-emerald-100;
 }
 
+:global(.dark) .message-skill-chip.is-plugin {
+  @apply border-violet-800/70 bg-violet-950/50 text-violet-100;
+}
+
 :global(.dark) .message-skill-chip-prefix {
   @apply text-emerald-300;
+}
+
+:global(.dark) .message-skill-chip.is-plugin .message-skill-chip-prefix {
+  @apply text-violet-300;
 }
 
 .conversation-item[data-message-type='worked'] .message-stack,

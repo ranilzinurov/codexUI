@@ -7433,3 +7433,42 @@ Sub-agent runtime rows remain visible for the active turn, restore after parent-
 #### Rollback/Cleanup
 - Stop the temporary `4173` dev server when testing is complete.
 - Delete `output/playwright/agent-runtime-panel-*.png` and `output/playwright/agent-runtime-panel-diagnostics.json` if you want to remove local evidence artifacts.
+
+---
+
+### Composer Plugin Mentions
+
+#### Feature/Change Name
+The `$` composer picker can select installed enabled plugins, visually distinguish them from skills, and send them as plugin mentions.
+
+#### Prerequisites/Setup
+1. Run from the repository root with dependencies installed.
+2. Start or confirm the app server on `http://127.0.0.1:4173`:
+   `pnpm run dev --host 127.0.0.1 --port 4173`
+3. Use a Codex CLI/app-server version that supports `plugin/list`.
+4. Install and enable at least one plugin such as Product Design.
+
+#### Steps
+1. Run the focused regression test:
+   `pnpm exec vitest run src/api/normalizers/v2.test.ts`
+2. Run the frontend type/build check:
+   `pnpm run build:frontend`
+3. In light theme, open an existing thread and type `$` in an empty composer.
+4. In the picker search field, search for the installed plugin name, for example `product`.
+5. Confirm plugin rows appear with a visible `Plugin` badge and skills still appear with a `Skill` badge.
+6. Select the plugin and confirm the composer shows a violet plugin chip rather than a green skill chip.
+7. Add ordinary task text and send the message.
+8. Confirm the sent user message history shows a `Plugin` chip for the selected plugin and does not try to browse it as a local `SKILL.md` file.
+9. Queue a message while a turn is in progress with the same plugin selected, then send/steer it and confirm the plugin remains attached.
+10. Switch to dark theme and repeat steps 3-8. Confirm the picker, plugin badge, composer chip, and history chip remain readable without light surfaces on the dark page.
+
+#### Expected Results
+- `$` autocomplete lists installed enabled plugins alongside skills.
+- Plugin options are visibly labeled as `Plugin`; skill options remain labeled as `Skill`.
+- Selected plugins render as plugin-colored chips and are sent as `mention` input items with `plugin://...` paths.
+- Existing skill selection, prompt selection, file attachments, and slash commands keep their previous behavior.
+- Light and dark themes both keep the new picker rows and chips legible.
+
+#### Rollback/Cleanup
+- Remove queued test messages if any were created.
+- Stop the temporary `4173` dev server when testing is complete.

@@ -782,7 +782,7 @@ export type DirectoryTryItemPayload = {
   displayName: string
   skillPath?: string
   prompt?: string
-  attachedSkills?: Array<{ name: string; path: string }>
+  attachedSkills?: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }>
 }
 
 const emit = defineEmits<{

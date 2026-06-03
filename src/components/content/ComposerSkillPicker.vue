@@ -6,7 +6,7 @@
         v-model="query"
         class="skill-picker-search"
         type="text"
-        :placeholder="t('Search skills...')"
+        :placeholder="t('Search skills or plugins...')"
         @keydown.escape.prevent="$emit('close')"
         @keydown.enter.prevent="selectHighlighted"
         @keydown.arrow-down.prevent="moveHighlight(1)"
@@ -22,12 +22,21 @@
           @click="$emit('select', skill)"
           @pointerenter="highlightIndex = idx"
         >
-          <span class="skill-picker-name">{{ skill.displayName || skill.name }}</span>
+          <span class="skill-picker-title-row">
+            <span class="skill-picker-name">{{ skill.displayName || skill.name }}</span>
+            <span
+              v-if="skill.kind"
+              class="skill-picker-kind"
+              :class="`is-${skill.kind}`"
+            >
+              {{ skill.kind === 'plugin' ? 'Plugin' : 'Skill' }}
+            </span>
+          </span>
           <span v-if="skill.description" class="skill-picker-desc">{{ skill.description }}</span>
         </button>
       </li>
     </ul>
-    <div v-else class="skill-picker-empty">{{ t('No skills found') }}</div>
+    <div v-else class="skill-picker-empty">{{ t('No skills or plugins found') }}</div>
   </div>
 </template>
 
@@ -40,6 +49,7 @@ export type SkillOption = {
   displayName?: string
   description: string
   path: string
+  kind?: 'skill' | 'plugin'
 }
 
 const props = defineProps<{
@@ -129,8 +139,24 @@ watch(query, () => {
   @apply bg-zinc-100;
 }
 
+.skill-picker-title-row {
+  @apply flex w-full min-w-0 items-center gap-2;
+}
+
 .skill-picker-name {
-  @apply text-sm font-medium text-zinc-800;
+  @apply min-w-0 truncate text-sm font-medium text-zinc-800;
+}
+
+.skill-picker-kind {
+  @apply shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-normal;
+}
+
+.skill-picker-kind.is-skill {
+  @apply border-zinc-200 bg-zinc-50 text-zinc-500;
+}
+
+.skill-picker-kind.is-plugin {
+  @apply border-violet-200 bg-violet-50 text-violet-700;
 }
 
 .skill-picker-desc {
@@ -139,5 +165,41 @@ watch(query, () => {
 
 .skill-picker-empty {
   @apply p-3 text-center text-sm text-zinc-400;
+}
+
+:global(:root.dark) .skill-picker {
+  @apply border-zinc-700 bg-zinc-900 shadow-black/30;
+}
+
+:global(:root.dark) .skill-picker-header {
+  @apply border-zinc-800;
+}
+
+:global(:root.dark) .skill-picker-search {
+  @apply border-zinc-700 bg-zinc-800 text-zinc-100 placeholder-zinc-500 focus:border-zinc-600 focus:bg-zinc-800;
+}
+
+:global(:root.dark) .skill-picker-item {
+  @apply hover:bg-zinc-800;
+}
+
+:global(:root.dark) .skill-picker-item.is-highlighted {
+  @apply bg-zinc-800;
+}
+
+:global(:root.dark) .skill-picker-name {
+  @apply text-zinc-100;
+}
+
+:global(:root.dark) .skill-picker-desc {
+  @apply text-zinc-400;
+}
+
+:global(:root.dark) .skill-picker-kind.is-skill {
+  @apply border-zinc-700 bg-zinc-800 text-zinc-400;
+}
+
+:global(:root.dark) .skill-picker-kind.is-plugin {
+  @apply border-violet-800 bg-violet-950 text-violet-300;
 }
 </style>
