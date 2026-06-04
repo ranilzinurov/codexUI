@@ -1948,8 +1948,16 @@ const composerThreadContextId = computed(() => (isHomeRoute.value ? '__new-threa
 const activeDictationStatusMessage = computed(() => {
   const threadId = composerThreadContextId.value.trim()
   if (!threadId || threadId === '__new-thread__') return ''
-  const job = dictationBackgroundJobs.getJobsForThread(threadId)
-    .find((candidate) => candidate.status === 'queued' || candidate.status === 'transcribing' || candidate.status === 'failed')
+  const jobs = dictationBackgroundJobs.getJobsForThread(threadId)
+  const latestCompletedAt = Math.max(0, ...jobs
+    .filter((candidate) => candidate.status === 'completed')
+    .map((candidate) => candidate.updatedAt))
+  const job = jobs
+    .filter((candidate) => {
+      if (candidate.status === 'queued' || candidate.status === 'transcribing') return true
+      return candidate.status === 'failed' && candidate.updatedAt >= latestCompletedAt
+    })
+    .sort((left, right) => right.updatedAt - left.updatedAt)[0]
   if (!job) return ''
   if (job.status === 'queued') return t('Dictation queued for transcription...')
   if (job.status === 'transcribing') {

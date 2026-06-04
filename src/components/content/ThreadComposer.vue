@@ -434,6 +434,21 @@
           class="thread-composer-actions"
           :class="{ 'thread-composer-actions--recording': isDictationActive }"
         >
+          <button
+            v-if="isDictationActive"
+            class="thread-composer-dictation-action thread-composer-dictation-cancel"
+            type="button"
+            aria-label="Cancel dictation"
+            title="Cancel dictation"
+            :disabled="isInteractionDisabled"
+            @click="onDictationCancel"
+            @pointerdown.stop
+            @pointerup.stop
+            @pointercancel.stop
+          >
+            <IconTablerX class="thread-composer-dictation-action-icon" />
+          </button>
+
           <div v-if="isDictationActive" class="thread-composer-dictation-waveform-wrap" aria-hidden="true">
             <canvas
               ref="dictationWaveformCanvasRef"
@@ -476,21 +491,6 @@
             @pointercancel.stop
           >
             <IconTablerFilePencil class="thread-composer-dictation-action-icon" />
-          </button>
-
-          <button
-            v-if="isDictationActive"
-            class="thread-composer-dictation-action thread-composer-dictation-cancel"
-            type="button"
-            aria-label="Cancel dictation"
-            title="Cancel dictation"
-            :disabled="isInteractionDisabled"
-            @click="onDictationCancel"
-            @pointerdown.stop
-            @pointerup.stop
-            @pointercancel.stop
-          >
-            <IconTablerX class="thread-composer-dictation-action-icon" />
           </button>
 
           <button

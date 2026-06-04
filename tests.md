@@ -7228,7 +7228,7 @@ Main composer active dictation cancel button.
 
 #### Steps
 1. In light theme, type a short prefix in the composer and optionally attach an image or select a skill.
-2. Start dictation and confirm the active recording controls show waveform, timer, pause, draft-transcribe, cancel, and stop buttons.
+2. Start dictation and confirm the active recording controls show the cancel `X` on the far left, then waveform, timer, pause, draft-transcribe, and stop buttons.
 3. Click the cancel `X` button while recording.
 4. Confirm the composer returns to the normal idle controls.
 5. Confirm the typed draft, attachments, and selected skills remain unchanged.
@@ -7241,6 +7241,7 @@ Main composer active dictation cancel button.
 - Cancel discards only the active recording and returns the composer to idle without storing or transcribing audio.
 - Hold-to-dictate cleanup does not trigger a late stop/transcription after cancel.
 - Existing stop and draft-transcribe controls still submit recordings for transcription.
+- A stale failed background dictation status is hidden after a newer successful dictation job completes for the same thread.
 - Light and dark theme active recording controls remain aligned and readable.
 
 #### Rollback/Cleanup
