@@ -308,6 +308,18 @@ html::after {
   @apply bg-zinc-700 text-zinc-400 hover:bg-zinc-600 hover:text-zinc-200;
 }
 
+:root.dark .thread-composer-dictation-action {
+  @apply bg-zinc-700 text-zinc-300 hover:bg-zinc-600 hover:text-zinc-100;
+}
+
+:root.dark .thread-composer-dictation-pause--active {
+  @apply bg-amber-950 text-amber-200 hover:bg-amber-900 hover:text-amber-100;
+}
+
+:root.dark .thread-composer-dictation-cancel {
+  @apply text-zinc-400 hover:bg-rose-950 hover:text-rose-200;
+}
+
 :root.dark .thread-composer-stop {
   @apply bg-zinc-200 text-zinc-900 hover:bg-white;
 }

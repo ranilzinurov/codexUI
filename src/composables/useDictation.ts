@@ -528,16 +528,17 @@ export function useDictation(options: {
     stopWaveformCapture()
     resetWaveformDisplay()
     if (mediaRecorder) {
-      if (mediaRecorder.state !== 'inactive') {
+      const recorder = mediaRecorder
+      mediaRecorder = null
+      recorder.ondataavailable = null
+      recorder.onstop = null
+      if (recorder.state !== 'inactive') {
         try {
-          mediaRecorder.stop()
+          recorder.stop()
         } catch {
           // Ignore recorder shutdown errors during cancellation cleanup.
         }
       }
-      mediaRecorder.ondataavailable = null
-      mediaRecorder.onstop = null
-      mediaRecorder = null
     }
     if (mediaStream) {
       mediaStream.getTracks().forEach((track) => track.stop())

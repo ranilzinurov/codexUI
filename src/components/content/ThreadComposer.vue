@@ -479,6 +479,21 @@
           </button>
 
           <button
+            v-if="isDictationActive"
+            class="thread-composer-dictation-action thread-composer-dictation-cancel"
+            type="button"
+            aria-label="Cancel dictation"
+            title="Cancel dictation"
+            :disabled="isInteractionDisabled"
+            @click="onDictationCancel"
+            @pointerdown.stop
+            @pointerup.stop
+            @pointercancel.stop
+          >
+            <IconTablerX class="thread-composer-dictation-action-icon" />
+          </button>
+
+          <button
             v-if="isDictationSupported"
             class="thread-composer-mic"
             :class="{
@@ -605,6 +620,7 @@ import IconTablerMicrophone from '../icons/IconTablerMicrophone.vue'
 import IconTablerMinimize from '../icons/IconTablerMinimize.vue'
 import IconTablerPlayerPauseFilled from '../icons/IconTablerPlayerPauseFilled.vue'
 import IconTablerPlayerStopFilled from '../icons/IconTablerPlayerStopFilled.vue'
+import IconTablerX from '../icons/IconTablerX.vue'
 import ComposerDropdown from './ComposerDropdown.vue'
 import ComposerSearchDropdown from './ComposerSearchDropdown.vue'
 import ComposerSkillPicker from './ComposerSkillPicker.vue'
@@ -1610,6 +1626,18 @@ function onDictationInsertDraft(): void {
   if (!isDictationActive.value) return
   shouldInsertNextDictationDraftOnly.value = true
   stopRecording()
+}
+
+function onDictationCancel(): void {
+  if (!isDictationActive.value) return
+  shouldInsertNextDictationDraftOnly.value = false
+  dictationFeedback.value = ''
+  isHoldPressActive = false
+  window.removeEventListener('pointerup', onDictationPressEnd)
+  window.removeEventListener('pointercancel', onDictationPressEnd)
+  window.removeEventListener('blur', onDictationPressEnd)
+  cancelDictation()
+  clearActiveDictationTarget()
 }
 
 function onDictationPressStart(event: PointerEvent): void {

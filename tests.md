@@ -7215,6 +7215,40 @@ Arbitrary area annotation, inline comment/dictation controls, and compact tabbed
 
 ---
 
+### Composer Dictation Active Recording Cancel
+
+#### Feature/Change Name
+Main composer active dictation cancel button.
+
+#### Prerequisites/Setup
+1. Run from the repository root with dependencies installed.
+2. Start the dev server with `pnpm run dev --host 127.0.0.1 --port 4173`.
+3. Open an existing thread and allow microphone access.
+4. Keep browser DevTools Network visible if you want to confirm no transcription request is made on cancel.
+
+#### Steps
+1. In light theme, type a short prefix in the composer and optionally attach an image or select a skill.
+2. Start dictation and confirm the active recording controls show waveform, timer, pause, draft-transcribe, cancel, and stop buttons.
+3. Click the cancel `X` button while recording.
+4. Confirm the composer returns to the normal idle controls.
+5. Confirm the typed draft, attachments, and selected skills remain unchanged.
+6. Confirm no message is sent, no transcribing status appears, and no `/codex-api/transcribe` request or background dictation job is created.
+7. Start dictation again, click pause, then click cancel, and confirm the same idle/no-transcription result.
+8. Start dictation once more and click the red stop button; confirm the existing transcription or background auto-send behavior still works.
+9. Switch to dark theme and repeat steps 2-7, confirming the cancel button, timer, waveform, pause, draft-transcribe, and stop controls are readable and do not overlap.
+
+#### Expected Results
+- Cancel discards only the active recording and returns the composer to idle without storing or transcribing audio.
+- Hold-to-dictate cleanup does not trigger a late stop/transcription after cancel.
+- Existing stop and draft-transcribe controls still submit recordings for transcription.
+- Light and dark theme active recording controls remain aligned and readable.
+
+#### Rollback/Cleanup
+- Delete any test messages produced by the final stop/transcription check.
+- Remove any temporary attachments or draft text left in the composer.
+
+---
+
 ### Browser Annotation Persistent Binding, Server Transcription, And Page-State Queue
 
 #### Feature/Change Name
