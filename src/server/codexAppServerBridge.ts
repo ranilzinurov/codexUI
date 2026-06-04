@@ -5538,7 +5538,7 @@ function normalizeBaseUrl(url: string): string {
 
 const OPENAI_TRANSCRIPTION_BASE_URL = 'https://api.openai.com/v1'
 const GROQ_TRANSCRIPTION_BASE_URL = 'https://api.groq.com/openai/v1'
-const OPENAI_TRANSCRIPTION_MODEL = 'whisper-1'
+const OPENAI_TRANSCRIPTION_MODEL = 'gpt-4o-mini-transcribe'
 const GROQ_TRANSCRIPTION_MODEL = 'whisper-large-v3-turbo'
 
 function isGroqTranscriptionBaseUrl(baseUrl: string): boolean {
@@ -7850,17 +7850,16 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         const rawBody = await readRawBody(req)
         const incomingCt = req.headers['content-type'] ?? 'application/octet-stream'
         const transcriptionProvider = resolveTranscriptionProvider()
-        if (
-          transcriptionProvider !== 'standard' &&
-          (process.env.CODEXUI_TRANSCRIBE_API_KEY?.trim() || process.env.GROQ_API_KEY?.trim())
-        ) {
-          const dedicated = await proxyTranscribeViaApiKey(rawBody, incomingCt)
-          if (dedicated) {
-            res.statusCode = dedicated.status
-            res.setHeader('Content-Type', 'application/json; charset=utf-8')
-            res.end(dedicated.body)
-            return
-          }
+        const dedicated = await proxyTranscribeViaApiKey(rawBody, incomingCt)
+        if (dedicated) {
+          res.statusCode = dedicated.status
+          res.setHeader('Content-Type', 'application/json; charset=utf-8')
+          res.end(dedicated.body)
+          return
+        }
+        if (transcriptionProvider === 'openai' || transcriptionProvider === 'groq') {
+          setJson(res, 401, { error: `No ${transcriptionProvider === 'groq' ? 'Groq' : 'OpenAI'} transcription API key available` })
+          return
         }
 
         const auth = await readCodexAuth()

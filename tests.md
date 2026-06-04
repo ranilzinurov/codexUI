@@ -7249,6 +7249,35 @@ Main composer active dictation cancel button.
 
 ---
 
+### OpenAI Mini Transcription Provider For Composer Dictation
+
+#### Feature/Change Name
+Composer dictation uses the OpenAI API-key transcription path with `gpt-4o-mini-transcribe`.
+
+#### Prerequisites/Setup
+1. Run from the repository root with dependencies installed.
+2. Configure server-side transcription env with `CODEXUI_TRANSCRIBE_PROVIDER=openai`, `CODEXUI_TRANSCRIBE_API_KEY` or `OPENAI_API_KEY`, and `CODEXUI_TRANSCRIBE_MODEL=gpt-4o-mini-transcribe`.
+3. Restart the Codex UI server after env changes.
+4. Open an existing thread and allow microphone access.
+
+#### Steps
+1. Run `node scripts/test-codexui-transcription-override.mjs`.
+2. In light theme, start composer dictation, speak a short phrase, and click the red stop button.
+3. Confirm the phrase transcribes and sends or inserts according to the current dictation setting.
+4. Confirm server/network logs show `/codex-api/transcribe` using the API-key provider path rather than a ChatGPT auth-token failure.
+5. Switch to dark theme and repeat the dictation stop/transcription check.
+
+#### Expected Results
+- The override smoke test passes and asserts the OpenAI provider sends `gpt-4o-mini-transcribe`.
+- Composer dictation no longer fails with an expired ChatGPT authentication token when OpenAI API-key transcription is configured.
+- Light and dark theme dictation controls remain readable while recording, transcribing, and returning to idle.
+
+#### Rollback/Cleanup
+- Restore `CODEXUI_TRANSCRIBE_PROVIDER=standard` to return to the built-in Codex/ChatGPT transcription path.
+- Delete any test messages created during manual dictation checks.
+
+---
+
 ### Browser Annotation Persistent Binding, Server Transcription, And Page-State Queue
 
 #### Feature/Change Name

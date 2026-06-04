@@ -73,8 +73,8 @@ In `auto` mode, an existing `GROQ_API_KEY` keeps the Groq STT path active unless
 Set `CODEXUI_TRANSCRIBE_PROVIDER=openai` to force OpenAI transcription while leaving Groq environment variables in place.
 Set `CODEXUI_TRANSCRIBE_PROVIDER=standard` to force the built-in Codex/ChatGPT transcription path and ignore STT provider keys.
 
-For OpenAI transcription, the default model is `whisper-1`.
-Override with `CODEXUI_TRANSCRIBE_MODEL=gpt-4o-mini-transcribe` if you want the lower-priced OpenAI transcription model later.
+For OpenAI transcription, the default model is `gpt-4o-mini-transcribe`.
+Override with `CODEXUI_TRANSCRIBE_MODEL=gpt-4o-transcribe` if you want the larger OpenAI transcription model.
 
 ## Current Hetzner Deployment
 

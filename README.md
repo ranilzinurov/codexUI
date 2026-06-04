@@ -201,7 +201,7 @@ Current Hetzner deployment notes:
 - restart after auth/env changes: `cd ~/prog/codexUI && bash scripts/restart-codexui-service.sh --follow`
 
 Set `CODEXUI_TRANSCRIBE_PROVIDER=openai` to test OpenAI transcription while leaving existing Groq environment variables in place.
-OpenAI uses `whisper-1` by default.
+OpenAI uses `gpt-4o-mini-transcribe` by default.
 
 Setup and rollback notes are documented in [documentation/VOICE_TRANSCRIPTION_OVERRIDE.md](documentation/VOICE_TRANSCRIPTION_OVERRIDE.md). The STT-specific base URL and language overrides only apply when `CODEXUI_TRANSCRIBE_API_KEY` is set.
 
