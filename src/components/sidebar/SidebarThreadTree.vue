@@ -624,6 +624,9 @@
         <button class="thread-menu-item" type="button" @click="onCopyThreadPath(openThreadMenuThread.id)">
           Copy path
         </button>
+        <button class="thread-menu-item" type="button" @click="onCopyThreadLink(openThreadMenuThread.id)">
+          Copy thread link
+        </button>
         <button class="thread-menu-item" type="button" @click="onExportThread(openThreadMenuThread.id)">
           Export chat
         </button>
@@ -905,6 +908,7 @@ import IconTablerTrash from '../icons/IconTablerTrash.vue'
 import { useUiLanguage } from '../../composables/useUiLanguage'
 import { useFeedbackDiagnostics } from '../../composables/useFeedbackDiagnostics'
 import { getPathLeafName, getPathParent, isAbsoluteLikePath, isProjectlessChatPath } from '../../pathUtils.js'
+import { buildThreadLink } from '../../threadLinks'
 import SidebarMenuRow from './SidebarMenuRow.vue'
 import { reconcilePinnedThreadIds } from './pinnedThreadUtils'
 import {
@@ -1739,6 +1743,16 @@ async function onCopyThreadPath(threadId: string): Promise<void> {
   if (!path || typeof navigator === 'undefined' || !navigator.clipboard) return
   try {
     await navigator.clipboard.writeText(path)
+  } catch {
+    // Clipboard writes can be blocked by browser permissions; the menu action is best-effort.
+  }
+}
+
+async function onCopyThreadLink(threadId: string): Promise<void> {
+  closeThreadMenu()
+  if (!threadId || typeof navigator === 'undefined' || !navigator.clipboard) return
+  try {
+    await navigator.clipboard.writeText(buildThreadLink(threadId))
   } catch {
     // Clipboard writes can be blocked by browser permissions; the menu action is best-effort.
   }

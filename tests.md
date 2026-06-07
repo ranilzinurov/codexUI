@@ -7536,3 +7536,37 @@ The `$` composer picker can select installed enabled plugins, visually distingui
 #### Rollback/Cleanup
 - Remove queued test messages if any were created.
 - Stop the temporary `4173` dev server when testing is complete.
+
+---
+
+### Sidebar Thread Link Copy
+
+#### Feature/Change Name
+Thread overflow menus can copy a shareable local thread link.
+
+#### Prerequisites/Setup
+1. Run from the repository root with dependencies installed.
+2. Start or confirm the app server on `http://127.0.0.1:4173`:
+   `pnpm run dev --host 127.0.0.1 --port 4173`
+3. Have at least one existing thread visible in the sidebar.
+
+#### Steps
+1. Run the focused regression test:
+   `pnpm exec vitest run src/threadLinks.test.ts`
+2. Run the frontend type/build check:
+   `pnpm run build:frontend`
+3. In light theme, open a thread row overflow menu.
+4. Confirm `Copy thread link` appears after `Copy path`.
+5. Click `Copy thread link`.
+6. Paste the clipboard value into a text field and confirm it is an absolute URL ending with `#/thread/<thread-id>`.
+7. Open the pasted URL in another browser tab or chat context and confirm it loads the same thread.
+8. Switch to dark theme and repeat steps 3-6. Confirm the new menu row uses the same readable dark-menu styling as the other actions.
+
+#### Expected Results
+- The menu order is `Add automation...` or `Manage automations...`, `Browse files`, `Copy path`, `Copy thread link`, `Export chat`, `Create chat fork`, `Pin thread` or `Unpin thread`, `Rename thread`, `Mark as unread` or `Mark as read`, `Delete thread`.
+- The copied value includes the current app origin/base path and an encoded hash route for the selected thread.
+- Clicking `Copy thread link` closes the menu.
+- Light and dark themes both keep the menu item readable and aligned with existing menu rows.
+
+#### Rollback/Cleanup
+- Stop the temporary `4173` dev server when testing is complete.
