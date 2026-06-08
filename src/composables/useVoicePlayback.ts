@@ -50,6 +50,7 @@ export function useVoicePlayback() {
   let abortController: AbortController | null = null
   let activeObjectUrl = ''
   let playSequence = 0
+  let autoplaySessionActive = false
 
   if (audio) {
     audio.preload = 'auto'
@@ -57,6 +58,9 @@ export function useVoicePlayback() {
       if (state.value === 'playing') {
         state.value = 'idle'
         activeMessageId.value = ''
+        if (autoplaySessionActive) {
+          void primeAudioElement()
+        }
       }
     })
     audio.addEventListener('pause', () => {
@@ -82,8 +86,8 @@ export function useVoicePlayback() {
     }
   }
 
-  async function primeAudioElement(): Promise<void> {
-    if (!audio) return
+  async function primeAudioElement(): Promise<boolean> {
+    if (!audio) return false
     try {
       audio.pause()
       audio.loop = true
@@ -91,10 +95,38 @@ export function useVoicePlayback() {
       audio.src = SILENT_WAV_DATA_URL
       audio.currentTime = 0
       await audio.play()
+      return true
     } catch {
       audio.loop = false
       audio.muted = false
       // The real TTS play attempt will surface a blocked state if needed.
+      return false
+    }
+  }
+
+  async function beginAutoplaySession(): Promise<void> {
+    if (!audio) {
+      state.value = 'error'
+      errorMessage.value = 'Audio playback is not supported in this browser.'
+      return
+    }
+    errorMessage.value = ''
+    if (state.value === 'playing') {
+      autoplaySessionActive = true
+      return
+    }
+    autoplaySessionActive = await primeAudioElement()
+  }
+
+  function endAutoplaySession(): void {
+    autoplaySessionActive = false
+    if (!audio) return
+    if (audio.src === SILENT_WAV_DATA_URL || audio.currentSrc === SILENT_WAV_DATA_URL) {
+      audio.pause()
+      audio.loop = false
+      audio.muted = false
+      audio.removeAttribute('src')
+      audio.load()
     }
   }
 
@@ -106,6 +138,7 @@ export function useVoicePlayback() {
 
   function stop(): void {
     playSequence += 1
+    autoplaySessionActive = false
     abortController?.abort()
     abortController = null
     if (audio) {
@@ -214,6 +247,8 @@ export function useVoicePlayback() {
     errorMessage,
     isBusy,
     unlockAudio,
+    beginAutoplaySession,
+    endAutoplaySession,
     play,
     stop,
     resumeBlocked,

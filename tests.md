@@ -7601,10 +7601,11 @@ Assistant responses can be replayed from the thread feature menu, with optional 
 8. Confirm audio starts for the latest completed assistant response and that code blocks/diffs are described conversationally instead of read verbatim.
 9. Click `Play` again and confirm the voice response replays from the start.
 10. Confirm the speed slider defaults to `1`, move it near `1`, `1.25`, `1.5`, and `2`, and confirm it snaps near those marks while still allowing intermediate values away from marks.
-11. Click `Mode`, send a new prompt, and wait for the assistant turn to finish. Confirm voice playback begins only after the full assistant response is complete.
-12. Click `Stop` and confirm current playback stops and future assistant answers no longer autoplay.
-13. On iPhone PWA, if autoplay is blocked, confirm `Resume` appears in the compact control row and resumes queued playback after tapping.
-14. Switch to dark theme and repeat steps 4-12. Confirm the feature menu, speed slider, status row, and resume action use dark surfaces and readable text.
+11. Click `Mode` and confirm it does not request TTS for the current response immediately.
+12. Send a new prompt and wait for the assistant turn to finish. Confirm voice playback begins only after the full assistant response is complete.
+13. Click `Stop` and confirm current playback stops and future assistant answers no longer autoplay.
+14. On iPhone PWA, if autoplay is blocked, confirm `Resume` appears in the compact control row and resumes queued playback after tapping.
+15. Switch to dark theme and repeat steps 4-13. Confirm the feature menu, speed slider, status row, and resume action use dark surfaces and readable text.
 
 #### Expected Results
 - Voice controls live in the thread feature kebab menu and do not overlay the composer, thread, or message content.
@@ -7612,10 +7613,11 @@ Assistant responses can be replayed from the thread feature menu, with optional 
 - Voice mode does not store the conversational summary in the thread.
 - TTS uses OpenAI `gpt-4o-mini-tts`, fixed `nova` voice, and the selected speed.
 - Explicit `Play` primes the audio element before the asynchronous TTS request so the later blob playback is not rejected by normal browser user-activation rules.
+- `Mode` starts a silent autoplay session from the user click and keeps it available for future completed assistant answers without speaking the current answer.
 - Autoplay waits for the completed assistant response; live/streaming responses are not spoken early.
 - The default speed is `1`; stale stored speed values below `1` are treated as `1`.
 - The server sends the conversational summary to TTS instead of the full assistant response.
-- `Resume audio` handles iOS/PWA user-gesture blocking without losing the queued response.
+- `Resume` handles browser/PWA user-gesture blocking without losing the queued response.
 - Light and dark themes both keep all voice controls legible.
 
 #### Rollback/Cleanup
