@@ -1,12 +1,12 @@
 # Assistant Voice Mode
 
-Assistant voice mode makes completed assistant responses playable as short spoken audio while preserving the full written answer in the thread. Source notes: [assistant-voice-mode.md](../../raw/features/assistant-voice-mode.md), [assistant-voice-mode-menu-controls.md](../../raw/features/assistant-voice-mode-menu-controls.md), [assistant-voice-mode-audio-prime.md](../../raw/features/assistant-voice-mode-audio-prime.md), [assistant-voice-mode-autoplay-session.md](../../raw/features/assistant-voice-mode-autoplay-session.md).
+Assistant voice mode makes completed assistant responses playable as short spoken audio while preserving the full written answer in the thread. Source notes: [assistant-voice-mode.md](../../raw/features/assistant-voice-mode.md), [assistant-voice-mode-menu-controls.md](../../raw/features/assistant-voice-mode-menu-controls.md), [assistant-voice-mode-audio-prime.md](../../raw/features/assistant-voice-mode-audio-prime.md).
 
 ## Behavior
 
 - Only assistant responses are voice-playable in v1.
 - `Play` in the thread feature menu replays the latest completed assistant response.
-- `Mode` enables autoplay for future completed assistant responses after a user tap; it does not speak the current answer.
+- `Mode` enables autoplay for future completed assistant responses after a user tap.
 - Autoplay waits until the assistant turn is complete; live/streaming responses are not spoken early.
 - `Stop` disables autoplay and stops current playback.
 - The speed slider lives in the same feature menu, defaults to `1`, and uses snap marks at `1`, `1.25`, `1.5`, and `2`.
@@ -20,7 +20,7 @@ TTS is server-side only so browser clients never receive an OpenAI API key. The 
 
 ## PWA Edge Cases
 
-Chrome and iOS PWA audio playback can reject asynchronous autoplay even after voice mode was enabled, because the audible `play()` happens after the assistant turn and TTS request. Explicit `Play` primes the audio element before the TTS fetch. `Mode` starts a silent autoplay session from the user click and returns to that silent source after each spoken answer while enabled. Blocked playback shows `Resume` in the feature menu; tapping it retries the queued audio with a fresh user gesture.
+iOS PWA audio playback can reject asynchronous autoplay even after voice mode was enabled. Explicit `Play` primes the audio element before the TTS fetch, while blocked autoplay shows `Resume` in the feature menu. Tapping it retries the queued audio with a fresh user gesture.
 
 ## Persistence
 

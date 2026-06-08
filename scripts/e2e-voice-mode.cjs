@@ -254,19 +254,10 @@ async function main() {
   if (snappedSpeed !== '1.25') throw new Error(`Expected speed slider to snap to 1.25, got ${snappedSpeed}`)
 
   const modeButton = menu.getByRole('menuitem', { name: /^Mode$/i })
-  const voiceRequestsBeforeMode = diagnostics.voiceRequests.length
   await modeButton.click()
   await page.waitForTimeout(300)
   const voiceModePressed = await modeButton.getAttribute('aria-pressed')
   if (voiceModePressed !== 'true') throw new Error('Voice mode did not toggle on')
-  const voiceRequestsAfterMode = diagnostics.voiceRequests.length
-  if (voiceRequestsAfterMode !== voiceRequestsBeforeMode) {
-    throw new Error('Mode should prime autoplay without requesting TTS for the current response')
-  }
-  const silentPlayCallsAfterMode = await page.evaluate(() => window.__codexVoiceSilentPlayCalls || 0)
-  if (silentPlayCallsAfterMode < 2) {
-    throw new Error('Expected Mode to start a silent autoplay session')
-  }
 
   await page.screenshot({ path: lightScreenshot, fullPage: false })
   await page.evaluate(() => {
@@ -282,7 +273,6 @@ async function main() {
     startUrl: START_URL,
     assistantTextChars: assistantText.length,
     voiceRequests: diagnostics.voiceRequests,
-    silentPlayCallsAfterMode,
     console: diagnostics.console.filter((row) => row.type === 'error' || row.type === 'warning'),
     pageErrors: diagnostics.pageErrors,
     screenshots: {
@@ -298,7 +288,6 @@ async function main() {
     viewport: '1440x1000',
     assistantTextChars: assistantText.length,
     voiceRequestCount: diagnostics.voiceRequests.length,
-    silentPlayCallsAfterMode,
     defaultSpeed: initialSpeed,
     snappedSpeed,
     screenshots: {

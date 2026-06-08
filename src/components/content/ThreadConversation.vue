@@ -2186,8 +2186,6 @@ const {
   activeMessageId: voiceActiveMessageId,
   errorMessage: voicePlaybackError,
   unlockAudio: unlockVoiceAudio,
-  beginAutoplaySession: beginVoiceAutoplaySession,
-  endAutoplaySession: endVoiceAutoplaySession,
   play: playVoiceAudio,
   stop: stopVoiceAudio,
   resumeBlocked: resumeVoiceAudio,
@@ -2283,14 +2281,13 @@ async function toggleVoiceMode(): Promise<void> {
     return
   }
   await unlockVoiceAudio()
-  await beginVoiceAutoplaySession()
+  await playLatestVoiceResponse(false)
   emitVoiceState()
 }
 
 function stopVoiceMode(): void {
   voiceModeEnabled.value = false
   writeStoredValue(VOICE_MODE_ENABLED_STORAGE_KEY, 'false')
-  endVoiceAutoplaySession()
   stopVoiceAudio()
   emitVoiceState()
 }
