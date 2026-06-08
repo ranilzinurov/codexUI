@@ -2200,7 +2200,7 @@ const voiceSpeedLabel = computed(() => `${voiceSpeed.value.toFixed(voiceSpeed.va
 const voiceStatusText = computed(() => {
   if (voicePlaybackState.value === 'synthesizing') return 'Preparing voice...'
   if (voicePlaybackState.value === 'playing') return 'Playing'
-  if (voicePlaybackState.value === 'blocked') return 'Audio paused by browser'
+  if (voicePlaybackState.value === 'blocked') return 'Audio paused by iOS'
   if (voicePlaybackState.value === 'error') return voicePlaybackError.value || 'Voice playback failed'
   return ''
 })

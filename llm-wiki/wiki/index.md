@@ -28,7 +28,6 @@
 - [../raw/features/assistant-voice-mode-menu-controls.md](../raw/features/assistant-voice-mode-menu-controls.md): source facts for assistant voice mode menu placement, default speed, and E2E coverage.
 - [../raw/features/assistant-voice-mode-audio-prime.md](../raw/features/assistant-voice-mode-audio-prime.md): source facts for compact voice labels, audio priming, and updated E2E coverage.
 - [../raw/features/assistant-voice-mode-autoplay-session.md](../raw/features/assistant-voice-mode-autoplay-session.md): source facts for Chrome autoplay blocking and silent voice-mode autoplay sessions.
-- [../raw/features/assistant-voice-mode-web-audio-session.md](../raw/features/assistant-voice-mode-web-audio-session.md): source facts for Web Audio based voice sessions and HTML audio fallback behavior.
 - [../raw/features/directory-hub-apps-failure-message.md](../raw/features/directory-hub-apps-failure-message.md): source facts for the Directory Hub Apps tab concise app-list failure message.
 - [../raw/features/realtime-chat-rendering-inline-media.md](../raw/features/realtime-chat-rendering-inline-media.md): source facts for realtime chat rendering and inline media sanitization.
 - [../raw/features/runtime-activity-agents-mcp.md](../raw/features/runtime-activity-agents-mcp.md): source facts for grouped agents/MCP runtime activity and collapsed summaries.

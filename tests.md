@@ -7612,8 +7612,8 @@ Assistant responses can be replayed from the thread feature menu, with optional 
 - Voice controls are enabled only when a completed assistant response is available.
 - Voice mode does not store the conversational summary in the thread.
 - TTS uses OpenAI `gpt-4o-mini-tts`, fixed `nova` voice, and the selected speed.
-- Explicit `Play` primes a Web Audio session before the asynchronous TTS request so the later blob playback is not rejected by normal browser user-activation rules.
-- `Mode` starts a low-volume Web Audio keep-alive session from the user click and keeps it available for future completed assistant answers without speaking the current answer.
+- Explicit `Play` primes the audio element before the asynchronous TTS request so the later blob playback is not rejected by normal browser user-activation rules.
+- `Mode` starts a silent autoplay session from the user click and keeps it available for future completed assistant answers without speaking the current answer.
 - Autoplay waits for the completed assistant response; live/streaming responses are not spoken early.
 - The default speed is `1`; stale stored speed values below `1` are treated as `1`.
 - The server sends the conversational summary to TTS instead of the full assistant response.

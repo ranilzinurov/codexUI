@@ -84,9 +84,6 @@ async function main() {
     const originalPlay = window.HTMLMediaElement.prototype.play
     window.__codexVoicePlayCalls = 0
     window.__codexVoiceSilentPlayCalls = 0
-    window.__codexVoiceAudioContextResumes = 0
-    window.__codexVoiceOscillatorStarts = 0
-    window.__codexVoiceBufferStarts = 0
     window.HTMLMediaElement.prototype.play = function patchedPlay() {
       window.__codexVoicePlayCalls += 1
       const source = this.currentSrc || this.src || ''
@@ -96,37 +93,6 @@ async function main() {
       return Promise.resolve()
     }
     window.__codexOriginalMediaPlay = originalPlay
-    const OriginalAudioContext = window.AudioContext || window.webkitAudioContext
-    if (OriginalAudioContext) {
-      class InstrumentedAudioContext extends OriginalAudioContext {
-        resume() {
-          window.__codexVoiceAudioContextResumes += 1
-          return super.resume()
-        }
-
-        createOscillator() {
-          const node = super.createOscillator()
-          const originalStart = node.start.bind(node)
-          node.start = (...args) => {
-            window.__codexVoiceOscillatorStarts += 1
-            return originalStart(...args)
-          }
-          return node
-        }
-
-        createBufferSource() {
-          const node = super.createBufferSource()
-          const originalStart = node.start.bind(node)
-          node.start = (...args) => {
-            window.__codexVoiceBufferStarts += 1
-            return originalStart(...args)
-          }
-          return node
-        }
-      }
-      window.AudioContext = InstrumentedAudioContext
-      window.webkitAudioContext = InstrumentedAudioContext
-    }
   })
 
   const page = await context.newPage()
@@ -145,14 +111,7 @@ async function main() {
   await page.route('**/codex-api/voice/speech', async (route) => {
     const body = JSON.parse(route.request().postData() || '{}')
     const silentPlayCallsBeforeRequest = await page.evaluate(() => window.__codexVoiceSilentPlayCalls || 0)
-    const audioContextResumesBeforeRequest = await page.evaluate(() => window.__codexVoiceAudioContextResumes || 0)
-    const oscillatorStartsBeforeRequest = await page.evaluate(() => window.__codexVoiceOscillatorStarts || 0)
-    diagnostics.voiceRequests.push({
-      ...body,
-      silentPlayCallsBeforeRequest,
-      audioContextResumesBeforeRequest,
-      oscillatorStartsBeforeRequest,
-    })
+    diagnostics.voiceRequests.push({ ...body, silentPlayCallsBeforeRequest })
     await route.fulfill({
       status: 200,
       contentType: 'audio/wav',
@@ -272,21 +231,14 @@ async function main() {
     menu.getByRole('menuitem', { name: /^Play$/i }).click(),
   ])
   if (voiceResponse.status() !== 200) throw new Error(`Voice endpoint returned ${voiceResponse.status()}`)
+  await page.waitForFunction(() => window.__codexVoicePlayCalls > 0, null, { timeout: 10_000 })
 
   const firstVoiceRequest = diagnostics.voiceRequests[0]
   if (!firstVoiceRequest) throw new Error('Voice endpoint was not called')
   if (firstVoiceRequest.speed !== 1) throw new Error(`Expected voice speed 1, got ${firstVoiceRequest.speed}`)
   if (firstVoiceRequest.voice !== 'nova') throw new Error(`Expected nova voice, got ${firstVoiceRequest.voice}`)
-  await page.waitForTimeout(1000)
-  const playbackCountsAfterPlay = await page.evaluate(() => ({
-    htmlPlayCalls: window.__codexVoicePlayCalls || 0,
-    silentPlayCalls: window.__codexVoiceSilentPlayCalls || 0,
-    audioContextResumes: window.__codexVoiceAudioContextResumes || 0,
-    oscillatorStarts: window.__codexVoiceOscillatorStarts || 0,
-    bufferStarts: window.__codexVoiceBufferStarts || 0,
-  }))
-  if (playbackCountsAfterPlay.bufferStarts < 1) {
-    throw new Error(`Expected Web Audio buffer playback after explicit Play: ${JSON.stringify(playbackCountsAfterPlay)}`)
+  if (firstVoiceRequest.silentPlayCallsBeforeRequest < 1) {
+    throw new Error('Expected explicit Play to prime audio before the async TTS request')
   }
   if (!String(firstVoiceRequest.text || '').includes(assistantText.slice(0, Math.min(40, assistantText.length)))) {
     throw new Error('Voice request did not include the assistant response text')
@@ -312,8 +264,7 @@ async function main() {
     throw new Error('Mode should prime autoplay without requesting TTS for the current response')
   }
   const silentPlayCallsAfterMode = await page.evaluate(() => window.__codexVoiceSilentPlayCalls || 0)
-  const oscillatorStartsAfterMode = await page.evaluate(() => window.__codexVoiceOscillatorStarts || 0)
-  if (silentPlayCallsAfterMode < 1 && oscillatorStartsAfterMode < 1) {
+  if (silentPlayCallsAfterMode < 2) {
     throw new Error('Expected Mode to start a silent autoplay session')
   }
 
@@ -331,9 +282,7 @@ async function main() {
     startUrl: START_URL,
     assistantTextChars: assistantText.length,
     voiceRequests: diagnostics.voiceRequests,
-    playbackCountsAfterPlay,
     silentPlayCallsAfterMode,
-    oscillatorStartsAfterMode,
     console: diagnostics.console.filter((row) => row.type === 'error' || row.type === 'warning'),
     pageErrors: diagnostics.pageErrors,
     screenshots: {
@@ -350,7 +299,6 @@ async function main() {
     assistantTextChars: assistantText.length,
     voiceRequestCount: diagnostics.voiceRequests.length,
     silentPlayCallsAfterMode,
-    oscillatorStartsAfterMode,
     defaultSpeed: initialSpeed,
     snappedSpeed,
     screenshots: {
