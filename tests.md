@@ -7570,3 +7570,46 @@ Thread overflow menus can copy a shareable local thread link.
 
 #### Rollback/Cleanup
 - Stop the temporary `4173` dev server when testing is complete.
+
+---
+
+### Assistant Voice Mode Playback
+
+#### Feature/Change Name
+Assistant responses can be replayed through voice mode, with optional autoplay, Nova TTS, iOS resume fallback, and adjustable speech speed.
+
+#### Prerequisites/Setup
+1. Run from the repository root with dependencies installed.
+2. Set a server-side TTS key:
+   `CODEXUI_VOICE_TTS_API_KEY=<openai-api-key>`
+   or use `OPENAI_API_KEY`.
+3. Start or confirm the app server on `http://127.0.0.1:4173`:
+   `pnpm run dev --host 127.0.0.1 --port 4173`
+4. For iPhone/PWA testing, open the app from the home-screen standalone PWA and keep the screen unlocked.
+
+#### Steps
+1. Run the focused server regression test:
+   `pnpm exec vitest run src/server/voiceMode.test.ts`
+2. Run the frontend type/build check:
+   `pnpm run build:frontend`
+3. In light theme, open a thread that contains a completed assistant response.
+4. Hover or focus the assistant response toolbar and click `Play`.
+5. Confirm audio starts for only the assistant response and that code blocks/diffs are described conversationally instead of read verbatim.
+6. Click `Play` on the same response again and confirm the cached/generated voice replays from the start.
+7. Click `Voice mode`, send a new prompt, and wait for the assistant turn to finish. Confirm voice playback begins only after the full assistant response is complete.
+8. Click the speed control, move the slider near `1`, `1.25`, `1.5`, and `2`, and confirm it snaps near those marks while still allowing intermediate values away from marks.
+9. Click `Stop` and confirm current playback stops and future assistant answers no longer autoplay.
+10. On iPhone PWA, if autoplay is blocked, confirm the large `Tap to resume audio` button appears and resumes queued playback after tapping.
+11. Switch to dark theme and repeat steps 3-9. Confirm the response toolbar, voice strip, speed popover, and resume button use dark surfaces and readable text.
+
+#### Expected Results
+- Voice controls appear only for assistant responses with completed text.
+- Voice mode does not store the conversational summary in the thread.
+- TTS uses OpenAI `gpt-4o-mini-tts`, fixed `nova` voice, and the selected speed.
+- Autoplay waits for the completed assistant response; live/streaming responses are not spoken early.
+- `Tap to resume audio` handles iOS/PWA user-gesture blocking without losing the queued response.
+- Light and dark themes both keep all voice controls legible.
+
+#### Rollback/Cleanup
+- Stop the temporary `4173` dev server when testing is complete.
+- Remove local `CODEXUI_VOICE_TTS_API_KEY` or `OPENAI_API_KEY` exports if they were only set for this test.

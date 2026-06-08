@@ -10,6 +10,7 @@
 - [concepts/integrated-terminal.md](./concepts/integrated-terminal.md): Codex.app-style integrated xterm/PTY terminal architecture, edge cases, and verification.
 - [concepts/directory-hub-composio-skills.md](./concepts/directory-hub-composio-skills.md): Directory Hub tab routing, Composio connector behavior, Skills search/install semantics, and edge-case testing.
 - [concepts/composer-plugin-mentions.md](./concepts/composer-plugin-mentions.md): Composer `$` picker support for installed plugin mentions alongside skills.
+- [concepts/assistant-voice-mode.md](./concepts/assistant-voice-mode.md): assistant response voice playback, autoplay, speed control, and iOS PWA resume behavior.
 - [concepts/merge-to-main-workflow.md](./concepts/merge-to-main-workflow.md): branch integration and conflict-resolution workflow.
 - [concepts/opencode-zen-big-pickle.md](./concepts/opencode-zen-big-pickle.md): OpenCode Zen Big Pickle model configuration for Codex CLI and OpenCode CLI.
 - [concepts/realtime-chat-rendering.md](./concepts/realtime-chat-rendering.md): realtime chat rendering, sync-churn reduction, and inline media sanitization.
@@ -23,6 +24,7 @@
 - [../raw/features/integrated-terminal.md](../raw/features/integrated-terminal.md): source facts for the integrated terminal implementation and follow-up tests.
 - [../raw/features/directory-hub-composio-skills-search.md](../raw/features/directory-hub-composio-skills-search.md): source facts for Directory Hub, Composio connectors, Skills search/install, and edge-case tests.
 - [../raw/features/composer-plugin-mentions.md](../raw/features/composer-plugin-mentions.md): source facts for composer plugin mentions, plugin catalog source, and mention payload format.
+- [../raw/features/assistant-voice-mode.md](../raw/features/assistant-voice-mode.md): source facts for assistant voice mode behavior, TTS route, speed control, and PWA audio fallback.
 - [../raw/features/directory-hub-apps-failure-message.md](../raw/features/directory-hub-apps-failure-message.md): source facts for the Directory Hub Apps tab concise app-list failure message.
 - [../raw/features/realtime-chat-rendering-inline-media.md](../raw/features/realtime-chat-rendering-inline-media.md): source facts for realtime chat rendering and inline media sanitization.
 - [../raw/features/runtime-activity-agents-mcp.md](../raw/features/runtime-activity-agents-mcp.md): source facts for grouped agents/MCP runtime activity and collapsed summaries.
