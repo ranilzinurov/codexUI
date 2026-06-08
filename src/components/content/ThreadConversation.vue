@@ -2176,7 +2176,7 @@ function writeStoredValue(key: string, value: string): void {
 }
 
 function snapVoiceSpeed(value: number): number {
-  const normalized = Math.min(4, Math.max(0.25, value))
+  const normalized = Math.min(4, Math.max(1, value))
   const mark = VOICE_SPEED_MARKS.find((candidate) => Math.abs(candidate - normalized) <= 0.03)
   return mark ?? Math.round(normalized * 100) / 100
 }

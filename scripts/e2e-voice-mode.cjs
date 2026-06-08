@@ -83,8 +83,13 @@ async function main() {
     window.localStorage.removeItem('codex-web-local.voice-speed.v1')
     const originalPlay = window.HTMLMediaElement.prototype.play
     window.__codexVoicePlayCalls = 0
+    window.__codexVoiceSilentPlayCalls = 0
     window.HTMLMediaElement.prototype.play = function patchedPlay() {
       window.__codexVoicePlayCalls += 1
+      const source = this.currentSrc || this.src || ''
+      if (typeof source === 'string' && source.startsWith('data:audio/wav;base64,')) {
+        window.__codexVoiceSilentPlayCalls += 1
+      }
       return Promise.resolve()
     }
     window.__codexOriginalMediaPlay = originalPlay
@@ -105,7 +110,8 @@ async function main() {
 
   await page.route('**/codex-api/voice/speech', async (route) => {
     const body = JSON.parse(route.request().postData() || '{}')
-    diagnostics.voiceRequests.push(body)
+    const silentPlayCallsBeforeRequest = await page.evaluate(() => window.__codexVoiceSilentPlayCalls || 0)
+    diagnostics.voiceRequests.push({ ...body, silentPlayCallsBeforeRequest })
     await route.fulfill({
       status: 200,
       contentType: 'audio/wav',
@@ -209,9 +215,12 @@ async function main() {
   const menu = page.getByRole('menu', { name: 'Thread features' })
   await menu.waitFor({ state: 'visible', timeout: 10_000 })
 
-  await menu.getByRole('menuitem', { name: /Play voice/i }).waitFor({ state: 'visible' })
-  await menu.getByRole('menuitem', { name: /Voice mode/i }).waitFor({ state: 'visible' })
-  await menu.getByRole('menuitem', { name: /Stop voice/i }).waitFor({ state: 'visible' })
+  await menu.getByRole('menuitem', { name: /^Play$/i }).waitFor({ state: 'visible' })
+  await menu.getByRole('menuitem', { name: /^Mode$/i }).waitFor({ state: 'visible' })
+  await menu.getByRole('menuitem', { name: /^Stop$/i }).waitFor({ state: 'visible' })
+  await menu.getByText(/Play voice|Voice mode|Stop voice/i).count().then((count) => {
+    if (count > 0) throw new Error('Voice menu labels should be compact and omit the word voice')
+  })
   const speedSlider = menu.locator('.content-header-feature-menu-speed-slider')
   await speedSlider.waitFor({ state: 'visible' })
   const initialSpeed = await speedSlider.inputValue()
@@ -219,7 +228,7 @@ async function main() {
 
   const [voiceResponse] = await Promise.all([
     page.waitForResponse((response) => response.url().includes('/codex-api/voice/speech'), { timeout: 20_000 }),
-    menu.getByRole('menuitem', { name: /Play voice/i }).click(),
+    menu.getByRole('menuitem', { name: /^Play$/i }).click(),
   ])
   if (voiceResponse.status() !== 200) throw new Error(`Voice endpoint returned ${voiceResponse.status()}`)
   await page.waitForFunction(() => window.__codexVoicePlayCalls > 0, null, { timeout: 10_000 })
@@ -228,6 +237,9 @@ async function main() {
   if (!firstVoiceRequest) throw new Error('Voice endpoint was not called')
   if (firstVoiceRequest.speed !== 1) throw new Error(`Expected voice speed 1, got ${firstVoiceRequest.speed}`)
   if (firstVoiceRequest.voice !== 'nova') throw new Error(`Expected nova voice, got ${firstVoiceRequest.voice}`)
+  if (firstVoiceRequest.silentPlayCallsBeforeRequest < 1) {
+    throw new Error('Expected explicit Play to prime audio before the async TTS request')
+  }
   if (!String(firstVoiceRequest.text || '').includes(assistantText.slice(0, Math.min(40, assistantText.length)))) {
     throw new Error('Voice request did not include the assistant response text')
   }
@@ -241,10 +253,11 @@ async function main() {
   const snappedSpeed = await speedSlider.inputValue()
   if (snappedSpeed !== '1.25') throw new Error(`Expected speed slider to snap to 1.25, got ${snappedSpeed}`)
 
-  await menu.getByRole('menuitem', { name: /Voice mode/i }).click()
+  const modeButton = menu.getByRole('menuitem', { name: /^Mode$/i })
+  await modeButton.click()
   await page.waitForTimeout(300)
-  const voiceModeStatus = await menu.getByText('On').first().isVisible().catch(() => false)
-  if (!voiceModeStatus) throw new Error('Voice mode did not show On status after toggling')
+  const voiceModePressed = await modeButton.getAttribute('aria-pressed')
+  if (voiceModePressed !== 'true') throw new Error('Voice mode did not toggle on')
 
   await page.screenshot({ path: lightScreenshot, fullPage: false })
   await page.evaluate(() => {

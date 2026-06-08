@@ -454,6 +454,22 @@ html::after {
   @apply bg-zinc-700 text-zinc-200;
 }
 
+:root.dark .content-header-feature-menu-voice-row {
+  @apply border-zinc-800;
+}
+
+:root.dark .content-header-feature-menu-voice-button {
+  @apply border-zinc-700 bg-zinc-900 text-zinc-200 hover:bg-zinc-800 focus:ring-zinc-600;
+}
+
+:root.dark .content-header-feature-menu-voice-button.is-active {
+  @apply border-sky-500/60 bg-sky-500/15 text-sky-200;
+}
+
+:root.dark .content-header-feature-menu-voice-button.is-attention {
+  @apply border-amber-500/60 bg-amber-500/15 text-amber-200;
+}
+
 :root.dark .side-chat-panel {
   @apply border-zinc-700 bg-zinc-900;
 }
@@ -841,6 +857,26 @@ html::after {
 
 :root.dark .content-header-feature-menu-status-row {
   @apply bg-zinc-800 text-zinc-300;
+}
+
+:root.dark .content-header-feature-menu-slider {
+  @apply border-zinc-800;
+}
+
+:root.dark .content-header-feature-menu-slider-header {
+  @apply text-zinc-400;
+}
+
+:root.dark .content-header-feature-menu-slider-header strong {
+  @apply text-zinc-100;
+}
+
+:root.dark .content-header-feature-menu-speed-slider {
+  @apply accent-zinc-100;
+}
+
+:root.dark .content-header-feature-menu-speed-marks {
+  @apply text-zinc-500;
 }
 
 :root.dark .message-rollback-button {
