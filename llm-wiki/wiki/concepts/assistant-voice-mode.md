@@ -1,6 +1,6 @@
 # Assistant Voice Mode
 
-Assistant voice mode makes completed assistant responses playable as short spoken audio while preserving the full written answer in the thread. Source notes: [assistant-voice-mode.md](../../raw/features/assistant-voice-mode.md), [assistant-voice-mode-menu-controls.md](../../raw/features/assistant-voice-mode-menu-controls.md), [assistant-voice-mode-audio-prime.md](../../raw/features/assistant-voice-mode-audio-prime.md), [assistant-voice-mode-autoplay-session.md](../../raw/features/assistant-voice-mode-autoplay-session.md).
+Assistant voice mode makes completed assistant responses playable as short spoken audio while preserving the full written answer in the thread. Source notes: [assistant-voice-mode.md](../../raw/features/assistant-voice-mode.md), [assistant-voice-mode-menu-controls.md](../../raw/features/assistant-voice-mode-menu-controls.md), [assistant-voice-mode-audio-prime.md](../../raw/features/assistant-voice-mode-audio-prime.md), [assistant-voice-mode-autoplay-session.md](../../raw/features/assistant-voice-mode-autoplay-session.md), [assistant-voice-mode-web-audio-session.md](../../raw/features/assistant-voice-mode-web-audio-session.md).
 
 ## Behavior
 
@@ -20,7 +20,7 @@ TTS is server-side only so browser clients never receive an OpenAI API key. The 
 
 ## PWA Edge Cases
 
-Chrome and iOS PWA audio playback can reject asynchronous autoplay even after voice mode was enabled, because the audible `play()` happens after the assistant turn and TTS request. Explicit `Play` primes the audio element before the TTS fetch. `Mode` starts a silent autoplay session from the user click and returns to that silent source after each spoken answer while enabled. Blocked playback shows `Resume` in the feature menu; tapping it retries the queued audio with a fresh user gesture.
+Chrome and iOS PWA audio playback can reject asynchronous autoplay even after voice mode was enabled, because the audible playback happens after the assistant turn and TTS request. Explicit `Play` now primes a Web Audio session before the TTS fetch. `Mode` starts a low-volume Web Audio keep-alive session from the user click and restores that session after each spoken answer while enabled. The HTML audio element remains a fallback for browsers where Web Audio decoding fails. Blocked playback shows `Resume` in the feature menu; tapping it retries the queued audio with a fresh user gesture.
 
 ## Persistence
 

@@ -13,6 +13,7 @@ type PlayVoiceInput = {
 
 const VOICE_CACHE_LIMIT = 8
 const SILENT_WAV_DATA_URL = 'data:audio/wav;base64,UklGRjQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YRAAAAAAAAAAAAAAAAAAAAAA'
+const KEEP_ALIVE_GAIN = 0.000001
 
 function hashText(text: string): string {
   let hash = 2166136261
@@ -51,6 +52,10 @@ export function useVoicePlayback() {
   let activeObjectUrl = ''
   let playSequence = 0
   let autoplaySessionActive = false
+  let audioContext: AudioContext | null = null
+  let keepAliveGain: GainNode | null = null
+  let keepAliveSource: OscillatorNode | null = null
+  let activeBufferSource: AudioBufferSourceNode | null = null
 
   if (audio) {
     audio.preload = 'auto'
@@ -72,17 +77,95 @@ export function useVoicePlayback() {
   }
 
   async function unlockAudio(): Promise<void> {
-    if (typeof window === 'undefined') return
-    const AudioContextCtor = window.AudioContext ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-    if (!AudioContextCtor) return
+    await ensureAudioContextRunning()
+  }
+
+  function getAudioContext(): AudioContext | null {
+    if (typeof window === 'undefined') return null
+    if (audioContext) return audioContext
+    const fallbackAudioContext = (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    const AudioContextCtor = window.AudioContext ?? fallbackAudioContext
+    if (!AudioContextCtor) return null
     try {
-      const context = new AudioContextCtor()
+      audioContext = new AudioContextCtor()
+      return audioContext
+    } catch {
+      return null
+    }
+  }
+
+  async function ensureAudioContextRunning(): Promise<boolean> {
+    const context = getAudioContext()
+    if (!context) return false
+    try {
       if (context.state === 'suspended') {
         await context.resume()
       }
-      await context.close()
+      return context.state === 'running'
     } catch {
-      // iOS may still require a later explicit tap; playback handles that as blocked.
+      return false
+    }
+  }
+
+  function startAudioContextKeepAlive(): boolean {
+    const context = getAudioContext()
+    if (!context) return false
+    if (keepAliveSource) return true
+    try {
+      const gain = context.createGain()
+      gain.gain.value = KEEP_ALIVE_GAIN
+      const source = context.createOscillator()
+      source.frequency.value = 20
+      source.connect(gain)
+      gain.connect(context.destination)
+      source.start()
+      keepAliveGain = gain
+      keepAliveSource = source
+      return true
+    } catch {
+      keepAliveGain = null
+      keepAliveSource = null
+      return false
+    }
+  }
+
+  function stopAudioContextKeepAlive(): void {
+    const source = keepAliveSource
+    const gain = keepAliveGain
+    keepAliveSource = null
+    keepAliveGain = null
+    if (!source) return
+    try {
+      source.stop()
+    } catch {
+      // The source may already be stopped by the browser.
+    }
+    try {
+      source.disconnect()
+    } catch {
+      // Ignore disconnect races during teardown.
+    }
+    try {
+      gain?.disconnect()
+    } catch {
+      // Ignore disconnect races during teardown.
+    }
+  }
+
+  function stopActiveBufferSource(): void {
+    const source = activeBufferSource
+    activeBufferSource = null
+    if (!source) return
+    try {
+      source.onended = null
+      source.stop()
+    } catch {
+      // The buffer may already have ended.
+    }
+    try {
+      source.disconnect()
+    } catch {
+      // Ignore disconnect races during teardown.
     }
   }
 
@@ -115,11 +198,16 @@ export function useVoicePlayback() {
       autoplaySessionActive = true
       return
     }
-    autoplaySessionActive = await primeAudioElement()
+    const contextReady = await ensureAudioContextRunning()
+    autoplaySessionActive = contextReady && startAudioContextKeepAlive()
+    if (!autoplaySessionActive) {
+      autoplaySessionActive = await primeAudioElement()
+    }
   }
 
   function endAutoplaySession(): void {
     autoplaySessionActive = false
+    stopAudioContextKeepAlive()
     if (!audio) return
     if (audio.src === SILENT_WAV_DATA_URL || audio.currentSrc === SILENT_WAV_DATA_URL) {
       audio.pause()
@@ -141,6 +229,8 @@ export function useVoicePlayback() {
     autoplaySessionActive = false
     abortController?.abort()
     abortController = null
+    stopActiveBufferSource()
+    stopAudioContextKeepAlive()
     if (audio) {
       audio.pause()
       audio.loop = false
@@ -156,6 +246,8 @@ export function useVoicePlayback() {
   }
 
   async function playBlob(blob: Blob, input: PlayVoiceInput, sequence: number): Promise<void> {
+    const playedWithWebAudio = await playBlobWithAudioContext(blob, input, sequence)
+    if (playedWithWebAudio || sequence !== playSequence) return
     if (!audio) return
     revokeActiveObjectUrl()
     activeObjectUrl = URL.createObjectURL(blob)
@@ -178,6 +270,47 @@ export function useVoicePlayback() {
     }
   }
 
+  async function playBlobWithAudioContext(blob: Blob, input: PlayVoiceInput, sequence: number): Promise<boolean> {
+    const context = getAudioContext()
+    if (!context) return false
+    const contextReady = await ensureAudioContextRunning()
+    if (!contextReady || sequence !== playSequence) return false
+    try {
+      const audioBuffer = await context.decodeAudioData(await blob.arrayBuffer())
+      if (sequence !== playSequence) return true
+      stopActiveBufferSource()
+      const source = context.createBufferSource()
+      source.buffer = audioBuffer
+      source.connect(context.destination)
+      activeBufferSource = source
+      activeMessageId.value = input.messageId
+      pendingResume.value = input
+      source.onended = () => {
+        if (sequence !== playSequence || activeBufferSource !== source) return
+        activeBufferSource = null
+        if (state.value === 'playing') {
+          state.value = 'idle'
+          activeMessageId.value = ''
+          pendingResume.value = null
+        }
+        if (autoplaySessionActive) {
+          void ensureAudioContextRunning().then((ready) => {
+            if (ready && autoplaySessionActive) startAudioContextKeepAlive()
+          })
+        }
+      }
+      source.start()
+      if (!autoplaySessionActive) {
+        stopAudioContextKeepAlive()
+      }
+      pendingResume.value = null
+      state.value = 'playing'
+      return true
+    } catch {
+      return false
+    }
+  }
+
   async function play(input: PlayVoiceInput): Promise<void> {
     if (!audio) {
       state.value = 'error'
@@ -196,7 +329,12 @@ export function useVoicePlayback() {
     const key = createCacheKey(input)
     try {
       if (!input.autoplay) {
-        await primeAudioElement()
+        const contextReady = await ensureAudioContextRunning()
+        if (contextReady) {
+          startAudioContextKeepAlive()
+        } else {
+          await primeAudioElement()
+        }
         if (sequence !== playSequence) return
       }
       const cached = cache.get(key)
@@ -225,6 +363,7 @@ export function useVoicePlayback() {
     playSequence = sequence
     errorMessage.value = ''
     try {
+      if (await playVoiceAudioFromPendingResume(resumeInput, sequence)) return
       audio.loop = false
       audio.muted = false
       await audio.play()
@@ -237,6 +376,15 @@ export function useVoicePlayback() {
       state.value = 'blocked'
       errorMessage.value = error instanceof Error ? error.message : 'Audio playback is blocked until you tap resume.'
     }
+  }
+
+  async function playVoiceAudioFromPendingResume(input: PlayVoiceInput, sequence: number): Promise<boolean> {
+    const key = createCacheKey(input)
+    const blob = cache.get(key)
+    if (!blob) return false
+    const contextReady = await ensureAudioContextRunning()
+    if (!contextReady || sequence !== playSequence) return false
+    return playBlobWithAudioContext(blob, input, sequence)
   }
 
   onBeforeUnmount(stop)
