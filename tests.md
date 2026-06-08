@@ -7576,7 +7576,7 @@ Thread overflow menus can copy a shareable local thread link.
 ### Assistant Voice Mode Playback
 
 #### Feature/Change Name
-Assistant responses can be replayed from the thread feature menu, with optional autoplay, Nova TTS, iOS resume fallback, and adjustable speech speed.
+Assistant responses can be replayed through voice mode, with optional autoplay, Nova TTS, iOS resume fallback, and adjustable speech speed.
 
 #### Prerequisites/Setup
 1. Run from the repository root with dependencies installed.
@@ -7590,31 +7590,24 @@ Assistant responses can be replayed from the thread feature menu, with optional 
 #### Steps
 1. Run the focused server regression test:
    `pnpm exec vitest run src/server/voiceMode.test.ts`
-2. Run the voice mode end-to-end check:
-   `node scripts/e2e-voice-mode.cjs`
-3. Run the frontend type/build check:
+2. Run the frontend type/build check:
    `pnpm run build:frontend`
-4. In light theme, open a thread that contains a completed assistant response.
-5. Open the thread feature kebab menu in the content header.
-6. Confirm `Play voice`, `Voice mode`, `Stop voice`, and the speed slider are shown in that menu, with no floating voice strip over the composer or thread.
-7. Click `Play voice`.
-8. Confirm audio starts for the latest completed assistant response and that code blocks/diffs are described conversationally instead of read verbatim.
-9. Click `Play voice` again and confirm the voice response replays from the start.
-10. Confirm the speed slider defaults to `1`, move it near `1`, `1.25`, `1.5`, and `2`, and confirm it snaps near those marks while still allowing intermediate values away from marks.
-11. Click `Voice mode`, send a new prompt, and wait for the assistant turn to finish. Confirm voice playback begins only after the full assistant response is complete.
-12. Click `Stop voice` and confirm current playback stops and future assistant answers no longer autoplay.
-13. On iPhone PWA, if autoplay is blocked, confirm `Resume audio` appears in the feature menu and resumes queued playback after tapping.
-14. Switch to dark theme and repeat steps 4-12. Confirm the feature menu, speed slider, status row, and resume action use dark surfaces and readable text.
+3. In light theme, open a thread that contains a completed assistant response.
+4. Hover or focus the assistant response toolbar and click `Play`.
+5. Confirm audio starts for only the assistant response and that code blocks/diffs are described conversationally instead of read verbatim.
+6. Click `Play` on the same response again and confirm the cached/generated voice replays from the start.
+7. Click `Voice mode`, send a new prompt, and wait for the assistant turn to finish. Confirm voice playback begins only after the full assistant response is complete.
+8. Click the speed control, move the slider near `1`, `1.25`, `1.5`, and `2`, and confirm it snaps near those marks while still allowing intermediate values away from marks.
+9. Click `Stop` and confirm current playback stops and future assistant answers no longer autoplay.
+10. On iPhone PWA, if autoplay is blocked, confirm the large `Tap to resume audio` button appears and resumes queued playback after tapping.
+11. Switch to dark theme and repeat steps 3-9. Confirm the response toolbar, voice strip, speed popover, and resume button use dark surfaces and readable text.
 
 #### Expected Results
-- Voice controls live in the thread feature kebab menu and do not overlay the composer, thread, or message content.
-- Voice controls are enabled only when a completed assistant response is available.
+- Voice controls appear only for assistant responses with completed text.
 - Voice mode does not store the conversational summary in the thread.
 - TTS uses OpenAI `gpt-4o-mini-tts`, fixed `nova` voice, and the selected speed.
 - Autoplay waits for the completed assistant response; live/streaming responses are not spoken early.
-- The default speed is `1`; stale stored speed values below `1` are treated as `1`.
-- The server sends the conversational summary to TTS instead of the full assistant response.
-- `Resume audio` handles iOS/PWA user-gesture blocking without losing the queued response.
+- `Tap to resume audio` handles iOS/PWA user-gesture blocking without losing the queued response.
 - Light and dark themes both keep all voice controls legible.
 
 #### Rollback/Cleanup

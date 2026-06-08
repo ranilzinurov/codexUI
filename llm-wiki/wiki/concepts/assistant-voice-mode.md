@@ -1,16 +1,15 @@
 # Assistant Voice Mode
 
-Assistant voice mode makes completed assistant responses playable as short spoken audio while preserving the full written answer in the thread. Source notes: [assistant-voice-mode.md](../../raw/features/assistant-voice-mode.md), [assistant-voice-mode-menu-controls.md](../../raw/features/assistant-voice-mode-menu-controls.md).
+Assistant voice mode makes completed assistant responses playable as short spoken audio while preserving the full written answer in the thread. Source notes: [assistant-voice-mode.md](../../raw/features/assistant-voice-mode.md).
 
 ## Behavior
 
 - Only assistant responses are voice-playable in v1.
-- `Play voice` in the thread feature menu replays the latest completed assistant response.
+- Per-response `Play` replays the selected assistant response.
 - `Voice mode` enables autoplay for future completed assistant responses after a user tap.
 - Autoplay waits until the assistant turn is complete; live/streaming responses are not spoken early.
-- `Stop voice` disables autoplay and stops current playback.
-- The speed slider lives in the same feature menu, defaults to `1`, and uses snap marks at `1`, `1.25`, `1.5`, and `2`.
-- Voice controls are intentionally hidden in the kebab menu so they do not cover the composer or thread content.
+- `Stop` disables autoplay and stops current playback.
+- A speed button opens a slider over the OpenAI-supported speed range with snap marks at `1`, `1.25`, `1.5`, and `2`.
 
 ## Server Path
 
@@ -20,7 +19,7 @@ TTS is server-side only so browser clients never receive an OpenAI API key. The 
 
 ## PWA Edge Cases
 
-iOS PWA audio playback can reject asynchronous autoplay even after voice mode was enabled. The playback composable treats that as a blocked state and the feature menu shows `Resume audio`. Tapping it retries the queued audio with a fresh user gesture.
+iOS PWA audio playback can reject asynchronous autoplay even after voice mode was enabled. The playback composable treats that as a blocked state and the UI shows a large `Tap to resume audio` button. Tapping it retries the queued audio with a fresh user gesture.
 
 ## Persistence
 

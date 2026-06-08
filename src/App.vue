@@ -696,75 +696,6 @@
                   <span class="content-header-feature-menu-text">{{ browserAnnotationFeatureMenuLabel }}</span>
                   <span v-if="browserAnnotationFeatureMenuStatus" class="content-header-feature-menu-status">{{ browserAnnotationFeatureMenuStatus }}</span>
                 </button>
-                <button
-                  class="content-header-feature-menu-item"
-                  type="button"
-                  role="menuitem"
-                  :disabled="!threadVoiceState.canPlayLatest"
-                  @click="onPlayVoiceFromFeatureMenu"
-                >
-                  <IconTablerPlayerPlayFilled class="content-header-feature-menu-icon" />
-                  <span class="content-header-feature-menu-text">Play voice</span>
-                  <span v-if="threadVoiceState.playbackState === 'playing'" class="content-header-feature-menu-status">Playing</span>
-                </button>
-                <button
-                  class="content-header-feature-menu-item"
-                  :class="{ 'is-active': threadVoiceState.enabled }"
-                  type="button"
-                  role="menuitem"
-                  :disabled="!threadVoiceState.canPlayLatest"
-                  @click="onToggleVoiceModeFromFeatureMenu"
-                >
-                  <IconTablerBolt class="content-header-feature-menu-icon" />
-                  <span class="content-header-feature-menu-text">Voice mode</span>
-                  <span class="content-header-feature-menu-status">{{ threadVoiceState.enabled ? 'On' : 'Off' }}</span>
-                </button>
-                <button
-                  v-if="threadVoiceState.playbackState === 'blocked'"
-                  class="content-header-feature-menu-item is-active"
-                  type="button"
-                  role="menuitem"
-                  @click="onResumeVoiceFromFeatureMenu"
-                >
-                  <IconTablerPlayerPlayFilled class="content-header-feature-menu-icon" />
-                  <span class="content-header-feature-menu-text">Resume audio</span>
-                  <span class="content-header-feature-menu-status">Tap</span>
-                </button>
-                <button
-                  class="content-header-feature-menu-item"
-                  type="button"
-                  role="menuitem"
-                  :disabled="threadVoiceState.playbackState === 'idle' && !threadVoiceState.enabled"
-                  @click="onStopVoiceFromFeatureMenu"
-                >
-                  <IconTablerPlayerStopFilled class="content-header-feature-menu-icon" />
-                  <span class="content-header-feature-menu-text">Stop voice</span>
-                </button>
-                <div class="content-header-feature-menu-slider" role="group" aria-label="Voice speed">
-                  <div class="content-header-feature-menu-slider-header">
-                    <span>Speed</span>
-                    <strong>{{ threadVoiceState.speedLabel }}</strong>
-                  </div>
-                  <input
-                    class="content-header-feature-menu-speed-slider"
-                    type="range"
-                    min="1"
-                    max="4"
-                    step="0.05"
-                    :value="threadVoiceState.speed"
-                    @input="onVoiceSpeedInput"
-                    @change="onVoiceSpeedChange"
-                  />
-                  <div class="content-header-feature-menu-speed-marks" aria-hidden="true">
-                    <span>1</span>
-                    <span>1.25</span>
-                    <span>1.5</span>
-                    <span>2</span>
-                  </div>
-                </div>
-                <p v-if="threadVoiceState.statusText" class="content-header-feature-menu-status-row" aria-live="polite">
-                  {{ threadVoiceState.statusText }}
-                </p>
               </div>
             </div>
             <ComposerDropdown
@@ -1202,8 +1133,7 @@
                       @fork-thread="onForkThreadFromMessage"
                       @rollback="onRollback"
                       @implement-plan="onImplementPlan"
-                      @respond-server-request="onRespondServerRequest"
-                      @voice-state-change="onThreadVoiceStateChange" />
+                      @respond-server-request="onRespondServerRequest" />
                   </div>
                   <SideChatPanel
                     v-if="sideThreadId.length > 0"
@@ -1399,8 +1329,6 @@ import IconTablerGitFork from './components/icons/IconTablerGitFork.vue'
 import IconTablerDots from './components/icons/IconTablerDots.vue'
 import IconTablerX from './components/icons/IconTablerX.vue'
 import IconTablerAlertTriangle from './components/icons/IconTablerAlertTriangle.vue'
-import IconTablerPlayerPlayFilled from './components/icons/IconTablerPlayerPlayFilled.vue'
-import IconTablerPlayerStopFilled from './components/icons/IconTablerPlayerStopFilled.vue'
 import { useDesktopState } from './composables/useDesktopState'
 import { useCodexUiRestart } from './composables/useCodexUiRestart'
 import { useMobile } from './composables/useMobile'
@@ -1508,27 +1436,6 @@ type TerminalHeaderQuickCommand = {
 
 type ThreadTerminalPanelExposed = {
   runQuickCommand: (command: string, custom?: boolean) => Promise<void>
-}
-
-type ThreadVoiceState = {
-  enabled: boolean
-  speed: number
-  speedLabel: string
-  playbackState: 'idle' | 'synthesizing' | 'playing' | 'blocked' | 'error'
-  activeMessageId: string
-  statusText: string
-  errorMessage: string
-  canPlayLatest: boolean
-}
-
-type ThreadConversationExposed = {
-  jumpToLatest: () => void
-  playLatestVoiceResponse: (autoplay?: boolean) => Promise<void>
-  toggleVoiceMode: () => Promise<void>
-  stopVoiceMode: () => void
-  resumeVoiceAudio: () => Promise<void>
-  setVoiceSpeed: (value: number) => void
-  getVoiceState: () => ThreadVoiceState
 }
 
 type DirectoryTryItemPayload = {
@@ -1783,7 +1690,7 @@ function prepareFeedbackLink(event: MouseEvent, message?: string): void {
 const error = desktopError
 const homeThreadComposerRef = ref<ThreadComposerExposed | null>(null)
 const threadComposerRef = ref<ThreadComposerExposed | null>(null)
-const threadConversationRef = ref<ThreadConversationExposed | null>(null)
+const threadConversationRef = ref<{ jumpToLatest: () => void } | null>(null)
 const homeTerminalPanelRef = ref<ThreadTerminalPanelExposed | null>(null)
 const threadTerminalPanelRef = ref<ThreadTerminalPanelExposed | null>(null)
 const homeTerminalOpen = ref(false)
@@ -1835,16 +1742,6 @@ const defaultNewProjectName = ref('New Project (1)')
 const homeDirectory = ref('')
 const isSettingsOpen = ref(false)
 const isThreadFeatureMenuOpen = ref(false)
-const threadVoiceState = ref<ThreadVoiceState>({
-  enabled: false,
-  speed: 1,
-  speedLabel: '1x',
-  playbackState: 'idle',
-  activeMessageId: '',
-  statusText: '',
-  errorMessage: '',
-  canPlayLatest: false,
-})
 const isAccountsSectionCollapsed = ref(loadAccountsSectionCollapsed())
 const isReviewPaneOpen = ref(false)
 const threadBranchOptions = ref<WorktreeBranchOption[]>([])
@@ -2102,10 +1999,7 @@ const canShowThreadFeatureMenu = computed(() => route.name === 'thread' && selec
 const isThreadFeatureMenuActive = computed(() => (
   sideThreadId.value.length > 0 ||
   isBrowserAnnotationListenerActive.value ||
-  isBrowserAnnotationListenerBusy.value ||
-  threadVoiceState.value.enabled ||
-  threadVoiceState.value.playbackState === 'playing' ||
-  threadVoiceState.value.playbackState === 'blocked'
+  isBrowserAnnotationListenerBusy.value
 ))
 const threadFeatureMenuTitle = computed(() => (
   isThreadFeatureMenuOpen.value ? t('Close thread features') : t('Thread features')
@@ -3337,56 +3231,6 @@ async function onToggleBrowserAnnotationFromFeatureMenu(): Promise<void> {
   if (isBrowserAnnotationListenerBusy.value) return
   isThreadFeatureMenuOpen.value = false
   await toggleBrowserAnnotationListener()
-}
-
-function onThreadVoiceStateChange(nextState: ThreadVoiceState): void {
-  threadVoiceState.value = nextState
-}
-
-async function onPlayVoiceFromFeatureMenu(): Promise<void> {
-  await threadConversationRef.value?.playLatestVoiceResponse(false)
-  const nextState = threadConversationRef.value?.getVoiceState()
-  if (nextState) threadVoiceState.value = nextState
-}
-
-async function onToggleVoiceModeFromFeatureMenu(): Promise<void> {
-  await threadConversationRef.value?.toggleVoiceMode()
-  const nextState = threadConversationRef.value?.getVoiceState()
-  if (nextState) threadVoiceState.value = nextState
-}
-
-function onStopVoiceFromFeatureMenu(): void {
-  threadConversationRef.value?.stopVoiceMode()
-  const nextState = threadConversationRef.value?.getVoiceState()
-  if (nextState) threadVoiceState.value = nextState
-}
-
-async function onResumeVoiceFromFeatureMenu(): Promise<void> {
-  await threadConversationRef.value?.resumeVoiceAudio()
-  const nextState = threadConversationRef.value?.getVoiceState()
-  if (nextState) threadVoiceState.value = nextState
-}
-
-function onVoiceSpeedInput(event: Event): void {
-  const target = event.target
-  if (!(target instanceof HTMLInputElement)) return
-  const value = Math.min(4, Math.max(1, Number(target.value) || 1))
-  threadVoiceState.value = {
-    ...threadVoiceState.value,
-    speed: value,
-    speedLabel: `${value.toFixed(value % 1 === 0 ? 0 : 2)}x`,
-  }
-}
-
-function onVoiceSpeedChange(event: Event): void {
-  const target = event.target
-  if (!(target instanceof HTMLInputElement)) return
-  threadConversationRef.value?.setVoiceSpeed(Number(target.value) || 1)
-  const nextState = threadConversationRef.value?.getVoiceState()
-  if (nextState) {
-    threadVoiceState.value = nextState
-    target.value = String(nextState.speed)
-  }
 }
 
 function toggleComposerTerminal(): void {
@@ -5690,34 +5534,6 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
   @apply shrink-0 rounded-full bg-zinc-200 px-2 py-0.5 text-[11px] font-semibold leading-none text-zinc-700;
 }
 
-.content-header-feature-menu-slider {
-  @apply mx-1 mt-1 border-t border-zinc-100 px-2 py-2;
-}
-
-.content-header-feature-menu-slider-header {
-  @apply mb-1 flex items-center justify-between gap-3 text-xs font-medium text-zinc-600;
-}
-
-.content-header-feature-menu-slider-header strong {
-  @apply font-semibold text-zinc-900;
-}
-
-.content-header-feature-menu-speed-slider {
-  @apply w-full accent-zinc-900;
-}
-
-.content-header-feature-menu-speed-marks {
-  @apply mt-1 grid grid-cols-4 text-[10px] leading-none text-zinc-500;
-}
-
-.content-header-feature-menu-speed-marks span {
-  @apply text-center;
-}
-
-.content-header-feature-menu-status-row {
-  @apply m-1 rounded-md bg-zinc-50 px-2.5 py-1.5 text-xs leading-4 text-zinc-600;
-}
-
 :global(:root.dark) .content-header-feature-trigger {
   @apply border-zinc-700 bg-zinc-900 text-zinc-200 hover:bg-zinc-800 focus:ring-zinc-600;
 }
@@ -5741,30 +5557,6 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 
 :global(:root.dark) .content-header-feature-menu-status {
   @apply bg-zinc-700 text-zinc-200;
-}
-
-:global(:root.dark) .content-header-feature-menu-slider {
-  @apply border-zinc-800;
-}
-
-:global(:root.dark) .content-header-feature-menu-slider-header {
-  @apply text-zinc-400;
-}
-
-:global(:root.dark) .content-header-feature-menu-slider-header strong {
-  @apply text-zinc-100;
-}
-
-:global(:root.dark) .content-header-feature-menu-speed-slider {
-  @apply accent-zinc-100;
-}
-
-:global(:root.dark) .content-header-feature-menu-speed-marks {
-  @apply text-zinc-500;
-}
-
-:global(:root.dark) .content-header-feature-menu-status-row {
-  @apply bg-zinc-800 text-zinc-300;
 }
 
 @media (max-width: 900px) {
