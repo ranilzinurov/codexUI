@@ -12,7 +12,6 @@ type PlayVoiceInput = {
 }
 
 const VOICE_CACHE_LIMIT = 8
-const SILENT_WAV_DATA_URL = 'data:audio/wav;base64,UklGRjQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YRAAAAAAAAAAAAAAAAAAAAAA'
 
 function hashText(text: string): string {
   let hash = 2166136261
@@ -82,22 +81,6 @@ export function useVoicePlayback() {
     }
   }
 
-  async function primeAudioElement(): Promise<void> {
-    if (!audio) return
-    try {
-      audio.pause()
-      audio.loop = true
-      audio.muted = true
-      audio.src = SILENT_WAV_DATA_URL
-      audio.currentTime = 0
-      await audio.play()
-    } catch {
-      audio.loop = false
-      audio.muted = false
-      // The real TTS play attempt will surface a blocked state if needed.
-    }
-  }
-
   function revokeActiveObjectUrl(): void {
     if (!activeObjectUrl) return
     URL.revokeObjectURL(activeObjectUrl)
@@ -110,8 +93,6 @@ export function useVoicePlayback() {
     abortController = null
     if (audio) {
       audio.pause()
-      audio.loop = false
-      audio.muted = false
       audio.removeAttribute('src')
       audio.load()
     }
@@ -126,8 +107,6 @@ export function useVoicePlayback() {
     if (!audio) return
     revokeActiveObjectUrl()
     activeObjectUrl = URL.createObjectURL(blob)
-    audio.loop = false
-    audio.muted = false
     audio.src = activeObjectUrl
     audio.currentTime = 0
     activeMessageId.value = input.messageId
@@ -162,10 +141,6 @@ export function useVoicePlayback() {
 
     const key = createCacheKey(input)
     try {
-      if (!input.autoplay) {
-        await primeAudioElement()
-        if (sequence !== playSequence) return
-      }
       const cached = cache.get(key)
       const blob = cached ?? await createVoiceSpeech({
         text: input.text,
@@ -192,8 +167,6 @@ export function useVoicePlayback() {
     playSequence = sequence
     errorMessage.value = ''
     try {
-      audio.loop = false
-      audio.muted = false
       await audio.play()
       if (sequence !== playSequence) return
       pendingResume.value = null

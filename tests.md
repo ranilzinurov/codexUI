@@ -7596,14 +7596,14 @@ Assistant responses can be replayed from the thread feature menu, with optional 
    `pnpm run build:frontend`
 4. In light theme, open a thread that contains a completed assistant response.
 5. Open the thread feature kebab menu in the content header.
-6. Confirm the compact `Play`, `Mode`, and `Stop` voice control row plus the speed slider are shown in that menu, with no floating voice strip over the composer or thread.
-7. Click `Play`.
+6. Confirm `Play voice`, `Voice mode`, `Stop voice`, and the speed slider are shown in that menu, with no floating voice strip over the composer or thread.
+7. Click `Play voice`.
 8. Confirm audio starts for the latest completed assistant response and that code blocks/diffs are described conversationally instead of read verbatim.
-9. Click `Play` again and confirm the voice response replays from the start.
+9. Click `Play voice` again and confirm the voice response replays from the start.
 10. Confirm the speed slider defaults to `1`, move it near `1`, `1.25`, `1.5`, and `2`, and confirm it snaps near those marks while still allowing intermediate values away from marks.
-11. Click `Mode`, send a new prompt, and wait for the assistant turn to finish. Confirm voice playback begins only after the full assistant response is complete.
-12. Click `Stop` and confirm current playback stops and future assistant answers no longer autoplay.
-13. On iPhone PWA, if autoplay is blocked, confirm `Resume` appears in the compact control row and resumes queued playback after tapping.
+11. Click `Voice mode`, send a new prompt, and wait for the assistant turn to finish. Confirm voice playback begins only after the full assistant response is complete.
+12. Click `Stop voice` and confirm current playback stops and future assistant answers no longer autoplay.
+13. On iPhone PWA, if autoplay is blocked, confirm `Resume audio` appears in the feature menu and resumes queued playback after tapping.
 14. Switch to dark theme and repeat steps 4-12. Confirm the feature menu, speed slider, status row, and resume action use dark surfaces and readable text.
 
 #### Expected Results
@@ -7611,7 +7611,6 @@ Assistant responses can be replayed from the thread feature menu, with optional 
 - Voice controls are enabled only when a completed assistant response is available.
 - Voice mode does not store the conversational summary in the thread.
 - TTS uses OpenAI `gpt-4o-mini-tts`, fixed `nova` voice, and the selected speed.
-- Explicit `Play` primes the audio element before the asynchronous TTS request so the later blob playback is not rejected by normal browser user-activation rules.
 - Autoplay waits for the completed assistant response; live/streaming responses are not spoken early.
 - The default speed is `1`; stale stored speed values below `1` are treated as `1`.
 - The server sends the conversational summary to TTS instead of the full assistant response.

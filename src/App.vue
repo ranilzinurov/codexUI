@@ -696,54 +696,50 @@
                   <span class="content-header-feature-menu-text">{{ browserAnnotationFeatureMenuLabel }}</span>
                   <span v-if="browserAnnotationFeatureMenuStatus" class="content-header-feature-menu-status">{{ browserAnnotationFeatureMenuStatus }}</span>
                 </button>
-                <div class="content-header-feature-menu-voice-row" role="group" aria-label="Voice controls">
-                  <button
-                    class="content-header-feature-menu-voice-button"
-                    type="button"
-                    role="menuitem"
-                    :disabled="!threadVoiceState.canPlayLatest"
-                    :title="threadVoiceState.playbackState === 'playing' ? 'Replay latest assistant response' : 'Play latest assistant response'"
-                    @click="onPlayVoiceFromFeatureMenu"
-                  >
-                    <IconTablerPlayerPlayFilled class="content-header-feature-menu-voice-icon" />
-                    <span>Play</span>
-                  </button>
-                  <button
-                    class="content-header-feature-menu-voice-button"
-                    :class="{ 'is-active': threadVoiceState.enabled }"
-                    type="button"
-                    role="menuitem"
-                    :disabled="!threadVoiceState.canPlayLatest"
-                    :aria-pressed="threadVoiceState.enabled"
-                    title="Toggle voice mode autoplay"
-                    @click="onToggleVoiceModeFromFeatureMenu"
-                  >
-                    <IconTablerBolt class="content-header-feature-menu-voice-icon" />
-                    <span>Mode</span>
-                  </button>
-                  <button
-                    v-if="threadVoiceState.playbackState === 'blocked'"
-                    class="content-header-feature-menu-voice-button is-attention"
-                    type="button"
-                    role="menuitem"
-                    title="Resume audio playback"
-                    @click="onResumeVoiceFromFeatureMenu"
-                  >
-                    <IconTablerPlayerPlayFilled class="content-header-feature-menu-voice-icon" />
-                    <span>Resume</span>
-                  </button>
-                  <button
-                    class="content-header-feature-menu-voice-button"
-                    type="button"
-                    role="menuitem"
-                    :disabled="threadVoiceState.playbackState === 'idle' && !threadVoiceState.enabled"
-                    title="Stop voice playback"
-                    @click="onStopVoiceFromFeatureMenu"
-                  >
-                    <IconTablerPlayerStopFilled class="content-header-feature-menu-voice-icon" />
-                    <span>Stop</span>
-                  </button>
-                </div>
+                <button
+                  class="content-header-feature-menu-item"
+                  type="button"
+                  role="menuitem"
+                  :disabled="!threadVoiceState.canPlayLatest"
+                  @click="onPlayVoiceFromFeatureMenu"
+                >
+                  <IconTablerPlayerPlayFilled class="content-header-feature-menu-icon" />
+                  <span class="content-header-feature-menu-text">Play voice</span>
+                  <span v-if="threadVoiceState.playbackState === 'playing'" class="content-header-feature-menu-status">Playing</span>
+                </button>
+                <button
+                  class="content-header-feature-menu-item"
+                  :class="{ 'is-active': threadVoiceState.enabled }"
+                  type="button"
+                  role="menuitem"
+                  :disabled="!threadVoiceState.canPlayLatest"
+                  @click="onToggleVoiceModeFromFeatureMenu"
+                >
+                  <IconTablerBolt class="content-header-feature-menu-icon" />
+                  <span class="content-header-feature-menu-text">Voice mode</span>
+                  <span class="content-header-feature-menu-status">{{ threadVoiceState.enabled ? 'On' : 'Off' }}</span>
+                </button>
+                <button
+                  v-if="threadVoiceState.playbackState === 'blocked'"
+                  class="content-header-feature-menu-item is-active"
+                  type="button"
+                  role="menuitem"
+                  @click="onResumeVoiceFromFeatureMenu"
+                >
+                  <IconTablerPlayerPlayFilled class="content-header-feature-menu-icon" />
+                  <span class="content-header-feature-menu-text">Resume audio</span>
+                  <span class="content-header-feature-menu-status">Tap</span>
+                </button>
+                <button
+                  class="content-header-feature-menu-item"
+                  type="button"
+                  role="menuitem"
+                  :disabled="threadVoiceState.playbackState === 'idle' && !threadVoiceState.enabled"
+                  @click="onStopVoiceFromFeatureMenu"
+                >
+                  <IconTablerPlayerStopFilled class="content-header-feature-menu-icon" />
+                  <span class="content-header-feature-menu-text">Stop voice</span>
+                </button>
                 <div class="content-header-feature-menu-slider" role="group" aria-label="Voice speed">
                   <div class="content-header-feature-menu-slider-header">
                     <span>Speed</span>
@@ -5663,7 +5659,7 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 
 .content-header-feature-trigger.is-open,
 .content-header-feature-trigger.is-active {
-  @apply border-zinc-300 bg-zinc-100 text-zinc-900 hover:bg-zinc-100;
+  @apply border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800;
 }
 
 .content-header-feature-trigger-icon {
@@ -5692,26 +5688,6 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 
 .content-header-feature-menu-status {
   @apply shrink-0 rounded-full bg-zinc-200 px-2 py-0.5 text-[11px] font-semibold leading-none text-zinc-700;
-}
-
-.content-header-feature-menu-voice-row {
-  @apply mx-1 my-1 flex gap-1 border-t border-zinc-100 pt-2;
-}
-
-.content-header-feature-menu-voice-button {
-  @apply inline-flex min-w-0 flex-1 items-center justify-center gap-1 rounded-md border border-zinc-200 bg-white px-1.5 py-1.5 text-xs font-semibold text-zinc-700 outline-none transition hover:bg-zinc-50 focus:ring-2 focus:ring-zinc-300 disabled:cursor-not-allowed disabled:opacity-45;
-}
-
-.content-header-feature-menu-voice-button.is-active {
-  @apply border-sky-300 bg-sky-50 text-sky-800;
-}
-
-.content-header-feature-menu-voice-button.is-attention {
-  @apply border-amber-300 bg-amber-50 text-amber-800;
-}
-
-.content-header-feature-menu-voice-icon {
-  @apply h-3.5 w-3.5 shrink-0;
 }
 
 .content-header-feature-menu-slider {
@@ -5765,22 +5741,6 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 
 :global(:root.dark) .content-header-feature-menu-status {
   @apply bg-zinc-700 text-zinc-200;
-}
-
-:global(:root.dark) .content-header-feature-menu-voice-row {
-  @apply border-zinc-800;
-}
-
-:global(:root.dark) .content-header-feature-menu-voice-button {
-  @apply border-zinc-700 bg-zinc-900 text-zinc-200 hover:bg-zinc-800 focus:ring-zinc-600;
-}
-
-:global(:root.dark) .content-header-feature-menu-voice-button.is-active {
-  @apply border-sky-500/60 bg-sky-500/15 text-sky-200;
-}
-
-:global(:root.dark) .content-header-feature-menu-voice-button.is-attention {
-  @apply border-amber-500/60 bg-amber-500/15 text-amber-200;
 }
 
 :global(:root.dark) .content-header-feature-menu-slider {
