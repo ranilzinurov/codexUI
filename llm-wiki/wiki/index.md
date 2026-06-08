@@ -25,6 +25,7 @@
 - [../raw/features/directory-hub-composio-skills-search.md](../raw/features/directory-hub-composio-skills-search.md): source facts for Directory Hub, Composio connectors, Skills search/install, and edge-case tests.
 - [../raw/features/composer-plugin-mentions.md](../raw/features/composer-plugin-mentions.md): source facts for composer plugin mentions, plugin catalog source, and mention payload format.
 - [../raw/features/assistant-voice-mode.md](../raw/features/assistant-voice-mode.md): source facts for assistant voice mode behavior, TTS route, speed control, and PWA audio fallback.
+- [../raw/features/assistant-voice-mode-menu-controls.md](../raw/features/assistant-voice-mode-menu-controls.md): source facts for assistant voice mode menu placement, default speed, and E2E coverage.
 - [../raw/features/directory-hub-apps-failure-message.md](../raw/features/directory-hub-apps-failure-message.md): source facts for the Directory Hub Apps tab concise app-list failure message.
 - [../raw/features/realtime-chat-rendering-inline-media.md](../raw/features/realtime-chat-rendering-inline-media.md): source facts for realtime chat rendering and inline media sanitization.
 - [../raw/features/runtime-activity-agents-mcp.md](../raw/features/runtime-activity-agents-mcp.md): source facts for grouped agents/MCP runtime activity and collapsed summaries.

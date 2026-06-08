@@ -99,3 +99,10 @@
 - Created wiki page: `concepts/assistant-voice-mode.md`.
 - Documents assistant-only playback, server-side OpenAI TTS, ephemeral summary behavior, speed persistence, and iOS PWA resume handling.
 - Updated `index.md`.
+
+## 2026-06-08
+
+- Added follow-up source notes for assistant voice mode menu controls.
+- Updated wiki page: `concepts/assistant-voice-mode.md`.
+- Documents moving voice controls into the thread feature kebab menu, default speed `1`, E2E coverage, and summary-to-TTS verification.
+- Updated `index.md`.

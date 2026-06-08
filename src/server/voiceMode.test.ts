@@ -11,10 +11,14 @@ function makeAppServer() {
   }
 }
 
+type TestAppServer = {
+  rpc: (method: string, params: unknown) => Promise<unknown>
+}
+
 async function withVoiceServer(
   options: {
     fetch?: typeof fetch
-    appServer?: ReturnType<typeof makeAppServer>
+    appServer?: TestAppServer
   },
   run: (baseUrl: string) => Promise<void>,
 ): Promise<void> {
@@ -100,6 +104,62 @@ describe('voice mode speech route', () => {
 
       expect(response.status).toBe(400)
       expect(await response.json()).toMatchObject({ error: 'Voice speech requires non-empty text' })
+    })
+  })
+
+  it('sends the app-server conversational summary to TTS instead of the full response', async () => {
+    const appServer = {
+      rpc: vi.fn(async (method: string, params: unknown) => {
+        if (method === 'thread/fork') {
+          expect(params).toMatchObject({ threadId: 'thread-1', ephemeral: true })
+          return { thread: { id: 'voice-thread-1' } }
+        }
+        if (method === 'turn/start') {
+          expect(params).toMatchObject({ threadId: 'voice-thread-1' })
+          return { turn: { id: 'turn-1' } }
+        }
+        if (method === 'thread/read') {
+          return {
+            thread: {
+              turns: [{
+                status: 'completed',
+                items: [{
+                  id: 'summary-1',
+                  type: 'agentMessage',
+                  text: 'Short spoken summary. It explains the change without reading the code.',
+                }],
+              }],
+            },
+          }
+        }
+        throw new Error(`Unexpected rpc method ${method}`)
+      }),
+    }
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      expect(body.input).toBe('Short spoken summary. It explains the change without reading the code.')
+      expect(String(body.input)).not.toContain('very long detailed answer')
+      return new Response(new Uint8Array([4, 5, 6]), {
+        status: 200,
+        headers: { 'Content-Type': 'audio/mpeg' },
+      })
+    }) as unknown as typeof fetch
+
+    await withVoiceServer({ appServer, fetch: fetchMock }, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/codex-api/voice/speech`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          threadId: 'thread-1',
+          text: 'This is a very long detailed answer with code and logs. ```ts\nconsole.log("do not read this")\n```',
+          speed: 1,
+          voice: 'nova',
+        }),
+      })
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get('x-codex-voice-summary-source')).toBe('app-server')
+      expect(fetchMock).toHaveBeenCalledOnce()
     })
   })
 })
