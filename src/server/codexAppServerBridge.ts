@@ -53,7 +53,6 @@ import { handleBrowserAnnotationListenRoutes } from './browserAnnotationListen.j
 import { handleBrowserAnnotationAssetUploadRoute } from './browserAnnotationAssets.js'
 import { handleBrowserAnnotationTranscribeRoute } from './browserAnnotationTranscribe.js'
 import { handleBrowserAnnotationBatchRoute } from './browserAnnotationBatch.js'
-import { handleVoiceModeSpeechRoute } from './voiceMode.js'
 import { getSpawnInvocation } from '../utils/commandInvocation.js'
 import {
   getNpmGlobalBinDir,
@@ -7882,10 +7881,6 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         res.statusCode = upstream.status
         res.setHeader('Content-Type', 'application/json; charset=utf-8')
         res.end(upstream.body)
-        return
-      }
-
-      if (await handleVoiceModeSpeechRoute(req, res, url, { appServer })) {
         return
       }
 

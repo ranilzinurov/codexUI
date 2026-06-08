@@ -787,22 +787,10 @@
               </section>
 
               <div
-                v-if="showVoiceResponseButton(message) || showCopyResponseButton(message) || showEditMessageButton(message)"
+                v-if="showCopyResponseButton(message) || showEditMessageButton(message)"
                 class="message-toolbar"
                 :data-role="message.role"
               >
-                <button
-                  v-if="showVoiceResponseButton(message)"
-                  type="button"
-                  class="message-voice-button"
-                  :data-active="voiceActiveMessageId === message.id"
-                  :aria-label="voiceActiveMessageId === message.id ? 'Replay voice response' : 'Play voice response'"
-                  :title="voiceActiveMessageId === message.id ? 'Replay voice response' : 'Play voice response'"
-                  @click="playVoiceResponse(message.id)"
-                >
-                  <IconTablerPlayerPlayFilled class="icon-svg message-voice-icon" />
-                  <span class="message-voice-label">{{ voiceActiveMessageId === message.id ? 'Replay' : 'Play' }}</span>
-                </button>
                 <button
                   v-if="showEditMessageButton(message)"
                   type="button"
@@ -872,71 +860,12 @@
       v-if="showJumpToLatestButton"
       type="button"
       class="jump-to-latest-button"
-      :class="{ 'jump-to-latest-button--voice-offset': showVoiceControls }"
       title="Jump to latest"
       aria-label="Jump to latest output"
       @click="jumpToLatest"
     >
       <IconTablerArrowUp class="icon-svg jump-to-latest-icon" />
     </button>
-
-    <div v-if="showVoiceControls" class="voice-mode-strip" role="region" aria-label="Voice mode controls">
-      <button
-        type="button"
-        class="voice-mode-toggle"
-        :aria-pressed="voiceModeEnabled"
-        @click="toggleVoiceMode"
-      >
-        <IconTablerPlayerPlayFilled class="icon-svg voice-mode-button-icon" />
-        <span>{{ voiceModeEnabled ? 'Voice on' : 'Voice mode' }}</span>
-      </button>
-      <button
-        type="button"
-        class="voice-mode-stop"
-        :disabled="voicePlaybackState === 'idle' && !voiceModeEnabled"
-        @click="stopVoiceMode"
-      >
-        <IconTablerPlayerStopFilled class="icon-svg voice-mode-button-icon" />
-        <span>Stop</span>
-      </button>
-      <div class="voice-speed-wrap">
-        <button
-          type="button"
-          class="voice-speed-button"
-          :aria-expanded="isVoiceSpeedOpen"
-          @click="isVoiceSpeedOpen = !isVoiceSpeedOpen"
-        >
-          {{ voiceSpeedLabel }}
-        </button>
-        <div v-if="isVoiceSpeedOpen" class="voice-speed-popover">
-          <label class="voice-speed-label" for="voice-speed-slider">Speed</label>
-          <input
-            id="voice-speed-slider"
-            class="voice-speed-slider"
-            type="range"
-            min="0.25"
-            max="4"
-            step="0.05"
-            :value="voiceSpeed"
-            @input="onVoiceSpeedInput"
-            @change="onVoiceSpeedChange"
-          />
-          <div class="voice-speed-marks" aria-hidden="true">
-            <span>1</span>
-            <span>1.25</span>
-            <span>1.5</span>
-            <span>2</span>
-          </div>
-        </div>
-      </div>
-      <p v-if="voiceStatusText" class="voice-mode-status" aria-live="polite">{{ voiceStatusText }}</p>
-    </div>
-
-    <div v-if="voicePlaybackState === 'blocked'" class="voice-resume-backdrop">
-      <button type="button" class="voice-resume-button" @click="resumeVoiceAudio">
-        Tap to resume audio
-      </button>
-    </div>
 
     <div v-if="modalImageUrl.length > 0" class="image-modal-backdrop" @click="closeImageModal">
       <div class="image-modal-content" @click.stop>
@@ -1094,7 +1023,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { UiFileChange, UiLiveOverlay, UiMessage, UiPlanStep, UiServerRequest } from '../../types/codex'
 import { useFeedbackDiagnostics } from '../../composables/useFeedbackDiagnostics'
 import { useMobile } from '../../composables/useMobile'
-import { useVoicePlayback } from '../../composables/useVoicePlayback'
 import { resolveBackendHttpUrl } from '../../backendUrl'
 import {
   isBrowserAnnotationBatchText,
@@ -1107,8 +1035,6 @@ import IconTablerArrowUp from '../icons/IconTablerArrowUp.vue'
 import IconTablerCopy from '../icons/IconTablerCopy.vue'
 import IconTablerFilePencil from '../icons/IconTablerFilePencil.vue'
 import IconTablerGitFork from '../icons/IconTablerGitFork.vue'
-import IconTablerPlayerPlayFilled from '../icons/IconTablerPlayerPlayFilled.vue'
-import IconTablerPlayerStopFilled from '../icons/IconTablerPlayerStopFilled.vue'
 import IconTablerX from '../icons/IconTablerX.vue'
 
 type HighlightJsModule = (typeof import('highlight.js/lib/common'))['default']
@@ -2210,141 +2136,6 @@ function showCopyResponseButton(message: UiMessage): boolean {
 
 function showForkResponseButton(message: UiMessage): boolean {
   return typeof forkableTurnIndexByAnchorId.value[message.id] === 'number'
-}
-
-const VOICE_MODE_ENABLED_STORAGE_KEY = 'codex-web-local.voice-mode-enabled.v1'
-const VOICE_SPEED_STORAGE_KEY = 'codex-web-local.voice-speed.v1'
-const VOICE_SPEED_MARKS = [1, 1.25, 1.5, 2]
-
-function readStoredBoolean(key: string, fallback: boolean): boolean {
-  if (typeof window === 'undefined') return fallback
-  try {
-    const value = window.localStorage.getItem(key)
-    if (value === 'true') return true
-    if (value === 'false') return false
-  } catch {
-    // Storage can be unavailable in constrained browser contexts.
-  }
-  return fallback
-}
-
-function readStoredVoiceSpeed(): number {
-  if (typeof window === 'undefined') return 1
-  try {
-    const value = Number(window.localStorage.getItem(VOICE_SPEED_STORAGE_KEY))
-    return Number.isFinite(value) ? Math.min(4, Math.max(0.25, value)) : 1
-  } catch {
-    return 1
-  }
-}
-
-function writeStoredValue(key: string, value: string): void {
-  if (typeof window === 'undefined') return
-  try {
-    window.localStorage.setItem(key, value)
-  } catch {
-    // Keep voice mode usable without persistence.
-  }
-}
-
-function snapVoiceSpeed(value: number): number {
-  const normalized = Math.min(4, Math.max(0.25, value))
-  const mark = VOICE_SPEED_MARKS.find((candidate) => Math.abs(candidate - normalized) <= 0.03)
-  return mark ?? Math.round(normalized * 100) / 100
-}
-
-const {
-  state: voicePlaybackState,
-  activeMessageId: voiceActiveMessageId,
-  errorMessage: voicePlaybackError,
-  unlockAudio: unlockVoiceAudio,
-  play: playVoiceAudio,
-  stop: stopVoiceAudio,
-  resumeBlocked: resumeVoiceAudio,
-} = useVoicePlayback()
-
-const voiceModeEnabled = ref(readStoredBoolean(VOICE_MODE_ENABLED_STORAGE_KEY, false))
-const voiceSpeed = ref(readStoredVoiceSpeed())
-const isVoiceSpeedOpen = ref(false)
-const lastAutoplayVoiceKey = ref('')
-const showVoiceControls = computed(() => props.messages.some((message) => showVoiceResponseButton(message)) || voiceModeEnabled.value)
-const voiceSpeedLabel = computed(() => `${voiceSpeed.value.toFixed(voiceSpeed.value % 1 === 0 ? 0 : 2)}x`)
-const voiceStatusText = computed(() => {
-  if (voicePlaybackState.value === 'synthesizing') return 'Preparing voice...'
-  if (voicePlaybackState.value === 'playing') return 'Playing'
-  if (voicePlaybackState.value === 'blocked') return 'Audio paused by iOS'
-  if (voicePlaybackState.value === 'error') return voicePlaybackError.value || 'Voice playback failed'
-  return ''
-})
-
-function showVoiceResponseButton(message: UiMessage): boolean {
-  return message.role === 'assistant' && typeof copyableResponseContentByAnchorId.value[message.id] === 'string'
-}
-
-function getLatestVoiceAnchor(): { messageId: string; text: string; key: string } | null {
-  for (let index = props.messages.length - 1; index >= 0; index -= 1) {
-    const message = props.messages[index]
-    const text = copyableResponseContentByAnchorId.value[message.id]?.trim()
-    if (!text) continue
-    return {
-      messageId: message.id,
-      text,
-      key: `${message.id}:${message.turnId ?? ''}:${message.text.length}:${text.length}`,
-    }
-  }
-  return null
-}
-
-async function playVoiceResponse(messageId: string, autoplay = false): Promise<void> {
-  const text = copyableResponseContentByAnchorId.value[messageId]?.trim()
-  if (!text) return
-  await playVoiceAudio({
-    messageId,
-    text,
-    threadId: props.activeThreadId,
-    speed: voiceSpeed.value,
-    autoplay,
-  })
-}
-
-async function playLatestVoiceResponse(autoplay = false): Promise<void> {
-  const latest = getLatestVoiceAnchor()
-  if (!latest) return
-  lastAutoplayVoiceKey.value = latest.key
-  await playVoiceResponse(latest.messageId, autoplay)
-}
-
-async function toggleVoiceMode(): Promise<void> {
-  const next = !voiceModeEnabled.value
-  voiceModeEnabled.value = next
-  writeStoredValue(VOICE_MODE_ENABLED_STORAGE_KEY, String(next))
-  if (!next) {
-    stopVoiceAudio()
-    return
-  }
-  await unlockVoiceAudio()
-  await playLatestVoiceResponse(false)
-}
-
-function stopVoiceMode(): void {
-  voiceModeEnabled.value = false
-  writeStoredValue(VOICE_MODE_ENABLED_STORAGE_KEY, 'false')
-  stopVoiceAudio()
-}
-
-function onVoiceSpeedInput(event: Event): void {
-  const target = event.target
-  if (!(target instanceof HTMLInputElement)) return
-  voiceSpeed.value = Math.min(4, Math.max(0.25, Number(target.value) || 1))
-}
-
-function onVoiceSpeedChange(event: Event): void {
-  const target = event.target
-  if (!(target instanceof HTMLInputElement)) return
-  const next = snapVoiceSpeed(Number(target.value) || 1)
-  voiceSpeed.value = next
-  target.value = String(next)
-  writeStoredValue(VOICE_SPEED_STORAGE_KEY, String(next))
 }
 
 function mergeFileChangeDiff(first: string, second: string): string {
@@ -4880,31 +4671,9 @@ watch(
     autoFollowOutput.value = true
     modalImageUrl.value = ''
     isLoadingMore.value = false
-    stopVoiceAudio()
-    lastAutoplayVoiceKey.value = getLatestVoiceAnchor()?.key ?? ''
     // Apply immediately for cached threads where isLoading never toggles.
     renderWindowStart.value = Math.max(0, props.messages.length - RENDER_WINDOW_SIZE)
     await scheduleConversationScroll()
-  },
-  { flush: 'post' },
-)
-
-watch(
-  () => [
-    props.messages.length,
-    props.messages.at(-1)?.id ?? '',
-    props.messages.at(-1)?.text ?? '',
-    props.liveOverlay ? 'live' : 'idle',
-    props.isLoading ? 'loading' : 'ready',
-    voiceModeEnabled.value ? 'voice-on' : 'voice-off',
-  ].join(':'),
-  async () => {
-    if (!voiceModeEnabled.value || props.isLoading || props.liveOverlay) return
-    await nextTick()
-    const latest = getLatestVoiceAnchor()
-    if (!latest || latest.key === lastAutoplayVoiceKey.value) return
-    lastAutoplayVoiceKey.value = latest.key
-    await playVoiceResponse(latest.messageId, true)
   },
   { flush: 'post' },
 )
@@ -4944,7 +4713,6 @@ function closeImageModal(): void {
 }
 
 onMounted(() => {
-  lastAutoplayVoiceKey.value = getLatestVoiceAnchor()?.key ?? ''
   window.addEventListener('pointerdown', onWindowPointerDownForFileLinkContextMenu)
   window.addEventListener('blur', onWindowBlurForFileLinkContextMenu)
   window.addEventListener('keydown', onWindowKeydownForFileLinkContextMenu)
@@ -5039,68 +4807,6 @@ onBeforeUnmount(() => {
 
 .jump-to-latest-icon {
   transform: rotate(180deg);
-}
-
-.jump-to-latest-button--voice-offset {
-  bottom: 5rem;
-}
-
-.voice-mode-strip {
-  @apply absolute left-1/2 bottom-4 z-30 flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-1.5 rounded-full border border-slate-200 bg-white/95 px-2 py-1.5 text-slate-700 shadow-lg shadow-slate-900/10 backdrop-blur;
-}
-
-.voice-mode-toggle,
-.voice-mode-stop,
-.voice-speed-button {
-  @apply inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 text-xs font-medium leading-none text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-45;
-}
-
-.voice-mode-toggle[aria-pressed='true'] {
-  @apply border-sky-300 bg-sky-50 text-sky-800;
-}
-
-.voice-mode-button-icon {
-  @apply text-sm;
-}
-
-.voice-speed-wrap {
-  @apply relative shrink-0;
-}
-
-.voice-speed-button {
-  @apply min-w-14;
-}
-
-.voice-speed-popover {
-  @apply absolute bottom-10 right-0 z-40 w-64 rounded-lg border border-slate-200 bg-white p-3 shadow-xl shadow-slate-900/15;
-}
-
-.voice-speed-label {
-  @apply mb-2 block text-xs font-semibold text-slate-700;
-}
-
-.voice-speed-slider {
-  @apply w-full accent-sky-600;
-}
-
-.voice-speed-marks {
-  @apply mt-1 grid grid-cols-4 text-[10px] leading-none text-slate-500;
-}
-
-.voice-speed-marks span {
-  @apply text-center;
-}
-
-.voice-mode-status {
-  @apply m-0 hidden max-w-36 truncate text-xs leading-none text-slate-500 sm:block;
-}
-
-.voice-resume-backdrop {
-  @apply absolute inset-x-0 bottom-0 z-50 flex justify-center bg-gradient-to-t from-white via-white/90 to-transparent px-4 pb-5 pt-16;
-}
-
-.voice-resume-button {
-  @apply min-h-14 w-full max-w-sm rounded-xl border border-sky-300 bg-sky-600 px-5 text-base font-semibold text-white shadow-xl shadow-sky-900/20 transition hover:bg-sky-700;
 }
 
 .message-stack {
@@ -5229,14 +4935,6 @@ onBeforeUnmount(() => {
   @apply inline-flex items-center gap-0.5 rounded-full border border-slate-200 bg-white/90 px-1.25 py-0.5 text-[9px] font-medium leading-none text-slate-500 transition hover:border-slate-300 hover:bg-white hover:text-slate-900;
 }
 
-.message-voice-button {
-  @apply inline-flex items-center gap-0.5 rounded-full border border-sky-200 bg-sky-50/90 px-1.25 py-0.5 text-[9px] font-medium leading-none text-sky-700 transition hover:border-sky-300 hover:bg-sky-100 hover:text-sky-900;
-}
-
-.message-voice-button[data-active='true'] {
-  @apply border-emerald-200 bg-emerald-50 text-emerald-700;
-}
-
 .message-fork-button {
   @apply inline-flex items-center gap-0.5 px-0.5 py-0 text-[9px] font-medium leading-none text-slate-500 transition hover:text-slate-900;
 }
@@ -5252,15 +4950,13 @@ onBeforeUnmount(() => {
 
 .message-fork-icon,
 .message-copy-icon,
-.message-edit-icon,
-.message-voice-icon {
+.message-edit-icon {
   @apply text-[10px];
 }
 
 .message-fork-label,
 .message-copy-label,
-.message-edit-label,
-.message-voice-label {
+.message-edit-label {
   @apply leading-none;
 }
 

@@ -839,45 +839,6 @@ html::after {
   @apply border-emerald-500/40 bg-emerald-500/10 text-emerald-200;
 }
 
-:root.dark .message-voice-button {
-  @apply border-sky-500/30 bg-sky-500/10 text-sky-200 hover:border-sky-400/50 hover:bg-sky-500/20 hover:text-sky-100;
-}
-
-:root.dark .message-voice-button[data-active='true'] {
-  @apply border-emerald-500/40 bg-emerald-500/10 text-emerald-200;
-}
-
-:root.dark .voice-mode-strip {
-  @apply border-zinc-700 bg-zinc-900/95 text-zinc-200 shadow-black/30;
-}
-
-:root.dark .voice-mode-toggle,
-:root.dark .voice-mode-stop,
-:root.dark .voice-speed-button {
-  @apply border-zinc-700 bg-zinc-800 text-zinc-200 hover:border-zinc-600 hover:bg-zinc-700 hover:text-zinc-50;
-}
-
-:root.dark .voice-mode-toggle[aria-pressed='true'] {
-  @apply border-sky-500/50 bg-sky-500/15 text-sky-100;
-}
-
-:root.dark .voice-speed-popover {
-  @apply border-zinc-700 bg-zinc-900 shadow-black/40;
-}
-
-:root.dark .voice-speed-label {
-  @apply text-zinc-200;
-}
-
-:root.dark .voice-speed-marks,
-:root.dark .voice-mode-status {
-  @apply text-zinc-400;
-}
-
-:root.dark .voice-resume-backdrop {
-  @apply from-zinc-950 via-zinc-950/90 to-transparent;
-}
-
 :root.dark .message-rollback-button {
   @apply text-amber-400/70 hover:text-amber-300;
 }
