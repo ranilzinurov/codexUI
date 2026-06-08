@@ -7392,6 +7392,38 @@ Web replies recover after disabling automatic `codex-lb` local proxy routing and
 
 ---
 
+### Assistant Voice/TTS Removal
+
+#### Feature/Change Name
+Assistant voice/TTS playback mode has been removed from the thread UI and server API.
+
+#### Prerequisites/Setup
+1. Run from the repository root with dependencies installed.
+2. Start or confirm the app server on `http://127.0.0.1:4173`:
+   `pnpm run dev --host 127.0.0.1 --port 4173`
+3. Have at least one completed assistant response visible in a thread.
+
+#### Steps
+1. Run the frontend type/build check:
+   `pnpm run build:frontend`
+2. Search the repository for removed voice/TTS code:
+   `rg -n "voice/speech|gpt-4o-mini-tts|useVoicePlayback|Play voice|Voice mode|Resume audio" src scripts tests.md llm-wiki || true`
+3. In light theme, open a thread and open the header kebab menu.
+4. Confirm the menu only shows the non-TTS thread features such as `Side` and `Listen`; there is no `Play`, `Mode`, `Resume`, `Stop`, or speed slider for TTS playback.
+5. Confirm completed assistant messages do not show any voice playback toolbar action.
+6. Switch to dark theme and repeat steps 3-5.
+7. Optionally call `POST /codex-api/voice/speech` and confirm there is no dedicated TTS route.
+
+#### Expected Results
+- No assistant TTS playback UI is visible in light or dark theme.
+- No OpenAI TTS request path, server route, playback composable, or E2E voice script remains.
+- Existing dictation/listen behavior and unrelated realtime slash-command text are unchanged.
+
+#### Rollback/Cleanup
+- Stop the temporary `4173` dev server when testing is complete.
+
+---
+
 ### Previous Response Auto-Continue Watcher
 
 #### Feature/Change Name
