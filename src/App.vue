@@ -249,6 +249,22 @@
                 <span class="sidebar-settings-label">{{ t('Auto send dictation') }}</span>
                 <span class="sidebar-settings-toggle" :class="{ 'is-on': dictationAutoSend }" />
               </button>
+              <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.voiceMode" @click="toggleVoiceMode">
+                <span class="sidebar-settings-label">{{ t('Voice mode') }}</span>
+                <span class="sidebar-settings-toggle" :class="{ 'is-on': isVoiceModeEnabled }" />
+              </button>
+              <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.voiceProfile" @click="cycleVoiceModeProfile">
+                <span class="sidebar-settings-label">{{ t('Voice summary') }}</span>
+                <span class="sidebar-settings-value">{{ voiceModeProfileLabel }}</span>
+              </button>
+              <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.voiceSpeed" @click="cycleVoiceModeSpeed">
+                <span class="sidebar-settings-label">{{ t('Voice speed') }}</span>
+                <span class="sidebar-settings-value">{{ voiceModeSpeedLabel }}</span>
+              </button>
+              <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.voiceTelegramFallback" @click="toggleVoiceTelegramFallback">
+                <span class="sidebar-settings-label">{{ t('Voice Telegram fallback') }}</span>
+                <span class="sidebar-settings-toggle" :class="{ 'is-on': isVoiceTelegramFallbackEnabled }" />
+              </button>
               <div class="sidebar-settings-row sidebar-settings-dictation-input" :title="dictationLastInputLabel">
                 <span class="sidebar-settings-label">{{ t('Last mic') }}</span>
                 <span class="sidebar-settings-value sidebar-settings-value--truncate">{{ dictationLastInputLabel }}</span>
@@ -695,6 +711,85 @@
                   <IconTablerBolt class="content-header-feature-menu-icon" />
                   <span class="content-header-feature-menu-text">{{ browserAnnotationFeatureMenuLabel }}</span>
                   <span v-if="browserAnnotationFeatureMenuStatus" class="content-header-feature-menu-status">{{ browserAnnotationFeatureMenuStatus }}</span>
+                </button>
+                <button
+                  class="content-header-feature-menu-item"
+                  :class="{ 'is-active': isVoiceModeEnabled }"
+                  type="button"
+                  role="menuitem"
+                  @click="onToggleVoiceModeFromFeatureMenu"
+                >
+                  <IconTablerPlayerPlayFilled class="content-header-feature-menu-icon" />
+                  <span class="content-header-feature-menu-text">{{ voiceFeatureMenuLabel }}</span>
+                  <span v-if="voiceFeatureMenuStatus" class="content-header-feature-menu-status">{{ voiceFeatureMenuStatus }}</span>
+                </button>
+                <button
+                  class="content-header-feature-menu-item"
+                  type="button"
+                  role="menuitem"
+                  :disabled="!canPlayLatestVoiceMessage"
+                  @click="onPlayLatestVoiceFromFeatureMenu"
+                >
+                  <IconTablerPlayerPlayFilled class="content-header-feature-menu-icon" />
+                  <span class="content-header-feature-menu-text">{{ t('Play latest') }}</span>
+                </button>
+                <button
+                  v-if="voicePlayback.canPause.value"
+                  class="content-header-feature-menu-item"
+                  type="button"
+                  role="menuitem"
+                  @click="onPauseVoiceFromFeatureMenu"
+                >
+                  <IconTablerPlayerPauseFilled class="content-header-feature-menu-icon" />
+                  <span class="content-header-feature-menu-text">{{ t('Pause') }}</span>
+                </button>
+                <button
+                  v-else-if="voicePlayback.canResume.value"
+                  class="content-header-feature-menu-item"
+                  type="button"
+                  role="menuitem"
+                  @click="onResumeVoiceFromFeatureMenu"
+                >
+                  <IconTablerPlayerPlayFilled class="content-header-feature-menu-icon" />
+                  <span class="content-header-feature-menu-text">{{ t('Resume') }}</span>
+                </button>
+                <button
+                  class="content-header-feature-menu-item"
+                  type="button"
+                  role="menuitem"
+                  :disabled="voicePlayback.state.value === 'idle'"
+                  @click="onStopVoiceFromFeatureMenu"
+                >
+                  <IconTablerPlayerStopFilled class="content-header-feature-menu-icon" />
+                  <span class="content-header-feature-menu-text">{{ t('Stop voice') }}</span>
+                </button>
+                <button
+                  class="content-header-feature-menu-item"
+                  type="button"
+                  role="menuitem"
+                  @click="cycleVoiceModeProfile"
+                >
+                  <span class="content-header-feature-menu-text">{{ t('Voice summary') }}</span>
+                  <span class="content-header-feature-menu-status">{{ voiceModeProfileLabel }}</span>
+                </button>
+                <button
+                  class="content-header-feature-menu-item"
+                  type="button"
+                  role="menuitem"
+                  @click="cycleVoiceModeSpeed"
+                >
+                  <span class="content-header-feature-menu-text">{{ t('Voice speed') }}</span>
+                  <span class="content-header-feature-menu-status">{{ voiceModeSpeedLabel }}</span>
+                </button>
+                <button
+                  class="content-header-feature-menu-item"
+                  :class="{ 'is-active': isVoiceTelegramFallbackEnabled }"
+                  type="button"
+                  role="menuitem"
+                  @click="toggleVoiceTelegramFallback"
+                >
+                  <span class="content-header-feature-menu-text">{{ t('Telegram fallback') }}</span>
+                  <span class="content-header-feature-menu-status">{{ isVoiceTelegramFallbackEnabled ? t('On') : t('Off') }}</span>
                 </button>
               </div>
             </div>
@@ -1329,6 +1424,9 @@ import IconTablerGitFork from './components/icons/IconTablerGitFork.vue'
 import IconTablerDots from './components/icons/IconTablerDots.vue'
 import IconTablerX from './components/icons/IconTablerX.vue'
 import IconTablerAlertTriangle from './components/icons/IconTablerAlertTriangle.vue'
+import IconTablerPlayerPlayFilled from './components/icons/IconTablerPlayerPlayFilled.vue'
+import IconTablerPlayerPauseFilled from './components/icons/IconTablerPlayerPauseFilled.vue'
+import IconTablerPlayerStopFilled from './components/icons/IconTablerPlayerStopFilled.vue'
 import { useDesktopState } from './composables/useDesktopState'
 import { useCodexUiRestart } from './composables/useCodexUiRestart'
 import { useMobile } from './composables/useMobile'
@@ -1336,6 +1434,7 @@ import { useTaskNotificationClientPresence } from './composables/useTaskNotifica
 import { useUiLanguage } from './composables/useUiLanguage'
 import { useFeedbackDiagnostics } from './composables/useFeedbackDiagnostics'
 import { useBrowserAnnotationListener } from './composables/useBrowserAnnotationListener'
+import { useVoicePlayback } from './composables/useVoicePlayback'
 import {
   useDictationBackgroundJobs,
   type CreateDictationBackgroundJobInput,
@@ -1395,6 +1494,7 @@ import { safeLocalStorageGetItem, safeLocalStorageSetItem, subscribeMediaQueryCh
 import { getConfiguredBackendUrl, normalizeBackendBaseUrl, resolveBackendHttpUrl, setConfiguredBackendUrl, subscribeBackendUrlChanges } from './backendUrl'
 import { getPathLeafName, getPathParent, isProjectlessChatPath, normalizePathForUi } from './pathUtils.js'
 import type { GitCommitOption, ThreadTerminalQuickCommand } from './api/codexGateway'
+import type { VoiceProfile } from './api/voiceMode'
 
 const ThreadConversation = defineAsyncComponent(() => import('./components/content/ThreadConversation.vue'))
 const ThreadTerminalPanel = defineAsyncComponent(() => import('./components/content/ThreadTerminalPanel.vue'))
@@ -1406,6 +1506,10 @@ const { t, uiLanguage, uiLanguageOptions, setUiLanguage } = useUiLanguage()
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'codex-web-local.sidebar-collapsed.v1'
 const ACCOUNTS_SECTION_COLLAPSED_STORAGE_KEY = 'codex-web-local.accounts-section-collapsed.v1'
 const TERMINAL_QUICK_COMMAND_STORAGE_KEY = 'codex-web-local.terminal-quick-commands.v1'
+const VOICE_MODE_ENABLED_STORAGE_KEY = 'codex-web-local.voice-mode.enabled.v1'
+const VOICE_MODE_PROFILE_STORAGE_KEY = 'codex-web-local.voice-mode.profile.v1'
+const VOICE_MODE_SPEED_STORAGE_KEY = 'codex-web-local.voice-mode.speed.v1'
+const VOICE_MODE_TELEGRAM_FALLBACK_STORAGE_KEY = 'codex-web-local.voice-mode.telegram-fallback.v1'
 const TOGGLE_TERMINAL_COMMAND_VALUE = '__toggle_terminal__'
 const worktreeName = import.meta.env.VITE_WORKTREE_NAME ?? 'unknown'
 const appVersion = import.meta.env.VITE_APP_VERSION ?? 'unknown'
@@ -1417,6 +1521,10 @@ const SETTINGS_HELP = {
   dictationClickToToggle: t('Use click-to-start and click-to-stop dictation instead of hold-to-talk.'),
   dictationAutoSend: t('Automatically send transcribed dictation when recording stops.'),
   dictationLastInput: t('Last microphone reported by the browser after dictation starts.'),
+  voiceMode: t('Automatically prepare and play a Russian voice summary after background dictation sends a prompt.'),
+  voiceProfile: t('Choose how much detail the spoken summary should include.'),
+  voiceSpeed: t('Choose voice playback speed for generated audio.'),
+  voiceTelegramFallback: t('Send a Telegram alert when a background voice answer is ready or fails.'),
   backendUrl: t('Remote Codex UI server used by the iOS shell for API and WebSocket traffic.'),
   browserAnnotationListen: t('Pair the browser annotation extension with the selected thread.'),
   githubTrendingProjects: t('Show or hide GitHub trending project cards on the new thread screen.'),
@@ -1656,6 +1764,11 @@ useTaskNotificationClientPresence(selectedThreadId)
 const dictationBackgroundJobs = useDictationBackgroundJobs({
   onCompleted: onDictationBackgroundCompleted,
 })
+const voicePlayback = useVoicePlayback()
+const isVoiceModeEnabled = ref(loadBoolPref(VOICE_MODE_ENABLED_STORAGE_KEY, false))
+const voiceModeProfile = ref<VoiceProfile>(loadVoiceProfilePref())
+const voiceModeSpeed = ref(loadVoiceSpeedPref())
+const isVoiceTelegramFallbackEnabled = ref(loadBoolPref(VOICE_MODE_TELEGRAM_FALLBACK_STORAGE_KEY, true))
 type SidebarThreadTreeExposed = {
   openAutomationEditorFromPanel: (payload: AutomationEditRequest) => void
   openAutomationCreatorFromPanel: () => void
@@ -1999,7 +2112,11 @@ const canShowThreadFeatureMenu = computed(() => route.name === 'thread' && selec
 const isThreadFeatureMenuActive = computed(() => (
   sideThreadId.value.length > 0 ||
   isBrowserAnnotationListenerActive.value ||
-  isBrowserAnnotationListenerBusy.value
+  isBrowserAnnotationListenerBusy.value ||
+  isVoiceModeEnabled.value ||
+  voicePlayback.isBusy.value ||
+  voicePlayback.state.value === 'paused' ||
+  voicePlayback.state.value === 'blocked'
 ))
 const threadFeatureMenuTitle = computed(() => (
   isThreadFeatureMenuOpen.value ? t('Close thread features') : t('Thread features')
@@ -2012,6 +2129,36 @@ const browserAnnotationFeatureMenuStatus = computed(() => {
   if (isBrowserAnnotationListenerBusy.value) return t('Busy')
   if (isBrowserAnnotationListenerActive.value) return t('Active')
   return ''
+})
+const latestAssistantVoiceMessage = computed(() => {
+  for (let index = filteredMessages.value.length - 1; index >= 0; index -= 1) {
+    const message = filteredMessages.value[index]
+    if (message.role !== 'assistant') continue
+    if (!message.text.trim()) continue
+    return message
+  }
+  return null
+})
+const canPlayLatestVoiceMessage = computed(() => Boolean(latestAssistantVoiceMessage.value) && !voicePlayback.isBusy.value)
+const voiceModeProfileLabel = computed(() => {
+  if (voiceModeProfile.value === 'economy') return t('Short')
+  if (voiceModeProfile.value === 'forte') return t('Detailed')
+  return t('Medium')
+})
+const voiceModeSpeedLabel = computed(() => `${voiceModeSpeed.value.toFixed(1)}x`)
+const voiceFeatureMenuStatus = computed(() => {
+  if (voicePlayback.state.value === 'playing') return t('Playing')
+  if (voicePlayback.state.value === 'paused') return t('Paused')
+  if (voicePlayback.state.value === 'blocked') return t('Tap')
+  if (voicePlayback.state.value === 'error') return t('Error')
+  if (voicePlayback.isPolling.value) return t('Waiting')
+  if (voicePlayback.isBusy.value) return t('Busy')
+  if (isVoiceModeEnabled.value) return t('Auto')
+  return ''
+})
+const voiceFeatureMenuLabel = computed(() => {
+  if (isVoiceModeEnabled.value) return t('Voice on')
+  return t('Voice off')
 })
 const composerCwd = computed(() => {
   if (isHomeRoute.value) return newThreadCwd.value.trim()
@@ -3233,6 +3380,51 @@ async function onToggleBrowserAnnotationFromFeatureMenu(): Promise<void> {
   await toggleBrowserAnnotationListener()
 }
 
+function onToggleVoiceModeFromFeatureMenu(): void {
+  toggleVoiceMode()
+}
+
+async function onPlayLatestVoiceFromFeatureMenu(): Promise<void> {
+  const message = latestAssistantVoiceMessage.value
+  if (!message || voicePlayback.isBusy.value) return
+  isThreadFeatureMenuOpen.value = false
+  await voicePlayback.unlockAudio()
+  await voicePlayback.playSpeech({
+    text: message.text,
+    threadId: selectedThreadId.value,
+    messageId: message.id,
+    speed: voiceModeSpeed.value,
+    voice: 'nova',
+  })
+}
+
+function onPauseVoiceFromFeatureMenu(): void {
+  voicePlayback.pause()
+}
+
+function onStopVoiceFromFeatureMenu(): void {
+  voicePlayback.stop()
+}
+
+async function onResumeVoiceFromFeatureMenu(): Promise<void> {
+  await voicePlayback.unlockAudio()
+  await voicePlayback.resume()
+}
+
+function startVoiceAnswerForThread(threadId: string): void {
+  if (!isVoiceModeEnabled.value) return
+  const normalizedThreadId = threadId.trim()
+  if (!normalizedThreadId) return
+  void voicePlayback.playJob({
+    threadId: normalizedThreadId,
+    profile: voiceModeProfile.value,
+    speed: voiceModeSpeed.value,
+    voice: 'nova',
+    autoplay: true,
+    telegramFallback: isVoiceTelegramFallbackEnabled.value,
+  })
+}
+
 function toggleComposerTerminal(): void {
   if (!isThreadTerminalAvailable.value) return
   if (isHomeRoute.value) {
@@ -3656,6 +3848,7 @@ async function onDictationBackgroundCompleted(job: DictationBackgroundJob): Prom
     throw new Error('Could not send transcribed dictation to the original thread.')
   }
   reconcileCompletedDictationDraft(threadId, cloneDictationDraftSnapshot(job.draftSnapshot))
+  startVoiceAnswerForThread(threadId)
 }
 
 function onDictationRecordingReady(payload: CreateDictationBackgroundJobInput): void {
@@ -4610,6 +4803,19 @@ function loadChatWidthPref(): ChatWidthMode {
   return value === 'standard' || value === 'wide' || value === 'extra-wide' ? value : 'standard'
 }
 
+function loadVoiceProfilePref(): VoiceProfile {
+  if (typeof window === 'undefined') return 'medium'
+  const value = safeLocalStorageGetItem(VOICE_MODE_PROFILE_STORAGE_KEY)
+  return value === 'economy' || value === 'forte' ? value : 'medium'
+}
+
+function loadVoiceSpeedPref(): number {
+  if (typeof window === 'undefined') return 1
+  const value = Number(safeLocalStorageGetItem(VOICE_MODE_SPEED_STORAGE_KEY))
+  if (!Number.isFinite(value)) return 1
+  return Math.max(0.8, Math.min(1.4, Math.round(value * 10) / 10))
+}
+
 function toggleSendWithEnter(): void {
   sendWithEnter.value = !sendWithEnter.value
   safeLocalStorageSetItem(SEND_WITH_ENTER_KEY, sendWithEnter.value ? '1' : '0')
@@ -4643,6 +4849,36 @@ function toggleDictationClickToToggle(): void {
 function toggleDictationAutoSend(): void {
   dictationAutoSend.value = !dictationAutoSend.value
   safeLocalStorageSetItem(DICTATION_AUTO_SEND_KEY, dictationAutoSend.value ? '1' : '0')
+}
+
+function toggleVoiceMode(): void {
+  isVoiceModeEnabled.value = !isVoiceModeEnabled.value
+  safeLocalStorageSetItem(VOICE_MODE_ENABLED_STORAGE_KEY, isVoiceModeEnabled.value ? '1' : '0')
+  if (!isVoiceModeEnabled.value) {
+    voicePlayback.stop()
+  }
+}
+
+function toggleVoiceTelegramFallback(): void {
+  isVoiceTelegramFallbackEnabled.value = !isVoiceTelegramFallbackEnabled.value
+  safeLocalStorageSetItem(
+    VOICE_MODE_TELEGRAM_FALLBACK_STORAGE_KEY,
+    isVoiceTelegramFallbackEnabled.value ? '1' : '0',
+  )
+}
+
+function cycleVoiceModeProfile(): void {
+  const order: VoiceProfile[] = ['economy', 'medium', 'forte']
+  const currentIndex = order.indexOf(voiceModeProfile.value)
+  voiceModeProfile.value = order[(currentIndex + 1) % order.length]
+  safeLocalStorageSetItem(VOICE_MODE_PROFILE_STORAGE_KEY, voiceModeProfile.value)
+}
+
+function cycleVoiceModeSpeed(): void {
+  const order = [0.8, 1, 1.2, 1.4]
+  const currentIndex = order.findIndex((value) => Math.abs(value - voiceModeSpeed.value) < 0.01)
+  voiceModeSpeed.value = order[(currentIndex + 1) % order.length]
+  safeLocalStorageSetItem(VOICE_MODE_SPEED_STORAGE_KEY, String(voiceModeSpeed.value))
 }
 
 function toggleGithubTrendingProjects(): void {

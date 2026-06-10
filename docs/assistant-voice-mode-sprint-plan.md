@@ -432,18 +432,22 @@ If a phase proves too large, split commits by server/client/native/docs.
 - Decision: keep real Telegram/OpenAI tokens out of repo; use existing server-side env/config only.
 - Decision: use Telegram as fallback for free Apple account constraints; APNs is out of scope for this sprint.
 
+### 2026-06-10 - Phase 0 Implementation Notes
+
+- Codex.app parity pre-check was attempted through the repository skill guidance, but this Linux host does not have `/Applications/Codex.app`; implementation must follow the local fallback path and preserve existing Codex UI patterns.
+- Context7 was queried for Apple AVFoundation/AVAudioSession documentation as requested. Its Apple index returned sparse/irrelevant ARKit excerpts, so implementation also uses official Apple Developer documentation for `AVAudioSession`, background audio modes, and `MPRemoteCommandCenter`.
+- OpenAI official docs confirm the chosen architecture: a chained voice pipeline is appropriate when extending an existing text agent, while Realtime speech-to-speech is better for low-latency conversational agents.
+- Integration decision: auto voice-answer jobs should be started after `dictationBackgroundCompleted` sends the transcribed message, not when recording stops. This avoids starting TTS for draft-only dictation and keeps normal manual sends unchanged.
+- Integration decision: old TTS code will be used as reference for text sanitization and `/audio/speech` provider calls, but the restored feature should use job endpoints so iOS can wait for long-running Codex answers after the screen is locked.
+
 ## Final Report
 
-Not started. This section must be completed when the sprint implementation is done.
-
-Expected final report fields:
-
-- Completed:
-- Not completed:
-- Checks passed:
-- Checks not run and why:
-- Performance audit:
-- Security checks:
-- Remaining risks:
-- Follow-up tasks:
-- Ready for PR / merge / deploy:
+- Completed: server voice speech/job endpoints, Russian spoken-summary pipeline, temporary in-memory audio cache, Telegram fallback alerts, frontend voice playback API/composable, thread feature-menu controls, settings controls, iOS `AVAudioSession` waiting/playback bridge, Now Playing remote commands, and `UIBackgroundModes=audio`.
+- Not completed: full voice picker with preview samples, Volume Down push-to-talk, always-listening mode, APNs/TestFlight distribution, and physical iPhone/AirPods validation.
+- Checks passed: focused voice Vitest suite, full unit suite, frontend typecheck/build, `git diff --check`, `Info.plist` parsing, light/dark Playwright UI smoke, and browser runtime profiling.
+- Checks not run and why: `xcodebuild` and real locked-screen playback were not run because this workspace is Linux and has no attached iPhone/AirPods/Xcode.
+- Performance audit: browser profile on `http://127.0.0.1:4173/` reported no warnings, no duplicate thread reads/resumes, and no voice endpoint startup requests. Slowest rows were existing startup `thread/list`, `plugin/list`, and `codex-cli/status` calls.
+- Security checks: searched staged/untracked files for the Telegram token/user ID shared in chat; no token material was written to the repo. Voice provider errors are sanitized before returning to the browser.
+- Remaining risks: iOS may still suspend the WebView on some routes/devices; silent keepalive has battery/App Review tradeoffs; `setPreferredInput(.builtInMic)` is a request, not a guarantee; async jobs can still voice the latest completed answer if Codex/thread state races in unusual ways.
+- Follow-up tasks: run Xcode build on the Mac, sideload to iPhone, validate locked-screen playback with AirPods, tune silent keepalive behavior, and add full voice/sample selector if desired.
+- Ready for PR / merge / deploy: ready for local push and Mac/Xcode device validation.

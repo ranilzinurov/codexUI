@@ -53,6 +53,7 @@ import { handleBrowserAnnotationListenRoutes } from './browserAnnotationListen.j
 import { handleBrowserAnnotationAssetUploadRoute } from './browserAnnotationAssets.js'
 import { handleBrowserAnnotationTranscribeRoute } from './browserAnnotationTranscribe.js'
 import { handleBrowserAnnotationBatchRoute } from './browserAnnotationBatch.js'
+import { handleVoiceModeRoutes, type VoiceModeNotificationEvent } from './voiceMode.js'
 import { getSpawnInvocation } from '../utils/commandInvocation.js'
 import {
   getNpmGlobalBinDir,
@@ -6973,6 +6974,27 @@ async function buildThreadSearchIndex(appServer: AppServerProcess): Promise<Thre
   return { docsById }
 }
 
+function buildVoiceModeTelegramAlert(event: VoiceModeNotificationEvent): string {
+  const threadPart = event.job.threadId ? `\nThread: ${event.job.threadId}` : ''
+  if (event.type === 'failed') {
+    const error = event.job.error ? `\nОшибка: ${event.job.error}` : ''
+    return `Голосовой ответ не удалось подготовить.${error}${threadPart}`
+  }
+  return `Голосовой ответ готов. Открой Codex UI, чтобы прослушать.${threadPart}`
+}
+
+async function notifyTelegramVoiceModeFallback(
+  telegramBridge: TelegramThreadBridge,
+  event: VoiceModeNotificationEvent,
+): Promise<void> {
+  const config = await readTelegramBridgeConfig()
+  if (!config.botToken || config.chatIds.length === 0) return
+  telegramBridge.configureToken(config.botToken)
+  telegramBridge.configureAllowedUserIds(config.allowedUserIds)
+  const message = buildVoiceModeTelegramAlert(event)
+  await Promise.all(config.chatIds.map((chatId) => telegramBridge.sendVoiceModeAlert(chatId, message)))
+}
+
 export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
   const { appServer, terminalManager, methodCatalog, telegramBridge, pushNotifications, threadAutoTitleManager, backendQueueProcessor } = getSharedBridgeState()
   let threadSearchIndex: ThreadSearchIndex | null = null
@@ -7067,6 +7089,13 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
       if (await handleBrowserAnnotationBatchRoute(req, res, url, {
         appendQueuedMessage: appendThreadQueuedMessage,
         scheduleThreadQueueDrain: (threadId, delayMs) => backendQueueProcessor.scheduleThreadQueueDrain(threadId, delayMs),
+      })) {
+        return
+      }
+
+      if (await handleVoiceModeRoutes(req, res, url, {
+        appServer,
+        notify: (event) => notifyTelegramVoiceModeFallback(telegramBridge, event),
       })) {
         return
       }

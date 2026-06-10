@@ -7602,3 +7602,45 @@ Thread overflow menus can copy a shareable local thread link.
 
 #### Rollback/Cleanup
 - Stop the temporary `4173` dev server when testing is complete.
+
+---
+
+### Assistant Voice Mode For iOS Shell
+
+#### Feature/Change Name
+Assistant voice mode prepares a Russian spoken summary after background dictation, caches temporary TTS audio on the server, starts an iOS background audio session while waiting, plays the answer through the app, and can send a Telegram fallback alert.
+
+#### Prerequisites/Setup
+1. Run from the repository root with dependencies installed.
+2. Configure server-side OpenAI credentials with `CODEXUI_VOICE_TTS_API_KEY`, `CODEXUI_TRANSCRIBE_API_KEY`, or `OPENAI_API_KEY`.
+3. For Telegram fallback, configure the Telegram bot token and allowed user ID in the existing Telegram settings panel, then send `/whoami` to the bot once so the chat is remembered.
+4. Start or confirm the app server on `http://127.0.0.1:4173`:
+   `pnpm run dev --host 127.0.0.1 --port 4173`
+5. For real background playback validation, build/run the Capacitor iOS app from Xcode on a physical iPhone with AirPods connected.
+
+#### Steps
+1. Run the focused regression tests:
+   `pnpm exec vitest run src/server/voiceMode.test.ts src/api/voiceMode.test.ts src/composables/useVoicePlayback.test.ts --reporter=verbose`
+2. Run the frontend type/build check:
+   `pnpm exec vue-tsc --noEmit`
+   `pnpm run build:frontend`
+3. In light theme, open an existing thread, open the thread feature menu, enable `Voice mode`, set `Voice summary` to `Medium`, set `Voice speed` to `1.0x`, and keep `Telegram fallback` enabled.
+4. Press the dictation microphone, record a prompt, stop recording, and let auto-send submit the transcript.
+5. Lock the iPhone after the transcript is sent. Wait for the Codex answer to finish.
+6. Expected iOS result: the app keeps an audio session while waiting, summarizes the answer in Russian, and autoplays the TTS response through the selected audio output. If iOS suspends playback, a Telegram alert should arrive and the app should resume with `Play latest` or `Resume`.
+7. In light theme, use `Play latest`, `Pause`, `Resume`, and `Stop voice` from the thread feature menu on a completed assistant message.
+8. Switch to dark theme and repeat steps 3 and 7. Confirm all voice menu rows, status pills, and sidebar voice settings remain readable without light surfaces.
+9. In Xcode/device testing, confirm `Info.plist` includes `UIBackgroundModes` with `audio`, AirPods media controls trigger pause/resume when iOS exposes them, and dictation route diagnostics prefer the built-in iPhone microphone when iOS allows that route.
+
+#### Expected Results
+- `/codex-api/voice/speech` returns binary TTS audio and strips code/log-heavy content from spoken text.
+- `/codex-api/voice/jobs` creates a temporary voice job, waits for an assistant answer when only `threadId` is supplied, returns both `data` and legacy `job` envelopes, and expires cached audio after the TTL.
+- The frontend accepts both `state` and `status` job fields and caches audio blobs only in memory.
+- Voice mode uses the `medium` Russian summary profile by default, voice `nova`, speed `1.0x`, and no permanent audio storage.
+- iOS native code uses background audio mode, playback/waiting audio sessions, Now Playing remote commands, and best-effort built-in microphone selection.
+- Light and dark themes both keep the voice controls and settings legible.
+
+#### Rollback/Cleanup
+- Disable `Voice mode` in settings or the thread feature menu to stop automatic voice jobs.
+- Stop any local `4173` dev server used for testing.
+- Remove temporary server credentials from the shell if they were exported only for manual testing.

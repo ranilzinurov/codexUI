@@ -327,6 +327,22 @@ export class TelegramThreadBridge {
     void this.sendOnlineMessage(chatId).catch(() => {})
   }
 
+  async sendVoiceModeAlert(chatId: number, text: string): Promise<void> {
+    const normalizedChatId = Math.trunc(chatId)
+    if (!Number.isFinite(normalizedChatId)) {
+      throw new Error('chatId must be a number')
+    }
+    if (!this.token) {
+      throw new Error('Telegram bot token is not configured')
+    }
+    if (!this.isAllowedSender(normalizedChatId)) {
+      throw new Error('Telegram chat is not in the voice alert allowlist')
+    }
+    this.markChatSeen(normalizedChatId)
+    this.start()
+    await this.sendTelegramMessage(normalizedChatId, text)
+  }
+
   private markChatSeen(chatId: number): void {
     if (!Number.isFinite(chatId)) return
     this.onChatSeen?.(Math.trunc(chatId))
