@@ -509,7 +509,7 @@ describe('target thread message sender', () => {
           text: 'background transcript',
           imageUrls: ['blob:image-1'],
           fileAttachments: [{ label: 'notes.md', path: '/tmp/project/notes.md', fsPath: '/tmp/project/notes.md' }],
-          skills: [{ name: 'review', path: '/tmp/project/.codex/skills/review/SKILL.md' }],
+          skills: [{ name: 'review', path: '/tmp/project/.codex/skills/review/SKILL.md', kind: 'skill' }],
           collaborationMode: 'plan',
         }),
       ],
