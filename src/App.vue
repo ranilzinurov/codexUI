@@ -249,22 +249,24 @@
                 <span class="sidebar-settings-label">{{ t('Auto send dictation') }}</span>
                 <span class="sidebar-settings-toggle" :class="{ 'is-on': dictationAutoSend }" />
               </button>
-              <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.voiceMode" @click="toggleVoiceMode">
-                <span class="sidebar-settings-label">{{ t('Voice mode') }}</span>
-                <span class="sidebar-settings-toggle" :class="{ 'is-on': isVoiceModeEnabled }" />
-              </button>
-              <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.voiceProfile" @click="cycleVoiceModeProfile">
-                <span class="sidebar-settings-label">{{ t('Voice summary') }}</span>
-                <span class="sidebar-settings-value">{{ voiceModeProfileLabel }}</span>
-              </button>
-              <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.voiceSpeed" @click="cycleVoiceModeSpeed">
-                <span class="sidebar-settings-label">{{ t('Voice speed') }}</span>
-                <span class="sidebar-settings-value">{{ voiceModeSpeedLabel }}</span>
-              </button>
-              <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.voiceTelegramFallback" @click="toggleVoiceTelegramFallback">
-                <span class="sidebar-settings-label">{{ t('Voice Telegram fallback') }}</span>
-                <span class="sidebar-settings-toggle" :class="{ 'is-on': isVoiceTelegramFallbackEnabled }" />
-              </button>
+              <template v-if="isNativeIosVoiceModeAvailable">
+                <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.voiceMode" @click="toggleVoiceMode">
+                  <span class="sidebar-settings-label">{{ t('Voice mode') }}</span>
+                  <span class="sidebar-settings-toggle" :class="{ 'is-on': isVoiceModeEnabled }" />
+                </button>
+                <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.voiceProfile" @click="cycleVoiceModeProfile">
+                  <span class="sidebar-settings-label">{{ t('Voice summary') }}</span>
+                  <span class="sidebar-settings-value">{{ voiceModeProfileLabel }}</span>
+                </button>
+                <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.voiceSpeed" @click="cycleVoiceModeSpeed">
+                  <span class="sidebar-settings-label">{{ t('Voice speed') }}</span>
+                  <span class="sidebar-settings-value">{{ voiceModeSpeedLabel }}</span>
+                </button>
+                <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.voiceTelegramFallback" @click="toggleVoiceTelegramFallback">
+                  <span class="sidebar-settings-label">{{ t('Voice Telegram fallback') }}</span>
+                  <span class="sidebar-settings-toggle" :class="{ 'is-on': isVoiceTelegramFallbackEnabled }" />
+                </button>
+              </template>
               <div class="sidebar-settings-row sidebar-settings-dictation-input" :title="dictationLastInputLabel">
                 <span class="sidebar-settings-label">{{ t('Last mic') }}</span>
                 <span class="sidebar-settings-value sidebar-settings-value--truncate">{{ dictationLastInputLabel }}</span>
@@ -712,85 +714,87 @@
                   <span class="content-header-feature-menu-text">{{ browserAnnotationFeatureMenuLabel }}</span>
                   <span v-if="browserAnnotationFeatureMenuStatus" class="content-header-feature-menu-status">{{ browserAnnotationFeatureMenuStatus }}</span>
                 </button>
-                <button
-                  class="content-header-feature-menu-item"
-                  :class="{ 'is-active': isVoiceModeEnabled }"
-                  type="button"
-                  role="menuitem"
-                  @click="onToggleVoiceModeFromFeatureMenu"
-                >
-                  <IconTablerPlayerPlayFilled class="content-header-feature-menu-icon" />
-                  <span class="content-header-feature-menu-text">{{ voiceFeatureMenuLabel }}</span>
-                  <span v-if="voiceFeatureMenuStatus" class="content-header-feature-menu-status">{{ voiceFeatureMenuStatus }}</span>
-                </button>
-                <button
-                  class="content-header-feature-menu-item"
-                  type="button"
-                  role="menuitem"
-                  :disabled="!canPlayLatestVoiceMessage"
-                  @click="onPlayLatestVoiceFromFeatureMenu"
-                >
-                  <IconTablerPlayerPlayFilled class="content-header-feature-menu-icon" />
-                  <span class="content-header-feature-menu-text">{{ t('Play latest') }}</span>
-                </button>
-                <button
-                  v-if="voicePlayback.canPause.value"
-                  class="content-header-feature-menu-item"
-                  type="button"
-                  role="menuitem"
-                  @click="onPauseVoiceFromFeatureMenu"
-                >
-                  <IconTablerPlayerPauseFilled class="content-header-feature-menu-icon" />
-                  <span class="content-header-feature-menu-text">{{ t('Pause') }}</span>
-                </button>
-                <button
-                  v-else-if="voicePlayback.canResume.value"
-                  class="content-header-feature-menu-item"
-                  type="button"
-                  role="menuitem"
-                  @click="onResumeVoiceFromFeatureMenu"
-                >
-                  <IconTablerPlayerPlayFilled class="content-header-feature-menu-icon" />
-                  <span class="content-header-feature-menu-text">{{ t('Resume') }}</span>
-                </button>
-                <button
-                  class="content-header-feature-menu-item"
-                  type="button"
-                  role="menuitem"
-                  :disabled="voicePlayback.state.value === 'idle'"
-                  @click="onStopVoiceFromFeatureMenu"
-                >
-                  <IconTablerPlayerStopFilled class="content-header-feature-menu-icon" />
-                  <span class="content-header-feature-menu-text">{{ t('Stop voice') }}</span>
-                </button>
-                <button
-                  class="content-header-feature-menu-item"
-                  type="button"
-                  role="menuitem"
-                  @click="cycleVoiceModeProfile"
-                >
-                  <span class="content-header-feature-menu-text">{{ t('Voice summary') }}</span>
-                  <span class="content-header-feature-menu-status">{{ voiceModeProfileLabel }}</span>
-                </button>
-                <button
-                  class="content-header-feature-menu-item"
-                  type="button"
-                  role="menuitem"
-                  @click="cycleVoiceModeSpeed"
-                >
-                  <span class="content-header-feature-menu-text">{{ t('Voice speed') }}</span>
-                  <span class="content-header-feature-menu-status">{{ voiceModeSpeedLabel }}</span>
-                </button>
-                <button
-                  class="content-header-feature-menu-item"
-                  :class="{ 'is-active': isVoiceTelegramFallbackEnabled }"
-                  type="button"
-                  role="menuitem"
-                  @click="toggleVoiceTelegramFallback"
-                >
-                  <span class="content-header-feature-menu-text">{{ t('Telegram fallback') }}</span>
-                  <span class="content-header-feature-menu-status">{{ isVoiceTelegramFallbackEnabled ? t('On') : t('Off') }}</span>
-                </button>
+                <template v-if="isNativeIosVoiceModeAvailable">
+                  <button
+                    class="content-header-feature-menu-item"
+                    :class="{ 'is-active': isVoiceModeEnabled }"
+                    type="button"
+                    role="menuitem"
+                    @click="onToggleVoiceModeFromFeatureMenu"
+                  >
+                    <IconTablerPlayerPlayFilled class="content-header-feature-menu-icon" />
+                    <span class="content-header-feature-menu-text">{{ voiceFeatureMenuLabel }}</span>
+                    <span v-if="voiceFeatureMenuStatus" class="content-header-feature-menu-status">{{ voiceFeatureMenuStatus }}</span>
+                  </button>
+                  <button
+                    class="content-header-feature-menu-item"
+                    type="button"
+                    role="menuitem"
+                    :disabled="!canPlayLatestVoiceMessage"
+                    @click="onPlayLatestVoiceFromFeatureMenu"
+                  >
+                    <IconTablerPlayerPlayFilled class="content-header-feature-menu-icon" />
+                    <span class="content-header-feature-menu-text">{{ t('Play latest') }}</span>
+                  </button>
+                  <button
+                    v-if="voicePlayback.canPause.value"
+                    class="content-header-feature-menu-item"
+                    type="button"
+                    role="menuitem"
+                    @click="onPauseVoiceFromFeatureMenu"
+                  >
+                    <IconTablerPlayerPauseFilled class="content-header-feature-menu-icon" />
+                    <span class="content-header-feature-menu-text">{{ t('Pause') }}</span>
+                  </button>
+                  <button
+                    v-else-if="voicePlayback.canResume.value"
+                    class="content-header-feature-menu-item"
+                    type="button"
+                    role="menuitem"
+                    @click="onResumeVoiceFromFeatureMenu"
+                  >
+                    <IconTablerPlayerPlayFilled class="content-header-feature-menu-icon" />
+                    <span class="content-header-feature-menu-text">{{ t('Resume') }}</span>
+                  </button>
+                  <button
+                    class="content-header-feature-menu-item"
+                    type="button"
+                    role="menuitem"
+                    :disabled="voicePlayback.state.value === 'idle'"
+                    @click="onStopVoiceFromFeatureMenu"
+                  >
+                    <IconTablerPlayerStopFilled class="content-header-feature-menu-icon" />
+                    <span class="content-header-feature-menu-text">{{ t('Stop voice') }}</span>
+                  </button>
+                  <button
+                    class="content-header-feature-menu-item"
+                    type="button"
+                    role="menuitem"
+                    @click="cycleVoiceModeProfile"
+                  >
+                    <span class="content-header-feature-menu-text">{{ t('Voice summary') }}</span>
+                    <span class="content-header-feature-menu-status">{{ voiceModeProfileLabel }}</span>
+                  </button>
+                  <button
+                    class="content-header-feature-menu-item"
+                    type="button"
+                    role="menuitem"
+                    @click="cycleVoiceModeSpeed"
+                  >
+                    <span class="content-header-feature-menu-text">{{ t('Voice speed') }}</span>
+                    <span class="content-header-feature-menu-status">{{ voiceModeSpeedLabel }}</span>
+                  </button>
+                  <button
+                    class="content-header-feature-menu-item"
+                    :class="{ 'is-active': isVoiceTelegramFallbackEnabled }"
+                    type="button"
+                    role="menuitem"
+                    @click="toggleVoiceTelegramFallback"
+                  >
+                    <span class="content-header-feature-menu-text">{{ t('Telegram fallback') }}</span>
+                    <span class="content-header-feature-menu-status">{{ isVoiceTelegramFallbackEnabled ? t('On') : t('Off') }}</span>
+                  </button>
+                </template>
               </div>
             </div>
             <ComposerDropdown
@@ -1435,6 +1439,7 @@ import { useUiLanguage } from './composables/useUiLanguage'
 import { useFeedbackDiagnostics } from './composables/useFeedbackDiagnostics'
 import { useBrowserAnnotationListener } from './composables/useBrowserAnnotationListener'
 import { useVoicePlayback } from './composables/useVoicePlayback'
+import { shouldUseNativeAudioSession } from './native/codexAudioSession'
 import {
   useDictationBackgroundJobs,
   type CreateDictationBackgroundJobInput,
@@ -1765,6 +1770,7 @@ const dictationBackgroundJobs = useDictationBackgroundJobs({
   onCompleted: onDictationBackgroundCompleted,
 })
 const voicePlayback = useVoicePlayback()
+const isNativeIosVoiceModeAvailable = shouldUseNativeAudioSession()
 const isVoiceModeEnabled = ref(loadBoolPref(VOICE_MODE_ENABLED_STORAGE_KEY, false))
 const voiceModeProfile = ref<VoiceProfile>(loadVoiceProfilePref())
 const voiceModeSpeed = ref(loadVoiceSpeedPref())
@@ -2113,10 +2119,14 @@ const isThreadFeatureMenuActive = computed(() => (
   sideThreadId.value.length > 0 ||
   isBrowserAnnotationListenerActive.value ||
   isBrowserAnnotationListenerBusy.value ||
-  isVoiceModeEnabled.value ||
-  voicePlayback.isBusy.value ||
-  voicePlayback.state.value === 'paused' ||
-  voicePlayback.state.value === 'blocked'
+  (
+    isNativeIosVoiceModeAvailable && (
+      isVoiceModeEnabled.value ||
+      voicePlayback.isBusy.value ||
+      voicePlayback.state.value === 'paused' ||
+      voicePlayback.state.value === 'blocked'
+    )
+  )
 ))
 const threadFeatureMenuTitle = computed(() => (
   isThreadFeatureMenuOpen.value ? t('Close thread features') : t('Thread features')
@@ -2139,7 +2149,11 @@ const latestAssistantVoiceMessage = computed(() => {
   }
   return null
 })
-const canPlayLatestVoiceMessage = computed(() => Boolean(latestAssistantVoiceMessage.value) && !voicePlayback.isBusy.value)
+const canPlayLatestVoiceMessage = computed(() => (
+  isNativeIosVoiceModeAvailable &&
+  Boolean(latestAssistantVoiceMessage.value) &&
+  !voicePlayback.isBusy.value
+))
 const voiceModeProfileLabel = computed(() => {
   if (voiceModeProfile.value === 'economy') return t('Short')
   if (voiceModeProfile.value === 'forte') return t('Detailed')
@@ -3381,10 +3395,12 @@ async function onToggleBrowserAnnotationFromFeatureMenu(): Promise<void> {
 }
 
 function onToggleVoiceModeFromFeatureMenu(): void {
+  if (!isNativeIosVoiceModeAvailable) return
   toggleVoiceMode()
 }
 
 async function onPlayLatestVoiceFromFeatureMenu(): Promise<void> {
+  if (!isNativeIosVoiceModeAvailable) return
   const message = latestAssistantVoiceMessage.value
   if (!message || voicePlayback.isBusy.value) return
   isThreadFeatureMenuOpen.value = false
@@ -3399,19 +3415,23 @@ async function onPlayLatestVoiceFromFeatureMenu(): Promise<void> {
 }
 
 function onPauseVoiceFromFeatureMenu(): void {
+  if (!isNativeIosVoiceModeAvailable) return
   voicePlayback.pause()
 }
 
 function onStopVoiceFromFeatureMenu(): void {
+  if (!isNativeIosVoiceModeAvailable) return
   voicePlayback.stop()
 }
 
 async function onResumeVoiceFromFeatureMenu(): Promise<void> {
+  if (!isNativeIosVoiceModeAvailable) return
   await voicePlayback.unlockAudio()
   await voicePlayback.resume()
 }
 
 function startVoiceAnswerForThread(threadId: string): void {
+  if (!isNativeIosVoiceModeAvailable) return
   if (!isVoiceModeEnabled.value) return
   const normalizedThreadId = threadId.trim()
   if (!normalizedThreadId) return
@@ -4852,6 +4872,7 @@ function toggleDictationAutoSend(): void {
 }
 
 function toggleVoiceMode(): void {
+  if (!isNativeIosVoiceModeAvailable) return
   isVoiceModeEnabled.value = !isVoiceModeEnabled.value
   safeLocalStorageSetItem(VOICE_MODE_ENABLED_STORAGE_KEY, isVoiceModeEnabled.value ? '1' : '0')
   if (!isVoiceModeEnabled.value) {
@@ -4860,6 +4881,7 @@ function toggleVoiceMode(): void {
 }
 
 function toggleVoiceTelegramFallback(): void {
+  if (!isNativeIosVoiceModeAvailable) return
   isVoiceTelegramFallbackEnabled.value = !isVoiceTelegramFallbackEnabled.value
   safeLocalStorageSetItem(
     VOICE_MODE_TELEGRAM_FALLBACK_STORAGE_KEY,
@@ -4868,6 +4890,7 @@ function toggleVoiceTelegramFallback(): void {
 }
 
 function cycleVoiceModeProfile(): void {
+  if (!isNativeIosVoiceModeAvailable) return
   const order: VoiceProfile[] = ['economy', 'medium', 'forte']
   const currentIndex = order.indexOf(voiceModeProfile.value)
   voiceModeProfile.value = order[(currentIndex + 1) % order.length]
@@ -4875,6 +4898,7 @@ function cycleVoiceModeProfile(): void {
 }
 
 function cycleVoiceModeSpeed(): void {
+  if (!isNativeIosVoiceModeAvailable) return
   const order = [0.8, 1, 1.2, 1.4]
   const currentIndex = order.findIndex((value) => Math.abs(value - voiceModeSpeed.value) < 0.01)
   voiceModeSpeed.value = order[(currentIndex + 1) % order.length]

@@ -7624,21 +7624,23 @@ Assistant voice mode prepares a Russian spoken summary after background dictatio
 2. Run the frontend type/build check:
    `pnpm exec vue-tsc --noEmit`
    `pnpm run build:frontend`
-3. In light theme, open an existing thread, open the thread feature menu, enable `Voice mode`, set `Voice summary` to `Medium`, set `Voice speed` to `1.0x`, and keep `Telegram fallback` enabled.
-4. Press the dictation microphone, record a prompt, stop recording, and let auto-send submit the transcript.
-5. Lock the iPhone after the transcript is sent. Wait for the Codex answer to finish.
-6. Expected iOS result: the app keeps an audio session while waiting, summarizes the answer in Russian, and autoplays the TTS response through the selected audio output. If iOS suspends playback, a Telegram alert should arrive and the app should resume with `Play latest` or `Resume`.
-7. In light theme, use `Play latest`, `Pause`, `Resume`, and `Stop voice` from the thread feature menu on a completed assistant message.
-8. Switch to dark theme and repeat steps 3 and 7. Confirm all voice menu rows, status pills, and sidebar voice settings remain readable without light surfaces.
-9. In Xcode/device testing, confirm `Info.plist` includes `UIBackgroundModes` with `audio`, AirPods media controls trigger pause/resume when iOS exposes them, and dictation route diagnostics prefer the built-in iPhone microphone when iOS allows that route.
+3. In a normal desktop browser/PWA session, open settings and the thread feature menu in light theme. Confirm `Voice mode`, `Voice summary`, `Voice speed`, `Telegram fallback`, `Play latest`, `Pause`, `Resume`, and `Stop voice` are not shown.
+4. Switch to dark theme in the normal desktop browser/PWA session and repeat step 3. Confirm the ordinary settings and feature-menu rows remain readable and the hidden voice-only rows do not leave visual gaps.
+5. In the native iOS Capacitor build, open an existing thread, open the thread feature menu, enable `Voice mode`, set `Voice summary` to `Medium`, set `Voice speed` to `1.0x`, and keep `Telegram fallback` enabled.
+6. Press the dictation microphone, record a prompt, stop recording, and let auto-send submit the transcript.
+7. Lock the iPhone after the transcript is sent. Wait for the Codex answer to finish.
+8. Expected iOS result: the app keeps an audio session while waiting, summarizes the answer in Russian, and autoplays the TTS response through the selected audio output. If iOS suspends playback, a Telegram alert should arrive and the app should resume with `Play latest` or `Resume`.
+9. In the native iOS build, use `Play latest`, `Pause`, `Resume`, and `Stop voice` from the thread feature menu on a completed assistant message.
+10. In Xcode/device testing, confirm `Info.plist` includes `UIBackgroundModes` with `audio`, AirPods media controls trigger pause/resume when iOS exposes them, and dictation route diagnostics prefer the built-in iPhone microphone when iOS allows that route.
 
 #### Expected Results
 - `/codex-api/voice/speech` returns binary TTS audio and strips code/log-heavy content from spoken text.
 - `/codex-api/voice/jobs` creates a temporary voice job, waits for an assistant answer when only `threadId` is supplied, returns both `data` and legacy `job` envelopes, and expires cached audio after the TTL.
 - The frontend accepts both `state` and `status` job fields and caches audio blobs only in memory.
+- Voice controls and settings are hidden outside the native iOS Capacitor shell; normal desktop browser/PWA sessions do not start automatic voice jobs.
 - Voice mode uses the `medium` Russian summary profile by default, voice `nova`, speed `1.0x`, and no permanent audio storage.
 - iOS native code uses background audio mode, playback/waiting audio sessions, Now Playing remote commands, and best-effort built-in microphone selection.
-- Light and dark themes both keep the voice controls and settings legible.
+- Light and dark themes both keep the normal browser/PWA menu clean, and the native iOS shell keeps voice controls and settings legible.
 
 #### Rollback/Cleanup
 - Disable `Voice mode` in settings or the thread feature menu to stop automatic voice jobs.

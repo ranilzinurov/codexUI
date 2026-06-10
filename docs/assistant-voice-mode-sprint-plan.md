@@ -442,7 +442,7 @@ If a phase proves too large, split commits by server/client/native/docs.
 
 ## Final Report
 
-- Completed: server voice speech/job endpoints, Russian spoken-summary pipeline, temporary in-memory audio cache, Telegram fallback alerts, frontend voice playback API/composable, thread feature-menu controls, settings controls, iOS `AVAudioSession` waiting/playback bridge, Now Playing remote commands, and `UIBackgroundModes=audio`.
+- Completed: server voice speech/job endpoints, Russian spoken-summary pipeline, temporary in-memory audio cache, Telegram fallback alerts, frontend voice playback API/composable, native-iOS-only thread feature-menu controls, native-iOS-only settings controls, iOS `AVAudioSession` waiting/playback bridge, Now Playing remote commands, and `UIBackgroundModes=audio`.
 - Not completed: full voice picker with preview samples, Volume Down push-to-talk, always-listening mode, APNs/TestFlight distribution, and physical iPhone/AirPods validation.
 - Checks passed: focused voice Vitest suite, full unit suite, frontend typecheck/build, `git diff --check`, `Info.plist` parsing, light/dark Playwright UI smoke, and browser runtime profiling.
 - Checks not run and why: `xcodebuild` and real locked-screen playback were not run because this workspace is Linux and has no attached iPhone/AirPods/Xcode.
