@@ -48,6 +48,11 @@ export type VoicePlaybackSessionOptions = {
   mixWithOthers?: boolean
 }
 
+export type NativeVoiceAudioPlaybackOptions = VoicePlaybackSessionOptions & {
+  base64: string
+  contentType?: string
+}
+
 export type VoicePlaybackRemoteCommand = 'play' | 'pause' | 'toggle'
 
 export type VoicePlaybackRemoteCommandEvent = {
@@ -62,6 +67,10 @@ type CodexAudioSessionPlugin = {
   endVoiceWaitingSession: () => Promise<CodexAudioSessionResult>
   beginVoicePlaybackSession: (options?: VoicePlaybackSessionOptions) => Promise<CodexAudioSessionResult>
   endVoicePlaybackSession: () => Promise<CodexAudioSessionResult>
+  playVoiceAudioBase64: (options: NativeVoiceAudioPlaybackOptions) => Promise<CodexAudioSessionResult & {
+    duration?: number
+    audioBytes?: number
+  }>
   getAudioRouteDiagnostics: () => Promise<CodexAudioSessionResult>
   preferBuiltInMicrophone: () => Promise<CodexAudioSessionResult>
   addListener: (
@@ -122,6 +131,12 @@ export async function beginVoicePlaybackSession(
 
 export async function endVoicePlaybackSession(): Promise<CodexAudioSessionResult> {
   return callNativeAudioSession('endVoicePlaybackSession', () => codexAudioSession.endVoicePlaybackSession())
+}
+
+export async function playVoiceAudioBase64(
+  options: NativeVoiceAudioPlaybackOptions,
+): Promise<CodexAudioSessionResult & { duration?: number; audioBytes?: number }> {
+  return callNativeAudioSession('playVoiceAudioBase64', () => codexAudioSession.playVoiceAudioBase64(options))
 }
 
 export async function getAudioRouteDiagnostics(): Promise<CodexAudioSessionResult> {

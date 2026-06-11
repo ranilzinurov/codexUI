@@ -1,3 +1,4 @@
+import Foundation
 import AVFoundation
 import Capacitor
 import MediaPlayer
@@ -5,6 +6,8 @@ import MediaPlayer
 @objc(CodexAudioSessionPlugin)
 public class CodexAudioSessionPlugin: CAPPlugin {
     private var silentKeepAlivePlayer: AVAudioPlayer?
+    private var voiceAudioPlayer: AVAudioPlayer?
+    private var voiceAudioFileURL: URL?
     private var waitingSessionActive = false
     private var playbackSessionActive = false
     private var remoteCommandTargets: [Any] = []
@@ -57,6 +60,9 @@ public class CodexAudioSessionPlugin: CAPPlugin {
 
     @objc func endVoicePlaybackSession(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
+            self.voiceAudioPlayer?.stop()
+            self.voiceAudioPlayer = nil
+            self.cleanupVoiceAudioFile()
             self.playbackSessionActive = false
             self.disableRemoteCommands()
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
@@ -76,6 +82,55 @@ public class CodexAudioSessionPlugin: CAPPlugin {
             let session = AVAudioSession.sharedInstance()
             let preference = self.preferBuiltInMicrophoneIfAvailable(session: session)
             call.resolve(self.result(ok: preference.ok, phase: "prefer_built_in_microphone", warning: preference.warning))
+        }
+    }
+
+    @objc func playVoiceAudioBase64(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let base64 = call.getString("base64"), !base64.isEmpty else {
+                call.resolve(self.result(ok: false, phase: "voice_native_playback", warning: "Missing voice audio data."))
+                return
+            }
+
+            guard let audioData = Data(base64Encoded: base64) else {
+                call.resolve(self.result(ok: false, phase: "voice_native_playback", warning: "Voice audio data is not valid base64."))
+                return
+            }
+
+            let duckOthers = call.getBool("duckOthers") ?? true
+            let mixWithOthers = call.getBool("mixWithOthers") ?? true
+            self.voiceAudioPlayer?.stop()
+            self.voiceAudioPlayer = nil
+            self.cleanupVoiceAudioFile()
+            let sessionResult = self.configurePlaybackSession(duckOthers: duckOthers, mixWithOthers: mixWithOthers)
+            guard sessionResult["ok"] as? Bool == true else {
+                call.resolve(sessionResult)
+                return
+            }
+
+            do {
+                let contentType = call.getString("contentType")
+                let player = try self.makeVoiceAudioPlayer(
+                    data: audioData,
+                    contentType: contentType
+                )
+                player.prepareToPlay()
+                if player.play() {
+                    self.voiceAudioPlayer = player
+                    var payload = self.result(ok: true, phase: "voice_native_playback")
+                    payload["duration"] = player.duration
+                    payload["audioBytes"] = audioData.count
+                    payload["contentType"] = contentType ?? ""
+                    payload["fileTypeHint"] = self.fileTypeHint(for: contentType, data: audioData) ?? ""
+                    call.resolve(payload)
+                    return
+                }
+                call.resolve(self.result(ok: false, phase: "voice_native_playback", warning: "Native voice audio player did not start."))
+            } catch {
+                self.voiceAudioPlayer = nil
+                self.cleanupVoiceAudioFile()
+                call.resolve(self.result(ok: false, phase: "voice_native_playback", error: error))
+            }
         }
     }
 
@@ -123,26 +178,146 @@ public class CodexAudioSessionPlugin: CAPPlugin {
 
     private func configurePlaybackSession(duckOthers: Bool, mixWithOthers: Bool) -> [String: Any] {
         let session = AVAudioSession.sharedInstance()
-        var options: AVAudioSession.CategoryOptions = [.allowBluetoothA2DP]
-        if mixWithOthers {
-            options.insert(.mixWithOthers)
+        let preferredOptions = playbackOptions(duckOthers: duckOthers, mixWithOthers: mixWithOthers, allowBluetoothA2DP: true)
+        let fallbackOptions = playbackOptions(duckOthers: duckOthers, mixWithOthers: mixWithOthers, allowBluetoothA2DP: false)
+        let attempts: [(mode: AVAudioSession.Mode, options: AVAudioSession.CategoryOptions, label: String)] = [
+            (.spokenAudio, preferredOptions, "spoken-audio-preferred"),
+            (.spokenAudio, fallbackOptions, "spoken-audio-no-bluetooth-a2dp"),
+            (.default, [], "default-minimal")
+        ]
+
+        stopSilentKeepAlive()
+        var errors: [Error] = []
+        var failedLabels: [String] = []
+        for attempt in attempts {
+            do {
+                try session.setCategory(.playback, mode: attempt.mode, options: attempt.options)
+                try session.setActive(true)
+                playbackSessionActive = true
+                setupRemoteCommands()
+                updateNowPlayingInfo(playbackRate: 1.0)
+                var payload = result(ok: true, phase: "voice_playback_begin")
+                if !failedLabels.isEmpty {
+                    payload["warning"] = "Playback session fallback used: \(attempt.label) after \(failedLabels.joined(separator: ", "))."
+                }
+                return payload
+            } catch {
+                errors.append(error)
+                failedLabels.append(attempt.label)
+            }
+        }
+
+        playbackSessionActive = false
+        return result(
+            ok: false,
+            phase: "voice_playback_begin",
+            error: VoicePlaybackError(
+                phase: "voice_playback_begin",
+                message: "Unable to configure iOS playback audio session.",
+                underlyingErrors: errors,
+                contentHint: nil,
+                byteCount: 0,
+                bytePrefix: ""
+            )
+        )
+    }
+
+    private func playbackOptions(duckOthers: Bool, mixWithOthers: Bool, allowBluetoothA2DP: Bool) -> AVAudioSession.CategoryOptions {
+        var options: AVAudioSession.CategoryOptions = []
+        if allowBluetoothA2DP {
+            options.insert(.allowBluetoothA2DP)
         }
         if duckOthers {
             options.insert(.duckOthers)
+        } else if mixWithOthers {
+            options.insert(.mixWithOthers)
         }
+        return options
+    }
 
+    private func makeVoiceAudioPlayer(data: Data, contentType: String?) throws -> AVAudioPlayer {
+        let hint = fileTypeHint(for: contentType, data: data)
         do {
-            stopSilentKeepAlive()
-            try session.setCategory(.playback, mode: .spokenAudio, options: options)
-            try session.setActive(true)
-            playbackSessionActive = true
-            setupRemoteCommands()
-            updateNowPlayingInfo(playbackRate: 1.0)
-            return result(ok: true, phase: "voice_playback_begin")
+            return try AVAudioPlayer(data: data, fileTypeHint: hint)
         } catch {
-            playbackSessionActive = false
-            return result(ok: false, phase: "voice_playback_begin", error: error)
+            return try makeVoiceAudioPlayerFromTemporaryFile(data: data, hint: hint, originalError: error)
         }
+    }
+
+    private func makeVoiceAudioPlayerFromTemporaryFile(data: Data, hint: String?, originalError: Error) throws -> AVAudioPlayer {
+        let extensionName = fileExtension(for: hint)
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-voice-\(UUID().uuidString)")
+            .appendingPathExtension(extensionName)
+        do {
+            try data.write(to: fileURL, options: [.atomic])
+            let player = try AVAudioPlayer(contentsOf: fileURL, fileTypeHint: hint)
+            voiceAudioFileURL = fileURL
+            return player
+        } catch {
+            try? FileManager.default.removeItem(at: fileURL)
+            throw VoicePlaybackError(
+                phase: "voice_native_decode",
+                message: "Unable to decode voice audio from memory or temp file.",
+                underlyingErrors: [originalError, error],
+                contentHint: hint,
+                byteCount: data.count,
+                bytePrefix: hexPrefix(data)
+            )
+        }
+    }
+
+    private func fileTypeHint(for contentType: String?, data: Data) -> String? {
+        let normalized = (contentType ?? "").split(separator: ";", maxSplits: 1).first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch normalized {
+        case "audio/mpeg", "audio/mp3":
+            return AVFileType.mp3.rawValue
+        case "audio/aac", "audio/aacp":
+            return "public.aac-audio"
+        case "audio/mp4", "audio/x-m4a", "audio/m4a":
+            return AVFileType.m4a.rawValue
+        case "audio/wav", "audio/wave", "audio/x-wav":
+            return AVFileType.wav.rawValue
+        case "audio/flac", "audio/x-flac":
+            return "org.xiph.flac"
+        default:
+            if data.starts(with: Data([0x49, 0x44, 0x33])) || data.starts(with: Data([0xff, 0xfb])) || data.starts(with: Data([0xff, 0xf3])) || data.starts(with: Data([0xff, 0xf2])) {
+                return AVFileType.mp3.rawValue
+            }
+            if data.starts(with: Data([0x52, 0x49, 0x46, 0x46])) {
+                return AVFileType.wav.rawValue
+            }
+            return nil
+        }
+    }
+
+    private func fileExtension(for hint: String?) -> String {
+        switch hint {
+        case AVFileType.mp3.rawValue:
+            return "mp3"
+        case "public.aac-audio":
+            return "aac"
+        case AVFileType.m4a.rawValue:
+            return "m4a"
+        case AVFileType.wav.rawValue:
+            return "wav"
+        case "org.xiph.flac":
+            return "flac"
+        default:
+            return "audio"
+        }
+    }
+
+    private func hexPrefix(_ data: Data, limit: Int = 16) -> String {
+        data.prefix(limit).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func cleanupVoiceAudioFile() {
+        guard let fileURL = voiceAudioFileURL else {
+            return
+        }
+        try? FileManager.default.removeItem(at: fileURL)
+        voiceAudioFileURL = nil
     }
 
     private func deactivateIfIdle(phase: String) -> [String: Any] {
@@ -271,7 +446,10 @@ public class CodexAudioSessionPlugin: CAPPlugin {
         ]
 
         if let error = error {
-            payload["error"] = error.localizedDescription
+            payload["error"] = describe(error: error, fallbackPhase: phase)
+            let nsError = error as NSError
+            payload["errorDomain"] = nsError.domain
+            payload["errorCode"] = nsError.code
         }
 
         if let warning = warning {
@@ -398,5 +576,55 @@ public class CodexAudioSessionPlugin: CAPPlugin {
         withUnsafeBytes(of: &littleEndian) { bytes in
             data.append(contentsOf: bytes)
         }
+    }
+
+    private func describe(error: Error, fallbackPhase: String? = nil) -> String {
+        let nsError = error as NSError
+        var parts: [String] = []
+        if let playbackError = error as? VoicePlaybackError {
+            parts.append(playbackError.errorDescription ?? playbackError.localizedDescription)
+        } else if !error.localizedDescription.isEmpty {
+            parts.append(error.localizedDescription)
+        }
+        if let fallbackPhase = fallbackPhase {
+            parts.append("phase=\(fallbackPhase)")
+        }
+        parts.append("domain=\(nsError.domain)")
+        parts.append("code=\(nsError.code)")
+        return parts.joined(separator: "; ")
+    }
+}
+
+private struct VoicePlaybackError: LocalizedError {
+    let phase: String
+    let message: String
+    let underlyingErrors: [Error]
+    let contentHint: String?
+    let byteCount: Int
+    let bytePrefix: String
+
+    var errorDescription: String? {
+        var parts = [
+            message,
+            "phase=\(phase)"
+        ]
+        if let contentHint = contentHint, !contentHint.isEmpty {
+            parts.append("hint=\(contentHint)")
+        }
+        if byteCount > 0 {
+            parts.append("bytes=\(byteCount)")
+        }
+        if !bytePrefix.isEmpty {
+            parts.append("prefix=\(bytePrefix)")
+        }
+        if !underlyingErrors.isEmpty {
+            parts.append("underlying=\(underlyingErrors.map { describeUnderlying($0) }.joined(separator: " | "))")
+        }
+        return parts.joined(separator: "; ")
+    }
+
+    private func describeUnderlying(_ error: Error) -> String {
+        let nsError = error as NSError
+        return "\(error.localizedDescription) [\(nsError.domain) \(nsError.code)]"
     }
 }

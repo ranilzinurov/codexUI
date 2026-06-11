@@ -16,6 +16,8 @@ import {
   beginVoiceWaitingSession,
   endVoicePlaybackSession,
   endVoiceWaitingSession,
+  playVoiceAudioBase64,
+  shouldUseNativeAudioSession,
 } from '../native/codexAudioSession'
 
 export type VoicePlaybackState =
@@ -109,6 +111,39 @@ function createAbortError(): DOMException {
   return new DOMException('Voice playback was aborted.', 'AbortError')
 }
 
+function isUnsupportedPlaybackError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  return error.name === 'NotSupportedError' || /operation is not supported|not supported/iu.test(error.message)
+}
+
+function describeBlob(blob: Blob): string {
+  const type = blob.type || 'unknown type'
+  return `${type}, ${blob.size} bytes`
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.addEventListener('load', () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result)
+        return
+      }
+      reject(new Error('Failed to prepare voice audio data URL.'))
+    }, { once: true })
+    reader.addEventListener('error', () => {
+      reject(reader.error ?? new Error('Failed to read voice audio blob.'))
+    }, { once: true })
+    reader.readAsDataURL(blob)
+  })
+}
+
+async function blobToBase64(blob: Blob): Promise<string> {
+  const dataUrl = await blobToDataUrl(blob)
+  const commaIndex = dataUrl.indexOf(',')
+  return commaIndex >= 0 ? dataUrl.slice(commaIndex + 1) : dataUrl
+}
+
 function waitFor(ms: number, signal: AbortSignal): Promise<void> {
   if (signal.aborted) return Promise.reject(createAbortError())
   return new Promise((resolve, reject) => {
@@ -159,6 +194,7 @@ export function useVoicePlayback() {
   let abortController: AbortController | null = null
   let activeObjectUrl = ''
   let playSequence = 0
+  let nativePlaybackEndTimer: ReturnType<typeof globalThis.setTimeout> | null = null
   let remoteCommandHandlePromise: ReturnType<typeof addVoicePlaybackRemoteCommandListener> | null = null
 
   if (audio) {
@@ -241,11 +277,37 @@ export function useVoicePlayback() {
     audio.load()
   }
 
+  function clearNativePlaybackEndTimer(): void {
+    if (nativePlaybackEndTimer === null) return
+    globalThis.clearTimeout(nativePlaybackEndTimer)
+    nativePlaybackEndTimer = null
+  }
+
+  async function playAudioSource(src: string): Promise<void> {
+    if (!audio) return
+    audio.src = src
+    audio.currentTime = 0
+    await audio.play()
+  }
+
+  function scheduleNativePlaybackEnd(durationSeconds: number | undefined, sequence: number): void {
+    clearNativePlaybackEndTimer()
+    if (typeof durationSeconds !== 'number' || !Number.isFinite(durationSeconds) || durationSeconds <= 0) return
+    nativePlaybackEndTimer = globalThis.setTimeout(() => {
+      nativePlaybackEndTimer = null
+      if (!isCurrent(sequence) || state.value !== 'playing') return
+      state.value = 'idle'
+      activeMessageId.value = ''
+      void endVoicePlaybackSession()
+    }, Math.ceil(durationSeconds * 1000) + 250)
+  }
+
   function stop(): void {
     playSequence += 1
     abortController?.abort()
     abortController = null
     resetAudioElement()
+    clearNativePlaybackEndTimer()
     revokeActiveObjectUrl()
     activeMessageId.value = ''
     activeJob.value = null
@@ -277,8 +339,34 @@ export function useVoicePlayback() {
 
     try {
       await endVoiceWaitingSession()
+      if (shouldUseNativeAudioSession()) {
+        const nativeResult = await playVoiceAudioBase64({
+          base64: await blobToBase64(blob),
+          contentType: blob.type || 'application/octet-stream',
+          duckOthers: true,
+          mixWithOthers: true,
+        })
+        if (!nativeResult.ok) {
+          throw new Error(nativeResult.error || nativeResult.warning || 'Native iOS audio playback failed.')
+        }
+        if (!isCurrent(sequence)) return
+        if (cacheKey) {
+          setBoundedCacheEntry(cache, cacheKey, { blob }, VOICE_CACHE_LIMIT)
+        }
+        state.value = 'playing'
+        scheduleNativePlaybackEnd(nativeResult.duration, sequence)
+        return
+      }
+
       await beginVoicePlaybackSession({ duckOthers: true, mixWithOthers: true })
-      await audio.play()
+      try {
+        await playAudioSource(activeObjectUrl)
+      } catch (error) {
+        if (!isUnsupportedPlaybackError(error)) throw error
+        const dataUrl = await blobToDataUrl(blob)
+        revokeActiveObjectUrl()
+        await playAudioSource(dataUrl)
+      }
       if (!isCurrent(sequence)) return
       if (cacheKey) {
         setBoundedCacheEntry(cache, cacheKey, { blob }, VOICE_CACHE_LIMIT)
@@ -287,7 +375,8 @@ export function useVoicePlayback() {
     } catch (error) {
       if (!isCurrent(sequence)) return
       state.value = 'blocked'
-      errorMessage.value = error instanceof Error ? error.message : 'Audio playback is blocked until you tap resume.'
+      const detail = error instanceof Error ? error.message : 'Audio playback is blocked until you tap resume.'
+      errorMessage.value = `Audio playback failed (${describeBlob(blob)}): ${detail}`
     }
   }
 

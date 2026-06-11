@@ -7905,3 +7905,38 @@ Native iOS app explicitly registers `CodexAudioSessionPlugin` before the WebView
 #### Rollback/Cleanup
 - Revert the custom bridge controller in `ios/App/App/AppDelegate.swift` if the native plugin is later packaged as a normal Capacitor plugin and appears in `packageClassList`.
 - Stop temporary build/test processes after validation.
+
+---
+
+### Native iOS Voice Audio MP3 Playback Fallback
+
+#### Feature/Change Name
+Native iOS voice playback decodes remote `audio/mpeg` responses with an explicit MP3 file type hint and a temporary-file fallback.
+
+#### Prerequisites/Setup
+1. Use the iOS build root with dependencies installed.
+2. Connect and unlock the physical iPhone.
+3. Configure `Remote backend` to `https://codex-ui.todo-tg-app.ru` and sign in.
+4. Open a thread with at least one assistant response.
+
+#### Steps
+1. Run `pnpm exec vitest run src/composables/useVoicePlayback.test.ts --reporter=verbose`.
+2. Run `pnpm run build:frontend`.
+3. Run `npx cap sync ios`.
+4. Build, install, and launch the app on the physical iPhone.
+5. In light theme, open the thread feature menu and tap `Test voice`.
+6. Confirm the generated `audio/mpeg` phrase plays, or that any failure message includes a native phase/domain/code instead of only `OSStatus error -50`.
+7. Tap `Play latest` on a completed assistant response and confirm the same behavior.
+8. Switch to dark theme and repeat steps 5-7.
+9. Optional: play another app's audio in the background and repeat `Test voice` to confirm the voice playback session still starts.
+
+#### Expected Results
+- The iOS bridge receives `contentType: audio/mpeg` for native voice playback.
+- Swift maps `audio/mpeg` or MP3 frame-sync bytes to `AVFileType.mp3.rawValue` before creating `AVAudioPlayer`.
+- If in-memory decode fails, Swift writes the bytes to a temporary `.mp3` file and retries with `AVAudioPlayer(contentsOf:fileTypeHint:)`.
+- If the preferred audio session options fail, Swift retries with simpler playback-session options before returning an error.
+- Light and dark themes both keep the visible voice status/error readable.
+
+#### Rollback/Cleanup
+- Delete and reinstall the app if iOS appears to be launching an older sideloaded build.
+- Stop temporary build/test processes after validation.

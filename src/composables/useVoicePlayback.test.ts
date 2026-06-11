@@ -16,6 +16,8 @@ const nativeAudioMock = vi.hoisted(() => ({
   beginVoiceWaitingSession: vi.fn(async () => ({ ok: true })),
   endVoicePlaybackSession: vi.fn(async () => ({ ok: true })),
   endVoiceWaitingSession: vi.fn(async () => ({ ok: true })),
+  playVoiceAudioBase64: vi.fn(async () => ({ ok: true, duration: 1, audioBytes: 5 })),
+  shouldUseNativeAudioSession: vi.fn(() => false),
 }))
 
 vi.mock('../api/voiceMode', async (importOriginal) => ({
@@ -61,6 +63,34 @@ class FakeAudio {
   }
 }
 
+class FakeFileReader {
+  result: string | ArrayBuffer | null = null
+  error: DOMException | null = null
+  private readonly listeners = new Map<string, Array<(event: Event) => void>>()
+
+  addEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
+    const listeners = this.listeners.get(type) ?? []
+    if (typeof listener === 'function') {
+      listeners.push(listener)
+    } else {
+      listeners.push((event) => listener.handleEvent(event))
+    }
+    this.listeners.set(type, listeners)
+  }
+
+  readAsDataURL(blob: Blob): void {
+    this.result = `data:${blob.type || 'application/octet-stream'};base64,dm9pY2U=`
+    queueMicrotask(() => this.dispatch('load'))
+  }
+
+  private dispatch(type: string): void {
+    const event = new Event(type)
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener(event)
+    }
+  }
+}
+
 function createJob(overrides: Partial<VoiceAnswerJob>): VoiceAnswerJob {
   return {
     id: 'job-1',
@@ -84,6 +114,7 @@ function createJob(overrides: Partial<VoiceAnswerJob>): VoiceAnswerJob {
 
 describe('useVoicePlayback', () => {
   let originalAudio: typeof Audio | undefined
+  let originalFileReader: typeof FileReader | undefined
   let originalCreateObjectUrl: PropertyDescriptor | undefined
   let originalRevokeObjectUrl: PropertyDescriptor | undefined
 
@@ -91,11 +122,16 @@ describe('useVoicePlayback', () => {
     FakeAudio.instances = []
     FakeAudio.nextPlayError = null
     originalAudio = globalThis.Audio
+    originalFileReader = globalThis.FileReader
     originalCreateObjectUrl = Object.getOwnPropertyDescriptor(URL, 'createObjectURL')
     originalRevokeObjectUrl = Object.getOwnPropertyDescriptor(URL, 'revokeObjectURL')
     Object.defineProperty(globalThis, 'Audio', {
       configurable: true,
       value: FakeAudio,
+    })
+    Object.defineProperty(globalThis, 'FileReader', {
+      configurable: true,
+      value: FakeFileReader,
     })
     Object.defineProperty(URL, 'createObjectURL', {
       configurable: true,
@@ -116,12 +152,18 @@ describe('useVoicePlayback', () => {
     nativeAudioMock.beginVoiceWaitingSession.mockResolvedValue({ ok: true })
     nativeAudioMock.endVoicePlaybackSession.mockResolvedValue({ ok: true })
     nativeAudioMock.endVoiceWaitingSession.mockResolvedValue({ ok: true })
+    nativeAudioMock.playVoiceAudioBase64.mockResolvedValue({ ok: true, duration: 1, audioBytes: 5 })
+    nativeAudioMock.shouldUseNativeAudioSession.mockReturnValue(false)
   })
 
   afterEach(() => {
     Object.defineProperty(globalThis, 'Audio', {
       configurable: true,
       value: originalAudio,
+    })
+    Object.defineProperty(globalThis, 'FileReader', {
+      configurable: true,
+      value: originalFileReader,
     })
     if (originalCreateObjectUrl) {
       Object.defineProperty(URL, 'createObjectURL', originalCreateObjectUrl)
@@ -205,6 +247,29 @@ describe('useVoicePlayback', () => {
 
     expect(voiceApiMock.createVoiceSpeech).toHaveBeenCalledTimes(1)
     expect(FakeAudio.instances[0]?.play).toHaveBeenCalledTimes(2)
+    expect(playback.state.value).toBe('playing')
+  })
+
+  it('passes audio content type to native iOS playback', async () => {
+    nativeAudioMock.shouldUseNativeAudioSession.mockReturnValue(true)
+
+    const playback = useVoicePlayback()
+    await playback.playBlob({
+      blob: new Blob(['voice'], { type: 'audio/mpeg' }),
+      messageId: 'message-1',
+    })
+
+    if (nativeAudioMock.playVoiceAudioBase64.mock.calls.length === 0) {
+      throw new Error(`Native playback was not called; state=${playback.state.value}; error=${playback.errorMessage.value}; fileReader=${typeof FileReader}; shouldUseCalls=${nativeAudioMock.shouldUseNativeAudioSession.mock.calls.length}`)
+    }
+
+    expect(nativeAudioMock.playVoiceAudioBase64).toHaveBeenCalledWith(expect.objectContaining({
+      base64: expect.any(String),
+      contentType: 'audio/mpeg',
+      duckOthers: true,
+      mixWithOthers: true,
+    }))
+    expect(nativeAudioMock.beginVoicePlaybackSession).not.toHaveBeenCalled()
     expect(playback.state.value).toBe('playing')
   })
 
