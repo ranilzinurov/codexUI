@@ -109,7 +109,11 @@ async function waitForJob(baseUrl: string, jobId: string, status = 'ready'): Pro
   throw new Error(`Voice job did not reach ${status}; last=${JSON.stringify(lastJob)}`)
 }
 
-function completedThread(threadId: string, assistantText: string): unknown {
+function completedThread(
+  threadId: string,
+  assistantText: string,
+  ids: { turnId?: string; messageId?: string } = {},
+): unknown {
   return {
     thread: {
       id: threadId,
@@ -120,9 +124,9 @@ function completedThread(threadId: string, assistantText: string): unknown {
           items: [{ type: 'userMessage', content: [{ type: 'text', text: 'Сделай задачу' }] }],
         },
         {
-          id: 'turn-assistant',
+          id: ids.turnId ?? 'turn-assistant',
           status: 'completed',
-          items: [{ id: 'message-assistant', type: 'agentMessage', text: assistantText }],
+          items: [{ id: ids.messageId ?? 'message-assistant', type: 'agentMessage', text: assistantText }],
         },
       ],
     },
@@ -428,6 +432,41 @@ describe('voice mode server routes', () => {
     const ttsBody = JSON.parse(String(callsFor(fetchImpl)[0]?.[1].body)) as Record<string, unknown>
     expect(String(ttsBody.input)).toContain('Сделал серверные endpoints')
     expect(String(ttsBody.input)).not.toContain('secret code')
+  })
+
+  it('skips the previous assistant answer when a thread voice job follows up', async () => {
+    const appServer = makeAppServer([
+      completedThread('thread-follow-up', 'Старый первый ответ.', {
+        turnId: 'turn-old',
+        messageId: 'message-old',
+      }),
+      completedThread('thread-follow-up', 'Новый второй ответ для озвучки.', {
+        turnId: 'turn-new',
+        messageId: 'message-new',
+      }),
+    ])
+    const fetchImpl = createFetchMock([createAudioResponse([16])])
+    const { baseUrl } = await listenVoiceServer({
+      appServer,
+      fetch: fetchImpl,
+      pollIntervalMs: 5,
+      waitTimeoutMs: 500,
+    })
+
+    const created = await createVoiceJob(baseUrl, {
+      threadId: 'thread-follow-up',
+      afterMessageId: 'message-old',
+      profile: 'medium',
+    })
+    const ready = await waitForJob(baseUrl, String(created.id))
+
+    expect(ready.status).toBe('ready')
+    expect(ready.messageId).toBe('message-new')
+    expect(ready.turnId).toBe('turn-new')
+    expect(appServer.rpc).toHaveBeenCalledTimes(2)
+    const ttsBody = JSON.parse(String(callsFor(fetchImpl)[0]?.[1].body)) as Record<string, unknown>
+    expect(String(ttsBody.input)).toContain('Новый второй ответ')
+    expect(String(ttsBody.input)).not.toContain('Старый первый ответ')
   })
 
   it('emits a fallback notification when a Telegram-enabled voice job becomes ready', async () => {

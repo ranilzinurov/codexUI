@@ -190,6 +190,7 @@ describe('useVoicePlayback', () => {
     const resultPromise = playback.playJob({
       threadId: 'thread-1',
       messageId: 'message-1',
+      afterMessageId: 'message-before',
       profile: 'medium',
       speed: 1,
       voice: 'nova',
@@ -220,6 +221,7 @@ describe('useVoicePlayback', () => {
     expect(voiceApiMock.createVoiceJob).toHaveBeenCalledWith(expect.objectContaining({
       threadId: 'thread-1',
       messageId: 'message-1',
+      afterMessageId: 'message-before',
       profile: 'medium',
       speed: 1,
       voice: 'nova',

@@ -108,6 +108,7 @@ type NormalizedVoiceJobRequest = {
   threadId?: string
   turnId?: string
   messageId?: string
+  afterMessageId?: string
   sourceText?: string
   profile: VoiceProfile
   speed: number
@@ -530,6 +531,7 @@ function normalizeVoiceJobRequest(body: Record<string, unknown> | null): Normali
   const model = normalizeTtsModel(body?.model ?? body?.ttsModel)
   const turnId = readNonEmptyString(body?.turnId) || undefined
   const messageId = readNonEmptyString(body?.messageId) || undefined
+  const afterMessageId = readNonEmptyString(body?.afterMessageId) || undefined
   const autoplay = body?.autoplay === false ? false : true
   const telegramFallback = body?.telegramFallback === true
   const boundedSourceText = sourceText ? truncateText(sourceText, SOURCE_TEXT_MAX_CHARS) : undefined
@@ -551,6 +553,7 @@ function normalizeVoiceJobRequest(body: Record<string, unknown> | null): Normali
     threadId: threadId || undefined,
     turnId,
     messageId,
+    afterMessageId,
     sourceText: boundedSourceText,
     profile,
     speed,
@@ -872,14 +875,19 @@ async function sleep(ms: number): Promise<void> {
 async function waitForAssistantAnswer(
   appServer: RpcExecutor,
   threadId: string,
-  options: { pollIntervalMs: number; timeoutMs: number },
+  options: { afterMessageId?: string; pollIntervalMs: number; timeoutMs: number },
 ): Promise<LatestAssistantAnswer> {
   const startedAt = Date.now()
+  const afterMessageId = options.afterMessageId?.trim()
 
   while (Date.now() - startedAt <= options.timeoutMs) {
     const payload = await appServer.rpc('thread/read', { threadId, includeTurns: true })
     const assistantAnswer = extractLatestAssistantAnswer(payload)
     if (assistantAnswer && !isThreadInProgress(payload)) {
+      if (afterMessageId && assistantAnswer.messageId === afterMessageId) {
+        await sleep(options.pollIntervalMs)
+        continue
+      }
       return {
         ...assistantAnswer,
         text: truncateText(assistantAnswer.text, SOURCE_TEXT_MAX_CHARS),
@@ -998,6 +1006,7 @@ async function runVoiceJob(
       }
       jobStore.update(jobId, { status: 'waiting_for_answer' })
       const assistantAnswer = await waitForAssistantAnswer(options.appServer, request.threadId, {
+        afterMessageId: request.afterMessageId,
         pollIntervalMs: options.pollIntervalMs,
         timeoutMs: options.waitTimeoutMs,
       })

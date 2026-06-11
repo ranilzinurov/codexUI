@@ -8103,3 +8103,44 @@ Native iOS Voice mode keeps its enable/disable control in the thread kebab menu,
 - Disable `Voice mode` in the kebab menu or Settings to stop the persistent native waiting session.
 - Delete and reinstall the app if iOS appears to launch an older sideloaded build.
 - Stop temporary test/build/profiling processes after validation.
+
+---
+
+### Native iOS Voice Mode Follow-Up Answer Selection
+
+#### Feature/Change Name
+Native iOS Voice mode starts a fresh voice job for each follow-up message and waits for the assistant answer after the previous spoken response instead of replaying the first answer.
+
+#### Prerequisites/Setup
+1. Use the iOS build root with dependencies installed.
+2. Connect and unlock the physical iPhone.
+3. Configure `Remote backend` to `https://codex-ui.todo-tg-app.ru` and sign in.
+4. Confirm server-side TTS credentials are configured.
+5. Open or create a thread with Voice mode enabled.
+
+#### Steps
+1. Run the focused regression tests:
+   `pnpm exec vitest run src/api/voiceMode.test.ts src/server/voiceMode.test.ts src/composables/useVoicePlayback.test.ts --reporter=verbose`
+2. Run the frontend type/build check:
+   `pnpm exec vue-tsc --noEmit`
+   `pnpm run build:frontend`
+3. Run `npx cap sync ios`.
+4. Build, install, and launch the app on the physical iPhone.
+5. In light theme, send a first prompt and confirm the first assistant answer is voiced.
+6. Send a second follow-up prompt in the same thread and confirm a new voice job waits for the second assistant answer.
+7. Confirm the app does not replay the first assistant answer after the second response completes.
+8. Send a third follow-up prompt and confirm the same behavior with the third assistant answer.
+9. Tap `Latest` after each generated answer and confirm it replays the matching latest answer from cache.
+10. Switch to dark theme and repeat steps 5-9.
+
+#### Expected Results
+- Follow-up voice job requests include `afterMessageId` for the latest assistant message that existed before the new user prompt.
+- The server skips an assistant answer whose `messageId` matches `afterMessageId` and continues polling until a newer assistant message is available.
+- Normal selected-thread sends and background dictation auto-sends both start voice jobs for the newly requested answer.
+- `Latest` still uses the message-level cache for the current newest assistant answer.
+- Light and dark themes both keep the voice toolbar, kebab menu, and composer status readable.
+
+#### Rollback/Cleanup
+- Disable `Voice mode` in the kebab menu or Settings to stop automatic voice jobs.
+- Delete and reinstall the app if iOS appears to launch an older sideloaded build.
+- Stop temporary test/build/profiling processes after validation.

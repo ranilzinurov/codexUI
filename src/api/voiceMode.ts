@@ -53,6 +53,7 @@ export type CreateVoiceJobInput = {
   threadId: string
   text?: string
   messageId?: string
+  afterMessageId?: string
   profile: VoiceProfile | string
   speed: number
   voice: string
@@ -324,6 +325,7 @@ export function createVoiceJob(input: CreateVoiceJobInput, signal?: AbortSignal)
         threadId: input.threadId,
         text: input.text,
         messageId: input.messageId,
+        afterMessageId: input.afterMessageId,
         profile: input.profile,
         speed: input.speed,
         voice: input.voice,

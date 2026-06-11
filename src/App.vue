@@ -3768,13 +3768,21 @@ async function onSeekVoicePlayback(seconds: number): Promise<void> {
   await voicePlayback.seekBy(seconds)
 }
 
-function startVoiceAnswerForThread(threadId: string): void {
+function getLatestAssistantVoiceMessageIdForThread(threadId: string): string {
+  const normalizedThreadId = threadId.trim()
+  if (!normalizedThreadId || selectedThreadId.value !== normalizedThreadId) return ''
+  return latestAssistantVoiceMessage.value?.id?.trim() ?? ''
+}
+
+function startVoiceAnswerForThread(threadId: string, options: { afterMessageId?: string } = {}): void {
   if (!isNativeIosVoiceModeAvailable) return
   if (!isVoiceModeEnabled.value) return
   const normalizedThreadId = threadId.trim()
   if (!normalizedThreadId) return
+  const afterMessageId = options.afterMessageId?.trim() || getLatestAssistantVoiceMessageIdForThread(normalizedThreadId)
   void voicePlayback.playJob({
     threadId: normalizedThreadId,
+    afterMessageId: afterMessageId || undefined,
     profile: voiceModeProfile.value,
     speed: voiceModeSpeed.value,
     model: voiceTtsModel.value,
@@ -4104,7 +4112,12 @@ function onSubmitThreadMessage(payload: { text: string; imageUrls: string[]; fil
     void submitFirstMessageForNewThread(text, payload.imageUrls, payload.skills, payload.fileAttachments)
     return
   }
+  const targetThreadId = selectedThreadId.value
+  const voiceAfterMessageId = getLatestAssistantVoiceMessageIdForThread(targetThreadId)
   void sendMessageToSelectedThread(text, payload.imageUrls, payload.skills, payload.mode, payload.fileAttachments, queueInsertIndex)
+    .then(() => {
+      startVoiceAnswerForThread(targetThreadId, { afterMessageId: voiceAfterMessageId })
+    })
 }
 
 function appendDictationTranscriptToThreadDraft(threadId: string, transcript: string): void {
@@ -4196,6 +4209,7 @@ async function onDictationBackgroundCompleted(job: DictationBackgroundJob): Prom
   const text = buildCompletedDictationMessageText(job)
   if (!text && job.draftSnapshot.imageUrls.length === 0 && job.draftSnapshot.fileAttachments.length === 0) return
 
+  const voiceAfterMessageId = getLatestAssistantVoiceMessageIdForThread(threadId)
   const result = await sendMessageToThread(threadId, text, {
     mode: job.mode,
     collaborationModeOverride: job.collaborationMode,
@@ -4207,7 +4221,7 @@ async function onDictationBackgroundCompleted(job: DictationBackgroundJob): Prom
     throw new Error('Could not send transcribed dictation to the original thread.')
   }
   reconcileCompletedDictationDraft(threadId, cloneDictationDraftSnapshot(job.draftSnapshot))
-  startVoiceAnswerForThread(threadId)
+  startVoiceAnswerForThread(threadId, { afterMessageId: voiceAfterMessageId })
 }
 
 function onDictationRecordingReady(payload: CreateDictationBackgroundJobInput): void {

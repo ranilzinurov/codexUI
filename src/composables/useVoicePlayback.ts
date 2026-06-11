@@ -40,6 +40,7 @@ export type PlayVoiceJobInput = Partial<Pick<CreateVoiceJobInput, 'profile' | 's
   threadId: string
   text?: string
   messageId?: string
+  afterMessageId?: string
   pollIntervalMs?: number
 }
 
@@ -510,6 +511,7 @@ export function useVoicePlayback() {
         threadId: input.threadId,
         text: input.text,
         messageId: input.messageId,
+        afterMessageId: input.afterMessageId,
         profile: input.profile ?? DEFAULT_PROFILE,
         speed: input.speed ?? DEFAULT_SPEED,
         voice: input.voice ?? DEFAULT_VOICE,
