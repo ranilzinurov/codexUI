@@ -7636,7 +7636,7 @@ Assistant voice mode prepares a Russian spoken summary after background dictatio
 #### Expected Results
 - `/codex-api/voice/speech` returns binary TTS audio and strips code/log-heavy content from spoken text.
 - `/codex-api/voice/jobs` creates a temporary voice job, waits for an assistant answer when only `threadId` is supplied, returns both `data` and legacy `job` envelopes, and expires cached audio after the TTL.
-- The frontend accepts both `state` and `status` job fields and caches audio blobs only in memory.
+- The frontend accepts both `state` and `status` job fields, understands direct, `data`, `job`, gateway-wrapped `result`, stringified JSON, and `content[].text` envelopes, and caches audio blobs only in memory.
 - Voice controls and settings are hidden outside the native iOS Capacitor shell; normal desktop browser/PWA sessions do not start automatic voice jobs.
 - Voice mode uses the `medium` Russian summary profile by default, voice `nova`, speed `1.0x`, and no permanent audio storage.
 - iOS native code uses background audio mode, playback/waiting audio sessions, Now Playing remote commands, and best-effort built-in microphone selection.
@@ -7684,3 +7684,193 @@ Native iOS shell can authenticate to a password-protected remote Codex UI backen
 #### Rollback/Cleanup
 - Clear `Remote backend` to return to same-origin mode.
 - Stop any local `4173` dev server used for testing.
+
+---
+
+### Native iOS Full-Screen Viewport And Remote Login Build
+
+#### Feature/Change Name
+Fresh main iOS sideload build keeps native iPhone viewport sizing, safe-area spacing, and remote backend login support.
+
+#### Prerequisites/Setup
+1. Use a Mac with Xcode, pnpm, and CocoaPods installed.
+2. Connect and unlock the physical iPhone.
+3. Use the fresh repository root with dependencies installed.
+4. Ensure the remote backend is available at `https://codex-ui.todo-tg-app.ru`.
+
+#### Steps
+1. Run `pnpm install`.
+2. Run `pnpm run build:frontend`.
+3. Run `npx cap sync ios`.
+4. Run `npx cap open ios`.
+5. Build for the connected iPhone from Xcode or with:
+   `xcodebuild -workspace ios/App/App.xcworkspace -scheme App -configuration Debug -destination 'id=<device-udid>' -derivedDataPath /tmp/codexui-ios-main-derived -allowProvisioningUpdates -allowProvisioningDeviceRegistration build`
+6. Install and launch the app on the iPhone.
+7. Use Xcode Devices `Take Screenshot` and confirm the screenshot is the native device size with no black letterbox bars.
+8. In light theme, confirm the header is below the iOS status bar, the composer fits the viewport, and Settings shows `Remote backend` plus `Remote login`.
+9. Switch to dark theme and repeat the viewport/header/composer/settings checks.
+10. Enter the remote backend password in `Remote login`, press `Login`, and confirm threads load from the remote server.
+
+#### Expected Results
+- The built app contains `UILaunchStoryboardName = LaunchScreen`, `Assets.car`, `UIRequiresFullScreen`, and `WKAppBoundDomains` for `codex-ui.todo-tg-app.ru`.
+- The bundled web app contains `viewport-fit=cover`, `capacitor-ios-shell` CSS, and `/auth/login` backend routing.
+- Xcode device screenshots are `828x1792` on iPhone 11 with zero full-width black rows at the top or bottom.
+- The native shell content does not overlap the iOS status bar.
+- Light and dark themes both keep the remote login controls readable.
+
+#### Rollback/Cleanup
+- Delete the sideloaded `Codex UI` app from the iPhone if iOS caches an older launch snapshot.
+- Stop any temporary build or test processes after validation.
+
+---
+
+### Native iOS Remote Login CORS Fallback And Focus Zoom
+
+#### Feature/Change Name
+Native iOS Remote login uses Capacitor HTTP/Cookies when `/auth/login` CORS is unavailable, and settings inputs no longer trigger iOS focus zoom.
+
+#### Prerequisites/Setup
+1. Use the fresh iOS build root with dependencies installed.
+2. Connect and unlock the physical iPhone.
+3. Ensure the remote backend URL is `https://codex-ui.todo-tg-app.ru`.
+4. Have the Codex Web password for the remote backend.
+
+#### Steps
+1. Run `pnpm exec vitest run src/api/remoteBackendAuth.test.ts src/backendUrl.test.ts`.
+2. Run `pnpm run build:frontend`.
+3. Run `npx cap sync ios`.
+4. Build, install, and launch the app on the physical iPhone.
+5. In light theme, open Settings and scroll to `Remote backend`.
+6. Tap the `Remote backend` URL field and then the `Remote login` password field.
+7. Enter the password and press `Login`.
+8. Confirm the app reloads and remote threads load.
+9. Switch to dark theme and repeat steps 5-7, including tapping both input fields.
+
+#### Expected Results
+- Tapping settings input fields does not zoom the native iOS WebView, and the screen returns to the same scale after keyboard dismissal.
+- The iOS app can log in even when the deployed server does not answer `OPTIONS /auth/login` with CORS headers.
+- The native login path stores the `portal_session` cookie in the iOS WebView cookie store.
+- After reload, `/codex-api/*` HTTP requests authenticate through native `CapacitorHttp` on iOS and the thread list appears.
+- Light and dark themes keep the login controls readable and aligned while the keyboard is open and after it closes.
+
+#### Rollback/Cleanup
+- Clear `Remote backend` to return to same-origin mode.
+- Delete the sideloaded app from the iPhone if iOS keeps an older WebView snapshot.
+- Stop any temporary build or test processes after validation.
+
+---
+
+### Native iOS Sidebar Safe Area And Dictation Upload
+
+#### Feature/Change Name
+Native iOS drawer/sidebar stays below the visible status bar and dictation transcription uploads multipart audio through Capacitor HTTP.
+
+#### Prerequisites/Setup
+1. Use the fresh iOS build root with dependencies installed.
+2. Connect and unlock the physical iPhone.
+3. Configure `Remote backend` to `https://codex-ui.todo-tg-app.ru` and log in.
+4. Confirm microphone permission is granted for the sideloaded app.
+
+#### Steps
+1. Run `pnpm exec vitest run src/backendUrl.test.ts src/api/remoteBackendAuth.test.ts src/composables/useDictation.test.ts`.
+2. Run `pnpm run build:frontend`.
+3. Run `npx cap sync ios`.
+4. Build, install, and launch the app on the physical iPhone.
+5. In light theme, open the left sidebar drawer and confirm the top action buttons start below the iOS clock/status bar.
+6. Close the drawer, tap the composer microphone, record a short phrase, and stop recording.
+7. Confirm transcription completes without `Malformed transcription upload payload`.
+8. Switch to dark theme and repeat steps 5-7.
+
+#### Expected Results
+- The native app keeps the iOS status bar visible, and mobile drawer/settings content is padded below the clock, signal, Wi-Fi, and battery area.
+- The iOS native HTTP routing preserves multipart `FormData` by sending Capacitor `formData` entries, including the audio file as `base64File`.
+- `/codex-api/transcribe` receives a valid multipart upload and returns transcript text instead of the malformed payload error.
+- `/codex-api/voice/speech` and `/codex-api/voice/jobs/<id>/audio` return binary audio blobs on iOS native routing, not corrupted text bodies.
+- Light and dark themes keep the drawer and dictation status text readable.
+
+#### Rollback/Cleanup
+- Stop any temporary build or test processes after validation.
+- Delete the sideloaded app if iOS caches an older WebView snapshot.
+
+---
+
+### Native iOS Voice Playback Status And New Thread Autoplay
+
+#### Feature/Change Name
+Native iOS voice playback surfaces TTS failures, offers a direct voice self-test, starts voice jobs after a first-message new thread send, shows the feature menu on the new-thread screen, and renders optimistic user messages before the assistant response.
+
+#### Prerequisites/Setup
+1. Use the fresh iOS build root with dependencies installed.
+2. Connect and unlock the physical iPhone.
+3. Configure `Remote backend` to `https://codex-ui.todo-tg-app.ru` and log in.
+4. Enable `Voice mode` in Settings or the thread feature menu.
+5. Confirm the remote server has OpenAI TTS credentials configured.
+
+#### Steps
+1. Run `pnpm exec vitest run src/api/voiceMode.test.ts src/composables/useVoicePlayback.test.ts src/composables/useDesktopState.test.ts --reporter=verbose`.
+2. Run `pnpm run build:frontend`.
+3. Run `npx cap sync ios`.
+4. Build, install, and launch the app on the physical iPhone.
+5. In light theme, open an existing completed thread, open the header feature menu, and tap `Play latest`.
+6. Confirm either audio plays or a visible voice status/error appears above the composer.
+7. Open the header feature menu and tap `Test voice`.
+8. Confirm either the short Russian test phrase plays or the visible status explains the backend/auth/TTS failure.
+9. On a fresh iPhone Simulator without Remote login, confirm `Test voice` sends `/codex-api/voice/speech` to the configured remote backend and shows `Authentication required` instead of failing silently.
+10. Open `Start new thread`, confirm the header feature menu is present, and confirm Side/Listen are unavailable until a thread exists while Voice controls remain accessible.
+11. Record a first prompt with the mic, stop recording, and let auto-send create the new thread.
+12. Confirm the transcribed user message appears immediately in the chat before the assistant response finishes.
+13. Confirm the app starts a voice job for the newly created thread and either autoplays the assistant response or shows the voice status/error.
+14. Switch to dark theme and repeat steps 5-13.
+
+#### Expected Results
+- `Play latest` no longer fails silently; blocked playback, failed TTS, waiting, summarizing, synthesizing, and fetching states are visible through composer status text.
+- `Test voice` directly exercises `/codex-api/voice/speech` with a short phrase, so remote auth/TTS/audio-output problems can be diagnosed without waiting for a thread job.
+- If the remote endpoint returns HTML or JSON instead of `audio/*`, the app reports the unexpected content type instead of passing the payload to iOS audio playback.
+- Successful non-JSON `/codex-api/voice/jobs` responses report their payload shape, including HTML error pages, instead of only saying `malformed JSON`.
+- First-message new-thread sends call the same voice-job flow as background dictation in existing threads when Voice mode is enabled.
+- The new-thread screen exposes the kebab feature menu, while thread-only actions remain disabled until an actual thread id exists.
+- User messages sent from dictation or text appear optimistically with `user.optimistic` before assistant output streams.
+- Persisted user messages de-duplicate the optimistic row once the server history catches up.
+- Light and dark themes keep the voice status text, feature menu, and optimistic message readable.
+
+#### Rollback/Cleanup
+- Disable `Voice mode` to stop automatic voice jobs.
+- Stop any temporary build or test processes after validation.
+- Delete the sideloaded app if iOS caches an older WebView snapshot.
+
+---
+
+### Native iOS Remote Backend API Contract Hardening
+
+#### Feature/Change Name
+Native iOS remote backend login and voice requests no longer misclassify HTML shell/login pages as authenticated API responses.
+
+#### Prerequisites/Setup
+1. Use the iOS build root with dependencies installed.
+2. Have a password-protected remote backend such as `https://codex-ui.todo-tg-app.ru`.
+3. For device validation, connect and unlock the physical iPhone.
+
+#### Steps
+1. Run the focused regression tests:
+   `pnpm exec vitest run src/backendUrl.test.ts src/api/remoteBackendAuth.test.ts src/server/httpServer.mobileShell.test.ts --reporter=verbose`
+2. Run the voice regression tests:
+   `pnpm exec vitest run src/api/voiceMode.test.ts src/server/voiceMode.test.ts src/composables/useVoicePlayback.test.ts --reporter=verbose`
+3. Run `pnpm run build:frontend`.
+4. Run `npx cap sync ios`.
+5. Build, install, and launch the app on the physical iPhone.
+6. In light theme, set `Remote backend` to `https://codex-ui.todo-tg-app.ru`, log in, open an existing thread, and tap `Play latest` or `Test voice`.
+7. Switch to dark theme and repeat step 6.
+8. Optionally call `OPTIONS /auth/login` with `Origin: capacitor://localhost` and confirm it returns credentialed CORS headers.
+
+#### Expected Results
+- Native iOS routed `/codex-api/*` JSON requests go through `CapacitorHttp` with an explicit JSON `Accept` header.
+- Native iOS voice audio endpoints request `audio/*` and preserve binary blob response handling.
+- `readRemoteBackendAuthStatus()` returns `unknown` for `200 text/html` instead of showing a false signed-in state.
+- `OPTIONS /auth/login` for `capacitor://localhost` returns `204` with credentialed CORS headers.
+- Native HTTPS `/auth/login` responses set `portal_session` with `HttpOnly`, `SameSite=None`, and `Secure`; same-origin browser logins stay `SameSite=Strict`.
+- Unknown `/codex-api/*` routes return JSON 404 instead of the SPA HTML shell.
+- Light and dark themes both keep the visible remote-login and voice status readable.
+
+#### Rollback/Cleanup
+- Clear `Remote backend` in settings to return to same-origin mode.
+- Stop temporary test/build processes after validation.

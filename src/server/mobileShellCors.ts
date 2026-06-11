@@ -9,7 +9,7 @@ function isLoopbackHostname(hostname: string): boolean {
   return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1' || normalized === '[::1]'
 }
 
-export function isAllowedMobileShellOrigin(origin: string): boolean {
+function isAllowedMobileShellOrigin(origin: string): boolean {
   try {
     const parsed = new URL(origin)
     if (ALLOWED_NATIVE_ORIGIN_PROTOCOLS.has(parsed.protocol)) {

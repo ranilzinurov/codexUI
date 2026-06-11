@@ -4,7 +4,6 @@ import type { IncomingMessage } from 'node:http'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { RequestHandler, Request, Response, NextFunction } from 'express'
-import { isAllowedMobileShellOrigin } from './mobileShellCors.js'
 
 const TOKEN_COOKIE = 'portal_session'
 const SESSION_TTL_SECONDS = 365 * 24 * 60 * 60
@@ -46,6 +45,20 @@ function isLocalhostRemote(remote: string): boolean {
 function isLocalhostHost(host: string): boolean {
   const normalized = host.toLowerCase()
   return normalized.startsWith('localhost:') || normalized === 'localhost' || normalized.startsWith('127.0.0.1:')
+}
+
+function firstHeaderValue(value: string | string[] | undefined): string {
+  if (Array.isArray(value)) return value[0] ?? ''
+  return value ?? ''
+}
+
+function isNativeShellOrigin(origin: string): boolean {
+  try {
+    const parsed = new URL(origin)
+    return (parsed.protocol === 'capacitor:' || parsed.protocol === 'ionic:') && parsed.hostname === 'localhost'
+  } catch {
+    return false
+  }
 }
 
 function isIPv4Octet(value: string): boolean {
@@ -231,21 +244,17 @@ function isSecureProxyRequest(req: Request): boolean {
   return false
 }
 
-function shouldUseCrossSiteSessionCookie(req: Request): boolean {
-  const origin = req.get('Origin')?.trim() ?? ''
-  return isSecureProxyRequest(req) && isAllowedMobileShellOrigin(origin)
-}
-
 function buildSessionCookie(req: Request, token: string, expiresAtMs: number): string {
-  const useCrossSiteCookie = shouldUseCrossSiteSessionCookie(req)
+  const secure = isSecureProxyRequest(req)
+  const sameSite = secure && isNativeShellOrigin(firstHeaderValue(req.headers.origin)) ? 'None' : 'Strict'
   return TOKEN_COOKIE
     + '=' + token
     + '; Path=/'
     + '; HttpOnly'
-    + '; SameSite=' + (useCrossSiteCookie ? 'None' : 'Strict')
+    + '; SameSite=' + sameSite
     + '; Max-Age=' + String(SESSION_TTL_SECONDS)
     + '; Expires=' + new Date(expiresAtMs).toUTCString()
-    + (isSecureProxyRequest(req) ? '; Secure' : '')
+    + (secure ? '; Secure' : '')
 }
 
 const LOGIN_PAGE_HTML = `<!DOCTYPE html>

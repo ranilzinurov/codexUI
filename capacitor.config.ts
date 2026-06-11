@@ -4,8 +4,13 @@ const config: CapacitorConfig = {
   appId: 'dev.rnl1.codexui',
   appName: 'Codex UI',
   webDir: 'dist',
-  ios: {
-    limitsNavigationsToAppBoundDomains: true,
+  plugins: {
+    CapacitorCookies: {
+      enabled: true,
+    },
+    CapacitorHttp: {
+      enabled: true,
+    },
   },
 }
 

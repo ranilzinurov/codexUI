@@ -278,7 +278,12 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
   }
 
   // 9. SPA fallback
-  app.use((_req, res) => {
+  app.use((req, res) => {
+    if (req.path === '/codex-api' || req.path.startsWith('/codex-api/')) {
+      res.status(404).json({ error: 'API route not found.' })
+      return
+    }
+
     if (!hasFrontendAssets) {
       res
         .status(503)
