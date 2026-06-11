@@ -9,6 +9,7 @@ import {
   type VoiceAnswerJob,
   type VoiceJobState,
   type VoiceProfile,
+  type VoiceTtsModel,
 } from '../api/voiceMode'
 import {
   addVoicePlaybackRemoteCommandListener,
@@ -35,7 +36,7 @@ export type VoicePlaybackState =
   | 'blocked'
   | 'error'
 
-export type PlayVoiceJobInput = Partial<Pick<CreateVoiceJobInput, 'profile' | 'speed' | 'voice' | 'autoplay' | 'telegramFallback'>> & {
+export type PlayVoiceJobInput = Partial<Pick<CreateVoiceJobInput, 'profile' | 'speed' | 'voice' | 'model' | 'autoplay' | 'telegramFallback'>> & {
   threadId: string
   text?: string
   messageId?: string
@@ -58,6 +59,7 @@ type CacheEntry = {
 
 const DEFAULT_PROFILE: VoiceProfile = 'medium'
 const DEFAULT_VOICE = 'nova'
+const DEFAULT_TTS_MODEL: VoiceTtsModel = 'gpt-4o-mini-tts'
 const DEFAULT_SPEED = 1
 const DEFAULT_POLL_INTERVAL_MS = 1500
 const MIN_POLL_INTERVAL_MS = 500
@@ -89,6 +91,7 @@ function createSpeechCacheKey(input: PlayVoiceSpeechInput): string {
     input.messageId ?? '',
     input.profile ?? DEFAULT_PROFILE,
     input.voice ?? DEFAULT_VOICE,
+    input.model ?? DEFAULT_TTS_MODEL,
     (input.speed ?? DEFAULT_SPEED).toFixed(2),
     hashText(input.text),
   ].join(':')
@@ -437,6 +440,7 @@ export function useVoicePlayback() {
         profile: input.profile ?? DEFAULT_PROFILE,
         speed: input.speed ?? DEFAULT_SPEED,
         voice: input.voice ?? DEFAULT_VOICE,
+        model: input.model ?? DEFAULT_TTS_MODEL,
         autoplay: input.autoplay ?? true,
         telegramFallback: input.telegramFallback ?? false,
       }, controller.signal)
@@ -488,6 +492,7 @@ export function useVoicePlayback() {
         profile: input.profile ?? DEFAULT_PROFILE,
         speed: input.speed ?? DEFAULT_SPEED,
         voice: input.voice ?? DEFAULT_VOICE,
+        model: input.model ?? DEFAULT_TTS_MODEL,
         responseFormat: 'mp3',
       }, controller.signal)
       if (!isCurrent(sequence)) return

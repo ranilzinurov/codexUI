@@ -62,6 +62,7 @@ describe('voiceMode API helpers', () => {
       profile: 'medium',
       speed: 1.1,
       voice: 'nova',
+      model: 'gpt-4o-mini-tts',
       autoplay: true,
       telegramFallback: true,
     })
@@ -73,6 +74,7 @@ describe('voiceMode API helpers', () => {
       profile: 'medium',
       speed: 1.1,
       voice: 'nova',
+      model: 'gpt-4o-mini-tts',
       autoplay: true,
       telegramFallback: true,
       messageId: 'message-1',
@@ -92,6 +94,7 @@ describe('voiceMode API helpers', () => {
       profile: 'medium',
       speed: 1.1,
       voice: 'nova',
+      model: 'gpt-4o-mini-tts',
       autoplay: true,
       telegramFallback: true,
     })
@@ -211,6 +214,7 @@ describe('voiceMode API helpers', () => {
       profile: 'medium',
       speed: 1,
       voice: 'nova',
+      model: 'gpt-4o-mini-tts',
       responseFormat: 'mp3',
     })
     expect(fetchMock.mock.calls[1][0]).toBe('/codex-api/voice/jobs/job-1/audio')

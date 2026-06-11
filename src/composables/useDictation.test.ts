@@ -153,6 +153,14 @@ describe('useDictation', () => {
 
     await dictation.startRecording()
     expect(dictation.state.value).toBe('recording')
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith({
+      audio: {
+        channelCount: 1,
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      },
+    })
 
     dictation.cancel()
     await nextTick()

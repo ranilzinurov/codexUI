@@ -8015,3 +8015,46 @@ Native iOS threads use a compact mobile voice toolbar above the composer, defaul
 - Clear `codex-web-local.voice-mode.enabled.v2` from WebView storage to retest the default-off migration.
 - Delete and reinstall the app if iOS appears to launch an older sideloaded build.
 - Stop temporary build/test processes after validation.
+
+---
+
+### Native iOS TTS Model Selection And Background Waiting Session
+
+#### Feature/Change Name
+Native iOS voice mode exposes TTS model selection in Settings, keeps background dictation jobs inside a native waiting audio session, and re-prefers the built-in iPhone microphone if iOS switches dictation input to Bluetooth.
+
+#### Prerequisites/Setup
+1. Use the iOS build root with dependencies installed.
+2. Connect and unlock the physical iPhone.
+3. Configure `Remote backend` to `https://codex-ui.todo-tg-app.ru` and sign in.
+4. Grant microphone permission to the sideloaded app.
+5. For route validation, connect AirPods before starting dictation.
+
+#### Steps
+1. Run the focused regression tests:
+   `pnpm exec vitest run src/server/voiceMode.test.ts src/api/voiceMode.test.ts src/composables/useVoicePlayback.test.ts src/composables/useDictation.test.ts src/composables/dictationBackgroundJobs.test.ts --reporter=verbose`
+2. Run the frontend type/build check:
+   `pnpm exec vue-tsc --noEmit`
+   `pnpm run build:frontend`
+3. Run `npx cap sync ios`.
+4. Build, install, and launch the app on the physical iPhone.
+5. In light theme, open Settings > Voice and confirm `TTS model` offers `GPT-4o mini TTS`, `TTS-1`, and `TTS-1 HD`.
+6. Select each TTS model, tap `Play latest` in a completed thread, and confirm voice generation starts without replaying cached audio from the previously selected model.
+7. Enable `Voice mode`, record dictation in an existing thread, stop recording, and lock the iPhone after the transcript is submitted.
+8. Confirm the app keeps the native waiting audio session active while background transcription and voice-job polling run, then plays the generated answer or shows a visible voice error/fallback status.
+9. With AirPods connected, start dictation and confirm Settings > Voice > `Last mic` reports a built-in iPhone/internal route when iOS exposes it.
+10. Switch to dark theme and repeat steps 5-9.
+
+#### Expected Results
+- TTS model selection is stored in local settings and sent with `/codex-api/voice/speech` and `/codex-api/voice/jobs` requests.
+- The voice server includes the TTS model in job fingerprints, speech cache keys, serialized job payloads, and `X-Codex-Voice-Tts-Model`.
+- Background dictation jobs call the native waiting-session bridge while transcription/completion callbacks run.
+- The Swift bridge ref-counts overlapping waiting sessions, so one completed operation cannot stop another operation's keepalive.
+- Waiting mode plays a very low-volume looping tone instead of a zero-volume silent player.
+- Dictation uses best-effort built-in mic selection at prepare time and after audio route changes.
+- Light and dark themes both keep the Settings row, toolbar buttons, and voice status readable.
+
+#### Rollback/Cleanup
+- Set `TTS model` back to `GPT-4o mini TTS` in Settings.
+- Disable `Voice mode` to stop automatic background voice jobs.
+- Stop temporary build or profiling processes after validation.

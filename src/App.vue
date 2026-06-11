@@ -274,6 +274,16 @@
                     <span class="sidebar-settings-label">{{ t('Voice speed') }}</span>
                     <span class="sidebar-settings-value">{{ voiceModeSpeedLabel }}</span>
                   </button>
+                  <div class="sidebar-settings-row sidebar-settings-row--select" :title="SETTINGS_HELP.voiceTtsModel">
+                    <span class="sidebar-settings-label">{{ t('TTS model') }}</span>
+                    <select
+                      class="sidebar-settings-provider-select"
+                      :value="voiceTtsModel"
+                      @change="onVoiceTtsModelChange(($event.target as HTMLSelectElement).value)"
+                    >
+                      <option v-for="option in voiceTtsModelOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                    </select>
+                  </div>
                   <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.voiceTelegramFallback" @click="toggleVoiceTelegramFallback">
                     <span class="sidebar-settings-label">{{ t('Voice Telegram fallback') }}</span>
                     <span class="sidebar-settings-toggle" :class="{ 'is-on': isVoiceTelegramFallbackEnabled }" />
@@ -1234,6 +1244,65 @@
                   @hide="onHideHomeTerminal"
                   @terminal-focus-change="onTerminalFocusChange"
                 />
+                <div
+                  v-if="canShowMobileVoiceToolbar"
+                  class="mobile-voice-toolbar"
+                  role="group"
+                  :aria-label="t('Voice controls')"
+                >
+                  <button
+                    class="mobile-voice-toolbar-button"
+                    :class="{ 'is-active': isVoiceModeEnabled }"
+                    type="button"
+                    :aria-pressed="isVoiceModeEnabled"
+                    @click="onToggleVoiceModeFromMobileToolbar"
+                  >
+                    <IconTablerPlayerPlayFilled class="mobile-voice-toolbar-icon" />
+                    <span class="mobile-voice-toolbar-text">{{ isVoiceModeEnabled ? t('On') : t('Off') }}</span>
+                  </button>
+                  <button
+                    class="mobile-voice-toolbar-button"
+                    type="button"
+                    :disabled="!canPlayLatestVoiceMessage"
+                    @click="onPlayLatestVoiceFromMobileToolbar"
+                  >
+                    <span class="mobile-voice-toolbar-text">{{ t('Latest') }}</span>
+                  </button>
+                  <button
+                    class="mobile-voice-toolbar-button is-compact"
+                    type="button"
+                    :disabled="!canSeekVoicePlayback"
+                    :aria-label="t('Rewind 5 seconds')"
+                    @click="onSeekVoicePlayback(-5)"
+                  >
+                    <span class="mobile-voice-toolbar-text">-5</span>
+                  </button>
+                  <button
+                    class="mobile-voice-toolbar-button is-primary"
+                    type="button"
+                    :disabled="!canToggleVoicePlayback"
+                    :aria-label="mobileVoicePlaybackLabel"
+                    @click="onToggleVoicePlaybackFromMobileToolbar"
+                  >
+                    <IconTablerPlayerPauseFilled
+                      v-if="voicePlayback.canPause.value"
+                      class="mobile-voice-toolbar-icon"
+                    />
+                    <IconTablerPlayerPlayFilled
+                      v-else
+                      class="mobile-voice-toolbar-icon"
+                    />
+                  </button>
+                  <button
+                    class="mobile-voice-toolbar-button is-compact"
+                    type="button"
+                    :disabled="!canSeekVoicePlayback"
+                    :aria-label="t('Forward 5 seconds')"
+                    @click="onSeekVoicePlayback(5)"
+                  >
+                    <span class="mobile-voice-toolbar-text">+5</span>
+                  </button>
+                </div>
                 <ThreadComposer ref="homeThreadComposerRef" :active-thread-id="composerThreadContextId"
                   :cwd="composerCwd"
                   :collaboration-modes="availableCollaborationModes"
@@ -1617,7 +1686,7 @@ import { loginRemoteBackend, readRemoteBackendAuthStatus } from './api/remoteBac
 import { getPathLeafName, getPathParent, isProjectlessChatPath, normalizePathForUi } from './pathUtils.js'
 import type { GitCommitOption, ThreadTerminalQuickCommand } from './api/codexGateway'
 import type { RemoteBackendAuthStatus } from './api/remoteBackendAuth'
-import type { VoiceProfile } from './api/voiceMode'
+import type { VoiceProfile, VoiceTtsModel } from './api/voiceMode'
 
 const ThreadConversation = defineAsyncComponent(() => import('./components/content/ThreadConversation.vue'))
 const ThreadTerminalPanel = defineAsyncComponent(() => import('./components/content/ThreadTerminalPanel.vue'))
@@ -1632,6 +1701,7 @@ const TERMINAL_QUICK_COMMAND_STORAGE_KEY = 'codex-web-local.terminal-quick-comma
 const VOICE_MODE_ENABLED_STORAGE_KEY = 'codex-web-local.voice-mode.enabled.v2'
 const VOICE_MODE_PROFILE_STORAGE_KEY = 'codex-web-local.voice-mode.profile.v1'
 const VOICE_MODE_SPEED_STORAGE_KEY = 'codex-web-local.voice-mode.speed.v1'
+const VOICE_MODE_TTS_MODEL_STORAGE_KEY = 'codex-web-local.voice-mode.tts-model.v1'
 const VOICE_MODE_TELEGRAM_FALLBACK_STORAGE_KEY = 'codex-web-local.voice-mode.telegram-fallback.v1'
 const TOGGLE_TERMINAL_COMMAND_VALUE = '__toggle_terminal__'
 const worktreeName = import.meta.env.VITE_WORKTREE_NAME ?? 'unknown'
@@ -1647,6 +1717,7 @@ const SETTINGS_HELP = {
   voiceMode: t('Automatically prepare and play a Russian voice summary after background dictation sends a prompt.'),
   voiceProfile: t('Choose how much detail the spoken summary should include.'),
   voiceSpeed: t('Choose voice playback speed for generated audio.'),
+  voiceTtsModel: t('Choose the OpenAI text-to-speech model used for generated voice answers.'),
   voiceTelegramFallback: t('Send a Telegram alert when a background voice answer is ready or fails.'),
   backendUrl: t('Remote Codex UI server used by the iOS shell for API and WebSocket traffic.'),
   browserAnnotationListen: t('Pair the browser annotation extension with the selected thread.'),
@@ -1893,7 +1964,13 @@ const isNativeIosVoiceModeAvailable = shouldUseNativeAudioSession()
 const isVoiceModeEnabled = ref(loadBoolPref(VOICE_MODE_ENABLED_STORAGE_KEY, false))
 const voiceModeProfile = ref<VoiceProfile>(loadVoiceProfilePref())
 const voiceModeSpeed = ref(loadVoiceSpeedPref())
+const voiceTtsModel = ref<VoiceTtsModel>(loadVoiceTtsModelPref())
 const isVoiceTelegramFallbackEnabled = ref(loadBoolPref(VOICE_MODE_TELEGRAM_FALLBACK_STORAGE_KEY, true))
+const voiceTtsModelOptions: Array<{ value: VoiceTtsModel; label: string }> = [
+  { value: 'gpt-4o-mini-tts', label: 'GPT-4o mini TTS' },
+  { value: 'tts-1', label: 'TTS-1' },
+  { value: 'tts-1-hd', label: 'TTS-1 HD' },
+]
 type SidebarThreadTreeExposed = {
   openAutomationEditorFromPanel: (payload: AutomationEditRequest) => void
   openAutomationCreatorFromPanel: () => void
@@ -3650,6 +3727,7 @@ async function playLatestVoiceMessage(options: { closeFeatureMenu: boolean }): P
     messageId: message.id,
     profile: voiceModeProfile.value,
     speed: voiceModeSpeed.value,
+    model: voiceTtsModel.value,
     voice: 'nova',
   })
 }
@@ -3704,6 +3782,7 @@ function startVoiceAnswerForThread(threadId: string): void {
     threadId: normalizedThreadId,
     profile: voiceModeProfile.value,
     speed: voiceModeSpeed.value,
+    model: voiceTtsModel.value,
     voice: 'nova',
     autoplay: true,
     telegramFallback: isVoiceTelegramFallbackEnabled.value,
@@ -5101,6 +5180,16 @@ function loadVoiceSpeedPref(): number {
   return Math.max(0.8, Math.min(1.4, Math.round(value * 10) / 10))
 }
 
+function isVoiceTtsModel(value: string): value is VoiceTtsModel {
+  return value === 'gpt-4o-mini-tts' || value === 'tts-1' || value === 'tts-1-hd'
+}
+
+function loadVoiceTtsModelPref(): VoiceTtsModel {
+  if (typeof window === 'undefined') return 'gpt-4o-mini-tts'
+  const value = safeLocalStorageGetItem(VOICE_MODE_TTS_MODEL_STORAGE_KEY)?.trim() ?? ''
+  return isVoiceTtsModel(value) ? value : 'gpt-4o-mini-tts'
+}
+
 function toggleSendWithEnter(): void {
   sendWithEnter.value = !sendWithEnter.value
   safeLocalStorageSetItem(SEND_WITH_ENTER_KEY, sendWithEnter.value ? '1' : '0')
@@ -5168,6 +5257,13 @@ function cycleVoiceModeSpeed(): void {
   const currentIndex = order.findIndex((value) => Math.abs(value - voiceModeSpeed.value) < 0.01)
   voiceModeSpeed.value = order[(currentIndex + 1) % order.length]
   safeLocalStorageSetItem(VOICE_MODE_SPEED_STORAGE_KEY, String(voiceModeSpeed.value))
+}
+
+function onVoiceTtsModelChange(value: string): void {
+  if (!isNativeIosVoiceModeAvailable) return
+  if (!isVoiceTtsModel(value)) return
+  voiceTtsModel.value = value
+  safeLocalStorageSetItem(VOICE_MODE_TTS_MODEL_STORAGE_KEY, value)
 }
 
 function toggleGithubTrendingProjects(): void {

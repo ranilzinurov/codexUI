@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import Capacitor
+import Darwin
 import MediaPlayer
 
 @objc(CodexAudioSessionPlugin)
@@ -8,9 +9,27 @@ public class CodexAudioSessionPlugin: CAPPlugin {
     private var silentKeepAlivePlayer: AVAudioPlayer?
     private var voiceAudioPlayer: AVAudioPlayer?
     private var voiceAudioFileURL: URL?
-    private var waitingSessionActive = false
+    private var waitingSessionRequests = 0
     private var playbackSessionActive = false
+    private var dictationSessionActive = false
     private var remoteCommandTargets: [Any] = []
+    private var waitingSessionActive: Bool {
+        waitingSessionRequests > 0
+    }
+
+    public override func load() {
+        super.load()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAudioRouteChange(_:)),
+            name: AVAudioSession.routeChangeNotification,
+            object: AVAudioSession.sharedInstance()
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
 
     @objc func prepareDictationAudioSession(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
@@ -22,13 +41,9 @@ public class CodexAudioSessionPlugin: CAPPlugin {
     @objc func finishDictationAudioSession(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             let session = AVAudioSession.sharedInstance()
-            do {
-                try? session.setPreferredInput(nil)
-                try session.setActive(false, options: [.notifyOthersOnDeactivation])
-                call.resolve(self.result(ok: true, phase: "dictation_finish"))
-            } catch {
-                call.resolve(self.result(ok: false, phase: "dictation_finish", error: error))
-            }
+            try? session.setPreferredInput(nil)
+            self.dictationSessionActive = false
+            call.resolve(self.deactivateIfIdle(phase: "dictation_finish"))
         }
     }
 
@@ -42,8 +57,10 @@ public class CodexAudioSessionPlugin: CAPPlugin {
 
     @objc func endVoiceWaitingSession(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
-            self.waitingSessionActive = false
-            self.stopSilentKeepAlive()
+            self.waitingSessionRequests = max(0, self.waitingSessionRequests - 1)
+            if self.waitingSessionRequests == 0 {
+                self.stopSilentKeepAlive()
+            }
             let result = self.deactivateIfIdle(phase: "voice_waiting_end")
             call.resolve(result)
         }
@@ -198,18 +215,21 @@ public class CodexAudioSessionPlugin: CAPPlugin {
             try session.setCategory(
                 .playAndRecord,
                 mode: .spokenAudio,
-                options: [.mixWithOthers, .allowBluetooth, .allowBluetoothA2DP, .defaultToSpeaker]
+                options: [.mixWithOthers, .allowBluetoothA2DP, .defaultToSpeaker]
             )
             try session.setActive(true)
+            dictationSessionActive = true
             let preference = preferBuiltInMicrophoneIfAvailable(session: session)
             return result(ok: true, phase: "dictation_prepare", warning: preference.warning)
         } catch {
+            dictationSessionActive = false
             return result(ok: false, phase: "dictation_prepare", error: error)
         }
     }
 
     private func configureWaitingSession(keepAlive: Bool) -> [String: Any] {
         let session = AVAudioSession.sharedInstance()
+        var didIncrementRequest = false
         do {
             try session.setCategory(
                 .playback,
@@ -217,19 +237,22 @@ public class CodexAudioSessionPlugin: CAPPlugin {
                 options: [.mixWithOthers, .allowBluetoothA2DP]
             )
             try session.setActive(true)
-            waitingSessionActive = true
+            waitingSessionRequests += 1
+            didIncrementRequest = true
 
             var warning: String?
             if keepAlive {
                 warning = startSilentKeepAlive()
-            } else {
-                stopSilentKeepAlive()
             }
 
             return result(ok: true, phase: "voice_waiting_begin", warning: warning)
         } catch {
-            waitingSessionActive = false
-            stopSilentKeepAlive()
+            if didIncrementRequest {
+                waitingSessionRequests = max(0, waitingSessionRequests - 1)
+            }
+            if waitingSessionRequests == 0 {
+                stopSilentKeepAlive()
+            }
             return result(ok: false, phase: "voice_waiting_begin", error: error)
         }
     }
@@ -379,7 +402,12 @@ public class CodexAudioSessionPlugin: CAPPlugin {
     }
 
     private func deactivateIfIdle(phase: String) -> [String: Any] {
-        if waitingSessionActive || playbackSessionActive {
+        if waitingSessionActive {
+            let warning = playbackSessionActive ? nil : startSilentKeepAlive()
+            return result(ok: true, phase: phase, warning: warning)
+        }
+
+        if playbackSessionActive {
             return result(ok: true, phase: phase)
         }
 
@@ -413,15 +441,32 @@ public class CodexAudioSessionPlugin: CAPPlugin {
         }
     }
 
+    @objc private func handleAudioRouteChange(_ notification: Notification) {
+        DispatchQueue.main.async {
+            guard self.dictationSessionActive else {
+                return
+            }
+            let session = AVAudioSession.sharedInstance()
+            let currentInputUsesBluetooth = session.currentRoute.inputs.contains { port in
+                port.portType == .bluetoothHFP ||
+                    port.portType == .bluetoothA2DP ||
+                    port.portType == .bluetoothLE
+            }
+            if currentInputUsesBluetooth {
+                _ = self.preferBuiltInMicrophoneIfAvailable(session: session)
+            }
+        }
+    }
+
     private func startSilentKeepAlive() -> String? {
         if silentKeepAlivePlayer?.isPlaying == true {
             return nil
         }
 
         do {
-            let player = try AVAudioPlayer(data: makeSilentWavData())
+            let player = try AVAudioPlayer(data: makeWaitingToneWavData())
             player.numberOfLoops = -1
-            player.volume = 0.0
+            player.volume = 0.01
             player.prepareToPlay()
             if player.play() {
                 silentKeepAlivePlayer = player
@@ -593,7 +638,7 @@ public class CodexAudioSessionPlugin: CAPPlugin {
         return modes.contains("audio")
     }
 
-    private func makeSilentWavData(duration: Double = 1.0, sampleRate: UInt32 = 8_000) -> Data {
+    private func makeWaitingToneWavData(duration: Double = 1.0, sampleRate: UInt32 = 8_000) -> Data {
         let channelCount: UInt16 = 1
         let bitsPerSample: UInt16 = 16
         let byteRate = sampleRate * UInt32(channelCount) * UInt32(bitsPerSample / 8)
@@ -616,7 +661,13 @@ public class CodexAudioSessionPlugin: CAPPlugin {
         appendUInt16(bitsPerSample, to: &data)
         appendString("data", to: &data)
         appendUInt32(dataSize, to: &data)
-        data.append(Data(repeating: 0, count: Int(dataSize)))
+        let amplitude = Double(Int16.max) * 0.03
+        let frequency = 220.0
+        for sampleIndex in 0..<sampleCount {
+            let time = Double(sampleIndex) / Double(sampleRate)
+            let sample = Int16(sin(2.0 * Double.pi * frequency * time) * amplitude)
+            appendUInt16(UInt16(bitPattern: sample), to: &data)
+        }
         return data
     }
 

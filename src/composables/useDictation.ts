@@ -19,7 +19,14 @@ const DICTATION_SILENCE_THRESHOLD = 0.0025
 const DICTATION_BAR_WIDTH = 3
 const DICTATION_BAR_GAP = 2
 const MAX_WAVEFORM_SAMPLES = 256
-const DICTATION_MEDIA_CONSTRAINTS: MediaStreamConstraints = { audio: { channelCount: 1 } }
+const DICTATION_MEDIA_CONSTRAINTS: MediaStreamConstraints = {
+  audio: {
+    channelCount: 1,
+    echoCancellation: false,
+    noiseSuppression: false,
+    autoGainControl: false,
+  },
+}
 const DICTATION_AUDIO_BITS_PER_SECOND = 64000
 const DICTATION_STOP_GRACE_MS = 500
 const DICTATION_MIME_TYPE_CANDIDATES = [

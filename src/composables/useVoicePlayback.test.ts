@@ -99,6 +99,7 @@ function createJob(overrides: Partial<VoiceAnswerJob>): VoiceAnswerJob {
     profile: 'medium',
     speed: 1,
     voice: 'nova',
+    model: 'gpt-4o-mini-tts',
     autoplay: true,
     telegramFallback: false,
     messageId: 'message-1',

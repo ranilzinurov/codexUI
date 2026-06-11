@@ -13,6 +13,10 @@ export const VOICE_JOB_STATES = [
 
 export type VoiceJobState = typeof VOICE_JOB_STATES[number]
 export type VoiceProfile = 'economy' | 'medium' | 'forte'
+export type VoiceTtsModel =
+  | 'gpt-4o-mini-tts'
+  | 'tts-1'
+  | 'tts-1-hd'
 
 export type VoiceAnswerJob = {
   id: string
@@ -21,6 +25,7 @@ export type VoiceAnswerJob = {
   profile: VoiceProfile | string
   speed: number
   voice: string
+  model: VoiceTtsModel | string
   autoplay: boolean
   telegramFallback: boolean
   messageId: string | null
@@ -39,6 +44,7 @@ export type CreateVoiceSpeechInput = {
   profile?: VoiceProfile | string
   speed?: number
   voice?: string
+  model?: VoiceTtsModel | string
   responseFormat?: 'mp3' | 'opus' | 'aac' | 'flac' | 'wav' | 'pcm'
 }
 
@@ -49,6 +55,7 @@ export type CreateVoiceJobInput = {
   profile: VoiceProfile | string
   speed: number
   voice: string
+  model?: VoiceTtsModel | string
   autoplay: boolean
   telegramFallback: boolean
 }
@@ -115,6 +122,7 @@ function normalizeVoiceJob(value: unknown): VoiceAnswerJob | null {
     profile: readString(value.profile) ?? 'medium',
     speed: readNumber(value.speed) ?? 1,
     voice: readString(value.voice) ?? 'nova',
+    model: readString(value.ttsModel) ?? readString(value.model) ?? 'gpt-4o-mini-tts',
     autoplay: readBoolean(value.autoplay) ?? false,
     telegramFallback: readBoolean(value.telegramFallback) ?? false,
     messageId: readString(value.messageId),
@@ -295,6 +303,7 @@ export function createVoiceSpeech(input: CreateVoiceSpeechInput, signal?: AbortS
         profile: input.profile ?? 'medium',
         speed: input.speed ?? 1,
         voice: input.voice ?? 'nova',
+        model: input.model ?? 'gpt-4o-mini-tts',
         responseFormat: input.responseFormat ?? 'mp3',
       }),
       signal,
@@ -316,6 +325,7 @@ export function createVoiceJob(input: CreateVoiceJobInput, signal?: AbortSignal)
         profile: input.profile,
         speed: input.speed,
         voice: input.voice,
+        model: input.model ?? 'gpt-4o-mini-tts',
         autoplay: input.autoplay,
         telegramFallback: input.telegramFallback,
       }),

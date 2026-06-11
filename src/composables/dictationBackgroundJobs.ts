@@ -6,6 +6,10 @@ import {
   type StoredDictationRecording,
 } from './dictationTranscription'
 import type { ComposerDraftPayload } from './composerDraftStorage'
+import {
+  beginVoiceWaitingSession,
+  endVoiceWaitingSession,
+} from '../native/codexAudioSession'
 
 const JOB_DB_NAME = 'codex-web-local-dictation-jobs'
 const JOB_DB_VERSION = 1
@@ -404,8 +408,12 @@ async function runJob(job: DictationBackgroundJob, options: StartDictationBackgr
   activeJobIds.add(job.id)
   const abortController = new AbortController()
   activeAbortControllers.set(job.id, abortController)
+  let didStartNativeWaitingSession = false
 
   try {
+    const waitingSession = await beginVoiceWaitingSession({ keepAlive: true })
+    didStartNativeWaitingSession = waitingSession.ok
+
     const latestJob = (await readPersistedJob(job.id)) ?? job
     if (!matchesRunnerFilter(latestJob, options)) return latestJob
 
@@ -487,6 +495,9 @@ async function runJob(job: DictationBackgroundJob, options: StartDictationBackgr
     await notifyJobCallback(options.onFailed, failedJob)
     return failedJob
   } finally {
+    if (didStartNativeWaitingSession) {
+      await endVoiceWaitingSession()
+    }
     activeAbortControllers.delete(job.id)
     activeJobIds.delete(job.id)
   }

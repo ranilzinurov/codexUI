@@ -50,7 +50,17 @@ const ALLOWED_TTS_FORMATS = new Set([
   'wav',
 ])
 
+const ALLOWED_TTS_MODELS = new Set([
+  'gpt-4o-mini-tts',
+  'tts-1',
+  'tts-1-hd',
+])
+
 export type VoiceProfile = 'economy' | 'medium' | 'forte'
+export type VoiceTtsModel =
+  | 'gpt-4o-mini-tts'
+  | 'tts-1'
+  | 'tts-1-hd'
 
 export type VoiceJobStatus =
   | 'queued'
@@ -90,6 +100,7 @@ type VoiceSpeechRequest = {
   profile: VoiceProfile
   speed: number
   voice: string
+  model: VoiceTtsModel
   format: string
 }
 
@@ -101,6 +112,7 @@ type NormalizedVoiceJobRequest = {
   profile: VoiceProfile
   speed: number
   voice: string
+  model: VoiceTtsModel
   format: string
   autoplay: boolean
   telegramFallback: boolean
@@ -138,6 +150,7 @@ export type VoiceAnswerJob = {
   messageId?: string
   profile: VoiceProfile
   voice: string
+  model: VoiceTtsModel
   format: string
   speed: number
   autoplay: boolean
@@ -220,6 +233,7 @@ export class VoiceJobStore {
       messageId: request.messageId,
       profile: request.profile,
       voice: request.voice,
+      model: request.model,
       format: request.format,
       speed: request.speed,
       autoplay: request.autoplay,
@@ -384,6 +398,11 @@ function normalizeFormat(value: unknown): string | null {
   return ALLOWED_TTS_FORMATS.has(format) ? format : null
 }
 
+function normalizeTtsModel(value: unknown): VoiceTtsModel {
+  const model = readNonEmptyString(value || process.env.CODEXUI_VOICE_TTS_MODEL || DEFAULT_VOICE_TTS_MODEL)
+  return ALLOWED_TTS_MODELS.has(model) ? (model as VoiceTtsModel) : DEFAULT_VOICE_TTS_MODEL
+}
+
 function truncateText(value: string, maxChars: number): string {
   if (value.length <= maxChars) return value
   return value.slice(0, maxChars).trim()
@@ -461,6 +480,7 @@ function normalizeVoiceSpeechRequest(body: Record<string, unknown> | null): Voic
     profile: normalizeProfile(body?.profile),
     speed: clampNumber(body?.speed, 1, 0.25, 4),
     voice,
+    model: normalizeTtsModel(body?.model ?? body?.ttsModel),
     format,
   }
 }
@@ -475,6 +495,7 @@ function createVoiceSpeechCacheKey(request: VoiceSpeechRequest): string {
     request.messageId || 'no-message',
     request.profile,
     request.voice,
+    request.model,
     request.format,
     String(request.speed),
     hashVoiceText(request.text),
@@ -500,6 +521,7 @@ function normalizeVoiceJobRequest(body: Record<string, unknown> | null): Normali
 
   const profile = normalizeProfile(body?.profile)
   const speed = clampNumber(body?.speed, 1, 0.25, 4)
+  const model = normalizeTtsModel(body?.model ?? body?.ttsModel)
   const turnId = readNonEmptyString(body?.turnId) || undefined
   const messageId = readNonEmptyString(body?.messageId) || undefined
   const autoplay = body?.autoplay === false ? false : true
@@ -511,6 +533,7 @@ function normalizeVoiceJobRequest(body: Record<string, unknown> | null): Normali
     turnId || messageId || hash,
     profile,
     voice,
+    model,
     format,
     String(speed),
     telegramFallback ? 'tg' : 'notg',
@@ -524,6 +547,7 @@ function normalizeVoiceJobRequest(body: Record<string, unknown> | null): Normali
     profile,
     speed,
     voice,
+    model,
     format,
     autoplay,
     telegramFallback,
@@ -731,7 +755,7 @@ async function summarizeVoiceText(
 
 async function createSpeechAudio(
   fetchImpl: typeof fetch,
-  request: Pick<VoiceSpeechRequest, 'format' | 'speed' | 'voice'>,
+  request: Pick<VoiceSpeechRequest, 'format' | 'speed' | 'voice' | 'model'>,
   summaryText: string,
 ): Promise<SpeechAudio> {
   const apiKey = resolveVoiceTtsApiKey()
@@ -743,7 +767,6 @@ async function createSpeechAudio(
     )
   }
 
-  const model = process.env.CODEXUI_VOICE_TTS_MODEL?.trim() || DEFAULT_VOICE_TTS_MODEL
   let response: Response
   try {
     response = await fetchImpl(`${resolveVoiceTtsBaseUrl()}/audio/speech`, {
@@ -753,7 +776,7 @@ async function createSpeechAudio(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model,
+        model: request.model,
         voice: request.voice,
         input: truncateText(summaryText, TTS_INPUT_MAX_CHARS),
         instructions: 'Говори по-русски спокойно, естественно и разборчиво. Не изображай чтение кода или логов.',
@@ -874,6 +897,8 @@ function serializeJob(job: VoiceAnswerJob, extra: Record<string, unknown> = {}):
     messageId: job.messageId ?? null,
     profile: job.profile,
     voice: job.voice,
+    ttsModel: job.model,
+    model: job.model,
     format: job.format,
     speed: job.speed,
     autoplay: job.autoplay,
@@ -907,7 +932,7 @@ function writeVoiceSpeechAudioResponse(
   res.setHeader('Cache-Control', 'private, no-store')
   res.setHeader('X-Codex-Voice', request.voice)
   res.setHeader('X-Codex-Voice-Speed', String(request.speed))
-  res.setHeader('X-Codex-Voice-Tts-Model', process.env.CODEXUI_VOICE_TTS_MODEL?.trim() || DEFAULT_VOICE_TTS_MODEL)
+  res.setHeader('X-Codex-Voice-Tts-Model', request.model)
   res.setHeader('X-Codex-Voice-Summary-Source', meta.summarySource)
   res.setHeader('X-Codex-Voice-Input-Chars', String(meta.inputChars))
   res.setHeader('X-Codex-Voice-Cache', meta.cacheStatus)

@@ -33,11 +33,18 @@ const transcriptionMock = vi.hoisted(() => {
   }
 })
 
+const nativeAudioMock = vi.hoisted(() => ({
+  beginVoiceWaitingSession: vi.fn(async () => ({ ok: true })),
+  endVoiceWaitingSession: vi.fn(async () => ({ ok: true })),
+}))
+
 vi.mock('./dictationTranscription', () => ({
   readStoredDictationRecording: transcriptionMock.readStoredDictationRecording,
   deleteStoredDictationRecording: transcriptionMock.deleteStoredDictationRecording,
   transcribeStoredDictationRecording: transcriptionMock.transcribeStoredDictationRecording,
 }))
+
+vi.mock('../native/codexAudioSession', () => nativeAudioMock)
 
 type FakeStore = {
   keyPath: string
@@ -218,6 +225,10 @@ beforeEach(() => {
   transcriptionMock.transcribeStoredDictationRecording.mockImplementation(
     async (recording: StoredDictationRecording) => `transcript:${recording.id}`,
   )
+  nativeAudioMock.beginVoiceWaitingSession.mockClear()
+  nativeAudioMock.endVoiceWaitingSession.mockClear()
+  nativeAudioMock.beginVoiceWaitingSession.mockResolvedValue({ ok: true })
+  nativeAudioMock.endVoiceWaitingSession.mockResolvedValue({ ok: true })
   resetDictationBackgroundJobsForTest()
 })
 
@@ -377,6 +388,8 @@ describe('dictation background jobs', () => {
     })
     expect(transcriptionMock.deleteStoredDictationRecording).toHaveBeenCalledWith(recording.key, recording.id)
     expect((await getDictationBackgroundJob(job.id))?.status).toBe('completed')
+    expect(nativeAudioMock.beginVoiceWaitingSession).toHaveBeenCalledWith({ keepAlive: true })
+    expect(nativeAudioMock.endVoiceWaitingSession).toHaveBeenCalledTimes(1)
   })
 
   it('marks a persisted pending job failed when its recording is unavailable after reload', async () => {
