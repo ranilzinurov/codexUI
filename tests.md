@@ -7940,3 +7940,40 @@ Native iOS voice playback decodes remote `audio/mpeg` responses with an explicit
 #### Rollback/Cleanup
 - Delete and reinstall the app if iOS appears to be launching an older sideloaded build.
 - Stop temporary build/test processes after validation.
+
+---
+
+### iOS Remote Project Sync And Voice Speech Cache
+
+#### Feature/Change Name
+Remote iOS app shows child projects under a configured workspace container root and reuses cached `Play latest` speech audio.
+
+#### Prerequisites/Setup
+1. Use a backend whose workspace roots state contains a parent folder such as `/home/rnl1/prog`.
+2. Ensure that remote threads exist under child folders, for example `/home/rnl1/prog/codexUI` and `/home/rnl1/prog/todo_tg_app`.
+3. Connect and unlock the physical iPhone.
+4. Configure `Remote backend` to `https://codex-ui.todo-tg-app.ru` and sign in.
+5. Open a thread with at least one completed assistant response.
+
+#### Steps
+1. Run `pnpm exec vitest run src/composables/useDesktopState.test.ts`.
+2. Run `pnpm exec vitest run src/server/voiceMode.test.ts src/api/voiceMode.test.ts src/composables/useVoicePlayback.test.ts`.
+3. Run `pnpm run build:frontend`.
+4. Run `npx cap sync ios`.
+5. Build, install, and launch the app on the physical iPhone.
+6. In light theme, open the sidebar and confirm child projects under `/home/rnl1/prog` are visible, not only the `prog` container row.
+7. Open a completed assistant response, tap `Play latest`, wait for audio playback, then tap `Play latest` again.
+8. Confirm the second playback starts from cached speech audio without showing a long `creating audio` delay.
+9. Switch to dark theme and repeat steps 6-8.
+
+#### Expected Results
+- A workspace root that is a folder container allows thread groups whose `cwd` is equal to or nested under that root.
+- Projectless chats remain visible.
+- `/codex-api/voice/speech` returns `X-Codex-Voice-Cache: miss` for the first identical request and `X-Codex-Voice-Cache: hit` for a repeated request.
+- Repeated `Play latest` does not call the OpenAI TTS provider again while the server speech cache entry is alive.
+- Light and dark themes both keep the sidebar project list and voice status readable.
+
+#### Rollback/Cleanup
+- Clear `Remote backend` in settings to return to same-origin mode.
+- Restart the backend only if you need to clear the in-memory speech cache immediately.
+- Stop temporary build/test processes after validation.

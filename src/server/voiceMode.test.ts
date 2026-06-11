@@ -4,6 +4,7 @@ import {
   VOICE_MODE_JOBS_PATH,
   VOICE_MODE_SPEECH_PATH,
   VoiceJobStore,
+  VoiceSpeechCache,
   extractLatestAssistantText,
   handleVoiceModeRoutes,
   summarizeVoiceTextLocally,
@@ -34,6 +35,7 @@ async function listenVoiceServer(options: {
   appServer?: TestAppServer
   fetch?: typeof fetch
   jobStore?: VoiceJobStore
+  speechCache?: VoiceSpeechCache
   pollIntervalMs?: number
   waitTimeoutMs?: number
   notify?: Parameters<typeof handleVoiceModeRoutes>[3]['notify']
@@ -45,6 +47,7 @@ async function listenVoiceServer(options: {
       appServer,
       fetch: options.fetch,
       jobStore: options.jobStore,
+      speechCache: options.speechCache,
       pollIntervalMs: options.pollIntervalMs,
       waitTimeoutMs: options.waitTimeoutMs,
       notify: options.notify,
@@ -224,6 +227,39 @@ describe('voice mode server routes', () => {
     expect(body.speed).toBe(1.25)
     expect(String(body.input)).toContain('Сделал voice mode')
     expect(String(body.input)).not.toContain('const secret')
+  })
+
+  it('reuses cached speech audio for identical direct speech requests', async () => {
+    const fetchImpl = createFetchMock([createAudioResponse([8, 8, 8])])
+    const speechCache = new VoiceSpeechCache()
+    const { baseUrl } = await listenVoiceServer({ fetch: fetchImpl, speechCache })
+    const requestBody = {
+      text: 'Готово: можно повторно послушать этот ответ.',
+      threadId: 'thread-1',
+      messageId: 'message-1',
+      profile: 'medium',
+      speed: 1,
+      voice: 'nova',
+    }
+
+    const first = await fetch(`${baseUrl}${VOICE_MODE_SPEECH_PATH}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody),
+    })
+    const second = await fetch(`${baseUrl}${VOICE_MODE_SPEECH_PATH}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody),
+    })
+
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    expect(first.headers.get('x-codex-voice-cache')).toBe('miss')
+    expect(second.headers.get('x-codex-voice-cache')).toBe('hit')
+    expect(new Uint8Array(await first.arrayBuffer())).toEqual(new Uint8Array([8, 8, 8]))
+    expect(new Uint8Array(await second.arrayBuffer())).toEqual(new Uint8Array([8, 8, 8]))
+    expect(callsFor(fetchImpl)).toHaveLength(1)
   })
 
   it('uses the transcription key before OPENAI_API_KEY when a dedicated TTS key is absent', async () => {

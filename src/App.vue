@@ -215,119 +215,157 @@
                   </div>
                 </template>
               </div>
-              <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.sendWithEnter" @click="toggleSendWithEnter">
-                <span class="sidebar-settings-label">{{ t('Require ⌘ + enter to send') }}</span>
-                <span class="sidebar-settings-toggle" :class="{ 'is-on': !sendWithEnter }" />
-              </button>
-              <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.inProgressSendMode" @click="cycleInProgressSendMode">
-                <span class="sidebar-settings-label">{{ t('When busy, send as') }}</span>
-                <span class="sidebar-settings-value">{{ inProgressSendMode === 'steer' ? t('Steer') : t('Queue') }}</span>
-              </button>
-              <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.appearance" @click="cycleDarkMode">
-                <span class="sidebar-settings-label">{{ t('Appearance') }}</span>
-                <span class="sidebar-settings-value">{{ darkMode === 'system' ? t('System') : darkMode === 'dark' ? t('Dark') : t('Light') }}</span>
-              </button>
-              <div class="sidebar-settings-row sidebar-settings-row--select" :title="t('Choose the interface language for the app.')">
-                <span class="sidebar-settings-label">{{ t('UI language') }}</span>
-                <select
-                  class="sidebar-settings-provider-select"
-                  :value="uiLanguage"
-                  @change="setUiLanguage(($event.target as HTMLSelectElement).value as 'en' | 'zh-CN')"
-                >
-                  <option v-for="option in uiLanguageOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                </select>
-              </div>
-              <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.chatWidth" @click="cycleChatWidth">
-                <span class="sidebar-settings-label">{{ t('Chat width') }}</span>
-                <span class="sidebar-settings-value">{{ chatWidthLabel }}</span>
-              </button>
-              <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.dictationClickToToggle" @click="toggleDictationClickToToggle">
-                <span class="sidebar-settings-label">{{ t('Click to toggle dictation') }}</span>
-                <span class="sidebar-settings-toggle" :class="{ 'is-on': dictationClickToToggle }" />
-              </button>
-              <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.dictationAutoSend" @click="toggleDictationAutoSend">
-                <span class="sidebar-settings-label">{{ t('Auto send dictation') }}</span>
-                <span class="sidebar-settings-toggle" :class="{ 'is-on': dictationAutoSend }" />
-              </button>
-              <template v-if="isNativeIosVoiceModeAvailable">
-                <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.voiceMode" @click="toggleVoiceMode">
-                  <span class="sidebar-settings-label">{{ t('Voice mode') }}</span>
-                  <span class="sidebar-settings-toggle" :class="{ 'is-on': isVoiceModeEnabled }" />
+              <details class="sidebar-settings-section" open>
+                <summary class="sidebar-settings-section-summary">
+                  <span class="sidebar-settings-section-title">{{ t('General') }}</span>
+                  <span class="sidebar-settings-section-meta">{{ t('Interface and sending') }}</span>
+                </summary>
+                <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.sendWithEnter" @click="toggleSendWithEnter">
+                  <span class="sidebar-settings-label">{{ t('Require ⌘ + enter to send') }}</span>
+                  <span class="sidebar-settings-toggle" :class="{ 'is-on': !sendWithEnter }" />
                 </button>
-                <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.voiceProfile" @click="cycleVoiceModeProfile">
-                  <span class="sidebar-settings-label">{{ t('Voice summary') }}</span>
-                  <span class="sidebar-settings-value">{{ voiceModeProfileLabel }}</span>
+                <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.inProgressSendMode" @click="cycleInProgressSendMode">
+                  <span class="sidebar-settings-label">{{ t('When busy, send as') }}</span>
+                  <span class="sidebar-settings-value">{{ inProgressSendMode === 'steer' ? t('Steer') : t('Queue') }}</span>
                 </button>
-                <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.voiceSpeed" @click="cycleVoiceModeSpeed">
-                  <span class="sidebar-settings-label">{{ t('Voice speed') }}</span>
-                  <span class="sidebar-settings-value">{{ voiceModeSpeedLabel }}</span>
+                <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.appearance" @click="cycleDarkMode">
+                  <span class="sidebar-settings-label">{{ t('Appearance') }}</span>
+                  <span class="sidebar-settings-value">{{ darkMode === 'system' ? t('System') : darkMode === 'dark' ? t('Dark') : t('Light') }}</span>
                 </button>
-                <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.voiceTelegramFallback" @click="toggleVoiceTelegramFallback">
-                  <span class="sidebar-settings-label">{{ t('Voice Telegram fallback') }}</span>
-                  <span class="sidebar-settings-toggle" :class="{ 'is-on': isVoiceTelegramFallbackEnabled }" />
-                </button>
-              </template>
-              <div class="sidebar-settings-row sidebar-settings-dictation-input" :title="dictationLastInputLabel">
-                <span class="sidebar-settings-label">{{ t('Last mic') }}</span>
-                <span class="sidebar-settings-value sidebar-settings-value--truncate">{{ dictationLastInputLabel }}</span>
-              </div>
-              <div class="sidebar-settings-row sidebar-settings-row--input" :title="SETTINGS_HELP.backendUrl">
-                <div class="sidebar-settings-provider-info">
-                  <span class="sidebar-settings-label">{{ t('Remote backend') }}</span>
-                  <span class="sidebar-settings-value sidebar-settings-value--truncate">{{ backendUrlStatusLabel }}</span>
+                <div class="sidebar-settings-row sidebar-settings-row--select" :title="t('Choose the interface language for the app.')">
+                  <span class="sidebar-settings-label">{{ t('UI language') }}</span>
+                  <select
+                    class="sidebar-settings-provider-select"
+                    :value="uiLanguage"
+                    @change="setUiLanguage(($event.target as HTMLSelectElement).value as 'en' | 'zh-CN')"
+                  >
+                    <option v-for="option in uiLanguageOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                  </select>
                 </div>
-                <div class="sidebar-settings-key-group">
-                  <input
-                    v-model="backendUrlDraft"
-                    class="sidebar-settings-key-input"
-                    type="url"
-                    inputmode="url"
-                    autocomplete="url"
-                    placeholder="https://codex.example.com"
-                    @keydown.enter="saveBackendUrlSetting"
+                <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.chatWidth" @click="cycleChatWidth">
+                  <span class="sidebar-settings-label">{{ t('Chat width') }}</span>
+                  <span class="sidebar-settings-value">{{ chatWidthLabel }}</span>
+                </button>
+              </details>
+
+              <details class="sidebar-settings-section" open>
+                <summary class="sidebar-settings-section-summary">
+                  <span class="sidebar-settings-section-title">{{ t('Voice') }}</span>
+                  <span class="sidebar-settings-section-meta">{{ isVoiceModeEnabled ? t('Voice mode on') : t('Dictation and playback') }}</span>
+                </summary>
+                <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.dictationClickToToggle" @click="toggleDictationClickToToggle">
+                  <span class="sidebar-settings-label">{{ t('Click to toggle dictation') }}</span>
+                  <span class="sidebar-settings-toggle" :class="{ 'is-on': dictationClickToToggle }" />
+                </button>
+                <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.dictationAutoSend" @click="toggleDictationAutoSend">
+                  <span class="sidebar-settings-label">{{ t('Auto send dictation') }}</span>
+                  <span class="sidebar-settings-toggle" :class="{ 'is-on': dictationAutoSend }" />
+                </button>
+                <template v-if="isNativeIosVoiceModeAvailable">
+                  <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.voiceMode" @click="toggleVoiceMode">
+                    <span class="sidebar-settings-label">{{ t('Voice mode') }}</span>
+                    <span class="sidebar-settings-toggle" :class="{ 'is-on': isVoiceModeEnabled }" />
+                  </button>
+                  <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.voiceProfile" @click="cycleVoiceModeProfile">
+                    <span class="sidebar-settings-label">{{ t('Voice summary') }}</span>
+                    <span class="sidebar-settings-value">{{ voiceModeProfileLabel }}</span>
+                  </button>
+                  <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.voiceSpeed" @click="cycleVoiceModeSpeed">
+                    <span class="sidebar-settings-label">{{ t('Voice speed') }}</span>
+                    <span class="sidebar-settings-value">{{ voiceModeSpeedLabel }}</span>
+                  </button>
+                  <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.voiceTelegramFallback" @click="toggleVoiceTelegramFallback">
+                    <span class="sidebar-settings-label">{{ t('Voice Telegram fallback') }}</span>
+                    <span class="sidebar-settings-toggle" :class="{ 'is-on': isVoiceTelegramFallbackEnabled }" />
+                  </button>
+                </template>
+                <div class="sidebar-settings-row sidebar-settings-row--select" :title="SETTINGS_HELP.dictationLanguage">
+                  <span class="sidebar-settings-label">{{ t('Dictation language') }}</span>
+                  <ComposerDropdown
+                    class="sidebar-settings-language-dropdown"
+                    :model-value="dictationLanguage"
+                    :options="dictationLanguageOptions"
+                    :placeholder="t('Auto-detect')"
+                    open-direction="up"
+                    :enable-search="true"
+                    :search-placeholder="t('Search language...')"
+                    @update:model-value="onDictationLanguageChange"
                   />
-                  <button
-                    class="sidebar-settings-key-save"
-                    type="button"
-                    @click="saveBackendUrlSetting"
-                  >Set</button>
-                  <button
-                    v-if="backendUrlDraft.trim()"
-                    class="sidebar-settings-key-clear"
-                    type="button"
-                    :title="t('Use current origin')"
-                    @click="clearBackendUrlSetting"
-                  >&#x2715;</button>
                 </div>
-                <div v-if="backendUrlError" class="sidebar-settings-telegram-error">{{ backendUrlError }}</div>
-                <p v-else class="sidebar-settings-field-help">{{ t('Leave empty for browser/PWA same-origin mode. Reload after changing to reconnect active streams.') }}</p>
-                <form
-                  v-if="hasRemoteBackendUrlDraft"
-                  class="sidebar-settings-remote-auth"
-                  @submit.prevent="loginRemoteBackendSetting"
-                >
+                <div class="sidebar-settings-row sidebar-settings-dictation-input" :title="dictationLastInputLabel">
+                  <span class="sidebar-settings-label">{{ t('Last mic') }}</span>
+                  <span class="sidebar-settings-value sidebar-settings-value--truncate">{{ dictationLastInputLabel }}</span>
+                </div>
+              </details>
+
+              <details class="sidebar-settings-section" open>
+                <summary class="sidebar-settings-section-summary">
+                  <span class="sidebar-settings-section-title">{{ t('Remote') }}</span>
+                  <span class="sidebar-settings-section-meta">{{ remoteBackendAuthStatusLabel }}</span>
+                </summary>
+                <div class="sidebar-settings-row sidebar-settings-row--input" :title="SETTINGS_HELP.backendUrl">
                   <div class="sidebar-settings-provider-info">
-                    <span class="sidebar-settings-field-label">{{ t('Remote login') }}</span>
-                    <span class="sidebar-settings-value sidebar-settings-value--truncate">{{ remoteBackendAuthStatusLabel }}</span>
+                    <span class="sidebar-settings-label">{{ t('Remote backend') }}</span>
+                    <span class="sidebar-settings-value sidebar-settings-value--truncate">{{ backendUrlStatusLabel }}</span>
                   </div>
                   <div class="sidebar-settings-key-group">
                     <input
-                      v-model="remoteBackendPassword"
+                      v-model="backendUrlDraft"
                       class="sidebar-settings-key-input"
-                      type="password"
-                      autocomplete="current-password"
-                      :placeholder="t('Password')"
+                      type="url"
+                      inputmode="url"
+                      autocomplete="url"
+                      placeholder="https://codex.example.com"
+                      @keydown.enter="saveBackendUrlSetting"
                     />
                     <button
                       class="sidebar-settings-key-save"
-                      type="submit"
-                      :disabled="isRemoteBackendLoginDisabled"
-                    >{{ isRemoteBackendLoginBusy ? t('Signing in…') : t('Login') }}</button>
+                      type="button"
+                      @click="saveBackendUrlSetting"
+                    >Set</button>
+                    <button
+                      v-if="backendUrlDraft.trim()"
+                      class="sidebar-settings-key-clear"
+                      type="button"
+                      :title="t('Use current origin')"
+                      @click="clearBackendUrlSetting"
+                    >&#x2715;</button>
                   </div>
-                  <div v-if="remoteBackendAuthError" class="sidebar-settings-telegram-error">{{ remoteBackendAuthError }}</div>
-                </form>
-              </div>
+                  <div v-if="backendUrlError" class="sidebar-settings-telegram-error">{{ backendUrlError }}</div>
+                  <p v-else class="sidebar-settings-field-help">{{ t('Leave empty for browser/PWA same-origin mode. Reload after changing to reconnect active streams.') }}</p>
+                  <form
+                    v-if="hasRemoteBackendUrlDraft"
+                    class="sidebar-settings-remote-auth"
+                    @submit.prevent="loginRemoteBackendSetting"
+                  >
+                    <div class="sidebar-settings-provider-info">
+                      <span class="sidebar-settings-field-label">{{ t('Remote login') }}</span>
+                      <span class="sidebar-settings-value sidebar-settings-value--truncate">{{ remoteBackendAuthStatusLabel }}</span>
+                    </div>
+                    <div class="sidebar-settings-key-group">
+                      <input
+                        v-model="remoteBackendPassword"
+                        class="sidebar-settings-key-input"
+                        type="password"
+                        autocomplete="current-password"
+                        :placeholder="t('Password')"
+                      />
+                      <button
+                        class="sidebar-settings-key-save"
+                        type="submit"
+                        :disabled="isRemoteBackendLoginDisabled"
+                      >{{ isRemoteBackendLoginBusy ? t('Signing in…') : t('Login') }}</button>
+                    </div>
+                    <div v-if="remoteBackendAuthError" class="sidebar-settings-telegram-error">{{ remoteBackendAuthError }}</div>
+                  </form>
+                </div>
+              </details>
 
+              <details class="sidebar-settings-section">
+                <summary class="sidebar-settings-section-summary">
+                  <span class="sidebar-settings-section-title">{{ t('Advanced') }}</span>
+                  <span class="sidebar-settings-section-meta">{{ t('Providers and integrations') }}</span>
+                </summary>
               <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.browserAnnotationListen" @click="isListenSettingsOpen = !isListenSettingsOpen">
                 <span class="sidebar-settings-label">{{ t('Listen settings') }}</span>
                 <span class="sidebar-settings-value">{{ browserAnnotationSettingsStatusLabel }}</span>
@@ -525,19 +563,6 @@
                   </div>
                 </div>
               </div>
-              <div class="sidebar-settings-row sidebar-settings-row--select" :title="SETTINGS_HELP.dictationLanguage">
-                <span class="sidebar-settings-label">{{ t('Dictation language') }}</span>
-                <ComposerDropdown
-                  class="sidebar-settings-language-dropdown"
-                  :model-value="dictationLanguage"
-                  :options="dictationLanguageOptions"
-                  :placeholder="t('Auto-detect')"
-                  open-direction="up"
-                  :enable-search="true"
-                  :search-placeholder="t('Search language...')"
-                  @update:model-value="onDictationLanguageChange"
-                />
-              </div>
               <button class="sidebar-settings-row" type="button" aria-live="polite" @click="isTelegramConfigOpen = !isTelegramConfigOpen">
                 <span class="sidebar-settings-label">{{ t('Telegram') }}</span>
                 <span class="sidebar-settings-value">{{ telegramStatusText }}</span>
@@ -638,6 +663,7 @@
               <div class="sidebar-settings-build-label" :aria-label="t('Worktree name and version')">
                 WT {{ worktreeName }} · v{{ appVersion }}
               </div>
+              </details>
             </div>
           </Transition>
           <button
@@ -668,6 +694,7 @@
       <section
         class="content-root"
         :class="{
+          'is-native-ios-shell': isNativeIosVoiceModeAvailable,
           'is-virtual-keyboard-open': isTerminalKeyboardLayoutActive,
           'is-terminal-open': isComposerTerminalOpen,
         }"
@@ -721,6 +748,7 @@
                   :class="{ 'is-active': sideThreadId.length > 0 }"
                   type="button"
                   role="menuitem"
+                  :disabled="!hasActiveThreadForFeatureMenu"
                   @click="onOpenSideChatFromFeatureMenu"
                 >
                   <IconTablerGitFork class="content-header-feature-menu-icon" />
@@ -732,7 +760,7 @@
                   :class="{ 'is-active': isBrowserAnnotationListenerActive }"
                   type="button"
                   role="menuitem"
-                  :disabled="isBrowserAnnotationListenerBusy"
+                  :disabled="!hasActiveThreadForFeatureMenu || isBrowserAnnotationListenerBusy"
                   @click="onToggleBrowserAnnotationFromFeatureMenu"
                 >
                   <IconTablerBolt class="content-header-feature-menu-icon" />
@@ -760,6 +788,16 @@
                   >
                     <IconTablerPlayerPlayFilled class="content-header-feature-menu-icon" />
                     <span class="content-header-feature-menu-text">{{ t('Play latest') }}</span>
+                  </button>
+                  <button
+                    class="content-header-feature-menu-item"
+                    type="button"
+                    role="menuitem"
+                    :disabled="voicePlayback.isBusy.value"
+                    @click="onPlayVoiceTestFromFeatureMenu"
+                  >
+                    <IconTablerPlayerPlayFilled class="content-header-feature-menu-icon" />
+                    <span class="content-header-feature-menu-text">{{ t('Test voice') }}</span>
                   </button>
                   <button
                     v-if="voicePlayback.canPause.value"
@@ -1222,7 +1260,7 @@
                   :dictation-click-to-toggle="dictationClickToToggle" :dictation-auto-send="dictationAutoSend"
                   :dictation-language="dictationLanguage"
                   :dictation-background-transcription="false"
-                  :dictation-status-message="activeDictationStatusMessage"
+                  :dictation-status-message="activeComposerStatusMessage"
                   @submit="onSubmitThreadMessage"
                   @dictation-recording-ready="onDictationRecordingReady"
                   @slash-command="onSlashCommand"
@@ -1325,7 +1363,7 @@
                     :dictation-click-to-toggle="dictationClickToToggle" :dictation-auto-send="dictationAutoSend"
                     :dictation-language="dictationLanguage"
                     :dictation-background-transcription="true"
-                    :dictation-status-message="activeDictationStatusMessage"
+                    :dictation-status-message="activeComposerStatusMessage"
                     @update:selected-collaboration-mode="onSelectCollaborationMode"
                     @submit="onSubmitThreadMessage" @dictation-recording-ready="onDictationRecordingReady" @slash-command="onSlashCommand" @update:selected-model="onSelectModel"
                     @update:selected-reasoning-effort="onSelectReasoningEffort"
@@ -1542,6 +1580,7 @@ const VOICE_MODE_ENABLED_STORAGE_KEY = 'codex-web-local.voice-mode.enabled.v1'
 const VOICE_MODE_PROFILE_STORAGE_KEY = 'codex-web-local.voice-mode.profile.v1'
 const VOICE_MODE_SPEED_STORAGE_KEY = 'codex-web-local.voice-mode.speed.v1'
 const VOICE_MODE_TELEGRAM_FALLBACK_STORAGE_KEY = 'codex-web-local.voice-mode.telegram-fallback.v1'
+const VOICE_TEST_TEXT = 'Проверка голосового режима Codex UI. Если ты слышишь это сообщение, синтез и воспроизведение звука работают.'
 const TOGGLE_TERMINAL_COMMAND_VALUE = '__toggle_terminal__'
 const worktreeName = import.meta.env.VITE_WORKTREE_NAME ?? 'unknown'
 const appVersion = import.meta.env.VITE_APP_VERSION ?? 'unknown'
@@ -2118,6 +2157,26 @@ const activeDictationStatusMessage = computed(() => {
   }
   return job.error || t('Dictation failed.')
 })
+const activeVoicePlaybackStatusMessage = computed(() => {
+  if (!isNativeIosVoiceModeAvailable) return ''
+  if (voicePlayback.state.value === 'error') {
+    const detail = voicePlayback.errorMessage.value.trim()
+    return detail ? `${t('Voice failed')}: ${detail}` : t('Voice failed')
+  }
+  if (voicePlayback.state.value === 'blocked') {
+    const detail = voicePlayback.errorMessage.value.trim()
+    return detail || t('Voice playback is waiting for a tap to resume.')
+  }
+  if (voicePlayback.state.value === 'creating_job') return t('Preparing voice...')
+  if (voicePlayback.state.value === 'waiting_for_answer') return t('Waiting for voice answer...')
+  if (voicePlayback.state.value === 'summarizing') return t('Summarizing voice answer...')
+  if (voicePlayback.state.value === 'synthesizing') return t('Creating voice audio...')
+  if (voicePlayback.state.value === 'fetching_audio') return t('Loading voice audio...')
+  return ''
+})
+const activeComposerStatusMessage = computed(() => (
+  activeDictationStatusMessage.value || activeVoicePlaybackStatusMessage.value
+))
 const composerSelectedModelId = computed(() => readModelIdForThread(composerThreadContextId.value))
 const selectedThreadPendingRequest = computed<UiServerRequest | null>(() => {
   const rows = selectedThreadServerRequests.value
@@ -2146,7 +2205,8 @@ const {
   toggle: toggleBrowserAnnotationListener,
   copyText: copyBrowserAnnotationText,
 } = useBrowserAnnotationListener(selectedThreadId, selectedThreadListenTitle)
-const canShowThreadFeatureMenu = computed(() => route.name === 'thread' && selectedThreadId.value.length > 0)
+const canShowThreadFeatureMenu = computed(() => route.name === 'thread' || isHomeRoute.value)
+const hasActiveThreadForFeatureMenu = computed(() => route.name === 'thread' && selectedThreadId.value.length > 0)
 const isThreadFeatureMenuActive = computed(() => (
   sideThreadId.value.length > 0 ||
   isBrowserAnnotationListenerActive.value ||
@@ -2588,6 +2648,7 @@ onMounted(() => {
   window.visualViewport?.addEventListener('resize', updateVisualViewportState)
   window.visualViewport?.addEventListener('scroll', updateVisualViewportState)
   updateVisualViewportState()
+  applyNativeShellClass()
   applyDarkMode()
   if (darkModeMediaQuery) {
     stopDarkModeMediaQuerySubscription = subscribeMediaQueryChange(darkModeMediaQuery, applyDarkMode)
@@ -2644,6 +2705,7 @@ onUnmounted(() => {
   window.removeEventListener('resize', updateVisualViewportState)
   window.visualViewport?.removeEventListener('resize', updateVisualViewportState)
   window.visualViewport?.removeEventListener('scroll', updateVisualViewportState)
+  document.documentElement.classList.remove('capacitor-ios-shell')
   stopDarkModeMediaQuerySubscription?.()
   stopDarkModeMediaQuerySubscription = null
   stopBackendUrlSubscription?.()
@@ -3479,6 +3541,7 @@ function toggleThreadFeatureMenu(): void {
 
 async function onOpenSideChatFromFeatureMenu(): Promise<void> {
   isThreadFeatureMenuOpen.value = false
+  if (!hasActiveThreadForFeatureMenu.value) return
   if (sideThreadId.value.length > 0) {
     onCloseSideChat()
     return
@@ -3487,6 +3550,7 @@ async function onOpenSideChatFromFeatureMenu(): Promise<void> {
 }
 
 async function onToggleBrowserAnnotationFromFeatureMenu(): Promise<void> {
+  if (!hasActiveThreadForFeatureMenu.value) return
   if (isBrowserAnnotationListenerBusy.value) return
   isThreadFeatureMenuOpen.value = false
   await toggleBrowserAnnotationListener()
@@ -3507,8 +3571,25 @@ async function onPlayLatestVoiceFromFeatureMenu(): Promise<void> {
     text: message.text,
     threadId: selectedThreadId.value,
     messageId: message.id,
+    profile: voiceModeProfile.value,
     speed: voiceModeSpeed.value,
     voice: 'nova',
+  })
+}
+
+async function onPlayVoiceTestFromFeatureMenu(): Promise<void> {
+  if (!isNativeIosVoiceModeAvailable) return
+  if (voicePlayback.isBusy.value) return
+  isThreadFeatureMenuOpen.value = false
+  await voicePlayback.unlockAudio()
+  await voicePlayback.playSpeech({
+    text: VOICE_TEST_TEXT,
+    threadId: selectedThreadId.value || undefined,
+    messageId: 'voice-test',
+    profile: voiceModeProfile.value,
+    speed: voiceModeSpeed.value,
+    voice: 'nova',
+    cacheKey: `voice-test:${voiceModeProfile.value}:${voiceModeSpeed.value.toFixed(2)}`,
   })
 }
 
@@ -5268,6 +5349,10 @@ function applyDarkMode(): void {
   }
 }
 
+function applyNativeShellClass(): void {
+  document.documentElement.classList.toggle('capacitor-ios-shell', isNativeIosVoiceModeAvailable)
+}
+
 function loadSidebarCollapsed(): boolean {
   if (typeof window === 'undefined') return false
   return safeLocalStorageGetItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === '1'
@@ -5604,6 +5689,7 @@ async function submitFirstMessageForNewThread(
     if (!threadId) return
     homeCreatedThreadIds.add(threadId)
     await router.replace({ name: 'thread', params: { threadId } })
+    startVoiceAnswerForThread(threadId)
     scheduleMobileConversationJumpToLatest()
   } catch {
     // Error is already reflected in state.
@@ -5702,6 +5788,17 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
   @apply h-full min-h-0 min-w-0 w-full flex flex-col overflow-y-hidden overflow-x-hidden bg-white;
 }
 
+.content-root.is-native-ios-shell {
+  width: 100%;
+  min-width: 0;
+  height: 100dvh;
+  min-height: 100dvh;
+  max-height: 100dvh;
+  padding-top: max(env(safe-area-inset-top), 3rem);
+  padding-bottom: env(safe-area-inset-bottom);
+  background: #ffffff;
+}
+
 .content-root.is-virtual-keyboard-open {
   height: var(--visual-viewport-height);
   max-height: var(--visual-viewport-height);
@@ -5794,6 +5891,24 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 
 .content-body {
   @apply flex-1 min-h-0 min-w-0 w-full flex flex-col gap-2 sm:gap-3 pt-1 pb-2 sm:pb-4 overflow-x-hidden;
+}
+
+.content-root.is-native-ios-shell .content-body {
+  width: 100%;
+  min-width: 0;
+  gap: 0.5rem;
+  padding-top: 0;
+  padding-bottom: 0.5rem;
+}
+
+.content-root.is-native-ios-shell .content-grid {
+  width: 100%;
+  min-width: 0;
+  gap: 0.5rem;
+}
+
+.content-root.is-native-ios-shell .content-grid-home {
+  overflow: hidden;
 }
 
 .content-root.is-virtual-keyboard-open .content-body {
@@ -6018,6 +6133,26 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
   @apply flex-1 min-h-0 flex flex-col items-center justify-center gap-0.5 px-3 sm:px-6;
 }
 
+.content-root.is-native-ios-shell .new-thread-empty {
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0;
+  padding: 0 1rem;
+  overflow: hidden;
+}
+
+.content-root.is-native-ios-shell .new-thread-hero {
+  align-self: center;
+  margin-top: 0.125rem;
+  font-size: 1.05rem;
+  line-height: 1.2;
+}
+
+.content-root.is-native-ios-shell .new-thread-folder-dropdown,
+.content-root.is-native-ios-shell .new-thread-folder-actions {
+  display: none;
+}
+
 .new-thread-hero {
   @apply m-0 text-2xl sm:text-[2.5rem] font-normal leading-[1.05] text-zinc-900;
 }
@@ -6050,6 +6185,19 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
   @apply mt-4 w-full max-w-3xl rounded-[28px] border border-emerald-200 bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.2),_transparent_42%),linear-gradient(135deg,_#f4fff8,_#ffffff_58%)] px-5 py-5 text-left shadow-[0_18px_50px_-28px_rgba(5,150,105,0.45)];
 }
 
+.content-root.is-native-ios-shell .new-thread-launch-card {
+  flex: 0 1 auto;
+  width: 100%;
+  min-height: 0;
+  max-width: none;
+  max-height: min(28rem, calc(100dvh - 15.5rem));
+  margin-top: 0.5rem;
+  overflow: hidden;
+  border-radius: 22px;
+  padding: clamp(1rem, 4vw, 1.35rem);
+  box-shadow: none;
+}
+
 .new-thread-launch-card-copy {
   @apply flex flex-col gap-2;
 }
@@ -6074,8 +6222,22 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
   @apply m-0 text-xl font-semibold leading-tight text-zinc-950 sm:text-2xl;
 }
 
+.content-root.is-native-ios-shell .new-thread-launch-card-title {
+  font-size: clamp(1.4rem, 7vw, 1.75rem);
+  line-height: 1.08;
+}
+
 .new-thread-launch-card-text {
   @apply m-0 max-w-2xl text-sm leading-6 text-zinc-700 sm:text-[15px];
+}
+
+.content-root.is-native-ios-shell .new-thread-launch-card-text {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: clamp(0.95rem, 4.5vw, 1.08rem);
+  line-height: 1.42;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .new-thread-launch-card-actions {
@@ -6088,6 +6250,12 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 
 .new-thread-launch-card-pill {
   @apply inline-flex items-center rounded-full border border-emerald-100 bg-white/80 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-700;
+}
+
+.content-root.is-native-ios-shell .new-thread-launch-card-pill {
+  padding: 0.38rem 0.62rem;
+  font-size: 0.67rem;
+  letter-spacing: 0.08em;
 }
 
 .new-thread-launch-card-button {
@@ -6466,6 +6634,43 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
   overscroll-behavior: contain;
 }
 
+:global(html.capacitor-ios-shell) .sidebar-settings-panel {
+  top: 1rem;
+}
+
+.sidebar-settings-section {
+  @apply mx-2 mt-2 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm;
+}
+
+.sidebar-settings-section:first-of-type {
+  @apply mt-2;
+}
+
+.sidebar-settings-section-summary {
+  @apply flex cursor-pointer list-none items-center justify-between gap-3 border-b border-zinc-100 bg-zinc-50 px-3 py-2.5;
+}
+
+.sidebar-settings-section-summary::-webkit-details-marker {
+  display: none;
+}
+
+.sidebar-settings-section-summary::after {
+  content: '⌄';
+  @apply flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white text-sm leading-none text-zinc-500 shadow-sm transition-transform;
+}
+
+.sidebar-settings-section[open] > .sidebar-settings-section-summary::after {
+  transform: rotate(180deg);
+}
+
+.sidebar-settings-section-title {
+  @apply text-sm font-semibold text-zinc-900;
+}
+
+.sidebar-settings-section-meta {
+  @apply min-w-0 truncate text-xs text-zinc-500;
+}
+
 .sidebar-settings-row {
   @apply flex items-center justify-between w-full px-3 py-2.5 text-sm text-zinc-700 border-0 bg-transparent transition hover:bg-zinc-50 cursor-pointer;
 }
@@ -6548,7 +6753,7 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 }
 
 .sidebar-settings-account-section {
-  @apply border-t border-zinc-100 bg-zinc-50/60 px-3 py-3;
+  @apply m-2 rounded-xl border border-zinc-200 bg-zinc-50/60 px-3 py-3;
 }
 
 .sidebar-settings-account-header {
@@ -6892,6 +7097,26 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 
 :root.dark .sidebar-settings-remote-auth {
   @apply border-zinc-700;
+}
+
+:global(:root.dark) .sidebar-settings-section {
+  @apply border-zinc-700 bg-zinc-900 shadow-black/20;
+}
+
+:global(:root.dark) .sidebar-settings-section-summary {
+  @apply border-zinc-700 bg-zinc-800;
+}
+
+:global(:root.dark) .sidebar-settings-section-summary::after {
+  @apply bg-zinc-900 text-zinc-300;
+}
+
+:global(:root.dark) .sidebar-settings-section-title {
+  @apply text-zinc-100;
+}
+
+:global(:root.dark) .sidebar-settings-section-meta {
+  @apply text-zinc-400;
 }
 
 .settings-panel-enter-active,

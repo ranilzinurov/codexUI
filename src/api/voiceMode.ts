@@ -36,6 +36,7 @@ export type CreateVoiceSpeechInput = {
   text: string
   threadId?: string
   messageId?: string
+  profile?: VoiceProfile | string
   speed?: number
   voice?: string
   responseFormat?: 'mp3' | 'opus' | 'aac' | 'flac' | 'wav' | 'pcm'
@@ -50,10 +51,6 @@ export type CreateVoiceJobInput = {
   voice: string
   autoplay: boolean
   telegramFallback: boolean
-}
-
-type JsonEnvelope<T> = {
-  data: T
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -82,10 +79,11 @@ function resolveVoiceApiUrl(path: string): string {
 }
 
 async function parseJsonResponse(response: Response): Promise<unknown> {
+  const textFallback = response.clone().text().catch(() => null)
   try {
     return await response.json()
   } catch {
-    return null
+    return await textFallback
   }
 }
 
@@ -129,6 +127,79 @@ function normalizeVoiceJob(value: unknown): VoiceAnswerJob | null {
   }
 }
 
+function parseEmbeddedJson(value: string): unknown {
+  const trimmed = value.trim()
+  if (!trimmed || (trimmed[0] !== '{' && trimmed[0] !== '[')) return null
+  try {
+    return JSON.parse(trimmed) as unknown
+  } catch {
+    return null
+  }
+}
+
+function pushTextCandidatesFromArray(candidates: unknown[], value: unknown): void {
+  if (!Array.isArray(value)) return
+  for (const item of value) {
+    if (!isRecord(item)) continue
+    candidates.push(item.text, item.value, item.content)
+  }
+}
+
+function normalizeVoicePayload<T>(
+  payload: unknown,
+  normalize: (value: unknown) => T | null,
+  seen = new Set<unknown>(),
+): T | null {
+  const direct = normalize(payload)
+  if (direct) return direct
+
+  if (typeof payload === 'string') {
+    const parsed = parseEmbeddedJson(payload)
+    if (parsed === null || seen.has(parsed)) return null
+    return normalizeVoicePayload(parsed, normalize, seen)
+  }
+
+  if (!isRecord(payload) || seen.has(payload)) return null
+
+  seen.add(payload)
+  const candidates = [
+    payload.data,
+    payload.job,
+    payload.result,
+    payload.body,
+    payload.response,
+    payload.value,
+    payload.output,
+    payload.content,
+  ]
+  pushTextCandidatesFromArray(candidates, payload.content)
+  pushTextCandidatesFromArray(candidates, payload.output)
+  for (const candidate of candidates) {
+    const normalized = normalizeVoicePayload(candidate, normalize, seen)
+    if (normalized) return normalized
+  }
+  return null
+}
+
+function describePayloadShape(value: unknown, depth = 0): string {
+  if (depth > 2) return '...'
+  if (value === null) return 'null'
+  if (Array.isArray(value)) {
+    const first = value.length > 0 ? ` first=${describePayloadShape(value[0], depth + 1)}` : ''
+    return `array(${value.length})${first}`
+  }
+  if (isRecord(value)) {
+    const keys = Object.keys(value).slice(0, 8)
+    const nested = keys
+      .filter((key) => ['data', 'job', 'result', 'body', 'response', 'value', 'content', 'output'].includes(key))
+      .map((key) => `${key}:${describePayloadShape(value[key], depth + 1)}`)
+      .join(' ')
+    return `object{${keys.join(',')}}${nested ? ` ${nested}` : ''}`
+  }
+  if (typeof value === 'string') return `string(${value.length}) ${value.slice(0, 80)}`
+  return typeof value
+}
+
 async function fetchVoiceJson<T>(
   path: string,
   init: RequestInit | undefined,
@@ -158,10 +229,9 @@ async function fetchVoiceJson<T>(
     })
   }
 
-  const envelope = isRecord(payload) ? (payload as JsonEnvelope<unknown> & { job?: unknown }) : null
-  const normalized = normalize(envelope?.data) ?? normalize(envelope?.job) ?? normalize(payload)
+  const normalized = normalizeVoicePayload(payload, normalize)
   if (!normalized) {
-    throw new CodexApiError(`Request to ${path} returned malformed JSON`, {
+    throw new CodexApiError(`Request to ${path} returned malformed JSON: ${describePayloadShape(payload)}`, {
       code: 'invalid_response',
       method,
       status: response.status,
@@ -189,7 +259,23 @@ async function fetchVoiceBlob(path: string, init: RequestInit | undefined, fallb
     throw await parseErrorResponse(response, fallback, method)
   }
 
-  return await response.blob()
+  const blob = await response.blob()
+  const contentType = (response.headers.get('content-type') || blob.type || '').toLowerCase()
+  if (!contentType.startsWith('audio/')) {
+    const text = await blob.slice(0, 512).text().catch(() => '')
+    const payload = parseEmbeddedJson(text) ?? text
+    const message = extractErrorMessage(
+      payload,
+      `${fallback}: expected audio but received ${contentType || 'unknown content type'}`,
+    )
+    throw new CodexApiError(message, {
+      code: 'invalid_response',
+      method,
+      status: response.status,
+    })
+  }
+
+  return blob
 }
 
 export function isVoiceJobTerminal(state: VoiceJobState): boolean {
@@ -206,6 +292,7 @@ export function createVoiceSpeech(input: CreateVoiceSpeechInput, signal?: AbortS
         text: input.text,
         threadId: input.threadId,
         messageId: input.messageId,
+        profile: input.profile ?? 'medium',
         speed: input.speed ?? 1,
         voice: input.voice ?? 'nova',
         responseFormat: input.responseFormat ?? 'mp3',

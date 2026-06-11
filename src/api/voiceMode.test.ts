@@ -132,6 +132,69 @@ describe('voiceMode API helpers', () => {
     })
   })
 
+  it('accepts gateway-wrapped voice job envelopes', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      result: {
+        data: {
+          id: 'job-wrapped',
+          status: 'waiting_for_answer',
+          threadId: 'thread-1',
+        },
+      },
+    }))
+
+    const job = await fetchVoiceJob('job-wrapped')
+
+    expect(job).toMatchObject({
+      id: 'job-wrapped',
+      threadId: 'thread-1',
+      state: 'waiting_for_answer',
+    })
+  })
+
+  it('accepts stringified and content-text voice job envelopes', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({
+        result: JSON.stringify({
+          data: {
+            id: 'job-stringified',
+            status: 'summarizing',
+            threadId: 'thread-1',
+          },
+        }),
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                job: {
+                  id: 'job-content',
+                  status: 'synthesizing',
+                  threadId: 'thread-2',
+                },
+              }),
+            },
+          ],
+        },
+      }))
+
+    const stringifiedJob = await fetchVoiceJob('job-stringified')
+    const contentJob = await fetchVoiceJob('job-content')
+
+    expect(stringifiedJob).toMatchObject({
+      id: 'job-stringified',
+      threadId: 'thread-1',
+      state: 'summarizing',
+    })
+    expect(contentJob).toMatchObject({
+      id: 'job-content',
+      threadId: 'thread-2',
+      state: 'synthesizing',
+    })
+  })
+
   it('returns audio blobs for compatibility speech and job audio endpoints', async () => {
     fetchMock
       .mockResolvedValueOnce(new Response(new Blob(['speech'], { type: 'audio/mpeg' })))
@@ -145,11 +208,26 @@ describe('voiceMode API helpers', () => {
     expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toEqual({
       text: 'hello',
       threadId: 'thread-1',
+      profile: 'medium',
       speed: 1,
       voice: 'nova',
       responseFormat: 'mp3',
     })
     expect(fetchMock.mock.calls[1][0]).toBe('/codex-api/voice/jobs/job-1/audio')
+  })
+
+  it('rejects non-audio success responses for voice audio endpoints', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('<html>login</html>', {
+      status: 200,
+      headers: { 'content-type': 'text/html' },
+    }))
+
+    await expect(createVoiceSpeech({ text: 'hello', threadId: 'thread-1' })).rejects.toMatchObject({
+      name: 'CodexApiError',
+      code: 'invalid_response',
+      method: '/codex-api/voice/speech',
+      status: 200,
+    })
   })
 
   it('throws typed API errors for malformed and failed responses', async () => {
@@ -168,6 +246,27 @@ describe('voiceMode API helpers', () => {
       status: 409,
       message: 'not ready',
     })
+  })
+
+  it('includes non-JSON success payload shape in malformed response errors', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('<html>login</html>', {
+      status: 200,
+      headers: { 'content-type': 'text/html' },
+    }))
+
+    let caught: unknown
+    try {
+      await fetchVoiceJob('job-html')
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toBeInstanceOf(CodexApiError)
+    expect(caught).toMatchObject({
+      code: 'invalid_response',
+      method: '/codex-api/voice/jobs/job-html',
+    })
+    expect((caught as Error).message).toContain('string(18): received an HTML error page instead of JSON')
   })
 
   it('exposes terminal state checks', () => {

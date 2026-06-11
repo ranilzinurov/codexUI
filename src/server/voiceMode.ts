@@ -19,6 +19,9 @@ const JOB_EXPIRY_GRACE_MS = 60_000
 const JOB_WAIT_TIMEOUT_MS = 10 * 60_000
 const JOB_POLL_INTERVAL_MS = 2_000
 const MAX_JOBS = 64
+const SPEECH_CACHE_TTL_MS = 60 * 60_000
+const SPEECH_CACHE_EXPIRY_GRACE_MS = 60_000
+const MAX_SPEECH_CACHE_ENTRIES = 64
 
 const VOICE_JOB_ROUTE_RE = /^\/codex-api\/voice\/jobs\/([^/]+)(?:\/(audio))?$/
 
@@ -66,6 +69,7 @@ export type VoiceModeRouteOptions = {
   appServer: RpcExecutor
   fetch?: typeof fetch
   jobStore?: VoiceJobStore
+  speechCache?: VoiceSpeechCache
   nowMs?: () => number
   pollIntervalMs?: number
   waitTimeoutMs?: number
@@ -82,6 +86,7 @@ type VoiceProfileConfig = {
 type VoiceSpeechRequest = {
   text: string
   threadId?: string
+  messageId?: string
   profile: VoiceProfile
   speed: number
   voice: string
@@ -110,6 +115,15 @@ type VoiceSummaryResult = {
 type SpeechAudio = {
   contentType: string
   body: Buffer
+}
+
+type VoiceSpeechCacheEntry = SpeechAudio & {
+  cacheKey: string
+  createdAtMs: number
+  updatedAtMs: number
+  expiresAtMs: number
+  summarySource: VoiceSummaryResult['source']
+  inputChars: number
 }
 
 export type VoiceAnswerJob = {
@@ -276,6 +290,69 @@ export class VoiceJobStore {
 
 const sharedVoiceJobStore = new VoiceJobStore()
 
+export class VoiceSpeechCache {
+  private readonly entries = new Map<string, VoiceSpeechCacheEntry>()
+  private readonly ttlMs: number
+  private readonly maxEntries: number
+  private readonly nowMs: () => number
+
+  constructor(options: { ttlMs?: number; maxEntries?: number; nowMs?: () => number } = {}) {
+    this.ttlMs = options.ttlMs ?? SPEECH_CACHE_TTL_MS
+    this.maxEntries = options.maxEntries ?? MAX_SPEECH_CACHE_ENTRIES
+    this.nowMs = options.nowMs ?? Date.now
+  }
+
+  get(cacheKey: string): VoiceSpeechCacheEntry | null {
+    this.cleanup()
+    const entry = this.entries.get(cacheKey) ?? null
+    if (!entry) return null
+    if (this.nowMs() > entry.expiresAtMs) {
+      this.entries.delete(cacheKey)
+      return null
+    }
+    return entry
+  }
+
+  set(
+    cacheKey: string,
+    speech: SpeechAudio,
+    meta: { summarySource: VoiceSummaryResult['source']; inputChars: number },
+  ): VoiceSpeechCacheEntry {
+    this.cleanup()
+    this.enforceMaxEntries()
+    const now = this.nowMs()
+    const entry: VoiceSpeechCacheEntry = {
+      cacheKey,
+      contentType: speech.contentType,
+      body: speech.body,
+      createdAtMs: now,
+      updatedAtMs: now,
+      expiresAtMs: now + this.ttlMs,
+      summarySource: meta.summarySource,
+      inputChars: meta.inputChars,
+    }
+    this.entries.set(cacheKey, entry)
+    return entry
+  }
+
+  private cleanup(): void {
+    const now = this.nowMs()
+    for (const [cacheKey, entry] of this.entries) {
+      if (now > entry.expiresAtMs + SPEECH_CACHE_EXPIRY_GRACE_MS) {
+        this.entries.delete(cacheKey)
+      }
+    }
+  }
+
+  private enforceMaxEntries(): void {
+    if (this.entries.size < this.maxEntries) return
+    const oldest = Array.from(this.entries.values()).sort((a, b) => a.updatedAtMs - b.updatedAtMs)[0]
+    if (oldest) this.entries.delete(oldest.cacheKey)
+  }
+}
+
+const sharedVoiceSpeechCache = new VoiceSpeechCache()
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -380,11 +457,28 @@ function normalizeVoiceSpeechRequest(body: Record<string, unknown> | null): Voic
   return {
     text: truncateText(text, SOURCE_TEXT_MAX_CHARS),
     threadId: readNonEmptyString(body?.threadId) || undefined,
+    messageId: readNonEmptyString(body?.messageId) || undefined,
     profile: normalizeProfile(body?.profile),
     speed: clampNumber(body?.speed, 1, 0.25, 4),
     voice,
     format,
   }
+}
+
+function hashVoiceText(text: string): string {
+  return createHash('sha256').update(text).digest('hex').slice(0, 16)
+}
+
+function createVoiceSpeechCacheKey(request: VoiceSpeechRequest): string {
+  return [
+    request.threadId || 'direct',
+    request.messageId || 'no-message',
+    request.profile,
+    request.voice,
+    request.format,
+    String(request.speed),
+    hashVoiceText(request.text),
+  ].join(':')
 }
 
 function normalizeVoiceJobRequest(body: Record<string, unknown> | null): NormalizedVoiceJobRequest {
@@ -411,7 +505,7 @@ function normalizeVoiceJobRequest(body: Record<string, unknown> | null): Normali
   const autoplay = body?.autoplay === false ? false : true
   const telegramFallback = body?.telegramFallback === true
   const boundedSourceText = sourceText ? truncateText(sourceText, SOURCE_TEXT_MAX_CHARS) : undefined
-  const hash = boundedSourceText ? createHash('sha256').update(boundedSourceText).digest('hex').slice(0, 16) : 'latest'
+  const hash = boundedSourceText ? hashVoiceText(boundedSourceText) : 'latest'
   const fingerprint = [
     threadId || 'direct',
     turnId || messageId || hash,
@@ -799,6 +893,24 @@ function serializeJob(job: VoiceAnswerJob, extra: Record<string, unknown> = {}):
   }
 }
 
+function writeVoiceSpeechAudioResponse(
+  res: ServerResponse,
+  request: VoiceSpeechRequest,
+  speech: SpeechAudio,
+  meta: { summarySource: VoiceSummaryResult['source']; inputChars: number; cacheStatus: 'hit' | 'miss' },
+): void {
+  res.statusCode = 200
+  res.setHeader('Content-Type', speech.contentType)
+  res.setHeader('Cache-Control', 'private, no-store')
+  res.setHeader('X-Codex-Voice', request.voice)
+  res.setHeader('X-Codex-Voice-Speed', String(request.speed))
+  res.setHeader('X-Codex-Voice-Tts-Model', process.env.CODEXUI_VOICE_TTS_MODEL?.trim() || DEFAULT_VOICE_TTS_MODEL)
+  res.setHeader('X-Codex-Voice-Summary-Source', meta.summarySource)
+  res.setHeader('X-Codex-Voice-Input-Chars', String(meta.inputChars))
+  res.setHeader('X-Codex-Voice-Cache', meta.cacheStatus)
+  res.end(speech.body)
+}
+
 async function notifyVoiceModeJob(
   notify: VoiceModeRouteOptions['notify'],
   event: VoiceModeNotificationEvent,
@@ -897,18 +1009,29 @@ export async function handleVoiceModeSpeechRoute(
   try {
     const request = normalizeVoiceSpeechRequest(await readJsonBody(req))
     const fetchImpl = options.fetch ?? fetch
+    const speechCache = options.speechCache ?? sharedVoiceSpeechCache
+    const cacheKey = createVoiceSpeechCacheKey(request)
+    const cached = speechCache.get(cacheKey)
+    if (cached) {
+      writeVoiceSpeechAudioResponse(res, request, cached, {
+        summarySource: cached.summarySource,
+        inputChars: cached.inputChars,
+        cacheStatus: 'hit',
+      })
+      return true
+    }
+
     const summary = await summarizeVoiceText(fetchImpl, request.text, request.profile)
     const speech = await createSpeechAudio(fetchImpl, request, summary.text)
-
-    res.statusCode = 200
-    res.setHeader('Content-Type', speech.contentType)
-    res.setHeader('Cache-Control', 'private, no-store')
-    res.setHeader('X-Codex-Voice', request.voice)
-    res.setHeader('X-Codex-Voice-Speed', String(request.speed))
-    res.setHeader('X-Codex-Voice-Tts-Model', process.env.CODEXUI_VOICE_TTS_MODEL?.trim() || DEFAULT_VOICE_TTS_MODEL)
-    res.setHeader('X-Codex-Voice-Summary-Source', summary.source)
-    res.setHeader('X-Codex-Voice-Input-Chars', String(summary.text.length))
-    res.end(speech.body)
+    const cachedSpeech = speechCache.set(cacheKey, speech, {
+      summarySource: summary.source,
+      inputChars: summary.text.length,
+    })
+    writeVoiceSpeechAudioResponse(res, request, cachedSpeech, {
+      summarySource: summary.source,
+      inputChars: summary.text.length,
+      cacheStatus: 'miss',
+    })
   } catch (error) {
     const clientError = getClientError(error)
     writeJson(res, clientError.statusCode, {

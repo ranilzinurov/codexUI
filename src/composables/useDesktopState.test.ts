@@ -180,6 +180,35 @@ describe('filterGroupsByWorkspaceRoots', () => {
     ])
   })
 
+  it('keeps child projects visible under a configured workspace container root', () => {
+    const groups: UiProjectGroup[] = [
+      {
+        projectName: 'codexUI',
+        threads: [thread('codexui-chat', '/home/rnl1/prog/codexUI')],
+      },
+      {
+        projectName: 'todo_tg_app',
+        threads: [thread('todo-chat', '/home/rnl1/prog/todo_tg_app')],
+      },
+      {
+        projectName: 'other-project',
+        threads: [thread('other-chat', '/home/rnl1/other-project')],
+      },
+    ]
+    const rootsState: WorkspaceRootsState = {
+      order: ['/home/rnl1/prog'],
+      labels: {},
+      active: ['/home/rnl1/prog'],
+      projectOrder: [],
+    }
+
+    expect(filterGroupsByWorkspaceRoots(groups, rootsState).map((group) => group.projectName)).toEqual([
+      'prog',
+      'codexUI',
+      'todo_tg_app',
+    ])
+  })
+
   it('keeps workspace roots with the same folder name as separate projects', () => {
     const groups: UiProjectGroup[] = [
       {

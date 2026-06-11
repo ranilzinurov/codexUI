@@ -1349,6 +1349,18 @@ function matchesWorkspaceRootProject(rootPath: string, projectName: string): boo
   return normalizedRootPath === projectName || toProjectNameFromWorkspaceRoot(rootPath) === projectName
 }
 
+function isPathWithinWorkspaceRoot(path: string, rootPath: string): boolean {
+  const normalizedPath = normalizePathForUi(path).trim().replace(/\/+$/u, '')
+  const normalizedRootPath = normalizePathForUi(rootPath).trim().replace(/\/+$/u, '')
+  if (!normalizedPath || !normalizedRootPath) return false
+  return normalizedPath === normalizedRootPath || normalizedPath.startsWith(`${normalizedRootPath}/`)
+}
+
+function groupHasThreadWithinWorkspaceRoots(group: UiProjectGroup, rootsState: WorkspaceRootsState | null): boolean {
+  if (!rootsState || rootsState.order.length === 0) return false
+  return group.threads.some((thread) => rootsState.order.some((rootPath) => isPathWithinWorkspaceRoot(thread.cwd, rootPath)))
+}
+
 export function collectWorkspaceRootPathsForProjectRemoval(
   rootsState: WorkspaceRootsState,
   projectName: string,
@@ -1608,7 +1620,11 @@ export function filterGroupsByWorkspaceRoots(
   for (const projectName of getWorkspaceProjectOrderNames(rootsState, duplicateLeafNames)) {
     allowedProjectNames.add(projectName)
   }
-  const filteredGroups = groupsWithWorkspaceRoots.filter((group) => allowedProjectNames.has(group.projectName) || isProjectlessGroup(group))
+  const filteredGroups = groupsWithWorkspaceRoots.filter((group) =>
+    allowedProjectNames.has(group.projectName) ||
+    isProjectlessGroup(group) ||
+    groupHasThreadWithinWorkspaceRoots(group, rootsState),
+  )
   return orderGroupsByWorkspaceProjectOrder(filteredGroups, rootsState, duplicateLeafNames)
 }
 
@@ -5044,6 +5060,7 @@ export function useDesktopState() {
     }
     const filteredGroups = groupsWithWorkspaceRoots.filter((group) => {
       if (allowedProjectNames.has(group.projectName)) return true
+      if (groupHasThreadWithinWorkspaceRoots(group, rootsState)) return true
       return isProjectlessGroup(group)
     })
     return orderGroupsByWorkspaceProjectOrder(filteredGroups, rootsState, duplicateLeafNames)
