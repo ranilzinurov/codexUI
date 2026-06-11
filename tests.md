@@ -8058,3 +8058,48 @@ Native iOS voice mode exposes TTS model selection in Settings, keeps background 
 - Set `TTS model` back to `GPT-4o mini TTS` in Settings.
 - Disable `Voice mode` to stop automatic background voice jobs.
 - Stop temporary build or profiling processes after validation.
+
+---
+
+### Native iOS Voice Mode Latest Replay Toolbar And Persistent Waiting Audio
+
+#### Feature/Change Name
+Native iOS Voice mode keeps its enable/disable control in the thread kebab menu, shows the composer voice toolbar only while Voice mode is enabled, replays the latest generated assistant audio from the message cache, and keeps a native waiting audio session active while Voice mode is on.
+
+#### Prerequisites/Setup
+1. Use the iOS build root with dependencies installed.
+2. Connect and unlock the physical iPhone.
+3. Configure `Remote backend` to `https://codex-ui.todo-tg-app.ru` and sign in.
+4. Confirm server-side TTS credentials are configured.
+5. Open an existing thread with at least one completed assistant response.
+
+#### Steps
+1. Run the focused regression tests:
+   `pnpm exec vitest run src/server/voiceMode.test.ts src/composables/useVoicePlayback.test.ts --reporter=verbose`
+2. Run the frontend type/build check:
+   `pnpm exec vue-tsc --noEmit`
+   `pnpm run build:frontend`
+3. Run `npx cap sync ios`.
+4. Build, install, and launch the app on the physical iPhone.
+5. In light theme, open a thread with Voice mode disabled and confirm the composer voice toolbar is hidden.
+6. Open the thread kebab menu and confirm `Voice off` is visible there; enable it from the kebab menu.
+7. Confirm the composer toolbar appears above the text input with `Latest`, `-5`, play/pause, `+5`, and the speed toggle, and that it does not include a Voice on/off button.
+8. Send a prompt with Voice mode enabled, wait for the automatic voice answer to play, then tap `Latest`.
+9. Confirm `Latest` replays immediately from the existing message audio cache instead of starting a new `/codex-api/voice/speech` synthesis.
+10. Open the kebab menu again, disable Voice mode, and confirm the toolbar disappears and playback/waiting audio stops.
+11. Repeat steps 5-10 in dark theme.
+12. For background validation, enable Voice mode, send a prompt, lock the iPhone while the answer is pending, and confirm the waiting audio session remains active until generated speech starts or a visible error appears.
+
+#### Expected Results
+- The kebab menu always keeps the Voice mode enable/disable control in native iOS threads.
+- The composer voice toolbar is conditional on `Voice mode = on`.
+- The toolbar contains playback controls only: latest replay, rewind, play/pause, forward, and speed.
+- Automatic voice jobs serialize the resolved assistant `messageId`/`turnId` after the answer completes.
+- `playJob()` caches fetched job audio under both the job id and the stable message key, and `playSpeech()` checks the message key before calling `/codex-api/voice/speech`.
+- Thread-based voice jobs without explicit text do not reuse a stale `latest` fingerprint from an older assistant response.
+- Light and dark themes both keep the kebab rows, toolbar buttons, and composer status readable.
+
+#### Rollback/Cleanup
+- Disable `Voice mode` in the kebab menu or Settings to stop the persistent native waiting session.
+- Delete and reinstall the app if iOS appears to launch an older sideloaded build.
+- Stop temporary test/build/profiling processes after validation.

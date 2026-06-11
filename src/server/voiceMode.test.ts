@@ -122,7 +122,7 @@ function completedThread(threadId: string, assistantText: string): unknown {
         {
           id: 'turn-assistant',
           status: 'completed',
-          items: [{ type: 'agentMessage', text: assistantText }],
+          items: [{ id: 'message-assistant', type: 'agentMessage', text: assistantText }],
         },
       ],
     },
@@ -422,6 +422,8 @@ describe('voice mode server routes', () => {
     const ready = await waitForJob(baseUrl, String(created.id))
 
     expect(ready.status).toBe('ready')
+    expect(ready.messageId).toBe('message-assistant')
+    expect(ready.turnId).toBe('turn-assistant')
     expect(appServer.rpc).toHaveBeenCalledTimes(2)
     const ttsBody = JSON.parse(String(callsFor(fetchImpl)[0]?.[1].body)) as Record<string, unknown>
     expect(String(ttsBody.input)).toContain('Сделал серверные endpoints')

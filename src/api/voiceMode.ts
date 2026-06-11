@@ -29,6 +29,7 @@ export type VoiceAnswerJob = {
   autoplay: boolean
   telegramFallback: boolean
   messageId: string | null
+  turnId: string | null
   error: string | null
   createdAtIso: string | null
   updatedAtIso: string | null
@@ -126,6 +127,7 @@ function normalizeVoiceJob(value: unknown): VoiceAnswerJob | null {
     autoplay: readBoolean(value.autoplay) ?? false,
     telegramFallback: readBoolean(value.telegramFallback) ?? false,
     messageId: readString(value.messageId),
+    turnId: readString(value.turnId),
     error: readString(value.error),
     createdAtIso: readString(value.createdAtIso) ?? readString(value.createdAt),
     updatedAtIso: readString(value.updatedAtIso) ?? readString(value.updatedAt),

@@ -778,18 +778,18 @@
                   <span v-if="browserAnnotationFeatureMenuStatus" class="content-header-feature-menu-status">{{ browserAnnotationFeatureMenuStatus }}</span>
                 </button>
                 <template v-if="isNativeIosVoiceModeAvailable">
+                  <button
+                    class="content-header-feature-menu-item"
+                    :class="{ 'is-active': isVoiceModeEnabled }"
+                    type="button"
+                    role="menuitem"
+                    @click="onToggleVoiceModeFromFeatureMenu"
+                  >
+                    <IconTablerPlayerPlayFilled class="content-header-feature-menu-icon" />
+                    <span class="content-header-feature-menu-text">{{ voiceFeatureMenuLabel }}</span>
+                    <span v-if="voiceFeatureMenuStatus" class="content-header-feature-menu-status">{{ voiceFeatureMenuStatus }}</span>
+                  </button>
                   <template v-if="!canShowMobileVoiceToolbar">
-                    <button
-                      class="content-header-feature-menu-item"
-                      :class="{ 'is-active': isVoiceModeEnabled }"
-                      type="button"
-                      role="menuitem"
-                      @click="onToggleVoiceModeFromFeatureMenu"
-                    >
-                      <IconTablerPlayerPlayFilled class="content-header-feature-menu-icon" />
-                      <span class="content-header-feature-menu-text">{{ voiceFeatureMenuLabel }}</span>
-                      <span v-if="voiceFeatureMenuStatus" class="content-header-feature-menu-status">{{ voiceFeatureMenuStatus }}</span>
-                    </button>
                     <button
                       class="content-header-feature-menu-item"
                       type="button"
@@ -1252,16 +1252,6 @@
                 >
                   <button
                     class="mobile-voice-toolbar-button"
-                    :class="{ 'is-active': isVoiceModeEnabled }"
-                    type="button"
-                    :aria-pressed="isVoiceModeEnabled"
-                    @click="onToggleVoiceModeFromMobileToolbar"
-                  >
-                    <IconTablerPlayerPlayFilled class="mobile-voice-toolbar-icon" />
-                    <span class="mobile-voice-toolbar-text">{{ isVoiceModeEnabled ? t('On') : t('Off') }}</span>
-                  </button>
-                  <button
-                    class="mobile-voice-toolbar-button"
                     type="button"
                     :disabled="!canPlayLatestVoiceMessage"
                     @click="onPlayLatestVoiceFromMobileToolbar"
@@ -1301,6 +1291,14 @@
                     @click="onSeekVoicePlayback(5)"
                   >
                     <span class="mobile-voice-toolbar-text">+5</span>
+                  </button>
+                  <button
+                    class="mobile-voice-toolbar-button is-compact"
+                    type="button"
+                    :aria-label="t('Voice speed')"
+                    @click="cycleVoiceModeSpeed"
+                  >
+                    <span class="mobile-voice-toolbar-text">{{ voiceModeSpeedLabel }}</span>
                   </button>
                 </div>
                 <ThreadComposer ref="homeThreadComposerRef" :active-thread-id="composerThreadContextId"
@@ -1410,16 +1408,6 @@
                     >
                       <button
                         class="mobile-voice-toolbar-button"
-                        :class="{ 'is-active': isVoiceModeEnabled }"
-                        type="button"
-                        :aria-pressed="isVoiceModeEnabled"
-                        @click="onToggleVoiceModeFromMobileToolbar"
-                      >
-                        <IconTablerPlayerPlayFilled class="mobile-voice-toolbar-icon" />
-                        <span class="mobile-voice-toolbar-text">{{ isVoiceModeEnabled ? t('On') : t('Off') }}</span>
-                      </button>
-                      <button
-                        class="mobile-voice-toolbar-button"
                         type="button"
                         :disabled="!canPlayLatestVoiceMessage"
                         @click="onPlayLatestVoiceFromMobileToolbar"
@@ -1459,6 +1447,14 @@
                         @click="onSeekVoicePlayback(5)"
                       >
                         <span class="mobile-voice-toolbar-text">+5</span>
+                      </button>
+                      <button
+                        class="mobile-voice-toolbar-button is-compact"
+                        type="button"
+                        :aria-label="t('Voice speed')"
+                        @click="cycleVoiceModeSpeed"
+                      >
+                        <span class="mobile-voice-toolbar-text">{{ voiceModeSpeedLabel }}</span>
                       </button>
                     </div>
                     <ThreadComposer
@@ -2377,6 +2373,7 @@ const canPlayLatestVoiceMessage = computed(() => (
 ))
 const canShowMobileVoiceToolbar = computed(() => (
   isNativeIosVoiceModeAvailable &&
+  isVoiceModeEnabled.value &&
   isMobile.value &&
   route.name === 'thread' &&
   selectedThreadId.value.length > 0
@@ -2827,6 +2824,9 @@ onMounted(() => {
   void refreshTerminalQuickCommands()
   void refreshRemoteBackendAuthStatus()
   void dictationBackgroundJobs.resumePendingJobs()
+  if (isNativeIosVoiceModeAvailable && isVoiceModeEnabled.value) {
+    void voicePlayback.setVoiceModeKeepAlive(true)
+  }
 })
 
 watch(visibleFeedbackErrors, (values, oldValues) => {
@@ -3704,11 +3704,6 @@ async function onToggleBrowserAnnotationFromFeatureMenu(): Promise<void> {
 }
 
 function onToggleVoiceModeFromFeatureMenu(): void {
-  if (!isNativeIosVoiceModeAvailable) return
-  toggleVoiceMode()
-}
-
-function onToggleVoiceModeFromMobileToolbar(): void {
   if (!isNativeIosVoiceModeAvailable) return
   toggleVoiceMode()
 }
@@ -5229,9 +5224,12 @@ function toggleVoiceMode(): void {
   if (!isNativeIosVoiceModeAvailable) return
   isVoiceModeEnabled.value = !isVoiceModeEnabled.value
   safeLocalStorageSetItem(VOICE_MODE_ENABLED_STORAGE_KEY, isVoiceModeEnabled.value ? '1' : '0')
-  if (!isVoiceModeEnabled.value) {
-    voicePlayback.stop()
+  if (isVoiceModeEnabled.value) {
+    void voicePlayback.setVoiceModeKeepAlive(true)
+    return
   }
+  voicePlayback.stop()
+  void voicePlayback.setVoiceModeKeepAlive(false)
 }
 
 function toggleVoiceTelegramFallback(): void {

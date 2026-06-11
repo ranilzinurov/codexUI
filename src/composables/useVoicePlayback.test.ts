@@ -103,6 +103,7 @@ function createJob(overrides: Partial<VoiceAnswerJob>): VoiceAnswerJob {
     autoplay: true,
     telegramFallback: false,
     messageId: 'message-1',
+    turnId: null,
     error: null,
     createdAtIso: null,
     updatedAtIso: null,
@@ -199,6 +200,8 @@ describe('useVoicePlayback', () => {
 
     await Promise.resolve()
     await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
     expect(playback.state.value).toBe('waiting_for_answer')
 
     await new Promise((resolve) => setTimeout(resolve, 550))
@@ -249,6 +252,59 @@ describe('useVoicePlayback', () => {
     expect(voiceApiMock.createVoiceSpeech).toHaveBeenCalledTimes(1)
     expect(FakeAudio.instances[0]?.play).toHaveBeenCalledTimes(2)
     expect(playback.state.value).toBe('playing')
+  })
+
+  it('replays job audio by message cache instead of creating latest speech again', async () => {
+    voiceApiMock.createVoiceJob.mockResolvedValueOnce(createJob({ state: 'ready', audioContentType: 'audio/mpeg' }))
+    voiceApiMock.fetchVoiceJobAudio.mockResolvedValueOnce(new Blob(['job voice'], { type: 'audio/mpeg' }))
+
+    const playback = useVoicePlayback()
+    const readyJob = await playback.playJob({
+      threadId: 'thread-1',
+      messageId: 'message-1',
+      profile: 'medium',
+      speed: 1,
+      voice: 'nova',
+      model: 'gpt-4o-mini-tts',
+      pollIntervalMs: 500,
+    })
+    playback.stop()
+
+    await playback.playSpeech({
+      text: 'assistant answer text',
+      threadId: 'thread-1',
+      messageId: 'message-1',
+      profile: 'medium',
+      speed: 1,
+      voice: 'nova',
+      model: 'gpt-4o-mini-tts',
+    })
+
+    expect(readyJob?.state).toBe('ready')
+    expect(voiceApiMock.fetchVoiceJobAudio).toHaveBeenCalledTimes(1)
+    expect(voiceApiMock.createVoiceSpeech).not.toHaveBeenCalled()
+    expect(FakeAudio.instances[0]?.play).toHaveBeenCalledTimes(2)
+    expect(playback.state.value).toBe('playing')
+  })
+
+  it('keeps persistent native waiting audio alive during direct replay', async () => {
+    nativeAudioMock.shouldUseNativeAudioSession.mockReturnValue(true)
+
+    const playback = useVoicePlayback()
+    await playback.setVoiceModeKeepAlive(true)
+    nativeAudioMock.endVoiceWaitingSession.mockClear()
+
+    await playback.playBlob({
+      blob: new Blob(['voice'], { type: 'audio/mpeg' }),
+      messageId: 'message-1',
+    })
+    playback.stop()
+
+    expect(nativeAudioMock.playVoiceAudioBase64).toHaveBeenCalled()
+    expect(nativeAudioMock.endVoiceWaitingSession).not.toHaveBeenCalled()
+
+    await playback.setVoiceModeKeepAlive(false)
+    expect(nativeAudioMock.endVoiceWaitingSession).toHaveBeenCalledTimes(1)
   })
 
   it('passes audio content type to native iOS playback', async () => {

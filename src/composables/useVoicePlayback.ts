@@ -64,7 +64,7 @@ const DEFAULT_SPEED = 1
 const DEFAULT_POLL_INTERVAL_MS = 1500
 const MIN_POLL_INTERVAL_MS = 500
 const MAX_POLL_INTERVAL_MS = 10000
-const VOICE_CACHE_LIMIT = 8
+const VOICE_CACHE_LIMIT = 16
 
 function clampPollIntervalMs(value: number | undefined): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_POLL_INTERVAL_MS
@@ -95,6 +95,32 @@ function createSpeechCacheKey(input: PlayVoiceSpeechInput): string {
     (input.speed ?? DEFAULT_SPEED).toFixed(2),
     hashText(input.text),
   ].join(':')
+}
+
+function createMessageCacheKey(input: {
+  threadId?: string
+  messageId?: string | null
+  profile?: string
+  voice?: string
+  model?: string
+  speed?: number
+}): string | null {
+  const threadId = input.threadId?.trim()
+  const messageId = input.messageId?.trim()
+  if (!threadId || !messageId) return null
+  return [
+    'message',
+    threadId,
+    messageId,
+    input.profile ?? DEFAULT_PROFILE,
+    input.voice ?? DEFAULT_VOICE,
+    input.model ?? DEFAULT_TTS_MODEL,
+    (input.speed ?? DEFAULT_SPEED).toFixed(2),
+  ].join(':')
+}
+
+function uniqueCacheKeys(keys: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(keys.filter((key): key is string => Boolean(key))))
 }
 
 function setBoundedCacheEntry<K, V>(cache: Map<K, V>, key: K, value: V, limit: number): void {
@@ -203,6 +229,8 @@ export function useVoicePlayback() {
   let playSequence = 0
   let nativePlaybackEndTimer: ReturnType<typeof globalThis.setTimeout> | null = null
   let remoteCommandHandlePromise: ReturnType<typeof addVoicePlaybackRemoteCommandListener> | null = null
+  let persistentWaitingSessionActive = false
+  let transientWaitingSessionActive = false
 
   if (audio) {
     audio.preload = 'auto'
@@ -332,18 +360,67 @@ export function useVoicePlayback() {
     activeJob.value = null
     errorMessage.value = ''
     state.value = 'idle'
-    void endVoiceWaitingSession()
+    void endTransientWaitingSession()
     void endVoicePlaybackSession()
   }
 
-  async function playCachedBlob(cacheKey: string, messageId: string | undefined, sequence: number): Promise<boolean> {
-    const entry = cache.get(cacheKey)
-    if (!entry) return false
-    await playBlobInternal(entry.blob, cacheKey, messageId, sequence)
-    return true
+  async function setVoiceModeKeepAlive(enabled: boolean): Promise<void> {
+    if (!shouldUseNativeAudioSession()) return
+    if (enabled) {
+      if (persistentWaitingSessionActive) return
+      const result = await beginVoiceWaitingSession({ keepAlive: true })
+      if (result.ok) {
+        persistentWaitingSessionActive = true
+      } else if (!result.skipped) {
+        console.warn('Failed to start persistent iOS voice waiting session.', result)
+      }
+      return
+    }
+
+    if (!persistentWaitingSessionActive) return
+    persistentWaitingSessionActive = false
+    const result = await endVoiceWaitingSession()
+    if (!result.ok && !result.skipped) {
+      console.warn('Failed to stop persistent iOS voice waiting session.', result)
+    }
   }
 
-  async function playBlobInternal(blob: Blob, cacheKey: string | undefined, messageId: string | undefined, sequence: number): Promise<void> {
+  async function beginTransientWaitingSession(keepAlive: boolean): Promise<void> {
+    await endTransientWaitingSession()
+    const result = await beginVoiceWaitingSession({ keepAlive })
+    if (result.ok) {
+      transientWaitingSessionActive = true
+    } else if (!result.skipped) {
+      console.warn('Failed to start transient iOS voice waiting session.', result)
+    }
+  }
+
+  async function endTransientWaitingSession(): Promise<void> {
+    if (!transientWaitingSessionActive) return
+    transientWaitingSessionActive = false
+    const result = await endVoiceWaitingSession()
+    if (!result.ok && !result.skipped) {
+      console.warn('Failed to stop transient iOS voice waiting session.', result)
+    }
+  }
+
+  function cacheBlob(cacheKeys: string[], blob: Blob): void {
+    for (const key of cacheKeys) {
+      setBoundedCacheEntry(cache, key, { blob }, VOICE_CACHE_LIMIT)
+    }
+  }
+
+  async function playCachedBlob(cacheKeys: string[], messageId: string | undefined, sequence: number): Promise<boolean> {
+    for (const cacheKey of cacheKeys) {
+      const entry = cache.get(cacheKey)
+      if (!entry) continue
+      await playBlobInternal(entry.blob, cacheKeys, messageId, sequence)
+      return true
+    }
+    return false
+  }
+
+  async function playBlobInternal(blob: Blob, cacheKeys: string[], messageId: string | undefined, sequence: number): Promise<void> {
     if (!audio) {
       state.value = 'error'
       errorMessage.value = 'Audio playback is not supported in this browser.'
@@ -357,7 +434,7 @@ export function useVoicePlayback() {
     activeMessageId.value = messageId ?? ''
 
     try {
-      await endVoiceWaitingSession()
+      await endTransientWaitingSession()
       if (shouldUseNativeAudioSession()) {
         const nativeResult = await playVoiceAudioBase64({
           base64: await blobToBase64(blob),
@@ -369,9 +446,7 @@ export function useVoicePlayback() {
           throw new Error(nativeResult.error || nativeResult.warning || 'Native iOS audio playback failed.')
         }
         if (!isCurrent(sequence)) return
-        if (cacheKey) {
-          setBoundedCacheEntry(cache, cacheKey, { blob }, VOICE_CACHE_LIMIT)
-        }
+        cacheBlob(cacheKeys, blob)
         state.value = 'playing'
         scheduleNativePlaybackEnd(nativeResult.duration, sequence)
         return
@@ -387,9 +462,7 @@ export function useVoicePlayback() {
         await playAudioSource(dataUrl)
       }
       if (!isCurrent(sequence)) return
-      if (cacheKey) {
-        setBoundedCacheEntry(cache, cacheKey, { blob }, VOICE_CACHE_LIMIT)
-      }
+      cacheBlob(cacheKeys, blob)
       state.value = 'playing'
     } catch (error) {
       if (!isCurrent(sequence)) return
@@ -432,7 +505,7 @@ export function useVoicePlayback() {
     state.value = 'creating_job'
 
     try {
-      await beginVoiceWaitingSession({ keepAlive: input.autoplay ?? true })
+      await beginTransientWaitingSession(input.autoplay ?? true)
       const job = await createVoiceJob({
         threadId: input.threadId,
         text: input.text,
@@ -450,16 +523,27 @@ export function useVoicePlayback() {
       if (!readyJob || !isCurrent(sequence)) return null
 
       state.value = 'fetching_audio'
-      const cacheKey = `job:${readyJob.id}`
-      const cached = await playCachedBlob(cacheKey, readyJob.messageId ?? input.messageId, sequence)
+      const messageId = readyJob.messageId ?? input.messageId
+      const cacheKeys = uniqueCacheKeys([
+        createMessageCacheKey({
+          threadId: readyJob.threadId || input.threadId,
+          messageId,
+          profile: readyJob.profile ?? input.profile,
+          speed: readyJob.speed ?? input.speed,
+          voice: readyJob.voice ?? input.voice,
+          model: readyJob.model ?? input.model,
+        }),
+        `job:${readyJob.id}`,
+      ])
+      const cached = await playCachedBlob(cacheKeys, messageId, sequence)
       if (cached || !isCurrent(sequence)) return readyJob
 
       const blob = await fetchVoiceJobAudio(readyJob.id, controller.signal)
       if (!isCurrent(sequence)) return readyJob
-      await playBlobInternal(blob, cacheKey, readyJob.messageId ?? input.messageId, sequence)
+      await playBlobInternal(blob, cacheKeys, messageId, sequence)
       return readyJob
     } catch (error) {
-      void endVoiceWaitingSession()
+      void endTransientWaitingSession()
       void endVoicePlaybackSession()
       if (!isCurrent(sequence) || isAbortError(error)) return null
       state.value = 'error'
@@ -477,12 +561,15 @@ export function useVoicePlayback() {
     }
 
     const { controller, sequence } = startOperation()
-    const cacheKey = input.cacheKey ?? createSpeechCacheKey(input)
+    const cacheKeys = uniqueCacheKeys([
+      createMessageCacheKey(input),
+      input.cacheKey ?? createSpeechCacheKey(input),
+    ])
     activeMessageId.value = input.messageId ?? ''
     state.value = 'synthesizing'
 
     try {
-      const cached = await playCachedBlob(cacheKey, input.messageId, sequence)
+      const cached = await playCachedBlob(cacheKeys, input.messageId, sequence)
       if (cached || !isCurrent(sequence)) return
 
       const blob = await createVoiceSpeech({
@@ -496,7 +583,7 @@ export function useVoicePlayback() {
         responseFormat: 'mp3',
       }, controller.signal)
       if (!isCurrent(sequence)) return
-      await playBlobInternal(blob, cacheKey, input.messageId, sequence)
+      await playBlobInternal(blob, cacheKeys, input.messageId, sequence)
     } catch (error) {
       if (!isCurrent(sequence) || isAbortError(error)) return
       state.value = 'error'
@@ -514,7 +601,7 @@ export function useVoicePlayback() {
 
     const { sequence } = startOperation()
     state.value = 'fetching_audio'
-    await playBlobInternal(input.blob, input.cacheKey, input.messageId, sequence)
+    await playBlobInternal(input.blob, uniqueCacheKeys([input.cacheKey]), input.messageId, sequence)
   }
 
   async function pause(): Promise<void> {
@@ -586,6 +673,9 @@ export function useVoicePlayback() {
 
   onBeforeUnmount(stop)
   onBeforeUnmount(() => {
+    void setVoiceModeKeepAlive(false)
+  })
+  onBeforeUnmount(() => {
     void remoteCommandHandlePromise?.then((handle) => handle.remove()).catch(() => undefined)
   })
 
@@ -599,6 +689,7 @@ export function useVoicePlayback() {
     canPause,
     canResume,
     unlockAudio,
+    setVoiceModeKeepAlive,
     playJob,
     playSpeech,
     playBlob,

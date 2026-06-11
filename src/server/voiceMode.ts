@@ -124,6 +124,12 @@ type VoiceSummaryResult = {
   source: 'model' | 'local' | 'local_fallback'
 }
 
+type LatestAssistantAnswer = {
+  text: string
+  messageId?: string
+  turnId?: string
+}
+
 type SpeechAudio = {
   contentType: string
   body: Buffer
@@ -527,10 +533,12 @@ function normalizeVoiceJobRequest(body: Record<string, unknown> | null): Normali
   const autoplay = body?.autoplay === false ? false : true
   const telegramFallback = body?.telegramFallback === true
   const boundedSourceText = sourceText ? truncateText(sourceText, SOURCE_TEXT_MAX_CHARS) : undefined
-  const hash = boundedSourceText ? hashVoiceText(boundedSourceText) : 'latest'
+  const sourceFingerprint = boundedSourceText
+    ? hashVoiceText(boundedSourceText)
+    : (turnId || messageId || `latest:${randomUUID()}`)
   const fingerprint = [
     threadId || 'direct',
-    turnId || messageId || hash,
+    sourceFingerprint,
     profile,
     voice,
     model,
@@ -830,20 +838,31 @@ function isThreadInProgress(payload: unknown): boolean {
   return lastTurn?.status === 'inProgress' || thread?.inProgress === true || thread?.status === 'inProgress'
 }
 
-export function extractLatestAssistantText(payload: unknown): string {
+function extractLatestAssistantAnswer(payload: unknown): LatestAssistantAnswer | null {
   const turns = readThreadTurns(payload)
   for (let turnIndex = turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
     const turn = asRecord(turns[turnIndex])
     if (turn?.status === 'inProgress') continue
+    const turnId = readNonEmptyString(turn?.id) || undefined
     const items = Array.isArray(turn?.items) ? turn.items : []
     for (let itemIndex = items.length - 1; itemIndex >= 0; itemIndex -= 1) {
       const item = asRecord(items[itemIndex])
       if (item?.type !== 'agentMessage') continue
       const text = readNonEmptyString(item.text)
-      if (text) return text
+      if (text) {
+        return {
+          text,
+          turnId,
+          messageId: readNonEmptyString(item.id) || readNonEmptyString(item.messageId) || undefined,
+        }
+      }
     }
   }
-  return ''
+  return null
+}
+
+export function extractLatestAssistantText(payload: unknown): string {
+  return extractLatestAssistantAnswer(payload)?.text ?? ''
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -854,14 +873,17 @@ async function waitForAssistantAnswer(
   appServer: RpcExecutor,
   threadId: string,
   options: { pollIntervalMs: number; timeoutMs: number },
-): Promise<string> {
+): Promise<LatestAssistantAnswer> {
   const startedAt = Date.now()
 
   while (Date.now() - startedAt <= options.timeoutMs) {
     const payload = await appServer.rpc('thread/read', { threadId, includeTurns: true })
-    const assistantText = extractLatestAssistantText(payload)
-    if (assistantText && !isThreadInProgress(payload)) {
-      return truncateText(assistantText, SOURCE_TEXT_MAX_CHARS)
+    const assistantAnswer = extractLatestAssistantAnswer(payload)
+    if (assistantAnswer && !isThreadInProgress(payload)) {
+      return {
+        ...assistantAnswer,
+        text: truncateText(assistantAnswer.text, SOURCE_TEXT_MAX_CHARS),
+      }
     }
     await sleep(options.pollIntervalMs)
   }
@@ -975,9 +997,14 @@ async function runVoiceJob(
         throw new VoiceClientError('Voice job requires a threadId when text is not provided.', 400, false)
       }
       jobStore.update(jobId, { status: 'waiting_for_answer' })
-      sourceText = await waitForAssistantAnswer(options.appServer, request.threadId, {
+      const assistantAnswer = await waitForAssistantAnswer(options.appServer, request.threadId, {
         pollIntervalMs: options.pollIntervalMs,
         timeoutMs: options.waitTimeoutMs,
+      })
+      sourceText = assistantAnswer.text
+      jobStore.update(jobId, {
+        messageId: request.messageId ?? assistantAnswer.messageId,
+        turnId: request.turnId ?? assistantAnswer.turnId,
       })
     }
 
