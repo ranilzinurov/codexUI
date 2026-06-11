@@ -7874,3 +7874,34 @@ Native iOS remote backend login and voice requests no longer misclassify HTML sh
 #### Rollback/Cleanup
 - Clear `Remote backend` in settings to return to same-origin mode.
 - Stop temporary test/build processes after validation.
+
+---
+
+### Native iOS Audio Session Plugin Registration
+
+#### Feature/Change Name
+Native iOS app explicitly registers `CodexAudioSessionPlugin` before the WebView loads so assistant voice playback can use the compiled Swift audio session bridge.
+
+#### Prerequisites/Setup
+1. Use the iOS build root with dependencies installed.
+2. Connect and unlock the physical iPhone.
+3. Configure `Remote backend` to `https://codex-ui.todo-tg-app.ru` and sign in.
+4. Open a thread that has a completed assistant response.
+
+#### Steps
+1. Run `xcodebuild -workspace ios/App/App.xcworkspace -scheme App -configuration Debug -destination 'id=<device-id>' build`.
+2. Install and launch the app on the physical iPhone.
+3. In light theme, open the thread feature menu and tap `Test voice`.
+4. Confirm the app either plays the short generated phrase or shows a backend/TTS error; it must not show `"CodexAudioSession" plugin is not implemented on ios`.
+5. Tap `Play latest` on a completed assistant response and confirm the same behavior.
+6. Switch to dark theme and repeat steps 3-5.
+
+#### Expected Results
+- `CodexAudioSessionPlugin` is registered through the custom Capacitor bridge controller before app JavaScript calls `registerPlugin('CodexAudioSession')`.
+- Successful `/codex-api/voice/speech` and `/codex-api/voice/jobs/<id>/audio` responses with `audio/mpeg` are passed to native `playVoiceAudioBase64`.
+- Voice playback failures now come from real audio/session/backend state, not from a missing Capacitor plugin header.
+- Light and dark themes keep the visible voice status readable.
+
+#### Rollback/Cleanup
+- Revert the custom bridge controller in `ios/App/App/AppDelegate.swift` if the native plugin is later packaged as a normal Capacitor plugin and appears in `packageClassList`.
+- Stop temporary build/test processes after validation.
