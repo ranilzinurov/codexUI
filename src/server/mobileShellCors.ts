@@ -9,7 +9,7 @@ function isLoopbackHostname(hostname: string): boolean {
   return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1' || normalized === '[::1]'
 }
 
-function isAllowedMobileShellOrigin(origin: string): boolean {
+export function isAllowedMobileShellOrigin(origin: string): boolean {
   try {
     const parsed = new URL(origin)
     if (ALLOWED_NATIVE_ORIGIN_PROTOCOLS.has(parsed.protocol)) {
@@ -22,7 +22,7 @@ function isAllowedMobileShellOrigin(origin: string): boolean {
 }
 
 function isCorsBackendPath(path: string): boolean {
-  return path === '/codex-api' || path.startsWith('/codex-api/') || path.startsWith('/codex-local-')
+  return path === '/auth/login' || path === '/codex-api' || path.startsWith('/codex-api/') || path.startsWith('/codex-local-')
 }
 
 function applyMobileShellCors(origin: string, path: string, res: Pick<ServerResponse, 'setHeader'>): boolean {

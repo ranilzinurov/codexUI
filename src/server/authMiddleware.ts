@@ -4,6 +4,7 @@ import type { IncomingMessage } from 'node:http'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { RequestHandler, Request, Response, NextFunction } from 'express'
+import { isAllowedMobileShellOrigin } from './mobileShellCors.js'
 
 const TOKEN_COOKIE = 'portal_session'
 const SESSION_TTL_SECONDS = 365 * 24 * 60 * 60
@@ -230,12 +231,18 @@ function isSecureProxyRequest(req: Request): boolean {
   return false
 }
 
+function shouldUseCrossSiteSessionCookie(req: Request): boolean {
+  const origin = req.get('Origin')?.trim() ?? ''
+  return isSecureProxyRequest(req) && isAllowedMobileShellOrigin(origin)
+}
+
 function buildSessionCookie(req: Request, token: string, expiresAtMs: number): string {
+  const useCrossSiteCookie = shouldUseCrossSiteSessionCookie(req)
   return TOKEN_COOKIE
     + '=' + token
     + '; Path=/'
     + '; HttpOnly'
-    + '; SameSite=Strict'
+    + '; SameSite=' + (useCrossSiteCookie ? 'None' : 'Strict')
     + '; Max-Age=' + String(SESSION_TTL_SECONDS)
     + '; Expires=' + new Date(expiresAtMs).toUTCString()
     + (isSecureProxyRequest(req) ? '; Secure' : '')

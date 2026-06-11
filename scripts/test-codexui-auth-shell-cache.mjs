@@ -166,6 +166,36 @@ async function run() {
     assert(Number.isFinite(expiresAtMs), `Expected parseable Expires in Set-Cookie, got "${authCookie}"`)
     assert(remainingMs >= minRemainingMs && remainingMs <= maxRemainingMs, `Expected Expires about one year ahead, remainingMs=${String(remainingMs)} cookie="${authCookie}"`)
 
+    const nativePreflightResponse = await request('/auth/login', {
+      method: 'OPTIONS',
+      headers: {
+        Origin: 'capacitor://localhost',
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'Content-Type',
+      },
+    })
+    assert(nativePreflightResponse.status === 204, `Expected native login preflight to return 204, got HTTP ${nativePreflightResponse.status}`)
+    assert(nativePreflightResponse.headers['access-control-allow-origin'] === 'capacitor://localhost', 'Expected native login CORS origin echo')
+    assert(nativePreflightResponse.headers['access-control-allow-credentials'] === 'true', 'Expected native login CORS credentials')
+
+    const nativeAuthResponse = await request('/auth/login', {
+      method: 'POST',
+      headers: {
+        Origin: 'capacitor://localhost',
+        'Content-Type': 'application/json',
+        'X-Forwarded-Proto': 'https',
+      },
+      body: JSON.stringify({ password }),
+    })
+    const nativeSetCookieHeader = nativeAuthResponse.headers['set-cookie']
+    const nativeAuthCookie = Array.isArray(nativeSetCookieHeader) ? nativeSetCookieHeader[0] || '' : nativeSetCookieHeader || ''
+    assert(nativeAuthResponse.status === 200, `Expected successful native login, got HTTP ${nativeAuthResponse.status}`)
+    assert(nativeAuthResponse.headers['access-control-allow-origin'] === 'capacitor://localhost', 'Expected native login response CORS origin echo')
+    assert(nativeAuthResponse.headers['access-control-allow-credentials'] === 'true', 'Expected native login response CORS credentials')
+    assert(nativeAuthCookie.includes('portal_session='), 'Expected native login response to set portal_session cookie')
+    assert(nativeAuthCookie.includes('SameSite=None'), `Expected native login cookie to use SameSite=None, got "${nativeAuthCookie}"`)
+    assert(nativeAuthCookie.includes('Secure'), `Expected native login cookie to be Secure, got "${nativeAuthCookie}"`)
+
     const sessionCookie = authCookie.split(';', 1)[0] || ''
     const shellResponse = await request('/', {
       headers: {

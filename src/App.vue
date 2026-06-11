@@ -301,6 +301,31 @@
                 </div>
                 <div v-if="backendUrlError" class="sidebar-settings-telegram-error">{{ backendUrlError }}</div>
                 <p v-else class="sidebar-settings-field-help">{{ t('Leave empty for browser/PWA same-origin mode. Reload after changing to reconnect active streams.') }}</p>
+                <form
+                  v-if="hasRemoteBackendUrlDraft"
+                  class="sidebar-settings-remote-auth"
+                  @submit.prevent="loginRemoteBackendSetting"
+                >
+                  <div class="sidebar-settings-provider-info">
+                    <span class="sidebar-settings-field-label">{{ t('Remote login') }}</span>
+                    <span class="sidebar-settings-value sidebar-settings-value--truncate">{{ remoteBackendAuthStatusLabel }}</span>
+                  </div>
+                  <div class="sidebar-settings-key-group">
+                    <input
+                      v-model="remoteBackendPassword"
+                      class="sidebar-settings-key-input"
+                      type="password"
+                      autocomplete="current-password"
+                      :placeholder="t('Password')"
+                    />
+                    <button
+                      class="sidebar-settings-key-save"
+                      type="submit"
+                      :disabled="isRemoteBackendLoginDisabled"
+                    >{{ isRemoteBackendLoginBusy ? t('Signing in…') : t('Login') }}</button>
+                  </div>
+                  <div v-if="remoteBackendAuthError" class="sidebar-settings-telegram-error">{{ remoteBackendAuthError }}</div>
+                </form>
               </div>
 
               <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.browserAnnotationListen" @click="isListenSettingsOpen = !isListenSettingsOpen">
@@ -1497,8 +1522,10 @@ import type { ParsedCodexSlashCommand } from './codexSlashCommands'
 import { getFreeModeStatus, setFreeMode, setFreeModeCustomKey, setCustomProvider } from './api/codexGateway'
 import { safeLocalStorageGetItem, safeLocalStorageSetItem, subscribeMediaQueryChange } from './browserCompat'
 import { getConfiguredBackendUrl, normalizeBackendBaseUrl, resolveBackendHttpUrl, setConfiguredBackendUrl, subscribeBackendUrlChanges } from './backendUrl'
+import { loginRemoteBackend, readRemoteBackendAuthStatus } from './api/remoteBackendAuth'
 import { getPathLeafName, getPathParent, isProjectlessChatPath, normalizePathForUi } from './pathUtils.js'
 import type { GitCommitOption, ThreadTerminalQuickCommand } from './api/codexGateway'
+import type { RemoteBackendAuthStatus } from './api/remoteBackendAuth'
 import type { VoiceProfile } from './api/voiceMode'
 
 const ThreadConversation = defineAsyncComponent(() => import('./components/content/ThreadConversation.vue'))
@@ -1537,6 +1564,7 @@ const SETTINGS_HELP = {
 } as const
 
 type ChatWidthMode = 'standard' | 'wide' | 'extra-wide'
+type RemoteBackendAuthUiStatus = RemoteBackendAuthStatus | 'checking' | 'error'
 
 type TerminalHeaderQuickCommand = {
   label: string
@@ -1913,6 +1941,10 @@ const dictationLanguageOptions = computed(() => buildDictationLanguageOptions())
 const dictationLastInputLabel = ref(loadDictationLastInputLabel())
 const backendUrlDraft = ref(getConfiguredBackendUrl())
 const backendUrlError = ref('')
+const remoteBackendPassword = ref('')
+const remoteBackendAuthStatus = ref<RemoteBackendAuthUiStatus>('unknown')
+const remoteBackendAuthError = ref('')
+const isRemoteBackendLoginBusy = ref(false)
 
 const showGithubTrendingProjects = ref(loadBoolPref(GITHUB_TRENDING_PROJECTS_KEY, false))
 const githubTipsScope = ref<GithubTipsScope>('trending-daily')
@@ -2479,6 +2511,20 @@ const backendUrlStatusLabel = computed(() => {
   const normalized = normalizeBackendBaseUrl(backendUrlDraft.value).value
   return normalized ? new URL(normalized).host : t('Same origin')
 })
+const hasRemoteBackendUrlDraft = computed(() => normalizeBackendBaseUrl(backendUrlDraft.value).value.length > 0)
+const remoteBackendAuthStatusLabel = computed(() => {
+  if (!hasRemoteBackendUrlDraft.value) return t('Same origin')
+  if (remoteBackendAuthStatus.value === 'checking') return t('Checking…')
+  if (remoteBackendAuthStatus.value === 'authenticated') return t('Signed in')
+  if (remoteBackendAuthStatus.value === 'unauthenticated') return t('Login required')
+  if (remoteBackendAuthStatus.value === 'error') return t('Login check failed')
+  return t('Not checked')
+})
+const isRemoteBackendLoginDisabled = computed(() => (
+  isRemoteBackendLoginBusy.value ||
+  !hasRemoteBackendUrlDraft.value ||
+  remoteBackendPassword.value.length === 0
+))
 const terminalShortcutLabel = computed(() => {
   if (typeof navigator !== 'undefined' && /mac|iphone|ipad|ipod/i.test(navigator.platform)) {
     return '⌘J'
@@ -2549,6 +2595,12 @@ onMounted(() => {
   stopBackendUrlSubscription = subscribeBackendUrlChanges((value) => {
     backendUrlDraft.value = value
     backendUrlError.value = ''
+    remoteBackendPassword.value = ''
+    remoteBackendAuthError.value = ''
+    remoteBackendAuthStatus.value = 'unknown'
+    if (value) {
+      void refreshRemoteBackendAuthStatus()
+    }
   })
   void initialize()
   void loadHomeDirectory()
@@ -2565,6 +2617,7 @@ onMounted(() => {
   void loadFreeModeStatus()
   void refreshThreadTerminalStatus()
   void refreshTerminalQuickCommands()
+  void refreshRemoteBackendAuthStatus()
   void dictationBackgroundJobs.resumePendingJobs()
 })
 
@@ -3169,12 +3222,57 @@ function saveBackendUrlSetting(): void {
   backendUrlError.value = result.error
   if (result.error) return
   backendUrlDraft.value = result.value
+  remoteBackendAuthError.value = ''
+  remoteBackendPassword.value = ''
+  remoteBackendAuthStatus.value = result.value ? 'unknown' : 'authenticated'
+  if (result.value) {
+    void refreshRemoteBackendAuthStatus()
+  }
 }
 
 function clearBackendUrlSetting(): void {
   backendUrlDraft.value = ''
   backendUrlError.value = ''
+  remoteBackendPassword.value = ''
+  remoteBackendAuthError.value = ''
+  remoteBackendAuthStatus.value = 'unknown'
   void setConfiguredBackendUrl('')
+}
+
+async function refreshRemoteBackendAuthStatus(): Promise<void> {
+  if (!hasRemoteBackendUrlDraft.value) {
+    remoteBackendAuthStatus.value = 'unknown'
+    remoteBackendAuthError.value = ''
+    return
+  }
+
+  remoteBackendAuthStatus.value = 'checking'
+  const status = await readRemoteBackendAuthStatus()
+  remoteBackendAuthStatus.value = status
+}
+
+async function loginRemoteBackendSetting(): Promise<void> {
+  if (isRemoteBackendLoginDisabled.value) return
+
+  isRemoteBackendLoginBusy.value = true
+  remoteBackendAuthError.value = ''
+  try {
+    await loginRemoteBackend(remoteBackendPassword.value)
+    const status = await readRemoteBackendAuthStatus()
+    if (status !== 'authenticated') {
+      throw new Error(t('Remote backend accepted the password, but the session cookie was not accepted.'))
+    }
+    remoteBackendPassword.value = ''
+    remoteBackendAuthStatus.value = 'authenticated'
+    window.setTimeout(() => {
+      window.location.reload()
+    }, 150)
+  } catch (error) {
+    remoteBackendAuthStatus.value = 'unauthenticated'
+    remoteBackendAuthError.value = error instanceof Error ? error.message : t('Remote backend login failed.')
+  } finally {
+    isRemoteBackendLoginBusy.value = false
+  }
 }
 
 function getProjectCwd(projectName: string): string {
@@ -6716,6 +6814,10 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
   @apply shrink-0 w-6 h-6 flex items-center justify-center rounded-full border border-zinc-200 text-xs text-zinc-400 transition-colors hover:text-zinc-600 hover:border-zinc-300 disabled:opacity-40;
 }
 
+.sidebar-settings-remote-auth {
+  @apply mt-2 flex flex-col gap-1.5 border-t border-zinc-100 pt-2;
+}
+
 .sidebar-settings-provider-select {
   @apply min-w-0 max-w-40 rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 outline-none transition-colors cursor-pointer;
 }
@@ -6786,6 +6888,10 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 
 :root.dark .sidebar-settings-key-clear {
   @apply border-zinc-600 text-zinc-500 hover:text-zinc-300 hover:border-zinc-500;
+}
+
+:root.dark .sidebar-settings-remote-auth {
+  @apply border-zinc-700;
 }
 
 .settings-panel-enter-active,

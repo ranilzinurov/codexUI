@@ -7646,3 +7646,41 @@ Assistant voice mode prepares a Russian spoken summary after background dictatio
 - Disable `Voice mode` in settings or the thread feature menu to stop automatic voice jobs.
 - Stop any local `4173` dev server used for testing.
 - Remove temporary server credentials from the shell if they were exported only for manual testing.
+
+---
+
+### Native iOS Remote Backend Login
+
+#### Feature/Change Name
+Native iOS shell can authenticate to a password-protected remote Codex UI backend.
+
+#### Prerequisites/Setup
+1. Run from the repository root with dependencies installed.
+2. Start or confirm the app server on `http://127.0.0.1:4173`:
+   `pnpm run dev --host 127.0.0.1 --port 4173`
+3. For device validation, build/run the Capacitor iOS app on a physical iPhone.
+4. Have a password-protected remote backend available, for example `https://codex-ui.todo-tg-app.ru`.
+
+#### Steps
+1. Run the focused frontend helper test:
+   `pnpm exec vitest run src/api/remoteBackendAuth.test.ts`
+2. Run the auth shell smoke test after a build:
+   `pnpm run build && node scripts/test-codexui-auth-shell-cache.mjs`
+3. In light theme, open sidebar settings and set `Remote backend` to the HTTPS remote server URL.
+4. Confirm the `Remote login` password field appears under the remote backend setting.
+5. Enter the backend password and press `Login`.
+6. Confirm the app reloads and the server thread list appears.
+7. Switch to dark theme and repeat steps 3-5. Confirm the remote login field, status label, and any error message remain readable with dark surfaces.
+8. On iPhone, repeat steps 3-6 in the native Capacitor app, not Safari/PWA.
+
+#### Expected Results
+- Native-origin `/auth/login` preflight requests receive credentialed CORS headers for `capacitor://localhost`.
+- Native-origin HTTPS login responses set `portal_session` with `HttpOnly`, `SameSite=None`, and `Secure`.
+- Same-origin browser login continues to use `SameSite=Strict`.
+- The app shows `Login required` when the remote backend returns 401 and `Signed in` after login succeeds.
+- After reload, `/codex-api/*` calls use the authenticated remote session and threads load from the remote server.
+- Light and dark themes both keep the remote backend URL and login controls aligned and readable.
+
+#### Rollback/Cleanup
+- Clear `Remote backend` to return to same-origin mode.
+- Stop any local `4173` dev server used for testing.

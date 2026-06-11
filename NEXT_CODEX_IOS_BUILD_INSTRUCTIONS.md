@@ -137,8 +137,10 @@ After the app opens:
    ```
 
 3. Press `Set`.
-4. Reload/restart the app so active HTTP/WebSocket connections use the remote backend.
-5. Confirm the thread list loads.
+4. In the `Remote login` field that appears under the backend URL, enter the Codex Web password for that server.
+5. Press `Login`.
+6. The app should reload automatically after successful login.
+7. Confirm the thread list loads from the remote server.
 
 ## Voice Mode Test On The Physical iPhone
 
@@ -210,9 +212,11 @@ Check on the iPhone:
 
 - Safari can open `https://codex-ui.todo-tg-app.ru`.
 - The app's `Remote backend` value includes `https://`.
+- The app's `Remote login` action succeeds after entering the Codex Web password.
 - The reverse proxy forwards `/codex-api/ws` WebSocket upgrades.
 - Cookies and CORS headers are not stripped by the proxy.
 - The server allows `capacitor://localhost` origin for credentialed requests.
+- Native login responses include `Set-Cookie: portal_session=...; SameSite=None; Secure`.
 
 ### Voice controls are missing
 

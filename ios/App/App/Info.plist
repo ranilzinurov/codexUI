@@ -33,6 +33,10 @@
 	<array>
 		<string>audio</string>
 	</array>
+	<key>WKAppBoundDomains</key>
+	<array>
+		<string>codex-ui.todo-tg-app.ru</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

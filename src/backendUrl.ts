@@ -41,6 +41,7 @@ function readRawConfiguredBackendUrl(): string {
 
 function isRoutedBackendPath(pathname: string): boolean {
   return (
+    pathname === '/auth/login' ||
     pathname === '/codex-api' ||
     pathname.startsWith('/codex-api/') ||
     pathname === '/codex-local-image' ||
