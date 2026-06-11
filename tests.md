@@ -7797,7 +7797,7 @@ Native iOS drawer/sidebar stays below the visible status bar and dictation trans
 ### Native iOS Voice Playback Status And New Thread Autoplay
 
 #### Feature/Change Name
-Native iOS voice playback surfaces TTS failures, offers a direct voice self-test, starts voice jobs after a first-message new thread send, shows the feature menu on the new-thread screen, and renders optimistic user messages before the assistant response.
+Native iOS voice playback surfaces TTS failures, starts voice jobs after a first-message new thread send, shows the feature menu on the new-thread screen, and renders optimistic user messages before the assistant response.
 
 #### Prerequisites/Setup
 1. Use the fresh iOS build root with dependencies installed.
@@ -7813,18 +7813,17 @@ Native iOS voice playback surfaces TTS failures, offers a direct voice self-test
 4. Build, install, and launch the app on the physical iPhone.
 5. In light theme, open an existing completed thread, open the header feature menu, and tap `Play latest`.
 6. Confirm either audio plays or a visible voice status/error appears above the composer.
-7. Open the header feature menu and tap `Test voice`.
-8. Confirm either the short Russian test phrase plays or the visible status explains the backend/auth/TTS failure.
-9. On a fresh iPhone Simulator without Remote login, confirm `Test voice` sends `/codex-api/voice/speech` to the configured remote backend and shows `Authentication required` instead of failing silently.
-10. Open `Start new thread`, confirm the header feature menu is present, and confirm Side/Listen are unavailable until a thread exists while Voice controls remain accessible.
-11. Record a first prompt with the mic, stop recording, and let auto-send create the new thread.
-12. Confirm the transcribed user message appears immediately in the chat before the assistant response finishes.
-13. Confirm the app starts a voice job for the newly created thread and either autoplays the assistant response or shows the voice status/error.
-14. Switch to dark theme and repeat steps 5-13.
+7. Confirm repeated `Play latest` taps either reuse cached audio or show a visible status explaining the backend/auth/TTS failure.
+8. On a fresh iPhone Simulator without Remote login, confirm `Play latest` sends `/codex-api/voice/speech` to the configured remote backend and shows `Authentication required` instead of failing silently.
+9. Open `Start new thread`, confirm the header feature menu is present, and confirm Side/Listen are unavailable until a thread exists while Voice controls remain accessible.
+10. Record a first prompt with the mic, stop recording, and let auto-send create the new thread.
+11. Confirm the transcribed user message appears immediately in the chat before the assistant response finishes.
+12. Confirm the app starts a voice job for the newly created thread and either autoplays the assistant response or shows the voice status/error.
+13. Switch to dark theme and repeat steps 5-12.
 
 #### Expected Results
 - `Play latest` no longer fails silently; blocked playback, failed TTS, waiting, summarizing, synthesizing, and fetching states are visible through composer status text.
-- `Test voice` directly exercises `/codex-api/voice/speech` with a short phrase, so remote auth/TTS/audio-output problems can be diagnosed without waiting for a thread job.
+- `Play latest` directly exercises `/codex-api/voice/speech` for a completed assistant response, so remote auth/TTS/audio-output problems are visible without waiting for a new thread job.
 - If the remote endpoint returns HTML or JSON instead of `audio/*`, the app reports the unexpected content type instead of passing the payload to iOS audio playback.
 - Successful non-JSON `/codex-api/voice/jobs` responses report their payload shape, including HTML error pages, instead of only saying `malformed JSON`.
 - First-message new-thread sends call the same voice-job flow as background dictation in existing threads when Voice mode is enabled.
@@ -7858,7 +7857,7 @@ Native iOS remote backend login and voice requests no longer misclassify HTML sh
 3. Run `pnpm run build:frontend`.
 4. Run `npx cap sync ios`.
 5. Build, install, and launch the app on the physical iPhone.
-6. In light theme, set `Remote backend` to `https://codex-ui.todo-tg-app.ru`, log in, open an existing thread, and tap `Play latest` or `Test voice`.
+6. In light theme, set `Remote backend` to `https://codex-ui.todo-tg-app.ru`, log in, open an existing thread, and tap `Play latest`.
 7. Switch to dark theme and repeat step 6.
 8. Optionally call `OPTIONS /auth/login` with `Origin: capacitor://localhost` and confirm it returns credentialed CORS headers.
 
@@ -7891,8 +7890,8 @@ Native iOS app explicitly registers `CodexAudioSessionPlugin` before the WebView
 #### Steps
 1. Run `xcodebuild -workspace ios/App/App.xcworkspace -scheme App -configuration Debug -destination 'id=<device-id>' build`.
 2. Install and launch the app on the physical iPhone.
-3. In light theme, open the thread feature menu and tap `Test voice`.
-4. Confirm the app either plays the short generated phrase or shows a backend/TTS error; it must not show `"CodexAudioSession" plugin is not implemented on ios`.
+3. In light theme, open an existing thread and tap `Play latest`.
+4. Confirm the app either plays generated speech for the latest assistant response or shows a backend/TTS error; it must not show `"CodexAudioSession" plugin is not implemented on ios`.
 5. Tap `Play latest` on a completed assistant response and confirm the same behavior.
 6. Switch to dark theme and repeat steps 3-5.
 
@@ -7924,11 +7923,11 @@ Native iOS voice playback decodes remote `audio/mpeg` responses with an explicit
 2. Run `pnpm run build:frontend`.
 3. Run `npx cap sync ios`.
 4. Build, install, and launch the app on the physical iPhone.
-5. In light theme, open the thread feature menu and tap `Test voice`.
+5. In light theme, open a completed assistant response and tap `Play latest`.
 6. Confirm the generated `audio/mpeg` phrase plays, or that any failure message includes a native phase/domain/code instead of only `OSStatus error -50`.
 7. Tap `Play latest` on a completed assistant response and confirm the same behavior.
 8. Switch to dark theme and repeat steps 5-7.
-9. Optional: play another app's audio in the background and repeat `Test voice` to confirm the voice playback session still starts.
+9. Optional: play another app's audio in the background and repeat `Play latest` to confirm the voice playback session still starts.
 
 #### Expected Results
 - The iOS bridge receives `contentType: audio/mpeg` for native voice playback.
@@ -7976,4 +7975,43 @@ Remote iOS app shows child projects under a configured workspace container root 
 #### Rollback/Cleanup
 - Clear `Remote backend` in settings to return to same-origin mode.
 - Restart the backend only if you need to clear the in-memory speech cache immediately.
+- Stop temporary build/test processes after validation.
+
+---
+
+### Mobile iOS Voice Toolbar And Conversational Voice Summaries
+
+#### Feature/Change Name
+Native iOS threads use a compact mobile voice toolbar above the composer, default Voice Mode to off for old installs, and summarize answers in a friendlier spoken style without mandatory risk callouts.
+
+#### Prerequisites/Setup
+1. Use the iOS build root with dependencies installed.
+2. Connect and unlock the physical iPhone.
+3. Configure `Remote backend` to `https://codex-ui.todo-tg-app.ru` and sign in.
+4. Open an existing thread with at least one completed assistant response.
+
+#### Steps
+1. Run `pnpm exec vue-tsc --noEmit --pretty false`.
+2. Run `pnpm exec vitest run src/server/voiceMode.test.ts src/composables/useVoicePlayback.test.ts`.
+3. Run `pnpm run build:frontend`.
+4. Run `npx cap sync ios`.
+5. Build, install, and launch the app on the physical iPhone.
+6. In light theme, open a thread on the iPhone and confirm a five-button voice toolbar appears above the composer: voice on/off, latest, `-5`, play/pause, and `+5`.
+7. Confirm the toolbar moves up with the composer when the message input grows or the virtual keyboard opens.
+8. Open the thread feature menu and confirm `Test voice` is absent on mobile; summary, speed, and Telegram fallback remain available.
+9. Tap `Latest`, pause during playback, seek back and forward by 5 seconds, and resume.
+10. Switch to dark theme and repeat steps 6-9.
+11. After a fresh install or storage reset, confirm Voice Mode starts off by default.
+
+#### Expected Results
+- Mobile iOS playback controls are not stacked inside the header feature menu.
+- The toolbar stays visually attached to the composer and does not cover the assistant response.
+- Native pause, resume, and seek buttons control the Swift `AVAudioPlayer` session.
+- `Play latest` can reuse cached speech audio instead of synthesizing a new file every time the cache entry is alive.
+- Voice summary instructions ask for a conversational Russian phone-call style and do not add risks or errors unless the source answer actually contains them.
+- Light and dark themes both keep the toolbar buttons and status text readable.
+
+#### Rollback/Cleanup
+- Clear `codex-web-local.voice-mode.enabled.v2` from WebView storage to retest the default-off migration.
+- Delete and reinstall the app if iOS appears to launch an older sideloaded build.
 - Stop temporary build/test processes after validation.

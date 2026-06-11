@@ -37,6 +37,9 @@ export type CodexAudioSessionResult = {
   error?: string
   warning?: string
   skipped?: boolean
+  duration?: number
+  currentTime?: number
+  isPlaying?: boolean
 }
 
 export type VoiceWaitingSessionOptions = {
@@ -71,6 +74,9 @@ type CodexAudioSessionPlugin = {
     duration?: number
     audioBytes?: number
   }>
+  pauseVoicePlayback: () => Promise<CodexAudioSessionResult>
+  resumeVoicePlayback: (options?: VoicePlaybackSessionOptions) => Promise<CodexAudioSessionResult>
+  seekVoicePlaybackBy: (options: { seconds: number }) => Promise<CodexAudioSessionResult>
   getAudioRouteDiagnostics: () => Promise<CodexAudioSessionResult>
   preferBuiltInMicrophone: () => Promise<CodexAudioSessionResult>
   addListener: (
@@ -137,6 +143,20 @@ export async function playVoiceAudioBase64(
   options: NativeVoiceAudioPlaybackOptions,
 ): Promise<CodexAudioSessionResult & { duration?: number; audioBytes?: number }> {
   return callNativeAudioSession('playVoiceAudioBase64', () => codexAudioSession.playVoiceAudioBase64(options))
+}
+
+export async function pauseVoicePlayback(): Promise<CodexAudioSessionResult> {
+  return callNativeAudioSession('pauseVoicePlayback', () => codexAudioSession.pauseVoicePlayback())
+}
+
+export async function resumeVoicePlayback(
+  options: VoicePlaybackSessionOptions = {},
+): Promise<CodexAudioSessionResult> {
+  return callNativeAudioSession('resumeVoicePlayback', () => codexAudioSession.resumeVoicePlayback(options))
+}
+
+export async function seekVoicePlaybackBy(seconds: number): Promise<CodexAudioSessionResult> {
+  return callNativeAudioSession('seekVoicePlaybackBy', () => codexAudioSession.seekVoicePlaybackBy({ seconds }))
 }
 
 export async function getAudioRouteDiagnostics(): Promise<CodexAudioSessionResult> {

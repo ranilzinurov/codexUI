@@ -768,67 +768,59 @@
                   <span v-if="browserAnnotationFeatureMenuStatus" class="content-header-feature-menu-status">{{ browserAnnotationFeatureMenuStatus }}</span>
                 </button>
                 <template v-if="isNativeIosVoiceModeAvailable">
-                  <button
-                    class="content-header-feature-menu-item"
-                    :class="{ 'is-active': isVoiceModeEnabled }"
-                    type="button"
-                    role="menuitem"
-                    @click="onToggleVoiceModeFromFeatureMenu"
-                  >
-                    <IconTablerPlayerPlayFilled class="content-header-feature-menu-icon" />
-                    <span class="content-header-feature-menu-text">{{ voiceFeatureMenuLabel }}</span>
-                    <span v-if="voiceFeatureMenuStatus" class="content-header-feature-menu-status">{{ voiceFeatureMenuStatus }}</span>
-                  </button>
-                  <button
-                    class="content-header-feature-menu-item"
-                    type="button"
-                    role="menuitem"
-                    :disabled="!canPlayLatestVoiceMessage"
-                    @click="onPlayLatestVoiceFromFeatureMenu"
-                  >
-                    <IconTablerPlayerPlayFilled class="content-header-feature-menu-icon" />
-                    <span class="content-header-feature-menu-text">{{ t('Play latest') }}</span>
-                  </button>
-                  <button
-                    class="content-header-feature-menu-item"
-                    type="button"
-                    role="menuitem"
-                    :disabled="voicePlayback.isBusy.value"
-                    @click="onPlayVoiceTestFromFeatureMenu"
-                  >
-                    <IconTablerPlayerPlayFilled class="content-header-feature-menu-icon" />
-                    <span class="content-header-feature-menu-text">{{ t('Test voice') }}</span>
-                  </button>
-                  <button
-                    v-if="voicePlayback.canPause.value"
-                    class="content-header-feature-menu-item"
-                    type="button"
-                    role="menuitem"
-                    @click="onPauseVoiceFromFeatureMenu"
-                  >
-                    <IconTablerPlayerPauseFilled class="content-header-feature-menu-icon" />
-                    <span class="content-header-feature-menu-text">{{ t('Pause') }}</span>
-                  </button>
-                  <button
-                    v-else-if="voicePlayback.canResume.value"
-                    class="content-header-feature-menu-item"
-                    type="button"
-                    role="menuitem"
-                    @click="onResumeVoiceFromFeatureMenu"
-                  >
-                    <IconTablerPlayerPlayFilled class="content-header-feature-menu-icon" />
-                    <span class="content-header-feature-menu-text">{{ t('Resume') }}</span>
-                  </button>
-                  <button
-                    class="content-header-feature-menu-item"
-                    type="button"
-                    role="menuitem"
-                    :disabled="voicePlayback.state.value === 'idle'"
-                    @click="onStopVoiceFromFeatureMenu"
-                  >
-                    <IconTablerPlayerStopFilled class="content-header-feature-menu-icon" />
-                    <span class="content-header-feature-menu-text">{{ t('Stop voice') }}</span>
-                  </button>
+                  <template v-if="!canShowMobileVoiceToolbar">
+                    <button
+                      class="content-header-feature-menu-item"
+                      :class="{ 'is-active': isVoiceModeEnabled }"
+                      type="button"
+                      role="menuitem"
+                      @click="onToggleVoiceModeFromFeatureMenu"
+                    >
+                      <IconTablerPlayerPlayFilled class="content-header-feature-menu-icon" />
+                      <span class="content-header-feature-menu-text">{{ voiceFeatureMenuLabel }}</span>
+                      <span v-if="voiceFeatureMenuStatus" class="content-header-feature-menu-status">{{ voiceFeatureMenuStatus }}</span>
+                    </button>
+                    <button
+                      class="content-header-feature-menu-item"
+                      type="button"
+                      role="menuitem"
+                      :disabled="!canPlayLatestVoiceMessage"
+                      @click="onPlayLatestVoiceFromFeatureMenu"
+                    >
+                      <IconTablerPlayerPlayFilled class="content-header-feature-menu-icon" />
+                      <span class="content-header-feature-menu-text">{{ t('Play latest') }}</span>
+                    </button>
+                    <button
+                      v-if="voicePlayback.canPause.value"
+                      class="content-header-feature-menu-item"
+                      type="button"
+                      role="menuitem"
+                      @click="onPauseVoiceFromFeatureMenu"
+                    >
+                      <IconTablerPlayerPauseFilled class="content-header-feature-menu-icon" />
+                      <span class="content-header-feature-menu-text">{{ t('Pause') }}</span>
+                    </button>
+                    <button
+                      v-else-if="voicePlayback.canResume.value"
+                      class="content-header-feature-menu-item"
+                      type="button"
+                      role="menuitem"
+                      @click="onResumeVoiceFromFeatureMenu"
+                    >
+                      <IconTablerPlayerPlayFilled class="content-header-feature-menu-icon" />
+                      <span class="content-header-feature-menu-text">{{ t('Resume') }}</span>
+                    </button>
+                    <button
+                      class="content-header-feature-menu-item"
+                      type="button"
+                      role="menuitem"
+                      :disabled="voicePlayback.state.value === 'idle'"
+                      @click="onStopVoiceFromFeatureMenu"
+                    >
+                      <IconTablerPlayerStopFilled class="content-header-feature-menu-icon" />
+                      <span class="content-header-feature-menu-text">{{ t('Stop voice') }}</span>
+                    </button>
+                  </template>
                   <button
                     class="content-header-feature-menu-item"
                     type="button"
@@ -1332,44 +1324,105 @@
                     @hide="onHideSelectedThreadTerminal"
                     @terminal-focus-change="onTerminalFocusChange"
                   />
-                  <ThreadPendingRequestPanel
-                    v-if="selectedThreadPendingRequest"
-                    :request="selectedThreadPendingRequest"
-                    :request-count="selectedThreadServerRequests.length"
-                    :has-queue-above="selectedThreadQueuedMessages.length > 0"
-                    @respond-server-request="onRespondServerRequest"
-                  />
-                  <ThreadComposer
-                    v-else
-                    ref="threadComposerRef"
-                    :active-thread-id="composerThreadContextId"
-                    :cwd="composerCwd"
-                    :collaboration-modes="availableCollaborationModes"
-                    :selected-collaboration-mode="selectedCollaborationMode"
-                    :models="availableModelIds"
-                    :selected-model="composerSelectedModelId"
-                    :selected-reasoning-effort="selectedReasoningEffort"
-                    :selected-speed-mode="selectedSpeedMode"
-                    :is-updating-speed-mode="isUpdatingSpeedMode"
-                    :skills="installedSkills"
-                    :thread-token-usage="selectedThreadTokenUsage"
-                    :codex-quota="codexQuota"
-                    :live-overlay="liveOverlay"
-                    :is-turn-in-progress="isSelectedThreadInProgress"
-                    :is-stop-pending="isSelectedThreadInterruptPending"
-                    :is-interrupting-turn="isInterruptingTurn"
-                    :has-queue-above="selectedThreadQueuedMessages.length > 0"
-                    :send-with-enter="sendWithEnter" :in-progress-submit-mode="inProgressSendMode"
-                    :dictation-click-to-toggle="dictationClickToToggle" :dictation-auto-send="dictationAutoSend"
-                    :dictation-language="dictationLanguage"
-                    :dictation-background-transcription="true"
-                    :dictation-status-message="activeComposerStatusMessage"
-                    @update:selected-collaboration-mode="onSelectCollaborationMode"
-                    @submit="onSubmitThreadMessage" @dictation-recording-ready="onDictationRecordingReady" @slash-command="onSlashCommand" @update:selected-model="onSelectModel"
-                    @update:selected-reasoning-effort="onSelectReasoningEffort"
-                    @update:selected-speed-mode="onSelectSpeedMode"
-                    @dictation-input-updated="onDictationInputUpdated"
-                    @interrupt="onInterruptTurn" />
+                  <template v-if="selectedThreadPendingRequest">
+                    <ThreadPendingRequestPanel
+                      :request="selectedThreadPendingRequest"
+                      :request-count="selectedThreadServerRequests.length"
+                      :has-queue-above="selectedThreadQueuedMessages.length > 0"
+                      @respond-server-request="onRespondServerRequest"
+                    />
+                  </template>
+                  <template v-else>
+                    <div
+                      v-if="canShowMobileVoiceToolbar"
+                      class="mobile-voice-toolbar"
+                      role="group"
+                      :aria-label="t('Voice controls')"
+                    >
+                      <button
+                        class="mobile-voice-toolbar-button"
+                        :class="{ 'is-active': isVoiceModeEnabled }"
+                        type="button"
+                        :aria-pressed="isVoiceModeEnabled"
+                        @click="onToggleVoiceModeFromMobileToolbar"
+                      >
+                        <IconTablerPlayerPlayFilled class="mobile-voice-toolbar-icon" />
+                        <span class="mobile-voice-toolbar-text">{{ isVoiceModeEnabled ? t('On') : t('Off') }}</span>
+                      </button>
+                      <button
+                        class="mobile-voice-toolbar-button"
+                        type="button"
+                        :disabled="!canPlayLatestVoiceMessage"
+                        @click="onPlayLatestVoiceFromMobileToolbar"
+                      >
+                        <span class="mobile-voice-toolbar-text">{{ t('Latest') }}</span>
+                      </button>
+                      <button
+                        class="mobile-voice-toolbar-button is-compact"
+                        type="button"
+                        :disabled="!canSeekVoicePlayback"
+                        :aria-label="t('Rewind 5 seconds')"
+                        @click="onSeekVoicePlayback(-5)"
+                      >
+                        <span class="mobile-voice-toolbar-text">-5</span>
+                      </button>
+                      <button
+                        class="mobile-voice-toolbar-button is-primary"
+                        type="button"
+                        :disabled="!canToggleVoicePlayback"
+                        :aria-label="mobileVoicePlaybackLabel"
+                        @click="onToggleVoicePlaybackFromMobileToolbar"
+                      >
+                        <IconTablerPlayerPauseFilled
+                          v-if="voicePlayback.canPause.value"
+                          class="mobile-voice-toolbar-icon"
+                        />
+                        <IconTablerPlayerPlayFilled
+                          v-else
+                          class="mobile-voice-toolbar-icon"
+                        />
+                      </button>
+                      <button
+                        class="mobile-voice-toolbar-button is-compact"
+                        type="button"
+                        :disabled="!canSeekVoicePlayback"
+                        :aria-label="t('Forward 5 seconds')"
+                        @click="onSeekVoicePlayback(5)"
+                      >
+                        <span class="mobile-voice-toolbar-text">+5</span>
+                      </button>
+                    </div>
+                    <ThreadComposer
+                      ref="threadComposerRef"
+                      :active-thread-id="composerThreadContextId"
+                      :cwd="composerCwd"
+                      :collaboration-modes="availableCollaborationModes"
+                      :selected-collaboration-mode="selectedCollaborationMode"
+                      :models="availableModelIds"
+                      :selected-model="composerSelectedModelId"
+                      :selected-reasoning-effort="selectedReasoningEffort"
+                      :selected-speed-mode="selectedSpeedMode"
+                      :is-updating-speed-mode="isUpdatingSpeedMode"
+                      :skills="installedSkills"
+                      :thread-token-usage="selectedThreadTokenUsage"
+                      :codex-quota="codexQuota"
+                      :live-overlay="liveOverlay"
+                      :is-turn-in-progress="isSelectedThreadInProgress"
+                      :is-stop-pending="isSelectedThreadInterruptPending"
+                      :is-interrupting-turn="isInterruptingTurn"
+                      :has-queue-above="selectedThreadQueuedMessages.length > 0"
+                      :send-with-enter="sendWithEnter" :in-progress-submit-mode="inProgressSendMode"
+                      :dictation-click-to-toggle="dictationClickToToggle" :dictation-auto-send="dictationAutoSend"
+                      :dictation-language="dictationLanguage"
+                      :dictation-background-transcription="true"
+                      :dictation-status-message="activeComposerStatusMessage"
+                      @update:selected-collaboration-mode="onSelectCollaborationMode"
+                      @submit="onSubmitThreadMessage" @dictation-recording-ready="onDictationRecordingReady" @slash-command="onSlashCommand" @update:selected-model="onSelectModel"
+                      @update:selected-reasoning-effort="onSelectReasoningEffort"
+                      @update:selected-speed-mode="onSelectSpeedMode"
+                      @dictation-input-updated="onDictationInputUpdated"
+                      @interrupt="onInterruptTurn" />
+                  </template>
                 </div>
               </template>
             </div>
@@ -1576,11 +1629,10 @@ const { t, uiLanguage, uiLanguageOptions, setUiLanguage } = useUiLanguage()
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'codex-web-local.sidebar-collapsed.v1'
 const ACCOUNTS_SECTION_COLLAPSED_STORAGE_KEY = 'codex-web-local.accounts-section-collapsed.v1'
 const TERMINAL_QUICK_COMMAND_STORAGE_KEY = 'codex-web-local.terminal-quick-commands.v1'
-const VOICE_MODE_ENABLED_STORAGE_KEY = 'codex-web-local.voice-mode.enabled.v1'
+const VOICE_MODE_ENABLED_STORAGE_KEY = 'codex-web-local.voice-mode.enabled.v2'
 const VOICE_MODE_PROFILE_STORAGE_KEY = 'codex-web-local.voice-mode.profile.v1'
 const VOICE_MODE_SPEED_STORAGE_KEY = 'codex-web-local.voice-mode.speed.v1'
 const VOICE_MODE_TELEGRAM_FALLBACK_STORAGE_KEY = 'codex-web-local.voice-mode.telegram-fallback.v1'
-const VOICE_TEST_TEXT = 'Проверка голосового режима Codex UI. Если ты слышишь это сообщение, синтез и воспроизведение звука работают.'
 const TOGGLE_TERMINAL_COMMAND_VALUE = '__toggle_terminal__'
 const worktreeName = import.meta.env.VITE_WORKTREE_NAME ?? 'unknown'
 const appVersion = import.meta.env.VITE_APP_VERSION ?? 'unknown'
@@ -2245,6 +2297,24 @@ const canPlayLatestVoiceMessage = computed(() => (
   isNativeIosVoiceModeAvailable &&
   Boolean(latestAssistantVoiceMessage.value) &&
   !voicePlayback.isBusy.value
+))
+const canShowMobileVoiceToolbar = computed(() => (
+  isNativeIosVoiceModeAvailable &&
+  isMobile.value &&
+  route.name === 'thread' &&
+  selectedThreadId.value.length > 0
+))
+const canSeekVoicePlayback = computed(() => (
+  voicePlayback.state.value === 'playing' ||
+  voicePlayback.state.value === 'paused' ||
+  voicePlayback.state.value === 'blocked'
+))
+const canToggleVoicePlayback = computed(() => (
+  voicePlayback.canPause.value ||
+  voicePlayback.canResume.value
+))
+const mobileVoicePlaybackLabel = computed(() => (
+  voicePlayback.canPause.value ? t('Pause voice') : t('Play voice')
 ))
 const voiceModeProfileLabel = computed(() => {
   if (voiceModeProfile.value === 'economy') return t('Short')
@@ -3561,11 +3631,18 @@ function onToggleVoiceModeFromFeatureMenu(): void {
   toggleVoiceMode()
 }
 
-async function onPlayLatestVoiceFromFeatureMenu(): Promise<void> {
+function onToggleVoiceModeFromMobileToolbar(): void {
+  if (!isNativeIosVoiceModeAvailable) return
+  toggleVoiceMode()
+}
+
+async function playLatestVoiceMessage(options: { closeFeatureMenu: boolean }): Promise<void> {
   if (!isNativeIosVoiceModeAvailable) return
   const message = latestAssistantVoiceMessage.value
   if (!message || voicePlayback.isBusy.value) return
-  isThreadFeatureMenuOpen.value = false
+  if (options.closeFeatureMenu) {
+    isThreadFeatureMenuOpen.value = false
+  }
   await voicePlayback.unlockAudio()
   await voicePlayback.playSpeech({
     text: message.text,
@@ -3577,25 +3654,17 @@ async function onPlayLatestVoiceFromFeatureMenu(): Promise<void> {
   })
 }
 
-async function onPlayVoiceTestFromFeatureMenu(): Promise<void> {
-  if (!isNativeIosVoiceModeAvailable) return
-  if (voicePlayback.isBusy.value) return
-  isThreadFeatureMenuOpen.value = false
-  await voicePlayback.unlockAudio()
-  await voicePlayback.playSpeech({
-    text: VOICE_TEST_TEXT,
-    threadId: selectedThreadId.value || undefined,
-    messageId: 'voice-test',
-    profile: voiceModeProfile.value,
-    speed: voiceModeSpeed.value,
-    voice: 'nova',
-    cacheKey: `voice-test:${voiceModeProfile.value}:${voiceModeSpeed.value.toFixed(2)}`,
-  })
+async function onPlayLatestVoiceFromFeatureMenu(): Promise<void> {
+  await playLatestVoiceMessage({ closeFeatureMenu: true })
 }
 
-function onPauseVoiceFromFeatureMenu(): void {
+async function onPlayLatestVoiceFromMobileToolbar(): Promise<void> {
+  await playLatestVoiceMessage({ closeFeatureMenu: false })
+}
+
+async function onPauseVoiceFromFeatureMenu(): Promise<void> {
   if (!isNativeIosVoiceModeAvailable) return
-  voicePlayback.pause()
+  await voicePlayback.pause()
 }
 
 function onStopVoiceFromFeatureMenu(): void {
@@ -3607,6 +3676,23 @@ async function onResumeVoiceFromFeatureMenu(): Promise<void> {
   if (!isNativeIosVoiceModeAvailable) return
   await voicePlayback.unlockAudio()
   await voicePlayback.resume()
+}
+
+async function onToggleVoicePlaybackFromMobileToolbar(): Promise<void> {
+  if (!isNativeIosVoiceModeAvailable) return
+  if (voicePlayback.canPause.value) {
+    await voicePlayback.pause()
+    return
+  }
+  if (voicePlayback.canResume.value) {
+    await voicePlayback.unlockAudio()
+    await voicePlayback.resume()
+  }
+}
+
+async function onSeekVoicePlayback(seconds: number): Promise<void> {
+  if (!isNativeIosVoiceModeAvailable) return
+  await voicePlayback.seekBy(seconds)
 }
 
 function startVoiceAnswerForThread(threadId: string): void {
@@ -6046,6 +6132,54 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 
 .composer-with-queue {
   @apply w-full shrink-0 px-2 sm:px-6 flex flex-col gap-2;
+}
+
+.mobile-voice-toolbar {
+  @apply hidden;
+}
+
+.mobile-voice-toolbar-button {
+  @apply inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-2xl border border-zinc-200 bg-white px-2 text-sm font-semibold text-zinc-700 shadow-sm shadow-zinc-900/5 outline-none transition hover:bg-zinc-50 focus:ring-2 focus:ring-zinc-300 disabled:cursor-not-allowed disabled:opacity-45;
+  min-height: 3.25rem;
+}
+
+.mobile-voice-toolbar-button.is-active {
+  @apply border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700;
+}
+
+.mobile-voice-toolbar-button.is-primary {
+  @apply border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800;
+  flex: 1.05;
+}
+
+.mobile-voice-toolbar-button.is-compact {
+  flex: 0.8;
+}
+
+.mobile-voice-toolbar-icon {
+  @apply h-4 w-4 shrink-0;
+}
+
+.mobile-voice-toolbar-text {
+  @apply min-w-0 truncate;
+}
+
+:global(:root.dark) .mobile-voice-toolbar-button {
+  @apply border-zinc-700 bg-zinc-900 text-zinc-100 shadow-black/20 hover:bg-zinc-800 focus:ring-zinc-600;
+}
+
+:global(:root.dark) .mobile-voice-toolbar-button.is-active {
+  @apply border-emerald-500 bg-emerald-500 text-zinc-950 hover:bg-emerald-400;
+}
+
+:global(:root.dark) .mobile-voice-toolbar-button.is-primary {
+  @apply border-zinc-100 bg-zinc-100 text-zinc-950 hover:bg-white;
+}
+
+@media (max-width: 640px) {
+  .content-root.is-native-ios-shell .mobile-voice-toolbar {
+    @apply flex w-full items-stretch gap-1.5;
+  }
 }
 
 .composer-runtime-error {

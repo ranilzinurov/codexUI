@@ -16,7 +16,10 @@ import {
   beginVoiceWaitingSession,
   endVoicePlaybackSession,
   endVoiceWaitingSession,
+  pauseVoicePlayback,
   playVoiceAudioBase64,
+  resumeVoicePlayback,
+  seekVoicePlaybackBy,
   shouldUseNativeAudioSession,
 } from '../native/codexAudioSession'
 
@@ -213,7 +216,7 @@ export function useVoicePlayback() {
     if (remoteCommandHandlePromise) return
     remoteCommandHandlePromise = addVoicePlaybackRemoteCommandListener((event) => {
       if (event.command === 'pause') {
-        pause()
+        void pause()
         return
       }
       if (event.command === 'play') {
@@ -222,7 +225,7 @@ export function useVoicePlayback() {
       }
       if (event.command === 'toggle') {
         if (state.value === 'playing') {
-          pause()
+          void pause()
         } else {
           void resume()
         }
@@ -301,6 +304,18 @@ export function useVoicePlayback() {
       activeMessageId.value = ''
       void endVoicePlaybackSession()
     }, Math.ceil(durationSeconds * 1000) + 250)
+  }
+
+  function scheduleNativePlaybackEndFromResult(
+    result: { duration?: number; currentTime?: number },
+    sequence: number,
+  ): void {
+    const duration = typeof result.duration === 'number' ? result.duration : undefined
+    const currentTime = typeof result.currentTime === 'number' ? result.currentTime : 0
+    const remainingSeconds = typeof duration === 'number'
+      ? Math.max(0, duration - currentTime)
+      : undefined
+    scheduleNativePlaybackEnd(remainingSeconds, sequence)
   }
 
   function stop(): void {
@@ -497,8 +512,19 @@ export function useVoicePlayback() {
     await playBlobInternal(input.blob, input.cacheKey, input.messageId, sequence)
   }
 
-  function pause(): void {
+  async function pause(): Promise<void> {
     if (!audio || state.value !== 'playing') return
+    if (shouldUseNativeAudioSession()) {
+      clearNativePlaybackEndTimer()
+      const result = await pauseVoicePlayback()
+      if (!result.ok) {
+        state.value = 'blocked'
+        errorMessage.value = result.error || result.warning || 'Voice playback could not be paused.'
+        return
+      }
+      state.value = 'paused'
+      return
+    }
     audio.pause()
     state.value = 'paused'
   }
@@ -507,6 +533,15 @@ export function useVoicePlayback() {
     if (!audio || (state.value !== 'paused' && state.value !== 'blocked')) return
     errorMessage.value = ''
     try {
+      if (shouldUseNativeAudioSession()) {
+        const result = await resumeVoicePlayback({ duckOthers: true, mixWithOthers: true })
+        if (!result.ok) {
+          throw new Error(result.error || result.warning || 'Native iOS audio playback did not resume.')
+        }
+        state.value = 'playing'
+        scheduleNativePlaybackEndFromResult(result, playSequence)
+        return
+      }
       await beginVoicePlaybackSession({ duckOthers: true, mixWithOthers: true })
       await audio.play()
       state.value = 'playing'
@@ -514,6 +549,30 @@ export function useVoicePlayback() {
       state.value = 'blocked'
       errorMessage.value = error instanceof Error ? error.message : 'Audio playback is blocked until you tap resume.'
     }
+  }
+
+  async function seekBy(seconds: number): Promise<void> {
+    if (!audio || state.value === 'idle') return
+    const deltaSeconds = Number.isFinite(seconds) ? seconds : 0
+    if (deltaSeconds === 0) return
+
+    if (shouldUseNativeAudioSession()) {
+      const result = await seekVoicePlaybackBy(deltaSeconds)
+      if (!result.ok) {
+        state.value = 'blocked'
+        errorMessage.value = result.error || result.warning || 'Voice playback could not seek.'
+        return
+      }
+      if (state.value === 'playing') {
+        scheduleNativePlaybackEndFromResult(result, playSequence)
+      }
+      return
+    }
+
+    audio.currentTime = Math.min(
+      Math.max(0, audio.currentTime + deltaSeconds),
+      Number.isFinite(audio.duration) ? audio.duration : Number.MAX_SAFE_INTEGER,
+    )
   }
 
   function clearCache(): void {
@@ -540,6 +599,7 @@ export function useVoicePlayback() {
     playBlob,
     pause,
     resume,
+    seekBy,
     stop,
     clearCache,
   }

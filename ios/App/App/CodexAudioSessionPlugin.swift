@@ -134,6 +134,64 @@ public class CodexAudioSessionPlugin: CAPPlugin {
         }
     }
 
+    @objc func pauseVoicePlayback(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let player = self.voiceAudioPlayer else {
+                call.resolve(self.result(ok: false, phase: "voice_native_pause", warning: "No active voice audio player."))
+                return
+            }
+            player.pause()
+            self.updateNowPlayingInfo(playbackRate: 0.0)
+            var payload = self.result(ok: true, phase: "voice_native_pause")
+            payload["duration"] = player.duration
+            payload["currentTime"] = player.currentTime
+            payload["isPlaying"] = player.isPlaying
+            call.resolve(payload)
+        }
+    }
+
+    @objc func resumeVoicePlayback(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let player = self.voiceAudioPlayer else {
+                call.resolve(self.result(ok: false, phase: "voice_native_resume", warning: "No active voice audio player."))
+                return
+            }
+            let sessionResult = self.configurePlaybackSession(duckOthers: call.getBool("duckOthers") ?? true, mixWithOthers: call.getBool("mixWithOthers") ?? true)
+            guard sessionResult["ok"] as? Bool == true else {
+                call.resolve(sessionResult)
+                return
+            }
+            if player.play() {
+                self.updateNowPlayingInfo(playbackRate: 1.0)
+                var payload = self.result(ok: true, phase: "voice_native_resume")
+                payload["duration"] = player.duration
+                payload["currentTime"] = player.currentTime
+                payload["isPlaying"] = player.isPlaying
+                call.resolve(payload)
+                return
+            }
+            call.resolve(self.result(ok: false, phase: "voice_native_resume", warning: "Native voice audio player did not resume."))
+        }
+    }
+
+    @objc func seekVoicePlaybackBy(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let player = self.voiceAudioPlayer else {
+                call.resolve(self.result(ok: false, phase: "voice_native_seek", warning: "No active voice audio player."))
+                return
+            }
+            let deltaSeconds = call.getDouble("seconds") ?? 0
+            let nextTime = min(max(0, player.currentTime + deltaSeconds), max(0, player.duration))
+            player.currentTime = nextTime
+            self.updateNowPlayingInfo(playbackRate: player.isPlaying ? 1.0 : 0.0)
+            var payload = self.result(ok: true, phase: "voice_native_seek")
+            payload["duration"] = player.duration
+            payload["currentTime"] = player.currentTime
+            payload["isPlaying"] = player.isPlaying
+            call.resolve(payload)
+        }
+    }
+
     private func configureDictationSession() -> [String: Any] {
         let session = AVAudioSession.sharedInstance()
         do {
@@ -435,7 +493,9 @@ public class CodexAudioSessionPlugin: CAPPlugin {
         MPNowPlayingInfoCenter.default().nowPlayingInfo = [
             MPMediaItemPropertyTitle: "Codex Voice",
             MPMediaItemPropertyArtist: "Codex UI",
-            MPNowPlayingInfoPropertyPlaybackRate: playbackRate
+            MPNowPlayingInfoPropertyPlaybackRate: playbackRate,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: voiceAudioPlayer?.currentTime ?? 0,
+            MPMediaItemPropertyPlaybackDuration: voiceAudioPlayer?.duration ?? 0
         ]
     }
 

@@ -367,7 +367,8 @@ describe('voice mode server routes', () => {
     const summaryBody = JSON.parse(String(calls[0]?.[1].body)) as Record<string, unknown>
     expect(summaryBody.model).toBe('gpt-5.5')
     expect(summaryBody.reasoning).toEqual({ effort: 'medium' })
-    expect(String(summaryBody.instructions)).toContain('Всегда отвечай по-русски')
+    expect(String(summaryBody.instructions)).toContain('как друг по телефону')
+    expect(String(summaryBody.instructions)).toContain('Не добавляй обязательный блок про риски')
     const ttsBody = JSON.parse(String(calls[1]?.[1].body)) as Record<string, unknown>
     expect(ttsBody.input).toBe('Готово: я добавил серверный режим озвучки. Код не читаю, важно проверить маршрут.')
   })
