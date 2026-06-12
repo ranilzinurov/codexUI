@@ -8144,3 +8144,45 @@ Native iOS Voice mode starts a fresh voice job for each follow-up message and wa
 - Disable `Voice mode` in the kebab menu or Settings to stop automatic voice jobs.
 - Delete and reinstall the app if iOS appears to launch an older sideloaded build.
 - Stop temporary test/build/profiling processes after validation.
+
+---
+
+### GitHub Actions CI And Hetzner Deploy
+
+#### Feature/Change Name
+GitHub-backed source of truth with reproducible CI, locked pnpm dependencies, and a manual Hetzner deploy workflow that deploys an exact commit SHA.
+
+#### Prerequisites/Setup
+1. Use the git checkout at `/Users/rnl1/prog/codexUI`.
+2. Confirm GitHub repository access for `ranilzinurov/codexUI`.
+3. Confirm `pnpm-lock.yaml` is committed and `package.json` has `packageManager`.
+4. For deploy verification, configure GitHub secrets from `docs/deploy/github-actions-hetzner.md`.
+5. For hosted UI verification, confirm the Hetzner nginx static directory is writable by the deploy user.
+
+#### Steps
+1. Run local dependency verification:
+   `pnpm install --frozen-lockfile`
+2. Run local unit tests:
+   `pnpm run test:unit`
+3. Run the build and smoke test gate:
+   `pnpm run test`
+4. Push the branch and confirm the `CI` workflow starts for the pushed branch or PR.
+5. Confirm the `CI` workflow uses Node 22, pnpm 10.6.2, `pnpm install --frozen-lockfile`, `pnpm run test:unit`, and `pnpm run test`.
+6. Run the `Deploy Hetzner` workflow manually against the target ref.
+7. Confirm only one deploy can run at a time through the `deploy-hetzner` concurrency group.
+8. Confirm the server deploy log fetches `origin/main`, validates the requested SHA, installs with `--frozen-lockfile`, rebuilds, syncs `dist/` to `/var/www/codexui-dist`, restarts `codexui`, and passes the healthcheck.
+9. Open the hosted app in light theme and confirm the main thread UI loads current assets without missing hashed CSS/JS.
+10. Switch to dark theme and confirm the main thread UI loads current assets without light-theme surfaces caused by stale static files.
+
+#### Expected Results
+- CI fails if dependencies drift from `pnpm-lock.yaml`.
+- `.env` is no longer tracked; `.env.example` documents safe non-secret keys.
+- The deploy workflow requires a dedicated SSH key and deploy secrets before it can reach Hetzner.
+- The deploy key can only trigger `scripts/deploy-from-github.sh` when installed with the forced-command `authorized_keys` entry.
+- Hetzner deploys the exact selected commit, not an implicit or stale branch state.
+- Hosted light and dark themes both load current frontend assets after the static sync.
+
+#### Rollback/Cleanup
+- Re-run `Deploy Hetzner` with a previous known-good commit SHA or manually run `scripts/deploy-from-github.sh <sha>` on Hetzner.
+- Remove or rotate the dedicated GitHub Actions deploy key if it is exposed.
+- Stop any temporary local dev servers or SSH test sessions after verification.

@@ -1,0 +1,20 @@
+[Unit]
+Description=codexUI hosted service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rnl1
+Group=rnl1
+WorkingDirectory=/home/rnl1/prog/codexUI
+EnvironmentFile=-/home/rnl1/.config/codexui/env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node /home/rnl1/prog/codexUI/dist-cli/index.js /home/rnl1/prog --no-tunnel --no-open --no-login --host 127.0.0.1 --port 5900 --sandbox-mode danger-full-access --approval-policy never
+Restart=always
+RestartSec=2
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

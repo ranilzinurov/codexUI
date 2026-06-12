@@ -16,16 +16,27 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Verify Android project is present
+        run: |
+          test -d android || {
+            echo "::error::The android/ project is not present in this branch."
+            exit 1
+          }
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.6.2
+          run_install: false
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "21"
-
-      - name: Install pnpm
-        run: corepack enable && corepack prepare pnpm@latest --activate
+          node-version: "22"
+          cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Build Vue frontend
         run: pnpm run build:frontend

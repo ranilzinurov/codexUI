@@ -7,6 +7,7 @@ REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 SERVICE_NAME="${CODEXUI_SERVICE_NAME:-codexui}"
 ENV_FILE="${CODEXUI_ENV_FILE:-${HOME}/.config/codexui/env}"
 DEFAULT_PORT="${CODEXUI_PORT:-5900}"
+STATIC_DIST_DIR="${CODEXUI_STATIC_DIST_DIR:-}"
 DETACH_LOG="${CODEXUI_RESTART_LOG:-/tmp/codexui-restart.log}"
 RUN_AS_USER="${CODEXUI_RUN_AS_USER:-${SUDO_USER:-${USER}}}"
 RUN_AS_GROUP="${CODEXUI_RUN_AS_GROUP:-$(id -gn "${RUN_AS_USER}")}"
@@ -174,6 +175,12 @@ follow_restart_progress() {
             *"build finished"*)
               progress "Сборка завершена ✅"
               ;;
+            *"static dist sync started"*)
+              progress "Статику обновляем ⏳"
+              ;;
+            *"static dist sync finished"*)
+              progress "Статика обновлена ✅"
+              ;;
             *"terminating unmanaged codexui process"*|*"force killing unmanaged codexui process"*)
               progress "Старые процессы останавливаем ⏳"
               ;;
@@ -253,6 +260,36 @@ run_build() {
   pnpm run build
 }
 
+sync_static_dist() {
+  [[ -n "${STATIC_DIST_DIR}" ]] || return 0
+
+  local source_dir="${REPO_ROOT}/dist/"
+  local target_dir="${STATIC_DIST_DIR%/}/"
+  [[ -d "${source_dir}" ]] || {
+    log "dist directory does not exist after build: ${source_dir}"
+    return 1
+  }
+  command -v rsync >/dev/null 2>&1 || {
+    log "cannot sync static dist: rsync is not installed"
+    return 1
+  }
+
+  log "static dist sync started target=${target_dir}"
+  if [[ "$(id -u)" -eq 0 ]]; then
+    mkdir -p "${target_dir}"
+    rsync -a --delete "${source_dir}" "${target_dir}"
+  elif [[ -d "${target_dir}" && -w "${target_dir}" ]]; then
+    rsync -a --delete "${source_dir}" "${target_dir}"
+  elif sudo -n true >/dev/null 2>&1; then
+    sudo mkdir -p "${target_dir}"
+    sudo rsync -a --delete "${source_dir}" "${target_dir}"
+  else
+    log "cannot sync static dist to ${target_dir}: no write access and sudo is not passwordless"
+    return 1
+  fi
+  log "static dist sync finished"
+}
+
 run_worker() {
   mkdir -p "$(dirname -- "${DETACH_LOG}")"
   exec >>"${DETACH_LOG}" 2>&1
@@ -272,6 +309,7 @@ run_worker() {
   run_build
 
   log "build finished"
+  sync_static_dist
   stop_unmanaged_codexui_instances "${port}"
   log "restarting ${SERVICE_NAME}"
   restart_service
@@ -303,6 +341,7 @@ schedule_worker() {
     -E CODEXUI_SERVICE_NAME="${SERVICE_NAME}" \
     -E CODEXUI_ENV_FILE="${ENV_FILE}" \
     -E CODEXUI_PORT="${DEFAULT_PORT}" \
+    -E CODEXUI_STATIC_DIST_DIR="${STATIC_DIST_DIR}" \
     -E CODEXUI_RESTART_LOG="${DETACH_LOG}" \
     -E CODEXUI_RUN_AS_USER="${RUN_AS_USER}" \
     -E CODEXUI_RUN_AS_GROUP="${RUN_AS_GROUP}" \
@@ -324,7 +363,7 @@ schedule_worker() {
   fi
 
   log "passwordless sudo for systemd-run is not available; using same-cgroup fallback worker"
-  nohup /bin/bash "${SCRIPT_PATH}" --worker >/dev/null 2>&1 &
+  CODEXUI_STATIC_DIST_DIR="${STATIC_DIST_DIR}" nohup /bin/bash "${SCRIPT_PATH}" --worker >/dev/null 2>&1 &
   echo "Scheduled fallback restart worker."
   echo "  service: ${SERVICE_NAME}"
   echo "  log: ${DETACH_LOG}"

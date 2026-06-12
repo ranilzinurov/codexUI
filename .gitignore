@@ -7,10 +7,11 @@ test-results/
 *.tsbuildinfo
 
 package-lock.json
-pnpm-lock.yaml
+.cert/
+.cursor/
 .codex
 .codex/
+.env
 .env.local
 
-package.json
 .omx/
