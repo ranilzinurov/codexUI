@@ -281,8 +281,8 @@ sync_static_dist() {
   elif [[ -d "${target_dir}" && -w "${target_dir}" ]]; then
     rsync -a --delete "${source_dir}" "${target_dir}"
   elif sudo -n true >/dev/null 2>&1; then
-    sudo mkdir -p "${target_dir}"
-    sudo rsync -a --delete "${source_dir}" "${target_dir}"
+    sudo -n mkdir -p "${target_dir}"
+    sudo -n rsync -a --delete "${source_dir}" "${target_dir}"
   else
     log "cannot sync static dist to ${target_dir}: no write access and sudo is not passwordless"
     return 1
