@@ -43,6 +43,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install Playwright WebKit
+        run: pnpm exec playwright install --with-deps webkit
+
       - name: Run unit tests
         run: pnpm run test:unit
 
