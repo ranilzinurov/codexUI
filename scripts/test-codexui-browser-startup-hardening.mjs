@@ -23,6 +23,10 @@ async function waitForServer(maxAttempts = 60) {
   throw new Error('Server did not become ready in time')
 }
 
+async function waitForAppShell(page) {
+  await page.waitForSelector('.desktop-layout', { timeout: 15000 })
+}
+
 async function cleanup(server) {
   if (server.killed) return
   server.kill('SIGTERM')
@@ -108,10 +112,7 @@ async function run() {
     })
 
     await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
-    await page.waitForFunction(() => {
-      const text = document.body.innerText
-      return text.includes('Threads') || text.includes('Projects')
-    }, undefined, { timeout: 15000 })
+    await waitForAppShell(page)
 
     const initialStartupState = await page.evaluate(() => ({
       hash: window.location.hash,
@@ -135,10 +136,7 @@ async function run() {
     pageErrors.length = 0
 
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 })
-    await page.waitForFunction(() => {
-      const text = document.body.innerText
-      return text.includes('Threads') || text.includes('Projects')
-    }, undefined, { timeout: 15000 })
+    await waitForAppShell(page)
     await page.waitForTimeout(1000)
 
     const workerState = await page.evaluate(async () => {
