@@ -1,4 +1,7 @@
 import { EventEmitter } from 'node:events'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 type FakeProcess = {
@@ -19,11 +22,13 @@ const spawnMock = vi.fn()
 const ENV_KEYS_TO_RESTORE = [
   'CODEXUI_APPROVAL_POLICY',
   'CODEXUI_SANDBOX_MODE',
+  'CODEX_HOME',
   'OPENCODE_ZEN_API_KEY',
 ] as const
 
 type EnvKey = typeof ENV_KEYS_TO_RESTORE[number]
 const originalEnv = new Map<EnvKey, string | undefined>()
+let tempCodexHome: string | null = null
 
 vi.mock('node:child_process', () => ({
   spawn: spawnMock,
@@ -93,6 +98,13 @@ describe('codex app-server stdio fallback', () => {
       originalEnv.set(key, process.env[key])
       delete process.env[key]
     }
+    tempCodexHome = mkdtempSync(join(tmpdir(), 'codexui-stdio-fallback-'))
+    writeFileSync(join(tempCodexHome, 'auth.json'), JSON.stringify({
+      tokens: {
+        access_token: 'test-access-token',
+      },
+    }))
+    process.env.CODEX_HOME = tempCodexHome
   })
 
   afterEach(() => {
@@ -106,6 +118,10 @@ describe('codex app-server stdio fallback', () => {
       }
     }
     originalEnv.clear()
+    if (tempCodexHome) {
+      rmSync(tempCodexHome, { recursive: true, force: true })
+      tempCodexHome = null
+    }
   })
 
   it('starts new CLI with --stdio and retries old CLI without dropping config args', async () => {
