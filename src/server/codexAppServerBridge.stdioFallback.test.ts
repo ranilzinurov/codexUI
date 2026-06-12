@@ -16,6 +16,14 @@ type FakeProcess = {
 
 const spawned: FakeProcess[] = []
 const spawnMock = vi.fn()
+const ENV_KEYS_TO_RESTORE = [
+  'CODEXUI_APPROVAL_POLICY',
+  'CODEXUI_SANDBOX_MODE',
+  'OPENCODE_ZEN_API_KEY',
+] as const
+
+type EnvKey = typeof ENV_KEYS_TO_RESTORE[number]
+const originalEnv = new Map<EnvKey, string | undefined>()
 
 vi.mock('node:child_process', () => ({
   spawn: spawnMock,
@@ -80,12 +88,24 @@ describe('codex app-server stdio fallback', () => {
       spawned.push(fake)
       return fake
     })
+    originalEnv.clear()
+    for (const key of ENV_KEYS_TO_RESTORE) {
+      originalEnv.set(key, process.env[key])
+      delete process.env[key]
+    }
   })
 
   afterEach(() => {
     vi.restoreAllMocks()
-    delete process.env.CODEXUI_SANDBOX_MODE
-    delete process.env.CODEXUI_APPROVAL_POLICY
+    for (const key of ENV_KEYS_TO_RESTORE) {
+      const value = originalEnv.get(key)
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+    originalEnv.clear()
   })
 
   it('starts new CLI with --stdio and retries old CLI without dropping config args', async () => {
