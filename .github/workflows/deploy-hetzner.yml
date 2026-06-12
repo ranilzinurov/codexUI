@@ -1,0 +1,96 @@
+name: Deploy Hetzner
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to deploy
+        required: true
+        default: main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-hetzner
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Verify and deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.6.2
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run unit tests
+        run: pnpm run test:unit
+
+      - name: Run build and smoke tests
+        run: pnpm run test
+
+      - name: Resolve target commit
+        id: target
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Validate deploy secrets
+        env:
+          CODEXUI_HETZNER_HOST: ${{ secrets.CODEXUI_HETZNER_HOST }}
+          CODEXUI_HETZNER_USER: ${{ secrets.CODEXUI_HETZNER_USER }}
+          CODEXUI_HETZNER_SSH_KEY: ${{ secrets.CODEXUI_HETZNER_SSH_KEY }}
+        run: |
+          : "${CODEXUI_HETZNER_HOST:?missing CODEXUI_HETZNER_HOST secret}"
+          : "${CODEXUI_HETZNER_USER:?missing CODEXUI_HETZNER_USER secret}"
+          : "${CODEXUI_HETZNER_SSH_KEY:?missing CODEXUI_HETZNER_SSH_KEY secret}"
+
+      - name: Install SSH key
+        env:
+          CODEXUI_HETZNER_SSH_KEY: ${{ secrets.CODEXUI_HETZNER_SSH_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$CODEXUI_HETZNER_SSH_KEY" > ~/.ssh/codexui_hetzner_deploy
+          chmod 600 ~/.ssh/codexui_hetzner_deploy
+
+      - name: Trust Hetzner host key
+        env:
+          CODEXUI_HETZNER_HOST: ${{ secrets.CODEXUI_HETZNER_HOST }}
+          CODEXUI_HETZNER_PORT: ${{ secrets.CODEXUI_HETZNER_PORT }}
+        run: |
+          port="${CODEXUI_HETZNER_PORT:-22}"
+          ssh-keyscan -p "$port" -H "$CODEXUI_HETZNER_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy selected commit
+        env:
+          CODEXUI_HETZNER_HOST: ${{ secrets.CODEXUI_HETZNER_HOST }}
+          CODEXUI_HETZNER_USER: ${{ secrets.CODEXUI_HETZNER_USER }}
+          CODEXUI_HETZNER_PORT: ${{ secrets.CODEXUI_HETZNER_PORT }}
+          TARGET_SHA: ${{ steps.target.outputs.sha }}
+        run: |
+          port="${CODEXUI_HETZNER_PORT:-22}"
+          ssh \
+            -i ~/.ssh/codexui_hetzner_deploy \
+            -p "$port" \
+            -o IdentitiesOnly=yes \
+            -o BatchMode=yes \
+            "$CODEXUI_HETZNER_USER@$CODEXUI_HETZNER_HOST" \
+            "$TARGET_SHA"
