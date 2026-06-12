@@ -40,6 +40,8 @@ sudo chmod -R u+rwX,g+rX /var/www/codexui-dist
 3. The workflow installs dependencies with `pnpm install --frozen-lockfile`,
    runs tests, and SSHes to Hetzner with the selected commit SHA.
 4. Hetzner runs `scripts/deploy-from-github.sh`, fetches `origin/main`, resets
-   to the requested SHA, installs locked dependencies, rebuilds, syncs `dist/`
-   when `CODEXUI_STATIC_DIST_DIR` is set, restarts `codexui`, and waits for a
+   to the requested SHA, installs locked dependencies with
+   `pnpm install --frozen-lockfile --force` so native optional packages such as
+   Tailwind Oxide are present, rebuilds, syncs `dist/` when
+   `CODEXUI_STATIC_DIST_DIR` is set, restarts `codexui`, and waits for a
    healthcheck.

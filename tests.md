@@ -8170,7 +8170,7 @@ GitHub-backed source of truth with reproducible CI, locked pnpm dependencies, an
 5. Confirm the `CI` workflow uses Node 22, pnpm 10.6.2, `pnpm install --frozen-lockfile`, `pnpm run test:unit`, and `pnpm run test`.
 6. Run the `Deploy Hetzner` workflow manually against the target ref.
 7. Confirm only one deploy can run at a time through the `deploy-hetzner` concurrency group.
-8. Confirm the server deploy log fetches `origin/main`, validates the requested SHA, installs with `--frozen-lockfile`, rebuilds, syncs `dist/` to `/var/www/codexui-dist`, restarts `codexui`, and passes the healthcheck.
+8. Confirm the server deploy log fetches `origin/main`, validates the requested SHA, installs with `--frozen-lockfile --force`, rebuilds, syncs `dist/` to `/var/www/codexui-dist`, restarts `codexui`, and passes the healthcheck.
 9. Open the hosted app in light theme and confirm the main thread UI loads current assets without missing hashed CSS/JS.
 10. Switch to dark theme and confirm the main thread UI loads current assets without light-theme surfaces caused by stale static files.
 

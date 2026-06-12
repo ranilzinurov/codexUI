@@ -51,7 +51,7 @@ if command -v corepack >/dev/null 2>&1; then
 fi
 
 log "installing dependencies"
-pnpm install --frozen-lockfile
+pnpm install --frozen-lockfile --force
 
 log "rebuilding and restarting service"
 CODEXUI_STATIC_DIST_DIR="${STATIC_DIST_DIR}" bash "${RESTART_SCRIPT}" --follow
