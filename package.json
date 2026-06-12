@@ -76,14 +76,14 @@
     "ws": "^8.18.3"
   },
   "optionalDependencies": {
-    "@tailwindcss/oxide-linux-x64-gnu": "4.3.0",
+    "@tailwindcss/oxide-linux-x64-gnu": "4.2.4",
     "node-pty": "^1.1.0"
   },
   "devDependencies": {
     "@capacitor/cli": "^6.2.1",
     "@capacitor/ios": "^6.2.1",
     "@playwright/test": "^1.59.1",
-    "@tailwindcss/vite": "^4.1.18",
+    "@tailwindcss/vite": "4.2.4",
     "@types/express": "^5.0.0",
     "@types/node": "^22.13.2",
     "@types/qrcode-terminal": "^0.12.2",
@@ -91,7 +91,7 @@
     "@vitejs/plugin-vue": "^5.2.1",
     "@vitest/coverage-istanbul": "4.1.6",
     "playwright": "^1.59.1",
-    "tailwindcss": "^4.1.18",
+    "tailwindcss": "4.2.4",
     "tsup": "^8.4.0",
     "typescript": "^5.7.3",
     "vite": "^6.1.0",
