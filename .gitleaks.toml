@@ -1,0 +1,4 @@
+title = "Codex UI secret scan"
+
+[extend]
+useDefault = true

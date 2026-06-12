@@ -8186,3 +8186,37 @@ GitHub-backed source of truth with reproducible CI, locked pnpm dependencies, an
 - Re-run `Deploy Hetzner` with a previous known-good commit SHA or manually run `scripts/deploy-from-github.sh <sha>` on Hetzner.
 - Remove or rotate the dedicated GitHub Actions deploy key if it is exposed.
 - Stop any temporary local dev servers or SSH test sessions after verification.
+
+---
+
+### Gitleaks Secret Scanning In CI
+
+#### Feature/Change Name
+Gitleaks-backed secret scanning for local checks and GitHub Actions.
+
+#### Prerequisites/Setup
+1. Use the git checkout at `/Users/rnl1/prog/codexUI`.
+2. Install Gitleaks locally with `scripts/install-gitleaks.sh` or through a package manager.
+3. Confirm `.gitleaks.toml` and `.gitleaks-baseline.json` are present.
+4. Confirm Firebase GitHub OAuth frontend settings are supplied through ignored `VITE_FIREBASE_*` environment values when that login path is needed.
+
+#### Steps
+1. Run the local secret scan:
+   `pnpm run secret:scan`
+2. Confirm the scan uses `.gitleaks-baseline.json` and reports no new findings.
+3. Push a branch or `main` commit and confirm the `CI` workflow runs `Install Gitleaks` and `Run secret scan` before dependency installation.
+4. Manually run `Deploy Hetzner` and confirm it runs the same secret scan before SSH deploy steps.
+5. Manually run `Build APK` when an Android project is present and confirm it runs the same secret scan before dependency installation.
+6. In light theme, open the app and confirm the normal UI still loads after the Firebase config moved out of source.
+7. In dark theme, repeat the same load check and confirm no theme regressions.
+
+#### Expected Results
+- `pnpm run secret:scan` exits successfully with the existing redacted baseline.
+- New committed secrets produce new fingerprints and fail the scan.
+- GitHub Actions use Node 24-compatible checkout/setup actions and do not show the old Node 20 action deprecation warning.
+- The Firebase web config is no longer hardcoded in `src/`, and `.env.example` documents the required `VITE_FIREBASE_*` keys.
+
+#### Rollback/Cleanup
+- Remove generated reports under `output/gitleaks/` after manual scans if desired.
+- If a baseline entry is confirmed to be a real credential, rotate that credential; deleting the baseline does not remove leaked git history.
+- Stop any temporary workflow watchers or local test processes after verification.

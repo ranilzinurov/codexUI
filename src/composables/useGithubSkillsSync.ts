@@ -26,14 +26,29 @@ type UseGithubSkillsSyncOptions = {
   onPulled: () => Promise<void>
 }
 
-const firebaseConfig = {
-  apiKey: 'AIzaSyAf0CIHBZ-wEQJ8CCUUWo1Wl9P7typ_ZPI',
-  authDomain: 'gptcall-416910.firebaseapp.com',
-  projectId: 'gptcall-416910',
-  storageBucket: 'gptcall-416910.appspot.com',
-  messagingSenderId: '99275526699',
-  appId: '1:99275526699:web:3b623e1e2996108b52106e',
+type FirebaseGithubEnv = ImportMetaEnv & {
+  VITE_FIREBASE_API_KEY?: string
+  VITE_FIREBASE_AUTH_DOMAIN?: string
+  VITE_FIREBASE_PROJECT_ID?: string
+  VITE_FIREBASE_STORAGE_BUCKET?: string
+  VITE_FIREBASE_MESSAGING_SENDER_ID?: string
+  VITE_FIREBASE_APP_ID?: string
 }
+
+function readEnvString(value: string | undefined): string {
+  return value?.trim() ?? ''
+}
+
+const firebaseEnv = import.meta.env as FirebaseGithubEnv
+const firebaseConfig = {
+  apiKey: readEnvString(firebaseEnv.VITE_FIREBASE_API_KEY),
+  authDomain: readEnvString(firebaseEnv.VITE_FIREBASE_AUTH_DOMAIN),
+  projectId: readEnvString(firebaseEnv.VITE_FIREBASE_PROJECT_ID),
+  storageBucket: readEnvString(firebaseEnv.VITE_FIREBASE_STORAGE_BUCKET),
+  messagingSenderId: readEnvString(firebaseEnv.VITE_FIREBASE_MESSAGING_SENDER_ID),
+  appId: readEnvString(firebaseEnv.VITE_FIREBASE_APP_ID),
+}
+const firebaseGithubLoginConfigured = Object.values(firebaseConfig).every(Boolean)
 
 let firebaseGithubAuthLoader:
   Promise<[typeof import('firebase/app'), typeof import('firebase/auth')]> | null = null
@@ -121,6 +136,9 @@ export function useGithubSkillsSync(options: UseGithubSkillsSyncOptions) {
 
   async function startGithubFirebaseLogin(): Promise<void> {
     try {
+      if (!firebaseGithubLoginConfigured) {
+        throw new Error('Firebase GitHub login is not configured')
+      }
       const [firebaseApp, firebaseAuth] = await loadFirebaseGithubAuth()
       const { getApp, getApps, initializeApp } = firebaseApp
       const { getAuth, GithubAuthProvider, signInWithPopup } = firebaseAuth
