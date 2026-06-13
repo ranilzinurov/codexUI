@@ -4776,6 +4776,7 @@ export type StoredQueuedMessage = {
   skills: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }>
   fileAttachments: Array<{ label: string; path: string; fsPath: string }>
   collaborationMode: 'default' | 'plan'
+  reasoningEffort: ReasoningEffort | ''
 }
 
 type ThreadQueueState = Record<string, StoredQueuedMessage[]>
@@ -4833,6 +4834,7 @@ function normalizeStoredQueuedMessage(value: unknown): StoredQueuedMessage | nul
     skills: normalizeNamedPathItems(record.skills),
     fileAttachments: normalizeFileAttachments(record.fileAttachments),
     collaborationMode: record.collaborationMode === 'plan' ? 'plan' : 'default',
+    reasoningEffort: normalizeReasoningEffort(record.reasoningEffort),
   }
 }
 
@@ -4971,6 +4973,7 @@ ${escapeHeartbeatXmlText(automation.prompt)}
     skills: [],
     fileAttachments: [],
     collaborationMode: 'default',
+    reasoningEffort: '',
   }
 }
 
@@ -6696,11 +6699,12 @@ export class BackendQueueProcessor {
 
     try {
       const settings = await this.resolveCollaborationModeSettings(turn.message.collaborationMode)
+      const queuedReasoningEffort = normalizeCollaborationModeReasoningEffort(turn.message.reasoningEffort)
       params.collaborationMode = {
         mode: turn.message.collaborationMode,
         settings: {
           model: settings.model,
-          reasoning_effort: settings.reasoningEffort,
+          reasoning_effort: queuedReasoningEffort ?? settings.reasoningEffort,
           developer_instructions: null,
         },
       }

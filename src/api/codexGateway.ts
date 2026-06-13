@@ -330,6 +330,7 @@ export type StoredQueuedMessage = {
   skills: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }>
   fileAttachments: Array<{ label: string; path: string; fsPath: string }>
   collaborationMode: CollaborationModeKind
+  reasoningEffort: ReasoningEffort | ''
 }
 
 export type ThreadQueueState = Record<string, StoredQueuedMessage[]>
@@ -2832,6 +2833,7 @@ function normalizeStoredQueuedMessage(value: unknown): StoredQueuedMessage | nul
     skills,
     fileAttachments,
     collaborationMode: record.collaborationMode === 'plan' ? 'plan' : 'default',
+    reasoningEffort: normalizeReasoningEffort(record.reasoningEffort),
   }
 }
 

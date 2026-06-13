@@ -239,11 +239,13 @@ describe('dictation background jobs', () => {
     const job = await createDictationBackgroundJob(recording, {
       autoSend: false,
       draftOnly: true,
+      reasoningEffort: 'high',
     })
     const duplicate = await createDictationBackgroundJob(recording, {
       threadId: 'other-thread',
       autoSend: true,
       draftOnly: false,
+      reasoningEffort: 'xhigh',
     })
 
     expect(createDictationBackgroundJobId(recording)).toBe('dictation-job:recording-alpha')
@@ -255,6 +257,7 @@ describe('dictation background jobs', () => {
       language: 'ru',
       autoSend: false,
       draftOnly: true,
+      reasoningEffort: 'high',
       status: 'queued',
       transcript: '',
       error: '',
@@ -302,6 +305,7 @@ describe('dictation background jobs', () => {
     const storedRecord = records.get(job.id) as Record<string, unknown>
     records.set(job.id, {
       ...storedRecord,
+      reasoningEffort: 'xhigh',
       draftSnapshot: {
         text: 42,
         imageUrls: ['blob:image-ok', 7, null, ''],
@@ -319,7 +323,9 @@ describe('dictation background jobs', () => {
     })
     resetDictationBackgroundJobsForTest()
 
-    expect((await getDictationBackgroundJob(job.id))?.draftSnapshot).toEqual({
+    const normalizedJob = await getDictationBackgroundJob(job.id)
+    expect(normalizedJob?.reasoningEffort).toBe('xhigh')
+    expect(normalizedJob?.draftSnapshot).toEqual({
       text: '',
       imageUrls: ['blob:image-ok', ''],
       fileAttachments: [{
@@ -347,10 +353,13 @@ describe('dictation background jobs', () => {
     const records = getFakeJobRecords()
     const storedRecord = { ...(records.get(job.id) as Record<string, unknown>) }
     delete storedRecord.draftSnapshot
+    delete storedRecord.reasoningEffort
     records.set(job.id, storedRecord)
     resetDictationBackgroundJobsForTest()
 
-    expect((await getDictationBackgroundJob(job.id))?.draftSnapshot).toEqual({
+    const normalizedJob = await getDictationBackgroundJob(job.id)
+    expect(normalizedJob?.reasoningEffort).toBe('')
+    expect(normalizedJob?.draftSnapshot).toEqual({
       text: '',
       imageUrls: [],
       fileAttachments: [],
@@ -487,6 +496,7 @@ describe('dictation background jobs', () => {
       draftSnapshot,
       mode: 'queue',
       collaborationMode: 'plan',
+      reasoningEffort: 'xhigh',
     })
 
     await vi.waitFor(() => {
@@ -497,6 +507,7 @@ describe('dictation background jobs', () => {
         draftSnapshot,
         mode: 'queue',
         collaborationMode: 'plan',
+        reasoningEffort: 'xhigh',
       }))
     })
     expect(manager.jobs.value.find((candidate) => candidate.id === job.id)).toMatchObject({

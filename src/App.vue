@@ -4097,7 +4097,7 @@ async function syncAfterMobileResume(): Promise<void> {
   }
 }
 
-function onSubmitThreadMessage(payload: { text: string; imageUrls: string[]; fileAttachments: Array<{ label: string; path: string; fsPath: string }>; skills: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }>; mode: 'steer' | 'queue' }): void {
+function onSubmitThreadMessage(payload: { text: string; imageUrls: string[]; fileAttachments: Array<{ label: string; path: string; fsPath: string }>; skills: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }>; mode: 'steer' | 'queue'; reasoningEffort?: ReasoningEffort | '' }): void {
   const text = payload.text
   scheduleMobileConversationJumpToLatest()
   const editingState = editingQueuedMessageState.value
@@ -4109,12 +4109,12 @@ function onSubmitThreadMessage(payload: { text: string; imageUrls: string[]; fil
       : undefined
   editingQueuedMessageState.value = null
   if (isHomeRoute.value) {
-    void submitFirstMessageForNewThread(text, payload.imageUrls, payload.skills, payload.fileAttachments)
+    void submitFirstMessageForNewThread(text, payload.imageUrls, payload.skills, payload.fileAttachments, payload.reasoningEffort)
     return
   }
   const targetThreadId = selectedThreadId.value
   const voiceAfterMessageId = getLatestAssistantVoiceMessageIdForThread(targetThreadId)
-  void sendMessageToSelectedThread(text, payload.imageUrls, payload.skills, payload.mode, payload.fileAttachments, queueInsertIndex)
+  void sendMessageToSelectedThread(text, payload.imageUrls, payload.skills, payload.mode, payload.fileAttachments, queueInsertIndex, undefined, payload.reasoningEffort)
     .then(() => {
       startVoiceAnswerForThread(targetThreadId, { afterMessageId: voiceAfterMessageId })
     })
@@ -4213,6 +4213,7 @@ async function onDictationBackgroundCompleted(job: DictationBackgroundJob): Prom
   const result = await sendMessageToThread(threadId, text, {
     mode: job.mode,
     collaborationModeOverride: job.collaborationMode,
+    reasoningEffortOverride: job.reasoningEffort,
     imageUrls: [...job.draftSnapshot.imageUrls],
     fileAttachments: job.draftSnapshot.fileAttachments.map((attachment) => ({ ...attachment })),
     skills: job.draftSnapshot.skills.map((skill) => ({ ...skill })),
@@ -5850,6 +5851,7 @@ async function submitFirstMessageForNewThread(
   imageUrls: string[] = [],
   skills: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }> = [],
   fileAttachments: Array<{ label: string; path: string; fsPath: string }> = [],
+  reasoningEffort?: ReasoningEffort | '',
 ): Promise<void> {
   try {
     isCreatingHomeThread.value = true
@@ -5879,7 +5881,7 @@ async function submitFirstMessageForNewThread(
       targetCwd = directory.cwd
       newThreadCwd.value = directory.cwd
     }
-    const threadId = await sendMessageToNewThread(text, targetCwd, imageUrls, skills, fileAttachments)
+    const threadId = await sendMessageToNewThread(text, targetCwd, imageUrls, skills, fileAttachments, reasoningEffort)
     if (!threadId) return
     homeCreatedThreadIds.add(threadId)
     await router.replace({ name: 'thread', params: { threadId } })

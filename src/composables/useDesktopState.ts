@@ -1655,6 +1655,7 @@ export function useDesktopState() {
     skills: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }>
     fileAttachments: FileAttachment[]
     collaborationMode: CollaborationModeKind
+    reasoningEffort: ReasoningEffort | ''
   }
   type SendMessageResult = 'ignored' | 'answered-request' | 'queued' | 'started'
   type SendMessageToThreadOptions = {
@@ -1664,6 +1665,7 @@ export function useDesktopState() {
     queueInsertIndex?: number
     mode?: 'steer' | 'queue'
     collaborationModeOverride?: CollaborationModeKind
+    reasoningEffortOverride?: ReasoningEffort | ''
   }
   type PendingTurnRequest = {
     text: string
@@ -5120,6 +5122,7 @@ export function useDesktopState() {
           fsPath: attachment.fsPath,
         })),
         collaborationMode: message.collaborationMode,
+        reasoningEffort: message.reasoningEffort,
       }))
     }
     return next
@@ -5793,6 +5796,7 @@ export function useDesktopState() {
     fileAttachments: FileAttachment[],
     queueInsertIndex: number | undefined,
     collaborationModeOverride?: CollaborationModeKind,
+    reasoningEffortOverride?: ReasoningEffort | '',
     requirePersistence = false,
   ): Promise<void> {
     await loadPersistedQueueStateIfNeeded()
@@ -5809,6 +5813,7 @@ export function useDesktopState() {
       skills: skills.map((skill) => ({ name: skill.name, path: skill.path, kind: skill.kind === 'plugin' ? 'plugin' as const : 'skill' as const })),
       fileAttachments: fileAttachments.map((file) => ({ ...file })),
       collaborationMode: resolveSendCollaborationMode(collaborationModeOverride),
+      reasoningEffort: reasoningEffortOverride ?? selectedReasoningEffort.value,
     })
     queuedMessagesByThreadId.value = {
       ...queuedMessagesByThreadId.value,
@@ -5835,12 +5840,14 @@ export function useDesktopState() {
       surfaceGlobalError: boolean
       enableAutoScroll: boolean
       requireQueuePersistence: boolean
+      reasoningEffortOverride?: ReasoningEffort | ''
     },
   ): Promise<SendMessageResult> {
     if (isUpdatingSpeedMode.value) return 'ignored'
 
     const normalizedThreadId = threadId.trim()
     const nextText = text.trim()
+    const reasoningEffort = options.reasoningEffortOverride ?? selectedReasoningEffort.value
     if (!normalizedThreadId || (!nextText && imageUrls.length === 0 && fileAttachments.length === 0)) {
       return 'ignored'
     }
@@ -5862,6 +5869,7 @@ export function useDesktopState() {
         fileAttachments,
         queueInsertIndex,
         collaborationModeOverride,
+        reasoningEffort,
         options.requireQueuePersistence,
       )
       return 'queued'
@@ -5878,6 +5886,7 @@ export function useDesktopState() {
         skills,
         fileAttachments,
         collaborationModeOverride,
+        reasoningEffort,
       ).catch((unknownError) => {
         const errorMessage = unknownError instanceof Error ? unknownError.message : 'Unknown application error'
         setTurnErrorForThread(normalizedThreadId, errorMessage)
@@ -5901,7 +5910,7 @@ export function useDesktopState() {
         label: 'Thinking',
         details: buildPendingTurnDetails(
           readModelIdForThread(normalizedThreadId),
-          selectedReasoningEffort.value,
+          reasoningEffort,
           resolveSendCollaborationMode(collaborationModeOverride),
         ),
       },
@@ -5917,6 +5926,7 @@ export function useDesktopState() {
         skills,
         fileAttachments,
         collaborationModeOverride,
+        reasoningEffort,
       )
       return 'started'
     } catch (unknownError) {
@@ -5942,6 +5952,7 @@ export function useDesktopState() {
     fileAttachments: FileAttachment[] = [],
     queueInsertIndex?: number,
     collaborationModeOverride?: CollaborationModeKind,
+    reasoningEffortOverride?: ReasoningEffort | '',
   ): Promise<void> {
     await sendMessageToThreadInternal(
       selectedThreadId.value,
@@ -5957,6 +5968,7 @@ export function useDesktopState() {
         surfaceGlobalError: true,
         enableAutoScroll: true,
         requireQueuePersistence: false,
+        reasoningEffortOverride,
       },
     )
   }
@@ -6005,6 +6017,7 @@ export function useDesktopState() {
           surfaceGlobalError: false,
           enableAutoScroll: false,
           requireQueuePersistence: false,
+          reasoningEffortOverride: undefined,
         },
       )
       if (result === 'ignored') {
@@ -6067,6 +6080,7 @@ export function useDesktopState() {
         surfaceGlobalError: normalizedThreadId === selectedThreadId.value,
         enableAutoScroll: normalizedThreadId === selectedThreadId.value,
         requireQueuePersistence: true,
+        reasoningEffortOverride: options.reasoningEffortOverride,
       },
     )
   }
@@ -6077,6 +6091,7 @@ export function useDesktopState() {
     imageUrls: string[] = [],
     skills: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }> = [],
     fileAttachments: FileAttachment[] = [],
+    reasoningEffortOverride?: ReasoningEffort | '',
   ): Promise<string> {
     if (isUpdatingSpeedMode.value) return ''
 
@@ -6084,6 +6099,7 @@ export function useDesktopState() {
     const targetCwd = cwd.trim()
     const selectedModel = readModelIdForThread(NEW_THREAD_COLLABORATION_MODE_CONTEXT).trim()
     const selectedMode = selectedCollaborationMode.value
+    const reasoningEffort = reasoningEffortOverride ?? selectedReasoningEffort.value
     if (!nextText && imageUrls.length === 0 && fileAttachments.length === 0) return ''
 
     isSendingMessage.value = true
@@ -6124,14 +6140,14 @@ export function useDesktopState() {
           label: 'Thinking',
           details: buildPendingTurnDetails(
             readModelIdForThread(threadId),
-            selectedReasoningEffort.value,
+            reasoningEffort,
             selectedMode,
           ),
         },
       )
       setTurnErrorForThread(threadId, null)
       setThreadInProgress(threadId, true)
-      void startTurnForThread(threadId, nextText, imageUrls, skills, fileAttachments, selectedMode)
+      void startTurnForThread(threadId, nextText, imageUrls, skills, fileAttachments, selectedMode, reasoningEffort)
         .catch((unknownError) => {
           shouldAutoScrollOnNextAgentEvent = false
           setThreadInProgress(threadId, false)
@@ -6167,8 +6183,9 @@ export function useDesktopState() {
     skills: Array<{ name: string; path: string; kind?: 'skill' | 'plugin' }> = [],
     fileAttachments: FileAttachment[] = [],
     collaborationModeOverride?: CollaborationModeKind,
+    reasoningEffortOverride?: ReasoningEffort | '',
   ): Promise<void> {
-    const reasoningEffort = selectedReasoningEffort.value
+    const reasoningEffort = reasoningEffortOverride ?? selectedReasoningEffort.value
     const collaborationMode = collaborationModeOverride === 'plan' ? 'plan' : collaborationModeOverride === 'default'
       ? 'default'
       : selectedCollaborationMode.value
@@ -6794,7 +6811,7 @@ export function useDesktopState() {
     if (!msg) return
     removeQueuedMessage(messageId)
     setSelectedCollaborationMode(msg.collaborationMode)
-    void sendMessageToSelectedThread(msg.text, msg.imageUrls, msg.skills, 'steer', msg.fileAttachments)
+    void sendMessageToSelectedThread(msg.text, msg.imageUrls, msg.skills, 'steer', msg.fileAttachments, undefined, undefined, msg.reasoningEffort)
   }
 
   function primeSelectedThread(threadId: string): void {

@@ -180,6 +180,7 @@ export function buildBrowserAnnotationQueuedMessage(
       skills: [],
       fileAttachments: [],
       collaborationMode: 'default',
+      reasoningEffort: '',
     },
   }
 }

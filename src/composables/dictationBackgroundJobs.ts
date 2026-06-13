@@ -6,6 +6,7 @@ import {
   type StoredDictationRecording,
 } from './dictationTranscription'
 import type { ComposerDraftPayload } from './composerDraftStorage'
+import type { ReasoningEffort } from '../types/codex'
 import {
   beginVoiceWaitingSession,
   endVoiceWaitingSession,
@@ -31,6 +32,7 @@ export type DictationBackgroundJob = {
   draftSnapshot: DictationDraftSnapshot
   mode: 'steer' | 'queue'
   collaborationMode: 'default' | 'plan'
+  reasoningEffort: ReasoningEffort | ''
   status: DictationBackgroundJobStatus
   transcript: string
   error: string
@@ -49,6 +51,7 @@ export type CreateDictationBackgroundJobOptions = {
   draftSnapshot?: DictationDraftSnapshot
   mode?: 'steer' | 'queue'
   collaborationMode?: 'default' | 'plan'
+  reasoningEffort?: ReasoningEffort | ''
 }
 
 export type StartDictationBackgroundJobsOptions = {
@@ -70,6 +73,7 @@ export type CreateDictationBackgroundJobInput = {
   draftSnapshot?: DictationDraftSnapshot
   mode?: 'steer' | 'queue'
   collaborationMode?: 'default' | 'plan'
+  reasoningEffort?: ReasoningEffort | ''
 }
 
 export type DictationBackgroundJobManager = {
@@ -94,6 +98,13 @@ function readTrimmedString(value: unknown): string {
 
 function readDraftString(value: unknown): string {
   return typeof value === 'string' ? value : ''
+}
+
+function normalizeReasoningEffort(value: unknown): ReasoningEffort | '' {
+  const allowed: ReasoningEffort[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh']
+  return typeof value === 'string' && allowed.includes(value as ReasoningEffort)
+    ? (value as ReasoningEffort)
+    : ''
 }
 
 function nowMs(): number {
@@ -235,6 +246,7 @@ function normalizeJob(value: unknown): DictationBackgroundJob | null {
     draftSnapshot: normalizeDraftSnapshot(record.draftSnapshot),
     mode: record.mode === 'queue' ? 'queue' : 'steer',
     collaborationMode: record.collaborationMode === 'plan' ? 'plan' : 'default',
+    reasoningEffort: normalizeReasoningEffort(record.reasoningEffort),
     status: record.status,
     transcript: readTrimmedString(record.transcript),
     error: readTrimmedString(record.error),
@@ -537,6 +549,7 @@ export async function createDictationBackgroundJob(
     draftSnapshot: normalizeDraftSnapshot(options.draftSnapshot),
     mode: options.mode === 'queue' ? 'queue' : 'steer',
     collaborationMode: options.collaborationMode === 'plan' ? 'plan' : 'default',
+    reasoningEffort: normalizeReasoningEffort(options.reasoningEffort),
     status: 'queued',
     transcript: '',
     error: '',
@@ -688,6 +701,7 @@ export function useDictationBackgroundJobs(options: {
         draftSnapshot: input.draftSnapshot,
         mode: input.mode,
         collaborationMode: input.collaborationMode,
+        reasoningEffort: input.reasoningEffort,
       })
       startJobInBackground(job.id)
       return job

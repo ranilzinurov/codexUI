@@ -527,6 +527,7 @@ describe('target thread message sender', () => {
       imageUrls: ['blob:image-1'],
       fileAttachments: [{ label: 'notes.md', path: '/tmp/project/notes.md', fsPath: '/tmp/project/notes.md' }],
       skills: [{ name: 'review', path: '/tmp/project/.codex/skills/review/SKILL.md' }],
+      reasoningEffortOverride: 'xhigh',
     })
 
     expect(result).toBe('queued')
@@ -540,6 +541,7 @@ describe('target thread message sender', () => {
           fileAttachments: [{ label: 'notes.md', path: '/tmp/project/notes.md', fsPath: '/tmp/project/notes.md' }],
           skills: [{ name: 'review', path: '/tmp/project/.codex/skills/review/SKILL.md', kind: 'skill' }],
           collaborationMode: 'plan',
+          reasoningEffort: 'xhigh',
         }),
       ],
     })
@@ -561,6 +563,7 @@ describe('target thread message sender', () => {
       imageUrls: ['blob:image-1'],
       fileAttachments: [{ label: 'notes.md', path: '/tmp/project/notes.md', fsPath: '/tmp/project/notes.md' }],
       skills: [{ name: 'review', path: '/tmp/project/.codex/skills/review/SKILL.md' }],
+      reasoningEffortOverride: 'high',
     })
 
     expect(result).toBe('started')
@@ -570,6 +573,7 @@ describe('target thread message sender', () => {
     expect(call[0]).toBe('target-thread')
     expect(call[1]).toBe('background transcript')
     expect(call[2]).toEqual(['blob:image-1'])
+    expect(call[4]).toBe('high')
     expect(call[5]).toEqual([{ name: 'review', path: '/tmp/project/.codex/skills/review/SKILL.md' }])
     expect(call[6]).toEqual([{ label: 'notes.md', path: '/tmp/project/notes.md', fsPath: '/tmp/project/notes.md' }])
     expect(call[7]).toBe('plan')
@@ -619,6 +623,7 @@ describe('target thread message sender', () => {
       imageUrls: ['blob:image-1'],
       fileAttachments: [{ label: 'notes.md', path: '/tmp/project/notes.md', fsPath: '/tmp/project/notes.md' }],
       skills: [{ name: 'review', path: '/tmp/project/.codex/skills/review/SKILL.md' }],
+      reasoningEffortOverride: 'medium',
     })
 
     expect(result).toBe('started')
@@ -627,6 +632,7 @@ describe('target thread message sender', () => {
     expect(call[0]).toBe('target-thread')
     expect(call[1]).toBe('background transcript')
     expect(call[2]).toEqual(['blob:image-1'])
+    expect(call[4]).toBe('medium')
     expect(call[5]).toEqual([{ name: 'review', path: '/tmp/project/.codex/skills/review/SKILL.md' }])
     expect(call[6]).toEqual([{ label: 'notes.md', path: '/tmp/project/notes.md', fsPath: '/tmp/project/notes.md' }])
     expect(call[7]).toBe('plan')

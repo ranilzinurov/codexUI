@@ -8220,3 +8220,44 @@ Gitleaks-backed secret scanning for local checks and GitHub Actions.
 - Remove generated reports under `output/gitleaks/` after manual scans if desired.
 - If a baseline entry is confirmed to be a real credential, rotate that credential; deleting the baseline does not remove leaked git history.
 - Stop any temporary workflow watchers or local test processes after verification.
+
+---
+
+### Dictation Reasoning Effort Buttons
+
+#### Feature/Change Name
+Active dictation replaces the red stop button with `m`, `h`, and `xh` reasoning-effort send buttons.
+
+#### Prerequisites/Setup
+1. Run the app from this repository with microphone access enabled.
+2. Enable `Auto send dictation` in Settings.
+3. Prefer `Click to toggle dictation` for this manual check so the active recording controls remain visible.
+4. Open an existing thread that can start a Codex turn.
+
+#### Steps
+1. In light theme, start dictation from the thread composer.
+2. Confirm the active recording controls show cancel, waveform, timer, pause, draft insert, and a vertical `m`/`h`/`xh` button stack instead of the red stop button.
+3. Confirm the `m`/`h`/`xh` buttons use the same circular action-button background, color, size, and borderless treatment as the neighboring cancel, pause, and draft buttons.
+4. Confirm the composer input shell stays at the normal height and does not expand just because the effort buttons are visible.
+5. Speak a short unique phrase and click `m`.
+6. Confirm the recording stops, transcribes, and auto-sends the message with medium reasoning.
+7. Repeat with `h` and confirm the turn starts with high reasoning.
+8. Repeat with `xh` and confirm the turn starts with extra-high reasoning.
+9. Start dictation again, click the draft/pencil action, and confirm the transcript is inserted into the draft without auto-sending.
+10. Stop recording with one of the effort buttons while a turn is already in progress and queue mode is selected, then confirm the queued message preserves the selected effort when it later runs.
+11. Switch to dark theme and repeat steps 1-9.
+12. Stop dictation, leave voice mode, and confirm the normal model/reasoning dropdown selectors are still shown in the idle composer.
+
+#### Expected Results
+- Only active dictation shows the compact `m`, `h`, and `xh` controls.
+- The effort buttons are the same size and visual treatment as the neighboring circular dictation action buttons, with no custom outline.
+- The effort button stack does not increase the composer shell height.
+- Normal non-dictation composer selectors remain unchanged.
+- Clicking `m`, `h`, or `xh` stops recording and uses the selected reasoning effort for the transcribed auto-send.
+- Background dictation jobs and queued dictation messages keep the chosen reasoning effort across navigation and queue drain.
+- Light and dark themes both render the effort buttons with readable text and no light-theme surfaces in dark mode.
+
+#### Rollback/Cleanup
+- Turn off `Auto send dictation` or reset it to the tester's preferred setting.
+- Remove any test messages or queued turns created during verification.
+- Stop temporary dev servers or profiling runs started for this check.

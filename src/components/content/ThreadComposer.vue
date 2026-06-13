@@ -118,6 +118,7 @@
       :class="{
         'thread-composer-shell--no-top-radius': hasQueueAbove,
         'thread-composer-shell--drag-active': isDragActive,
+        'thread-composer-shell--recording': isDictationActive,
       }"
     >
       <div v-if="selectedImages.length > 0" class="thread-composer-attachments">
@@ -494,11 +495,8 @@
           </button>
 
           <button
-            v-if="isDictationSupported"
+            v-else-if="isDictationSupported"
             class="thread-composer-mic"
-            :class="{
-              'thread-composer-mic--active': isDictationActive,
-            }"
             type="button"
             :aria-label="dictationButtonLabel"
             :title="dictationButtonLabel"
@@ -508,11 +506,7 @@
             @pointerup="onDictationPressEnd"
             @pointercancel="onDictationPressEnd"
           >
-            <IconTablerPlayerStopFilled
-              v-if="isDictationActive"
-              class="thread-composer-mic-icon thread-composer-mic-icon--stop"
-            />
-            <IconTablerMicrophone v-else class="thread-composer-mic-icon" />
+            <IconTablerMicrophone class="thread-composer-mic-icon" />
           </button>
 
           <button
@@ -540,6 +534,29 @@
             <IconTablerArrowUp class="thread-composer-submit-icon" />
           </button>
         </div>
+      </div>
+
+      <div
+        v-if="isDictationActive"
+        class="thread-composer-dictation-effort"
+        role="group"
+        :aria-label="t('Send dictation with reasoning effort')"
+      >
+        <button
+          v-for="option in dictationReasoningOptions"
+          :key="option.value"
+          class="thread-composer-dictation-action thread-composer-dictation-effort-button"
+          type="button"
+          :aria-label="option.ariaLabel"
+          :title="option.title"
+          :disabled="isInteractionDisabled"
+          @click="onDictationSubmitWithReasoning(option.value)"
+          @pointerdown.stop
+          @pointerup.stop
+          @pointercancel.stop
+        >
+          <span class="thread-composer-dictation-effort-label">{{ option.label }}</span>
+        </button>
       </div>
 
     </div>
@@ -681,6 +698,7 @@ export type SubmitPayload = {
   fileAttachments: FileAttachment[]
   skills: Array<{ name: string; path: string; kind?: ComposerReferenceKind }>
   mode: 'steer' | 'queue'
+  reasoningEffort?: ReasoningEffort | ''
 }
 
 export type ThreadComposerExposed = {
@@ -701,6 +719,7 @@ const emit = defineEmits<{
     draftOnly: boolean
     mode: 'steer' | 'queue'
     collaborationMode: CollaborationModeKind
+    reasoningEffort: ReasoningEffort | ''
     draftSnapshot: ComposerDraftPayload
   }]
   'update:selected-collaboration-mode': [mode: CollaborationModeKind]
@@ -895,6 +914,7 @@ let activeDictationThreadId = ''
 let activeDictationStorageKey = ''
 let activeDictationCollaborationMode: CollaborationModeKind = 'default'
 let activeDictationBusyMode: 'steer' | 'queue' = 'steer'
+let activeDictationReasoningEffort: ReasoningEffort | '' = ''
 
 function getDictationStorageKey(): string {
   if (props.dictationBackgroundTranscription === false) {
@@ -932,6 +952,7 @@ const {
     const draftOnly = shouldInsertNextDictationDraftOnly.value
     const shouldAutoSendTranscript = props.dictationAutoSend !== false && !draftOnly
     const draftSnapshot = getCurrentDraftPayload()
+    const reasoningEffort = activeDictationReasoningEffort || props.selectedReasoningEffort
     shouldInsertNextDictationDraftOnly.value = false
     dictationFeedback.value = ''
     if (!threadId) {
@@ -946,6 +967,7 @@ const {
         draftOnly,
         mode,
         collaborationMode,
+        reasoningEffort,
         draftSnapshot,
       })
     } finally {
@@ -954,24 +976,29 @@ const {
   },
   onTranscript: (text) => {
     const shouldAutoSendTranscript = props.dictationAutoSend !== false && !shouldInsertNextDictationDraftOnly.value
+    const reasoningEffort = activeDictationReasoningEffort || props.selectedReasoningEffort
     shouldInsertNextDictationDraftOnly.value = false
     draft.value = draft.value ? `${draft.value}\n${text}` : text
     dictationFeedback.value = ''
     if (shouldAutoSendTranscript) {
       const mode = props.isTurnInProgress ? activeInProgressMode.value : 'steer'
-      onSubmit(mode)
+      onSubmit(mode, reasoningEffort)
+      clearActiveDictationTarget()
       return
     }
+    clearActiveDictationTarget()
     nextTick(() => inputRef.value?.focus())
   },
   onEmpty: () => {
     shouldInsertNextDictationDraftOnly.value = false
+    clearActiveDictationTarget()
     dictationFeedback.value = props.dictationClickToToggle
       ? 'No speech detected. Click again after speaking.'
       : 'No speech detected. Hold the mic and speak.'
   },
   onError: (error) => {
     shouldInsertNextDictationDraftOnly.value = false
+    clearActiveDictationTarget()
     if (error instanceof DOMException && error.name === 'NotAllowedError') {
       dictationFeedback.value = 'Microphone access was denied.'
       return
@@ -1015,6 +1042,31 @@ const reasoningOptions: Array<{ value: ReasoningEffort; label: string }> = [
   { value: 'medium', label: 'Medium' },
   { value: 'high', label: 'High' },
   { value: 'xhigh', label: 'Extra high' },
+]
+const dictationReasoningOptions: Array<{
+  value: ReasoningEffort
+  label: string
+  title: string
+  ariaLabel: string
+}> = [
+  {
+    value: 'medium',
+    label: 'm',
+    title: 'Send dictation with medium reasoning',
+    ariaLabel: 'Send dictation with medium reasoning',
+  },
+  {
+    value: 'high',
+    label: 'h',
+    title: 'Send dictation with high reasoning',
+    ariaLabel: 'Send dictation with high reasoning',
+  },
+  {
+    value: 'xhigh',
+    label: 'xh',
+    title: 'Send dictation with extra high reasoning',
+    ariaLabel: 'Send dictation with extra high reasoning',
+  },
 ]
 function formatModelLabel(modelId: string): string {
   return modelId.trim().replace(/^gpt/i, 'GPT')
@@ -1407,7 +1459,7 @@ function buildContextUsageView(
   }
 }
 
-function onSubmit(mode: 'steer' | 'queue' = 'steer'): void {
+function onSubmit(mode: 'steer' | 'queue' = 'steer', reasoningEffort?: ReasoningEffort | ''): void {
   const text = draft.value.trim()
   if (!canSubmit.value) return
   const slashCommand = parseSubmittableSlashCommand(text)
@@ -1428,6 +1480,7 @@ function onSubmit(mode: 'steer' | 'queue' = 'steer'): void {
     fileAttachments: [...fileAttachments.value],
     skills: selectedSkills.value.map((s) => ({ name: s.name, path: s.path, kind: s.kind === 'plugin' ? 'plugin' as const : 'skill' as const })),
     mode,
+    reasoningEffort,
   })
   clearPersistedDraftForThread(props.activeThreadId)
   clearDraftState()
@@ -1597,6 +1650,7 @@ function captureActiveDictationTarget(): void {
   activeDictationStorageKey = createDictationRecordingStorageKey(activeDictationThreadId || props.activeThreadId || 'unassigned')
   activeDictationCollaborationMode = props.selectedCollaborationMode
   activeDictationBusyMode = props.isTurnInProgress ? activeInProgressMode.value : 'steer'
+  activeDictationReasoningEffort = props.selectedReasoningEffort
 }
 
 function clearActiveDictationTarget(): void {
@@ -1604,6 +1658,7 @@ function clearActiveDictationTarget(): void {
   activeDictationStorageKey = ''
   activeDictationCollaborationMode = 'default'
   activeDictationBusyMode = 'steer'
+  activeDictationReasoningEffort = ''
 }
 
 function onDictationToggle(): void {
@@ -1625,6 +1680,14 @@ function onDictationPauseToggle(): void {
 function onDictationInsertDraft(): void {
   if (!isDictationActive.value) return
   shouldInsertNextDictationDraftOnly.value = true
+  stopRecording()
+}
+
+function onDictationSubmitWithReasoning(effort: ReasoningEffort): void {
+  if (!isDictationActive.value) return
+  shouldInsertNextDictationDraftOnly.value = false
+  activeDictationReasoningEffort = effort
+  dictationFeedback.value = ''
   stopRecording()
 }
 
@@ -2604,6 +2667,10 @@ watch(
   @apply rounded-t-none border-t-0;
 }
 
+.thread-composer-shell--recording .thread-composer-input {
+  @apply pr-14 sm:pr-16;
+}
+
 .thread-composer-attachments {
   @apply mb-2 flex flex-wrap gap-2;
 }
@@ -2833,7 +2900,7 @@ watch(
 }
 
 .thread-composer-controls--recording {
-  @apply gap-1 sm:gap-2;
+  @apply gap-1 pr-12 sm:gap-2 sm:pr-14;
 }
 
 .thread-composer-attach {
@@ -2939,10 +3006,6 @@ watch(
   touch-action: none;
 }
 
-.thread-composer-mic--active {
-  @apply bg-red-100 text-red-600 hover:bg-red-200 hover:text-red-700;
-}
-
 .thread-composer-mic-icon {
   @apply h-5 w-5;
 }
@@ -2958,6 +3021,19 @@ watch(
 .thread-composer-dictation-action-icon,
 .thread-composer-dictation-pause-icon {
   @apply h-5 w-5;
+}
+
+.thread-composer-dictation-effort {
+  @apply absolute right-2 top-1/2 z-10 flex -translate-y-1/2 flex-col items-center gap-0.5 sm:right-3;
+}
+
+.thread-composer-dictation-effort-button {
+  @apply p-0 text-[15px] font-medium lowercase leading-none;
+  font-variant-numeric: tabular-nums;
+}
+
+.thread-composer-dictation-effort-label {
+  @apply block translate-y-px;
 }
 
 .thread-composer-dictation-waveform-wrap {
