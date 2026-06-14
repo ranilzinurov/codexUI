@@ -3,6 +3,7 @@ import * as codexGateway from './codexGateway'
 import {
   createBrowserAnnotationExtensionToken,
   downloadProjectZip,
+  getAvailableModelIds,
   getProjectZipDownloadUrl,
   getWorkspaceRootsState,
   importProjectZip,
@@ -565,6 +566,93 @@ describe('browser annotation listen helpers', () => {
     expect(requests[0].init?.method).toBe('POST')
     expect((requests[0].init?.headers as Record<string, string>).Authorization).toBe('Bearer pairing-token-1')
     expect(JSON.parse(String(requests[0].init?.body))).toEqual({ sessionId: 'session-1', threadId: 'thread-1' })
+  })
+})
+
+describe('getAvailableModelIds', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('uses provider models without waiting for model/list when provider models are required', async () => {
+    const requests: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      requests.push(String(input))
+      if (String(input) === '/codex-api/provider-models') {
+        return new Response(JSON.stringify({
+          data: ['big-pickle', 'deepseek-v4-flash-free'],
+          exclusive: true,
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      throw new Error(`unexpected request ${String(input)}`)
+    }))
+
+    await expect(getAvailableModelIds({
+      includeProviderModels: true,
+      requireProviderModels: true,
+    })).resolves.toEqual(['big-pickle', 'deepseek-v4-flash-free'])
+    expect(requests).toEqual(['/codex-api/provider-models'])
+  })
+
+  it('requests models for an explicit thread provider', async () => {
+    const requests: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      requests.push(String(input))
+      if (String(input) === '/codex-api/provider-models?provider=opencode-zen') {
+        return new Response(JSON.stringify({
+          data: ['big-pickle', 'ring-2.6-1t-free'],
+          exclusive: true,
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      throw new Error(`unexpected request ${String(input)}`)
+    }))
+
+    await expect(getAvailableModelIds({
+      includeProviderModels: true,
+      requireProviderModels: true,
+      providerId: 'opencode-zen',
+    })).resolves.toEqual(['big-pickle', 'ring-2.6-1t-free'])
+    expect(requests).toEqual(['/codex-api/provider-models?provider=opencode-zen'])
+  })
+
+  it('falls back to model/list when provider models are optional and unavailable', async () => {
+    const requests: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push(String(input))
+      if (String(input) === '/codex-api/provider-models') {
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 503,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+
+      const body = typeof init?.body === 'string'
+        ? JSON.parse(init.body) as { method: string }
+        : { method: '' }
+      expect(body.method).toBe('model/list')
+      return new Response(JSON.stringify({
+        result: {
+          data: [
+            { id: 'gpt-5.5' },
+            { model: 'gpt-5.4-mini' },
+          ],
+        },
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }))
+
+    await expect(getAvailableModelIds({
+      includeProviderModels: true,
+    })).resolves.toEqual(['gpt-5.5', 'gpt-5.4-mini'])
+    expect(requests).toEqual(['/codex-api/provider-models', '/codex-api/rpc'])
   })
 })
 

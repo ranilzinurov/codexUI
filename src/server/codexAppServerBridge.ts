@@ -1,7 +1,7 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { mkdtemp, readFile, readdir, rename, rm, mkdir, stat, cp, lstat, readlink, symlink, realpath, utimes } from 'node:fs/promises'
-import { createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
@@ -28,9 +28,12 @@ import {
   OPENCODE_ZEN_DEFAULT_MODEL,
   OPENCODE_ZEN_PROVIDER_ID,
   createDefaultOpenCodeZenFreeModeState,
+  filterOpenCodeZenModelsForAuthState,
   getFreeModeConfigArgs,
   getFreeModeEnvVars,
+  getProviderCompatibilityConfigArgs,
   shouldCreateDefaultFreeModeStateForMissingAuth,
+  shouldSuppressCommunityFreeModeForCodexAuth,
   type FreeModeState,
 } from './freeMode.js'
 import { handleOpenRouterProxyRequest } from './openRouterProxy.js'
@@ -2890,17 +2893,27 @@ function buildProviderModelsUrl(baseUrl: string, queryParams: unknown): URL {
   return url
 }
 
-function normalizeProviderModelsData(payload: unknown): string[] {
+export function normalizeProviderModelsData(payload: unknown): string[] {
   const record = asRecord(payload)
-  const rows = Array.isArray(record?.data) ? record.data : null
+  const dataRows = Array.isArray(record?.data) ? record.data : null
+  const modelRows = Array.isArray(record?.models) ? record.models : null
+  const rows = dataRows && dataRows.length > 0 ? dataRows : modelRows
   if (!rows) {
-    throw new Error('provider /models payload is missing a data array')
+    throw new Error('provider /models payload is missing a data/models array')
   }
 
   const ids: string[] = []
   for (const row of rows) {
+    if (typeof row === 'string') {
+      const candidate = row.trim()
+      if (candidate && !ids.includes(candidate)) ids.push(candidate)
+      continue
+    }
     const entry = asRecord(row)
-    const candidate = readNonEmptyString(entry?.id)
+    const candidate =
+      readNonEmptyString(entry?.id) ||
+      readNonEmptyString(entry?.model) ||
+      readNonEmptyString(entry?.slug)
     if (!candidate || ids.includes(candidate)) continue
     ids.push(candidate)
   }
@@ -3054,6 +3067,47 @@ async function readProviderBackedModelIds(appServer: AppServerProcess): Promise<
     })
     return { data: [], providerId, source: 'provider' }
   }
+}
+
+async function readProviderModelIdsForProvider(
+  appServer: AppServerProcess,
+  providerId: string,
+): Promise<ProviderModelsResponse> {
+  const normalizedProviderId = providerId.trim().toLowerCase().replace(/_/g, '-')
+  if (!normalizedProviderId || normalizedProviderId === 'codex' || normalizedProviderId === 'openai') {
+    return { data: [], providerId: '', source: 'provider' }
+  }
+
+  const fmState = ensureDefaultFreeModeStateForMissingAuthSync(join(getCodexHomeDir(), FREE_MODE_STATE_FILE))
+  if (normalizedProviderId === 'opencode-zen') {
+    try {
+      const zenApiKey = fmState?.provider === 'opencode-zen' ? fmState.apiKey : null
+      const modelIds = filterOpenCodeZenModelsForAuthState(
+        sortOpenCodeZenModelIds(await fetchOpenCodeZenModelIds(zenApiKey)),
+        zenApiKey,
+      )
+      if (modelIds.length > 0) {
+        return { data: modelIds, providerId: 'opencode-zen', source: 'provider' }
+      }
+    } catch {
+      // Fall through to the offline Zen defaults.
+    }
+    return {
+      data: ['big-pickle', 'minimax-m2.5-free', 'nemotron-3-super-free', 'trinity-large-preview-free'],
+      providerId: 'opencode-zen',
+      source: 'provider',
+    }
+  }
+
+  if (normalizedProviderId === 'openrouter-free' || normalizedProviderId === 'openrouter') {
+    return {
+      data: await getFreeModels(),
+      providerId: 'openrouter-free',
+      source: 'provider',
+    }
+  }
+
+  return readProviderBackedModelIds(appServer)
 }
 
 function extractThreadMessageText(threadReadPayload: unknown): string {
@@ -5091,6 +5145,137 @@ function hasUsableCodexAuthSync(): boolean {
   }
 }
 
+type TomlScanState = {
+  inMultilineBasicString: boolean
+  inMultilineLiteralString: boolean
+}
+
+function stripTomlComment(line: string, state: TomlScanState): string {
+  let content = ''
+  let inSingleQuote = false
+  let inDoubleQuote = false
+  let escaped = false
+
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i]!
+    if (state.inMultilineBasicString) {
+      const endIndex = line.indexOf('"""', i)
+      if (endIndex === -1) return ''
+      state.inMultilineBasicString = false
+      i = endIndex + 2
+      continue
+    }
+    if (state.inMultilineLiteralString) {
+      const endIndex = line.indexOf("'''", i)
+      if (endIndex === -1) return ''
+      state.inMultilineLiteralString = false
+      i = endIndex + 2
+      continue
+    }
+    if (escaped) {
+      escaped = false
+      content += ch
+      continue
+    }
+    if (inDoubleQuote && ch === '\\') {
+      escaped = true
+      content += ch
+      continue
+    }
+    if (!inSingleQuote && !inDoubleQuote && line.startsWith('"""', i)) {
+      state.inMultilineBasicString = true
+      i += 2
+      continue
+    }
+    if (!inSingleQuote && !inDoubleQuote && line.startsWith("'''", i)) {
+      state.inMultilineLiteralString = true
+      i += 2
+      continue
+    }
+    if (!inDoubleQuote && ch === "'") {
+      inSingleQuote = !inSingleQuote
+      content += ch
+      continue
+    }
+    if (!inSingleQuote && ch === '"') {
+      inDoubleQuote = !inDoubleQuote
+      content += ch
+      continue
+    }
+    if (!inSingleQuote && !inDoubleQuote && ch === '#') {
+      return content
+    }
+    content += ch
+  }
+  return content
+}
+
+function isModelProviderAssignment(content: string): boolean {
+  return /^(?:model_provider|"model_provider"|'model_provider')\s*=/.test(content)
+}
+
+let explicitCodexModelProviderConfigCache: {
+  path: string
+  mtimeMs: number | null
+  size: number | null
+  value: boolean
+} | null = null
+
+function hasExplicitCodexModelProviderConfigSync(): boolean {
+  const configPath = join(getCodexHomeDir(), 'config.toml')
+  let info: ReturnType<typeof statSync> | null = null
+  try {
+    info = statSync(configPath)
+  } catch {
+    explicitCodexModelProviderConfigCache = {
+      path: configPath,
+      mtimeMs: null,
+      size: null,
+      value: false,
+    }
+    return false
+  }
+  if (
+    explicitCodexModelProviderConfigCache?.path === configPath &&
+    explicitCodexModelProviderConfigCache.mtimeMs === info.mtimeMs &&
+    explicitCodexModelProviderConfigCache.size === info.size
+  ) {
+    return explicitCodexModelProviderConfigCache.value
+  }
+
+  let value = false
+  try {
+    const raw = readFileSync(configPath, 'utf8')
+    let inTopLevelTable = true
+    const scanState: TomlScanState = {
+      inMultilineBasicString: false,
+      inMultilineLiteralString: false,
+    }
+    for (const line of raw.split(/\r?\n/)) {
+      const content = stripTomlComment(line, scanState).trim()
+      if (!content) continue
+      if (/^\[\[?[^\]]+\]?\]$/.test(content)) {
+        inTopLevelTable = false
+        continue
+      }
+      if (!inTopLevelTable) continue
+      if (isModelProviderAssignment(content)) {
+        value = true
+        break
+      }
+    }
+  } catch {
+    value = false
+  }
+  explicitCodexModelProviderConfigCache = {
+    path: configPath,
+    mtimeMs: info.mtimeMs,
+    size: info.size,
+    value,
+  }
+  return value
+}
+
 function readFreeModeStateSync(statePath: string): FreeModeState | null {
   try {
     return JSON.parse(readFileSync(statePath, 'utf8')) as FreeModeState
@@ -5099,17 +5284,24 @@ function readFreeModeStateSync(statePath: string): FreeModeState | null {
   }
 }
 
+export async function writeFreeModeStateFile(statePath: string, state: FreeModeState): Promise<void> {
+  await mkdir(dirname(statePath), { recursive: true })
+  await writeFile(statePath, JSON.stringify(state), { encoding: 'utf8', mode: 0o600 })
+}
+
 function ensureDefaultFreeModeStateForMissingAuthSync(statePath: string): FreeModeState | null {
   const current = readFreeModeStateSync(statePath)
-  if (!shouldCreateDefaultFreeModeStateForMissingAuth(current, hasUsableCodexAuthSync())) {
+  const hasUsableCodexAuth = hasUsableCodexAuthSync()
+  if (shouldSuppressCommunityFreeModeForCodexAuth(current, hasUsableCodexAuth)) {
+    return null
+  }
+  const shouldCreateDefault = shouldCreateDefaultFreeModeStateForMissingAuth(current, hasUsableCodexAuth)
+  const hasExplicitModelProviderConfig = shouldCreateDefault && hasExplicitCodexModelProviderConfigSync()
+  if (hasExplicitModelProviderConfig || !shouldCreateDefault) {
     return current
   }
 
-  const fallback = createDefaultOpenCodeZenFreeModeState()
-
-  mkdirSync(dirname(statePath), { recursive: true })
-  writeFileSync(statePath, JSON.stringify(fallback), { encoding: 'utf8', mode: 0o600 })
-  return fallback
+  return createDefaultOpenCodeZenFreeModeState()
 }
 
 function isLoopbackRemoteAddress(remoteAddress: string | undefined): boolean {
@@ -6863,6 +7055,7 @@ export class AppServerProcess {
   private readonly recentRpcCallsByThreadId = new Map<string, RecentRpcCall[]>()
   private lastConfigDiagnosticSnapshot: DiagnosticConfigSnapshot | null = null
   private chatgptAuthRefreshPromise: Promise<ChatgptAuthTokensRefreshResponse> | null = null
+  private activeConfigSignature = ''
 
 
   private getCodexCommand(): string {
@@ -6877,6 +7070,7 @@ export class AppServerProcess {
     const args = buildAppServerArgs({ stdio: options.stdio })
     let extraEnv: Record<string, string> = {}
     const serverPort = parseInt(process.env.CODEXUI_SERVER_PORT ?? '', 10) || undefined
+    args.push(...getProviderCompatibilityConfigArgs(serverPort))
     const statePath = join(getCodexHomeDir(), FREE_MODE_STATE_FILE)
     let routedThroughFreeModeProxy = false
     try {
@@ -6898,12 +7092,30 @@ export class AppServerProcess {
     return { args, env: extraEnv }
   }
 
+  private getAppServerConfigSignature(config: { args: string[]; env: Record<string, string> }): string {
+    return JSON.stringify({
+      args: config.args,
+      env: Object.keys(config.env)
+        .sort()
+        .map((key) => [key, config.env[key]]),
+    })
+  }
+
+  private disposeIfConfigChanged(): void {
+    if (!this.process) return
+    const config = this.buildAppServerConfig({ stdio: this.prefersStdioAppServer })
+    const nextSignature = this.getAppServerConfigSignature(config)
+    if (this.activeConfigSignature === nextSignature) return
+    this.dispose()
+  }
+
   private start(): void {
     if (this.process) return
 
     this.stopping = false
     const launchedWithStdio = this.prefersStdioAppServer
     const config = this.buildAppServerConfig({ stdio: launchedWithStdio })
+    this.activeConfigSignature = this.getAppServerConfigSignature(config)
     const invocation = getSpawnInvocation(this.getCodexCommand(), config.args)
     const spawnEnv = Object.keys(config.env).length > 0
       ? { ...process.env, ...config.env }
@@ -7498,6 +7710,7 @@ export class AppServerProcess {
   }
 
   async rpc(method: string, params: unknown): Promise<unknown> {
+    this.disposeIfConfigChanged()
     await this.ensureInitialized()
     return this.call(method, params)
   }
@@ -8274,9 +8487,11 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         let bearerToken = ''
         let wireApi: 'responses' | 'chat' = 'chat'
         try {
-          const state = JSON.parse(readFileSync(statePath, 'utf8')) as FreeModeState
-          bearerToken = state.apiKey ?? ''
-          wireApi = state.wireApi === 'responses' ? 'responses' : 'chat'
+          const state = ensureDefaultFreeModeStateForMissingAuthSync(statePath)
+          bearerToken = state?.apiKey ?? ''
+          if (state) {
+            wireApi = state.wireApi === 'responses' ? 'responses' : 'chat'
+          }
         } catch { /* use empty */ }
         handleZenProxyRequest(req, res, bearerToken, wireApi)
         return
@@ -8352,7 +8567,7 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
                 wireApi: prev.wireApi === 'chat' ? 'chat' : 'responses',
                 providerKeys: prevKeys,
               }
-              await writeFile(statePath, JSON.stringify(state), 'utf8')
+              await writeFreeModeStateFile(statePath, state)
               appServer.dispose()
               const freeModels = await getFreeModels()
               setJson(res, 200, {
@@ -8375,7 +8590,7 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
                 wireApi: prev.wireApi === 'chat' ? 'chat' : 'responses',
                 providerKeys: prevKeys,
               }
-              await writeFile(statePath, JSON.stringify(state), 'utf8')
+              await writeFreeModeStateFile(statePath, state)
               appServer.dispose()
               setJson(res, 200, { ok: true, enabled: false })
             }
@@ -8446,7 +8661,7 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
             }
             const current = readFreeModeState()
             const state: FreeModeState = { ...current, apiKey, customKey: false }
-            await writeFile(statePath, JSON.stringify(state), 'utf8')
+            await writeFreeModeStateFile(statePath, state)
             appServer.dispose()
             setJson(res, 200, { ok: true })
           } catch (error) {
@@ -8470,7 +8685,7 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
                 provider: 'openrouter',
                 wireApi: current.wireApi === 'chat' ? 'chat' : 'responses',
               }
-              await writeFile(statePath, JSON.stringify(state), 'utf8')
+              await writeFreeModeStateFile(statePath, state)
               appServer.dispose()
               setJson(res, 200, { ok: true, customKey: true })
             } else {
@@ -8482,7 +8697,7 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
                 provider: 'openrouter',
                 wireApi: current.wireApi === 'chat' ? 'chat' : 'responses',
               }
-              await writeFile(statePath, JSON.stringify(state), 'utf8')
+              await writeFreeModeStateFile(statePath, state)
               appServer.dispose()
               setJson(res, 200, { ok: true, customKey: false })
             }
@@ -8531,7 +8746,7 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
               wireApi,
               providerKeys: prevKeys,
             }
-            await writeFile(statePath, JSON.stringify(state), 'utf8')
+            await writeFreeModeStateFile(statePath, state)
             appServer.dispose()
             setJson(res, 200, { ok: true })
           } catch (error) {
@@ -9184,11 +9399,22 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
 
       if (req.method === 'GET' && url.pathname === '/codex-api/provider-models') {
         try {
+          const requestedProvider = url.searchParams.get('provider')?.trim() ?? ''
+          if (requestedProvider) {
+            setJson(res, 200, {
+              ...(await readProviderModelIdsForProvider(appServer, requestedProvider)),
+              exclusive: true,
+            })
+            return
+          }
           const fmState = ensureDefaultFreeModeStateForMissingAuthSync(join(getCodexHomeDir(), FREE_MODE_STATE_FILE))
           if (fmState?.enabled) {
             if (fmState.provider === 'opencode-zen') {
               try {
-                const modelIds = sortOpenCodeZenModelIds(await fetchOpenCodeZenModelIds(fmState.apiKey))
+                const modelIds = filterOpenCodeZenModelsForAuthState(
+                  sortOpenCodeZenModelIds(await fetchOpenCodeZenModelIds(fmState.apiKey)),
+                  fmState.apiKey,
+                )
                 if (modelIds.length > 0) {
                   setJson(res, 200, { data: modelIds, exclusive: true, source: 'opencode-zen' })
                   return
