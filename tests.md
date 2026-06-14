@@ -8690,3 +8690,45 @@ Assistant file-change summary undo/redo actions for a single turn.
 - Restore or delete the disposable Git repository used for file-change testing.
 - Revert temporary assistant-created files with Git or manual cleanup.
 - Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
+
+---
+
+### Chat Markdown Links And Composer Attachments
+
+#### Feature/Change Name
+Chat markdown/file-link rendering, inline code marker isolation, composer attachment paste/drop, and viewport-clamped composer dropdowns.
+
+#### Prerequisites/Setup
+1. Use the upstream-sync branch.
+2. Start the app with `pnpm run dev --host 127.0.0.1 --port 4173`.
+3. Use the `TestChat` project/thread context or a disposable project with at least one thread.
+4. Have a small image and a small text file available for paste/drop attachment checks.
+
+#### Steps
+1. In light theme, send or load a message containing a unique marker plus `**[Example](https://example.com/path?x=1).**`.
+2. Confirm the rendered link text is `Example`, the literal `**` markers are not shown around the link, and the final period is outside the clickable link.
+3. Send or load `https://example.com/path?x=1.` and confirm the period is not part of the link href.
+4. Send or load `` `https://example.com/code?q=1` `` and confirm it renders as a clickable URL.
+5. Send or load `` `src/App.vue` `` and confirm it renders as a file link resolved relative to the thread `cwd`.
+6. Send or load `[\`hosting_manager.py\`](/home/ubuntu/Documents/New Project (2)/hosting_manager.py)` and confirm the title/href preserve spaces and parentheses correctly.
+7. Send or load inline code such as `` `**not bold** and *not italic*` `` and confirm it stays a single inline-code segment.
+8. Paste an image into the composer and confirm an image attachment chip appears.
+9. Drag and drop a file onto the composer input and confirm a file attachment chip appears.
+10. Send a message with file attachments and confirm the sent user message shows visible file chips.
+11. Open provider/model/skills/project dropdowns near the left and right viewport edges and confirm menus stay inside the viewport.
+12. Repeat steps 1-7 and 11 in dark theme.
+
+#### Expected Results
+- Markdown URL labels, trailing punctuation, backticked URLs, and markdown file links render without leaking raw markdown markers.
+- Backticked bare filenames become file links when resolvable relative to `cwd`.
+- Inline code containing asterisks does not create nested bold/italic segments.
+- File-link `href`, `title`, and visible text remain correct for spaces and parentheses.
+- Clipboard image paste and file drag/drop produce composer attachment chips.
+- Sent user file attachments remain visible in chat.
+- Composer dropdowns use app menus, clamp inside the viewport, and keep resize/scroll listeners only while open.
+- Light and dark themes both render links, inline code, file chips, dropdown menus, and hover states with readable colors.
+
+#### Rollback/Cleanup
+- Delete any disposable files or images created for attachment checks.
+- Remove temporary TestChat threads if real threads were used instead of mocked Playwright data.
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
