@@ -8407,6 +8407,8 @@ Project ZIP export, browser download/share, and ZIP import into the current proj
 2. Start the app with `pnpm run dev --host 127.0.0.1 --port 4173`.
 3. Open `http://127.0.0.1:4173/`.
 4. Have at least one existing project with a thread, or create a small temporary project from the home screen.
+5. For metadata checks, use an isolated `CODEX_HOME` with one or more session JSONL files whose `session_meta.payload.cwd` points at the project folder.
+6. Optionally enable free/custom/OpenCode Zen provider mode before import to verify imported provider/model rewriting.
 
 #### Steps
 1. In light theme, open a project menu in the sidebar.
@@ -8414,13 +8416,20 @@ Project ZIP export, browser download/share, and ZIP import into the current proj
 3. Confirm the `Export Project` modal opens, shows progress, then shows `Ready` with a ZIP filename.
 4. Click `Download` and confirm the browser downloads a `.zip` file.
 5. Click `Share` if the browser supports file sharing; otherwise confirm the modal shows a clear fallback message and `Download` still works.
-6. Open a thread menu in the same project and click `Export Project`.
-7. Confirm it exports the same project folder rather than only the chat transcript.
-8. Return to the home screen and click `Import Project`.
-9. Pick the exported `.zip` file.
-10. Confirm the imported project becomes the selected new-thread folder and appears in the sidebar after refresh.
-11. Confirm imported sessions appear as normal threads when the ZIP contains stored session JSON.
-12. Switch to dark theme and repeat steps 1-4 and 8-10.
+6. Inspect the ZIP contents.
+7. Confirm `.codex-project/manifest.json` exists and does not contain the source machine's absolute project path.
+8. Confirm project files use relative paths and generated folders such as `.git`, `node_modules`, `.venv`, `.cache`, `.next`, `.gradle`, `target`, `build`, `dist`, and coverage folders are absent.
+9. Confirm matching session JSONL files, when present, live under `.codex-project/chats/sessions/` or `.codex-project/chats/archived_sessions/`.
+10. Confirm `.codex-project/chats/thread-titles.json` exists when exported chats have title or update-time metadata.
+11. Open a thread menu in the same project and click `Export Project`.
+12. Confirm it exports the same project folder rather than only the chat transcript.
+13. Return to the home screen and click `Import Project`.
+14. Pick the exported `.zip` file.
+15. Confirm the imported project becomes the selected new-thread folder and appears in the sidebar after refresh.
+16. Confirm imported sessions appear as normal threads when the ZIP contains stored session JSON.
+17. Inspect one imported JSONL under the destination `CODEX_HOME/sessions/imported/` and confirm its thread ID is new and its `cwd` points at the imported project path.
+18. If provider mode was enabled before import, confirm imported session `model` and `model_provider` match the destination app's active provider/model defaults.
+19. Switch to dark theme and repeat steps 1-4 and 13-15.
 
 #### Expected Results
 - Project and thread menu export actions both create a project ZIP through `/codex-api/project-zip`.
@@ -8428,9 +8437,16 @@ Project ZIP export, browser download/share, and ZIP import into the current proj
 - Download preserves the server-provided filename when present.
 - Share uses browser file sharing only when supported and falls back to an in-modal message otherwise.
 - Import posts the selected ZIP to `/codex-api/project-import`, selects the imported folder, refreshes workspace roots, and reloads the thread list.
+- `.codex-project/manifest.json` records portable metadata: `version`, `exportedAt`, and `projectName`.
+- `.codex-project/chats/**` is reserved for Codex session import; other non-chat `.codex-project/` files round-trip as normal project files.
+- Imported project folders get unique suffixes when the destination already has a folder with the exported project name.
+- Imported chats are written to `CODEX_HOME/sessions/imported/`, get new thread IDs, and have `cwd` rewritten to the imported project path.
+- Imported title and update-time metadata come from `.codex-project/chats/thread-titles.json` when available.
+- Imported provider/model metadata is rewritten to the current local free/custom/OpenCode Zen provider defaults when that provider mode is active.
 - Light and dark themes both render the modal, progress bar, buttons, and home-screen import action without light-theme surfaces in dark mode.
 
 #### Rollback/Cleanup
 - Delete temporary imported project folders created during manual testing.
 - Remove downloaded ZIP files after verification.
+- Remove imported test sessions from the isolated `CODEX_HOME` if one was used.
 - Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.

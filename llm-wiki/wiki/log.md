@@ -99,3 +99,10 @@
 - Updated wiki page: `concepts/directory-hub-composio-skills.md`.
 - Documents `.codex/plugins/cache` plugin ownership detection, nested installed plugin skills, duplicate top-level path removal, and Skills Hub performance notes.
 - Updated `index.md`.
+
+## 2026-06-14
+
+- Added source notes for project ZIP portability.
+- Created wiki page: `concepts/project-zip-portability.md`.
+- Documents `.codex-project/manifest.json`, `.codex-project/chats/**`, imported session rewriting, provider/model metadata behavior, and manual verification locations.
+- Updated `index.md`.
