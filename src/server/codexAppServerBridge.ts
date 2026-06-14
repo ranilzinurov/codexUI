@@ -8607,7 +8607,10 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
 	          throw error
 	        }
         const trimmedResult = trimThreadTurnsInRpcResult(body.method, rpcResult)
-        const sanitizedResult = await sanitizeThreadTurnsInlinePayloads(body.method, trimmedResult)
+        const listMergedResult = body.method === 'thread/list'
+          ? mergeImportedThreadsIntoThreadListResult(trimmedResult)
+          : trimmedResult
+        const sanitizedResult = await sanitizeThreadTurnsInlinePayloads(body.method, listMergedResult)
         const result = THREAD_METHODS_WITH_TURNS.has(body.method)
           ? await mergeSessionSkillInputsIntoThreadResult(sanitizedResult)
           : sanitizedResult

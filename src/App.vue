@@ -85,7 +85,9 @@
             @select="onSelectThread"
             @archive="onArchiveThread" @start-new-thread="onStartNewThread" @rename-project="onRenameProject"
             @browse-thread-files="onBrowseThreadFiles"
+            @save-thread-project="onSaveThreadProject"
             @browse-project-files="onBrowseProjectFiles"
+            @save-project="onSaveProject"
             @request-project-git-status="onRequestProjectGitStatus"
             @create-project-worktree="onCreateProjectWorktree"
             @rename-thread="onRenameThread"
@@ -941,6 +943,18 @@
                   <button class="new-thread-folder-action" type="button" @click="onOpenProjectSetupModal">
                     {{ t('Create Project') }}
                   </button>
+                  <button class="new-thread-folder-action" type="button" :disabled="isProjectImporting" @click="onChooseProjectImportZip">
+                    {{ isProjectImporting ? t('Importing…') : t('Import Project') }}
+                  </button>
+                  <input
+                    ref="projectImportInputRef"
+                    class="new-thread-project-import-input"
+                    type="file"
+                    accept=".zip,application/zip"
+                    tabindex="-1"
+                    aria-hidden="true"
+                    @change="onDirectProjectImportFileChange"
+                  />
                 </div>
                 <section v-if="showFirstLaunchPluginsCard" class="new-thread-launch-card" aria-label="Plugins and Apps announcement">
                   <div class="new-thread-launch-card-copy">
@@ -1512,6 +1526,46 @@
       </div>
     </div>
   </Teleport>
+  <div v-if="projectZipExportStatus.phase !== 'idle'" class="project-zip-modal-backdrop" role="presentation">
+    <div class="project-zip-modal" role="dialog" aria-modal="true" :aria-label="t('Export Project')" @click.stop>
+      <div class="project-zip-modal-header">
+        <h2 class="project-zip-modal-title">{{ t('Export Project') }}</h2>
+        <button
+          class="project-zip-modal-close"
+          type="button"
+          :aria-label="t('Close')"
+          :disabled="projectZipExportStatus.phase === 'exporting'"
+          @click="onCloseProjectZipExportModal"
+        >
+          ×
+        </button>
+      </div>
+      <p class="project-zip-modal-copy">
+        {{ projectZipExportStatus.phase === 'exporting' ? t('Preparing project ZIP...') : projectZipExportStatus.fileName }}
+      </p>
+      <div class="project-zip-progress-label" role="status" aria-live="polite">
+        <span>{{ projectZipExportStatus.phase === 'exporting' ? t('Exporting') : t('Ready') }}</span>
+        <span>{{ projectZipProgressText }}</span>
+      </div>
+      <div class="project-zip-progress-track">
+        <div class="project-zip-progress-fill" :style="{ width: projectZipProgressWidth }" />
+      </div>
+      <p v-if="projectZipExportStatus.error" class="project-zip-modal-error" role="alert">
+        {{ projectZipExportStatus.error }}
+      </p>
+      <div class="project-zip-modal-actions">
+        <button class="project-zip-modal-cancel" type="button" :disabled="projectZipExportStatus.phase === 'exporting'" @click="onCloseProjectZipExportModal">
+          {{ t('Close') }}
+        </button>
+        <button class="project-zip-modal-action" type="button" :disabled="!projectZipExportStatus.blob" @click="onDownloadProjectZipExport">
+          {{ t('Download') }}
+        </button>
+        <button class="project-zip-modal-action project-zip-modal-action-primary" type="button" :disabled="!projectZipExportStatus.blob" @click="onShareProjectZipExport">
+          {{ t('Share') }}
+        </button>
+      </div>
+    </div>
+  </div>
   <div
     v-if="isCodexLoginModalOpen"
     class="codex-login-modal-backdrop"
@@ -1638,6 +1692,7 @@ import {
   createPermanentWorktree,
   createWorktree,
   createProjectlessThreadDirectory,
+  downloadProjectZip,
   getGitBranchState,
   getGitBranchCommits,
   getGitRepositoryStatus,
@@ -1653,6 +1708,7 @@ import {
   getThreadTerminalQuickCommands,
   getThreadTerminalStatus,
   getWorkspaceRootsState,
+  importProjectZip,
   listLocalDirectories,
   openProjectRoot,
   persistFirstLaunchPluginsCardPreference,
@@ -2030,6 +2086,14 @@ const workspaceRootOptionsState = ref<{ order: string[]; labels: Record<string, 
   labels: {},
   projectOrder: [],
 })
+const projectZipExportStatus = ref<{ phase: 'idle' | 'exporting' | 'ready'; loaded: number; total: number | null; blob: Blob | null; fileName: string; error: string }>({
+  phase: 'idle',
+  loaded: 0,
+  total: null,
+  blob: null,
+  fileName: '',
+  error: '',
+})
 const worktreeInitStatus = ref<{ phase: 'idle' | 'running' | 'error'; title: string; message: string }>({
   phase: 'idle',
   title: '',
@@ -2102,6 +2166,20 @@ const dictationClickToToggle = ref(loadBoolPref(DICTATION_CLICK_TO_TOGGLE_KEY, t
 const dictationAutoSend = ref(loadBoolPref(DICTATION_AUTO_SEND_KEY, true))
 const dictationLanguage = ref(loadDictationLanguagePref())
 const dictationLanguageOptions = computed(() => buildDictationLanguageOptions())
+const projectZipProgressText = computed(() => {
+  const { loaded, total } = projectZipExportStatus.value
+  const loadedLabel = formatByteCount(loaded)
+  if (total && total > 0) {
+    return `${loadedLabel} / ${formatByteCount(total)}`
+  }
+  return loaded > 0 ? loadedLabel : t('Preparing...')
+})
+const projectZipProgressWidth = computed(() => {
+  const { loaded, total, phase } = projectZipExportStatus.value
+  if (phase === 'ready') return '100%'
+  if (!total || total <= 0) return loaded > 0 ? '55%' : '20%'
+  return `${Math.min(100, Math.max(5, Math.round((loaded / total) * 100)))}%`
+})
 const dictationLastInputLabel = ref(loadDictationLastInputLabel())
 const backendUrlDraft = ref(getConfiguredBackendUrl())
 const backendUrlError = ref('')
@@ -2141,9 +2219,11 @@ const projectSetupMode = ref<'create' | 'clone'>('create')
 const projectSetupBaseDir = ref('')
 const projectNameDraft = ref('')
 const githubCloneUrlDraft = ref('')
+const isProjectImporting = ref(false)
 const projectSetupError = ref('')
 const isProjectSetupSubmitting = ref(false)
 const projectSetupPrimaryInputRef = ref<HTMLInputElement | null>(null)
+const projectImportInputRef = ref<HTMLInputElement | null>(null)
 const isExistingFolderPickerOpen = ref(false)
 const existingFolderPathInputRef = ref<HTMLInputElement | null>(null)
 const existingFolderFilterInputRef = ref<HTMLInputElement | null>(null)
@@ -3516,6 +3596,111 @@ function onBrowseProjectFiles(projectName: string): void {
   window.open(`/codex-local-browse${encodeURI(targetCwd)}`, '_blank', 'noopener,noreferrer')
 }
 
+async function onSaveProject(projectName: string): Promise<void> {
+  const targetCwd = getProjectCwd(projectName)
+  await exportProjectZipForCwd(targetCwd)
+}
+
+async function onSaveThreadProject(threadId: string): Promise<void> {
+  const targetCwd = getThreadCwd(threadId)
+  await exportProjectZipForCwd(targetCwd)
+}
+
+function getThreadCwd(threadId: string): string {
+  for (const group of projectGroups.value) {
+    const thread = group.threads.find((row) => row.id === threadId)
+    if (thread?.cwd?.trim()) return thread.cwd.trim()
+  }
+  return ''
+}
+
+function formatByteCount(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let value = bytes
+  let unitIndex = 0
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024
+    unitIndex += 1
+  }
+  return `${value >= 10 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unitIndex]}`
+}
+
+function downloadProjectZipFallback(blob: Blob, fileName: string): void {
+  if (typeof document === 'undefined') return
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  window.setTimeout(() => URL.revokeObjectURL(url), 30000)
+}
+
+async function shareProjectZip(blob: Blob, fileName: string): Promise<void> {
+  const file = new File([blob], fileName, { type: blob.type || 'application/zip' })
+  const shareData = {
+    files: [file],
+    title: fileName,
+  }
+  const canShareFiles = typeof navigator !== 'undefined'
+    && typeof navigator.share === 'function'
+    && (typeof navigator.canShare !== 'function' || navigator.canShare(shareData))
+  if (!canShareFiles) {
+    throw new Error(t('File sharing is not supported in this browser.'))
+  }
+  await navigator.share(shareData)
+}
+
+function onCloseProjectZipExportModal(): void {
+  if (projectZipExportStatus.value.phase === 'exporting') return
+  projectZipExportStatus.value = { phase: 'idle', loaded: 0, total: null, blob: null, fileName: '', error: '' }
+}
+
+function onDownloadProjectZipExport(): void {
+  const { blob, fileName } = projectZipExportStatus.value
+  if (!blob || !fileName) return
+  projectZipExportStatus.value = { ...projectZipExportStatus.value, error: '' }
+  downloadProjectZipFallback(blob, fileName)
+}
+
+async function onShareProjectZipExport(): Promise<void> {
+  const { blob, fileName } = projectZipExportStatus.value
+  if (!blob || !fileName) return
+  try {
+    projectZipExportStatus.value = { ...projectZipExportStatus.value, error: '' }
+    await shareProjectZip(blob, fileName)
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') return
+    const message = error instanceof Error ? error.message : ''
+    const wasBlocked = error instanceof DOMException && error.name === 'NotAllowedError'
+      || /permission denied|notallowed|not allowed|gesture/iu.test(message)
+    projectZipExportStatus.value = {
+      ...projectZipExportStatus.value,
+      error: wasBlocked
+        ? t('This browser blocked sharing the ZIP. Use Download instead.')
+        : (message || t('Failed to share project. Use Download instead.')),
+    }
+  }
+}
+
+async function exportProjectZipForCwd(targetCwd: string): Promise<void> {
+  if (!targetCwd || typeof document === 'undefined') return
+  projectZipExportStatus.value = { phase: 'exporting', loaded: 0, total: null, blob: null, fileName: '', error: '' }
+  try {
+    const { blob, fileName } = await downloadProjectZip(targetCwd, ({ loaded, total }) => {
+      projectZipExportStatus.value = { ...projectZipExportStatus.value, phase: 'exporting', loaded, total }
+    })
+    projectZipExportStatus.value = { phase: 'ready', loaded: blob.size, total: blob.size, blob, fileName, error: '' }
+  } catch (error) {
+    projectZipExportStatus.value = { phase: 'idle', loaded: 0, total: null, blob: null, fileName: '', error: '' }
+    if (error instanceof DOMException && error.name === 'AbortError') return
+    const message = error instanceof Error ? error.message : t('Failed to export project.')
+    window.alert(message)
+  }
+}
+
 async function onCreateProjectWorktree(projectName: string): Promise<void> {
   const sourceCwd = getProjectCwd(projectName)
   if (!sourceCwd || typeof window === 'undefined') return
@@ -4687,6 +4872,49 @@ async function onSubmitProjectSetup(): Promise<void> {
   } finally {
     isProjectSetupSubmitting.value = false
   }
+}
+
+function onChooseProjectImportZip(): void {
+  openProjectImportInput(projectImportInputRef.value)
+}
+
+function openProjectImportInput(input: HTMLInputElement | null): void {
+  if (isProjectImporting.value || !input) return
+  input.value = ''
+  input.click()
+}
+
+async function finishProjectImport(
+  input: HTMLInputElement | null,
+  importer: (baseDir: string) => Promise<{ path: string }>,
+  fallbackMessage: string,
+): Promise<void> {
+  isProjectImporting.value = true
+  try {
+    const baseDir = await resolveProjectBaseDirectory()
+    if (!baseDir) return
+    const result = await importer(baseDir)
+    if (!result.path) return
+    newThreadCwd.value = result.path
+    pinProjectToTop(getProjectOrderNameForPath(result.path))
+    await loadWorkspaceRootOptionsState()
+    await refreshAll({ includeSelectedThreadMessages: false })
+    await refreshDefaultProjectName()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : fallbackMessage
+    window.alert(message)
+  } finally {
+    isProjectImporting.value = false
+    if (input) input.value = ''
+  }
+}
+
+async function onDirectProjectImportFileChange(event: Event): Promise<void> {
+  const input = event.target instanceof HTMLInputElement ? event.target : null
+  const file = input?.files?.[0] ?? null
+  if (!file || isProjectImporting.value) return
+
+  await finishProjectImport(input, (baseDir) => importProjectZip(file, baseDir), t('Failed to import project.'))
 }
 
 async function onOpenExistingFolder(): Promise<void> {
@@ -6550,6 +6778,17 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
   @apply border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800;
 }
 
+.new-thread-project-import-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+  padding: 0;
+}
+
 .new-thread-open-folder-overlay {
   @apply fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4;
 }
@@ -6606,6 +6845,59 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 
 .restart-overlay-action {
   @apply h-8 rounded-full border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50;
+}
+
+.project-zip-modal-backdrop {
+  @apply fixed inset-0 z-[100] flex items-center justify-center bg-black/35 px-4;
+}
+
+.project-zip-modal {
+  @apply flex w-full max-w-md flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-4 shadow-2xl;
+}
+
+.project-zip-modal-header {
+  @apply flex items-center justify-between gap-3;
+}
+
+.project-zip-modal-title {
+  @apply text-base font-semibold text-zinc-900;
+}
+
+.project-zip-modal-close {
+  @apply inline-flex h-7 w-7 items-center justify-center rounded-full border border-zinc-200 bg-white text-lg leading-none text-zinc-600 transition hover:bg-zinc-50 disabled:cursor-default disabled:opacity-60;
+}
+
+.project-zip-modal-copy {
+  @apply m-0 truncate text-sm leading-5 text-zinc-600;
+}
+
+.project-zip-progress-label {
+  @apply flex items-center justify-between gap-3 text-xs font-medium text-zinc-500;
+}
+
+.project-zip-progress-track {
+  @apply h-2 overflow-hidden rounded-full bg-zinc-100;
+}
+
+.project-zip-progress-fill {
+  @apply h-full rounded-full bg-zinc-900 transition-[width] duration-150 ease-out;
+}
+
+.project-zip-modal-error {
+  @apply m-0 rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-700;
+}
+
+.project-zip-modal-actions {
+  @apply flex items-center justify-end gap-2;
+}
+
+.project-zip-modal-cancel,
+.project-zip-modal-action {
+  @apply rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-default disabled:opacity-60;
+}
+
+.project-zip-modal-action-primary {
+  @apply border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800;
 }
 
 @keyframes restart-spin {
@@ -7095,6 +7387,44 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 
 .codex-login-modal-submit {
   @apply border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800;
+}
+
+:global(:root.dark) .project-zip-modal {
+  @apply border-zinc-700 bg-zinc-900;
+}
+
+:global(:root.dark) .project-zip-modal-title {
+  @apply text-zinc-100;
+}
+
+:global(:root.dark) .project-zip-modal-close,
+:global(:root.dark) .project-zip-modal-cancel,
+:global(:root.dark) .project-zip-modal-action {
+  @apply border-zinc-600 bg-zinc-800 text-zinc-200 hover:bg-zinc-700;
+}
+
+:global(:root.dark) .project-zip-modal-copy {
+  @apply text-zinc-300;
+}
+
+:global(:root.dark) .project-zip-progress-label {
+  @apply text-zinc-400;
+}
+
+:global(:root.dark) .project-zip-progress-track {
+  @apply bg-zinc-800;
+}
+
+:global(:root.dark) .project-zip-progress-fill {
+  @apply bg-zinc-100;
+}
+
+:global(:root.dark) .project-zip-modal-error {
+  @apply bg-rose-950/40 text-rose-200;
+}
+
+:global(:root.dark) .project-zip-modal-action-primary {
+  @apply border-zinc-200 bg-zinc-100 text-zinc-900 hover:bg-white;
 }
 
 :global(:root.dark) .codex-login-modal {

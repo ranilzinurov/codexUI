@@ -8394,3 +8394,43 @@ Isolated `dev2` Codex home and fast Docker verification helpers.
 #### Rollback/Cleanup
 - Stop helper servers on ports `4174` and `4191`.
 - If Docker was used, remove the `codexapp-fast-test` container and `codexapp-fast-test-home` volume when no longer needed.
+
+---
+
+### Project ZIP Export Import And Share
+
+#### Feature/Change Name
+Project ZIP export, browser download/share, and ZIP import into the current projects list.
+
+#### Prerequisites/Setup
+1. Use the upstream-sync branch.
+2. Start the app with `pnpm run dev --host 127.0.0.1 --port 4173`.
+3. Open `http://127.0.0.1:4173/`.
+4. Have at least one existing project with a thread, or create a small temporary project from the home screen.
+
+#### Steps
+1. In light theme, open a project menu in the sidebar.
+2. Click `Export Project`.
+3. Confirm the `Export Project` modal opens, shows progress, then shows `Ready` with a ZIP filename.
+4. Click `Download` and confirm the browser downloads a `.zip` file.
+5. Click `Share` if the browser supports file sharing; otherwise confirm the modal shows a clear fallback message and `Download` still works.
+6. Open a thread menu in the same project and click `Export Project`.
+7. Confirm it exports the same project folder rather than only the chat transcript.
+8. Return to the home screen and click `Import Project`.
+9. Pick the exported `.zip` file.
+10. Confirm the imported project becomes the selected new-thread folder and appears in the sidebar after refresh.
+11. Confirm imported sessions appear as normal threads when the ZIP contains stored session JSON.
+12. Switch to dark theme and repeat steps 1-4 and 8-10.
+
+#### Expected Results
+- Project and thread menu export actions both create a project ZIP through `/codex-api/project-zip`.
+- The export modal reports progress, blocks close while exporting, and keeps buttons disabled until a ZIP blob is ready.
+- Download preserves the server-provided filename when present.
+- Share uses browser file sharing only when supported and falls back to an in-modal message otherwise.
+- Import posts the selected ZIP to `/codex-api/project-import`, selects the imported folder, refreshes workspace roots, and reloads the thread list.
+- Light and dark themes both render the modal, progress bar, buttons, and home-screen import action without light-theme surfaces in dark mode.
+
+#### Rollback/Cleanup
+- Delete temporary imported project folders created during manual testing.
+- Remove downloaded ZIP files after verification.
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
