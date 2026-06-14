@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
-import { useDictation } from './useDictation'
+import { normalizeDictationWaveformLevel, useDictation } from './useDictation'
 import type { StoredDictationRecording } from './dictationTranscription'
 
 const transcriptionMock = vi.hoisted(() => ({
@@ -174,5 +174,22 @@ describe('useDictation', () => {
     expect(transcriptionMock.createStoredDictationRecording).not.toHaveBeenCalled()
     expect(onRecordingReady).not.toHaveBeenCalled()
     expect(onTranscript).not.toHaveBeenCalled()
+  })
+})
+
+describe('normalizeDictationWaveformLevel', () => {
+  it('keeps silent input flat', () => {
+    expect(normalizeDictationWaveformLevel(new Float32Array([0, 0.00002, -0.00004, 0]))).toBe(0)
+  })
+
+  it('keeps low mobile microphone levels visible instead of thresholding them to silence', () => {
+    const level = normalizeDictationWaveformLevel(new Float32Array([0.001, -0.0012, 0.0009, -0.0011]))
+
+    expect(level).toBeGreaterThan(0.1)
+    expect(level).toBeLessThan(1)
+  })
+
+  it('caps loud input at the maximum display level', () => {
+    expect(normalizeDictationWaveformLevel(new Float32Array([0.8, -0.7, 0.9, -0.85]))).toBe(1)
   })
 })

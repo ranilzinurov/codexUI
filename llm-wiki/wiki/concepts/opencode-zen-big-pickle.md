@@ -61,4 +61,6 @@ This behavior was fixed in commit `47d52c8c` after a Docker repro using an empty
 ## Related
 - Source: [opencode-zen-big-pickle-codex-cli.md](../../raw/fixes/opencode-zen-big-pickle-codex-cli.md)
 - Source: [opencode-zen-reasoning-content-proxy.md](../../raw/fixes/opencode-zen-reasoning-content-proxy.md)
+- Source: [opencode-zen-docker-auth-provider-models.md](../../raw/fixes/opencode-zen-docker-auth-provider-models.md)
+- [provider-auth-models.md](./provider-auth-models.md)
 - [merge-to-main-workflow.md](./merge-to-main-workflow.md)

@@ -108,15 +108,75 @@
         <span class="skills-hub-section-title">{{ t('Installed skills ({count})', { count: filteredInstalled.length }) }}</span>
         <IconTablerChevronRight class="skills-hub-section-chevron" :class="{ 'is-open': isInstalledOpen }" />
       </button>
-      <div v-if="isInstalledOpen" class="skills-hub-grid">
-        <SkillCard
+      <div v-if="isInstalledOpen" class="skills-installed-list">
+        <div
           v-for="skill in filteredInstalled"
-          :key="skill.name"
-          :skill="skill"
-          :show-status-badge="false"
-          :show-owner="false"
-          @select="(skill) => openDetail(skill as HubSkill)"
-        />
+          :key="skill.path || skill.name"
+          class="skills-installed-group"
+          :class="{ 'has-children': hasChildSkills(skill), 'is-disabled': skill.enabled === false }"
+        >
+          <div class="skills-installed-row">
+            <button
+              v-if="hasChildSkills(skill)"
+              class="skills-installed-expand"
+              type="button"
+              :aria-label="expandedSkillGroups.has(skillGroupKey(skill)) ? 'Collapse skill group' : 'Expand skill group'"
+              @click="toggleSkillGroup(skill)"
+            >
+              <IconTablerChevronRight class="skills-installed-chevron" :class="{ 'is-open': expandedSkillGroups.has(skillGroupKey(skill)) }" />
+            </button>
+            <span v-else class="skills-installed-spacer" aria-hidden="true"></span>
+
+            <button class="skills-installed-main" type="button" @click="handleInstalledRowClick(skill)">
+              <span class="skills-installed-avatar" :class="{ 'is-plugin': hasChildSkills(skill) }">
+                <IconTablerFolder v-if="hasChildSkills(skill)" class="skills-installed-folder-icon" />
+                <span v-else>{{ (skill.displayName || skill.name).charAt(0) }}</span>
+              </span>
+              <span class="skills-installed-copy">
+                <span class="skills-installed-name">{{ skill.displayName || skill.name }}</span>
+                <span v-if="skill.description" class="skills-installed-description">{{ skill.description }}</span>
+              </span>
+              <span v-if="hasChildSkills(skill)" class="skills-installed-count">
+                {{ skill.childSkills?.length }} {{ skill.childSkills?.length === 1 ? 'skill' : 'skills' }}
+              </span>
+            </button>
+
+            <button
+              v-if="skill.path"
+              class="skills-installed-browse"
+              type="button"
+              :title="t('Browse files')"
+              @click="browseSkillFiles(skill)"
+            >
+              <IconTablerFolder class="skills-installed-browse-icon" />
+            </button>
+          </div>
+
+          <div v-if="hasChildSkills(skill) && expandedSkillGroups.has(skillGroupKey(skill))" class="skills-installed-children">
+            <div
+              v-for="child in skill.childSkills"
+              :key="child.path"
+              class="skills-installed-child-row"
+              :class="{ 'is-disabled': child.enabled === false }"
+            >
+              <button class="skills-installed-child-main" type="button" @click="openDetail(childSkillToHubSkill(skill, child))">
+                <span class="skills-installed-child-dot" aria-hidden="true"></span>
+                <span class="skills-installed-copy">
+                  <span class="skills-installed-name">{{ child.displayName || child.name }}</span>
+                  <span v-if="child.description" class="skills-installed-description">{{ child.description }}</span>
+                </span>
+              </button>
+              <button
+                class="skills-installed-browse"
+                type="button"
+                :title="t('Browse files')"
+                @click="browseSkillFiles(childSkillToHubSkill(skill, child))"
+              >
+                <IconTablerFolder class="skills-installed-browse-icon" />
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -147,15 +207,18 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import IconTablerChevronRight from '../icons/IconTablerChevronRight.vue'
+import IconTablerFolder from '../icons/IconTablerFolder.vue'
 import SkillCard from './SkillCard.vue'
 import SkillDetailModal, { type HubSkill } from './SkillDetailModal.vue'
 import { useGithubSkillsSync } from '../../composables/useGithubSkillsSync'
 import { useFeedbackDiagnostics } from '../../composables/useFeedbackDiagnostics'
 import { useUiLanguage } from '../../composables/useUiLanguage'
+import { resolveBackendHttpUrl } from '../../backendUrl'
 
 const EMPTY_SKILL: HubSkill = { name: '', owner: '', description: '', url: '', installed: false }
 type SkillsHubPayload = { installed?: HubSkill[] }
 type SkillsSearchPayload = { results?: HubSkill[]; error?: string }
+type HubChildSkill = NonNullable<HubSkill['childSkills']>[number]
 
 const installedSkills = ref<HubSkill[]>([])
 const skillSearchResults = ref<HubSkill[]>([])
@@ -168,6 +231,7 @@ const isInstalledOpen = ref(true)
 const isSearchResultsOpen = ref(true)
 const isDetailOpen = ref(false)
 const detailSkill = ref<HubSkill>(EMPTY_SKILL)
+const expandedSkillGroups = ref<Set<string>>(new Set())
 const toast = ref<{ text: string; type: 'success' | 'error' } | null>(null)
 const actionSkillKey = ref('')
 const isInstallActionInFlight = ref(false)
@@ -202,6 +266,55 @@ const githubRepoUrl = computed(() => {
   return `https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`
 })
 const filteredInstalled = computed(() => installedSkills.value)
+
+function hasChildSkills(skill: HubSkill): boolean {
+  return Array.isArray(skill.childSkills) && skill.childSkills.length > 0
+}
+
+function skillGroupKey(skill: HubSkill): string {
+  return skill.path || skill.name
+}
+
+function toggleSkillGroup(skill: HubSkill): void {
+  const key = skillGroupKey(skill)
+  const next = new Set(expandedSkillGroups.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  expandedSkillGroups.value = next
+}
+
+function handleInstalledRowClick(skill: HubSkill): void {
+  if (hasChildSkills(skill)) {
+    toggleSkillGroup(skill)
+    return
+  }
+  openDetail(skill)
+}
+
+function childSkillToHubSkill(parent: HubSkill, child: HubChildSkill): HubSkill {
+  return {
+    name: child.name,
+    owner: parent.displayName || parent.name || 'local',
+    description: child.description,
+    displayName: child.displayName,
+    url: '',
+    installed: true,
+    path: child.path,
+    enabled: child.enabled,
+  }
+}
+
+function skillDirPath(skill: Pick<HubSkill, 'path'>): string {
+  const p = skill.path
+  if (!p) return ''
+  return p.endsWith('/SKILL.md') ? p.slice(0, -'/SKILL.md'.length) : p
+}
+
+function browseSkillFiles(skill: Pick<HubSkill, 'path'>): void {
+  const dir = skillDirPath(skill)
+  if (!dir) return
+  window.open(resolveBackendHttpUrl(`/codex-local-browse${encodeURI(dir)}`), '_blank', 'noopener,noreferrer')
+}
 
 function showToast(text: string, type: 'success' | 'error' = 'success'): void {
   toast.value = { text, type }
@@ -540,6 +653,95 @@ watch(visibleSkillErrors, (values, oldValues) => {
   @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3;
 }
 
+.skills-installed-list {
+  @apply overflow-hidden rounded-xl border border-zinc-200 bg-white;
+}
+
+.skills-installed-group {
+  @apply border-b border-zinc-100 last:border-b-0;
+}
+
+.skills-installed-group.is-disabled,
+.skills-installed-child-row.is-disabled {
+  @apply opacity-50;
+}
+
+.skills-installed-row,
+.skills-installed-child-row {
+  @apply flex min-h-14 items-stretch gap-1 px-2 py-1.5;
+}
+
+.skills-installed-child-row {
+  @apply min-h-12 pl-11;
+}
+
+.skills-installed-expand,
+.skills-installed-spacer {
+  @apply flex h-9 w-7 shrink-0 items-center justify-center self-center rounded-md border-0 bg-transparent text-zinc-400;
+}
+
+.skills-installed-expand {
+  @apply cursor-pointer transition hover:bg-zinc-100 hover:text-zinc-700;
+}
+
+.skills-installed-chevron {
+  @apply h-3.5 w-3.5 transition-transform;
+}
+
+.skills-installed-chevron.is-open {
+  @apply rotate-90;
+}
+
+.skills-installed-main,
+.skills-installed-child-main {
+  @apply flex min-w-0 flex-1 items-center gap-2.5 rounded-lg border-0 bg-transparent px-2 py-1.5 text-left transition hover:bg-zinc-50 cursor-pointer;
+}
+
+.skills-installed-avatar {
+  @apply flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-xs font-medium uppercase text-zinc-500;
+}
+
+.skills-installed-avatar.is-plugin {
+  @apply bg-emerald-50 text-emerald-700;
+}
+
+.skills-installed-folder-icon,
+.skills-installed-browse-icon {
+  @apply h-4 w-4;
+}
+
+.skills-installed-copy {
+  @apply flex min-w-0 flex-1 flex-col gap-0.5;
+}
+
+.skills-installed-name {
+  @apply truncate text-sm font-medium text-zinc-900;
+}
+
+.skills-installed-description {
+  @apply line-clamp-1 text-xs text-zinc-500;
+}
+
+.skills-installed-count {
+  @apply ml-auto shrink-0 rounded-md border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-xs font-medium text-zinc-500;
+}
+
+.skills-installed-browse {
+  @apply flex h-9 w-9 shrink-0 items-center justify-center self-center rounded-lg border-0 bg-transparent text-zinc-300 transition hover:bg-zinc-100 hover:text-zinc-600 cursor-pointer;
+}
+
+.skills-installed-children {
+  @apply relative border-t border-zinc-100 bg-zinc-50/60 py-1;
+}
+
+.skills-installed-children::before {
+  @apply absolute bottom-3 left-8 top-3 w-px bg-zinc-200 content-[''];
+}
+
+.skills-installed-child-dot {
+  @apply h-2 w-2 shrink-0 rounded-full bg-zinc-300;
+}
+
 .skills-hub-loading {
   @apply text-sm text-zinc-400 py-8 text-center;
 }
@@ -554,5 +756,58 @@ watch(visibleSkillErrors, (values, oldValues) => {
 
 .skills-hub-empty {
   @apply text-sm text-zinc-400 py-8 text-center;
+}
+
+:global(:root.dark) .skills-installed-list {
+  @apply border-zinc-700 bg-zinc-900;
+}
+
+:global(:root.dark) .skills-installed-group {
+  @apply border-zinc-800;
+}
+
+:global(:root.dark) .skills-installed-main,
+:global(:root.dark) .skills-installed-child-main {
+  @apply hover:bg-zinc-800;
+}
+
+:global(:root.dark) .skills-installed-expand {
+  @apply text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200;
+}
+
+:global(:root.dark) .skills-installed-avatar {
+  @apply bg-zinc-800 text-zinc-300;
+}
+
+:global(:root.dark) .skills-installed-avatar.is-plugin {
+  @apply bg-emerald-950 text-emerald-300;
+}
+
+:global(:root.dark) .skills-installed-name {
+  @apply text-zinc-100;
+}
+
+:global(:root.dark) .skills-installed-description {
+  @apply text-zinc-400;
+}
+
+:global(:root.dark) .skills-installed-count {
+  @apply border-zinc-700 bg-zinc-800 text-zinc-300;
+}
+
+:global(:root.dark) .skills-installed-browse {
+  @apply text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200;
+}
+
+:global(:root.dark) .skills-installed-children {
+  @apply border-zinc-800 bg-zinc-950/50;
+}
+
+:global(:root.dark) .skills-installed-children::before {
+  @apply bg-zinc-700;
+}
+
+:global(:root.dark) .skills-installed-child-dot {
+  @apply bg-zinc-600;
 }
 </style>

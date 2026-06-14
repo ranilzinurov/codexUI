@@ -1,5 +1,5 @@
 <template>
-  <section class="review-pane" :class="{ 'is-mobile': isMobile }" @click.stop>
+  <section class="review-pane" :class="{ 'is-mobile': isMobile }" @pointerdown.stop @click.stop>
     <header class="review-pane-header">
       <div class="review-pane-heading">
         <p class="review-pane-eyebrow">{{ t('Review') }}</p>
@@ -37,7 +37,7 @@
       </div>
 
       <div class="review-pane-toolbar-controls">
-        <div class="review-pane-control-cluster">
+        <div v-if="!isCommitReview" class="review-pane-control-cluster">
           <span class="review-pane-control-label">{{ t('Compare') }}</span>
           <div class="review-pane-segmented">
             <button
@@ -60,7 +60,7 @@
           </div>
         </div>
 
-        <div v-if="activeScope === 'baseBranch' && snapshot?.baseBranchOptions.length" class="review-pane-control-cluster">
+        <div v-if="!isCommitReview && activeScope === 'baseBranch' && snapshot?.baseBranchOptions.length" class="review-pane-control-cluster">
           <span class="review-pane-control-label">{{ t('Branch') }}</span>
           <label class="review-pane-branch-select-wrap">
             <select
@@ -78,7 +78,7 @@
           </label>
         </div>
 
-        <div v-if="activeScope === 'workspace'" class="review-pane-control-cluster">
+        <div v-if="!isCommitReview && activeScope === 'workspace'" class="review-pane-control-cluster">
           <span class="review-pane-control-label">{{ t('Changes') }}</span>
           <div class="review-pane-segmented">
             <button
@@ -125,7 +125,8 @@
       <span class="review-pane-summary-pill review-pane-summary-pill-add">+{{ snapshot.summary.addedLineCount }}</span>
       <span class="review-pane-summary-pill review-pane-summary-pill-remove">-{{ snapshot.summary.removedLineCount }}</span>
       <span v-if="snapshot.headBranch">{{ snapshot.headBranch }}</span>
-      <span v-if="activeScope === 'baseBranch' && snapshot.baseBranch">vs {{ snapshot.baseBranch }}</span>
+      <span v-if="isCommitReview && snapshot.commitSha">{{ shortCommitSha(snapshot.commitSha) }}</span>
+      <span v-if="!isCommitReview && activeScope === 'baseBranch' && snapshot.baseBranch">vs {{ snapshot.baseBranch }}</span>
     </div>
 
     <div v-if="activeTab === 'changes'" class="review-pane-content">
@@ -145,7 +146,7 @@
         </div>
       </template>
 
-      <template v-else-if="activeScope === 'baseBranch' && !snapshot.baseBranch">
+      <template v-else-if="!isCommitReview && activeScope === 'baseBranch' && !snapshot.baseBranch">
         <div class="review-pane-empty">
           <p class="review-pane-empty-title">{{ t('Base branch unavailable') }}</p>
           <p class="review-pane-empty-text">{{ t('Could not resolve `origin/HEAD`, `main`, or `master` for this repository.') }}</p>
@@ -169,7 +170,7 @@
         <div v-if="!snapshot.files.length" class="review-pane-empty">
           <p class="review-pane-empty-title">{{ t('No changes in this scope') }}</p>
           <p class="review-pane-empty-text">
-            {{ activeScope === 'workspace' ? t('Your current workspace is clean.') : t('No merge diff found against the base branch.') }}
+            {{ emptyReviewMessage }}
           </p>
         </div>
 
@@ -424,6 +425,8 @@ const props = defineProps<{
   threadId: string
   cwd: string
   isThreadInProgress: boolean
+  initialFilePath?: string
+  commitSha?: string
 }>()
 
 defineEmits<{
@@ -494,13 +497,29 @@ type MutableReviewTreeFolder = {
   files: MutableReviewTreeFile[]
 }
 
-const reviewKey = computed(() => `${activeScope.value}:${workspaceView.value}`)
+const isCommitReview = computed(() => Boolean(props.commitSha?.trim()))
+const effectiveScope = computed<UiReviewScope>(() => isCommitReview.value ? 'commit' : activeScope.value)
+const reviewKey = computed(() => isCommitReview.value
+  ? `commit:${props.commitSha?.trim() ?? ''}`
+  : `${activeScope.value}:${workspaceView.value}`)
 const currentReviewResult = computed(() => reviewResultsByKey.value[reviewKey.value] ?? null)
 const selectedFile = computed(() => snapshot.value?.files.find((file) => file.id === selectedFileId.value) ?? snapshot.value?.files[0] ?? null)
 const folderExpansionState = ref<Record<string, boolean>>({})
 
+const emptyReviewMessage = computed(() => {
+  if (snapshot.value?.scope === 'commit' || isCommitReview.value) {
+    return t('No file changes in this commit.')
+  }
+  return activeScope.value === 'workspace'
+    ? t('Your current workspace is clean.')
+    : t('No merge diff found against the base branch.')
+})
+
 const headerTitle = computed(() => {
   if (!snapshot.value?.isGitRepo) return t('Repository review')
+  if (isCommitReview.value) {
+    return snapshot.value.commitSha ? `${t('Commit')} ${shortCommitSha(snapshot.value.commitSha)}` : t('Commit')
+  }
   if (activeScope.value === 'workspace') {
     return workspaceView.value === 'staged' ? t('Staged changes') : t('Workspace changes')
   }
@@ -511,12 +530,14 @@ const canRunReview = computed(() => (
   props.threadId.trim().length > 0
   && props.cwd.trim().length > 0
   && snapshot.value?.isGitRepo === true
+  && !isCommitReview.value
   && !props.isThreadInProgress
   && !(activeScope.value === 'baseBranch' && !snapshot.value?.baseBranch)
 ))
 
 const showBulkActions = computed(() => (
-  activeScope.value === 'workspace'
+  !isCommitReview.value
+  && activeScope.value === 'workspace'
   && snapshot.value?.isGitRepo === true
   && snapshot.value.files.length > 0
 ))
@@ -631,6 +652,35 @@ function lineMarker(kind: string): string {
 function fileBaseName(path: string): string {
   const segments = path.split('/').filter(Boolean)
   return segments[segments.length - 1] ?? path
+}
+
+function shortCommitSha(value: string): string {
+  const normalized = value.trim()
+  return normalized ? normalized.slice(0, 7) : ''
+}
+
+function normalizeReviewPath(filePath: string): string {
+  return filePath.trim().replace(/\\/gu, '/')
+}
+
+function findFileByPath(filePath: string): UiReviewFile | null {
+  const targetPath = normalizeReviewPath(filePath)
+  if (!targetPath || !snapshot.value) return null
+  return snapshot.value.files.find((file) => {
+    return [
+      file.path,
+      file.absolutePath,
+      file.previousPath,
+      file.previousAbsolutePath,
+    ].some((candidate) => typeof candidate === 'string' && normalizeReviewPath(candidate) === targetPath)
+  }) ?? null
+}
+
+function selectInitialFilePath(): boolean {
+  const targetFile = findFileByPath(props.initialFilePath ?? '')
+  if (!targetFile) return false
+  selectFile(targetFile.id)
+  return true
 }
 
 function sortTreeEntries(left: string, right: string): number {
@@ -786,12 +836,15 @@ async function loadSnapshot(): Promise<void> {
   isLoadingSnapshot.value = true
   snapshotError.value = ''
   try {
-    const desiredBaseBranch = activeScope.value === 'baseBranch' ? selectedBaseBranch.value.trim() : ''
+    const desiredScope = effectiveScope.value
+    const desiredBaseBranch = desiredScope === 'baseBranch' ? selectedBaseBranch.value.trim() : ''
+    const desiredCommitSha = desiredScope === 'commit' ? (props.commitSha?.trim() ?? '') : ''
     const nextSnapshot = await getReviewSnapshot(
       props.cwd,
-      activeScope.value,
+      desiredScope,
       workspaceView.value,
       desiredBaseBranch || null,
+      desiredCommitSha || null,
     )
     if (nextSnapshot.baseBranchOptions.length > 0) {
       const normalizedBaseBranch = nextSnapshot.baseBranch ?? nextSnapshot.baseBranchOptions[0] ?? ''
@@ -807,7 +860,7 @@ async function loadSnapshot(): Promise<void> {
     }
     snapshot.value = nextSnapshot
     const hasSelectedFile = nextSnapshot.files.some((file) => file.id === selectedFileId.value)
-    if (!hasSelectedFile) {
+    if (!hasSelectedFile && !selectInitialFilePath()) {
       selectedFileId.value = nextSnapshot.files[0]?.id ?? ''
       selectedHunkId.value = nextSnapshot.files[0]?.hunks[0]?.id ?? ''
     }
@@ -1013,7 +1066,7 @@ function handleNotification(notification: RpcNotification): void {
 }
 
 watch(
-  () => [props.threadId, props.cwd] as const,
+  () => [props.threadId, props.cwd, props.commitSha ?? '', props.initialFilePath ?? ''] as const,
   () => {
     selectedFileId.value = ''
     selectedHunkId.value = ''
@@ -1029,6 +1082,7 @@ watch(
 watch(
   () => [activeScope.value, workspaceView.value] as const,
   () => {
+    if (isCommitReview.value) return
     selectedFileId.value = ''
     selectedHunkId.value = ''
     reviewError.value = ''

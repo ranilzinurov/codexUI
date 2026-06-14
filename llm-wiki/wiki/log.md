@@ -92,3 +92,24 @@
 - Created wiki page: `concepts/composer-plugin-mentions.md`.
 - Documents `$` picker plugin rows, `plugin://` mention paths, draft/queue preservation, and history rendering.
 - Updated `index.md`.
+
+## 2026-06-14
+
+- Added source notes for installed plugin skill tree grouping.
+- Updated wiki page: `concepts/directory-hub-composio-skills.md`.
+- Documents `.codex/plugins/cache` plugin ownership detection, nested installed plugin skills, duplicate top-level path removal, and Skills Hub performance notes.
+- Updated `index.md`.
+
+## 2026-06-14
+
+- Added source notes for project ZIP portability.
+- Created wiki page: `concepts/project-zip-portability.md`.
+- Documents `.codex-project/manifest.json`, `.codex-project/chats/**`, imported session rewriting, provider/model metadata behavior, and manual verification locations.
+- Updated `index.md`.
+
+## 2026-06-14
+
+- Added upstream source notes for manual test domain folders, copied auth provider promotion, OpenCode Zen Docker/provider-model fixes, provider config restart follow-ups, and thread-locked provider models.
+- Created wiki pages: `concepts/manual-test-domain-docs.md` and `concepts/provider-auth-models.md`.
+- Updated `overview.md`, `entities/codex-web-local.md`, and `index.md`.
+- Preserved this fork's `tests.md` canonical manual-test policy and `llm-wiki/wiki/log.md` append-only convention.

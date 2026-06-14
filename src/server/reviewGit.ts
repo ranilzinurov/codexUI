@@ -1,10 +1,11 @@
 import { spawn } from 'node:child_process'
+import { createReadStream } from 'node:fs'
 import { mkdir, rm, stat, writeFile } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 
-type ReviewScope = 'workspace' | 'baseBranch'
+type ReviewScope = 'workspace' | 'baseBranch' | 'commit'
 type ReviewWorkspaceView = 'unstaged' | 'staged'
 type ReviewAction = 'stage' | 'unstage' | 'revert'
 type ReviewActionLevel = 'all' | 'file' | 'hunk'
@@ -51,6 +52,7 @@ type ReviewSnapshot = {
   workspaceView: ReviewWorkspaceView
   baseBranch: string | null
   baseBranchOptions: string[]
+  commitSha: string | null
   headBranch: string | null
   mergeBaseSha: string | null
   generatedAtIso: string
@@ -61,6 +63,8 @@ type ReviewSnapshot = {
   }
   files: ReviewSnapshotFile[]
 }
+
+type ReviewSummary = ReviewSnapshot['summary']
 
 type ReviewRouteContext = {
   readJsonBody: (req: IncomingMessage) => Promise<unknown>
@@ -75,6 +79,10 @@ type CommandResult = {
 type DetectedBaseBranch = {
   displayName: string
   gitRef: string
+}
+
+function getNodeErrorCode(error: unknown): string {
+  return typeof error === 'object' && error && 'code' in error ? String((error as { code?: unknown }).code) : ''
 }
 
 function normalizeBaseBranchDisplayName(value: string): string {
@@ -287,6 +295,109 @@ function parseUntrackedPaths(statusOutput: string): string[] {
   return paths
 }
 
+function parseNumstatSummary(output: string): ReviewSummary {
+  let fileCount = 0
+  let addedLineCount = 0
+  let removedLineCount = 0
+  for (const line of output.split(/\r?\n/u)) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    const [addedRaw, removedRaw] = trimmed.split(/\s+/u)
+    if (addedRaw === undefined || removedRaw === undefined) continue
+    fileCount += 1
+    const added = Number(addedRaw)
+    const removed = Number(removedRaw)
+    if (Number.isFinite(added)) addedLineCount += added
+    if (Number.isFinite(removed)) removedLineCount += removed
+  }
+  return { fileCount, addedLineCount, removedLineCount }
+}
+
+function addReviewSummary(left: ReviewSummary, right: ReviewSummary): ReviewSummary {
+  return {
+    fileCount: left.fileCount + right.fileCount,
+    addedLineCount: left.addedLineCount + right.addedLineCount,
+    removedLineCount: left.removedLineCount + right.removedLineCount,
+  }
+}
+
+async function summarizeUntrackedFile(repoRoot: string, path: string): Promise<ReviewSummary> {
+  const absolutePath = join(repoRoot, ...path.split('/'))
+  let info
+  try {
+    info = await stat(absolutePath)
+  } catch (error) {
+    const code = getNodeErrorCode(error)
+    if (code === 'ENOENT' || code === 'ENOTDIR') {
+      return { fileCount: 0, addedLineCount: 0, removedLineCount: 0 }
+    }
+    if (code === 'EACCES' || code === 'EPERM') {
+      return { fileCount: 1, addedLineCount: 0, removedLineCount: 0 }
+    }
+    throw error
+  }
+  if (!info.isFile()) {
+    return { fileCount: 0, addedLineCount: 0, removedLineCount: 0 }
+  }
+
+  const addedLineCount = await new Promise<number>((resolve, reject) => {
+    const stream = createReadStream(absolutePath)
+    let lineCount = 0
+    let sawAnyByte = false
+    let lastByteWasNewline = false
+    stream.on('data', (chunk: string | Buffer) => {
+      if (typeof chunk === 'string') chunk = Buffer.from(chunk)
+      sawAnyByte = true
+      for (const byte of chunk) {
+        if (byte === 10) lineCount += 1
+      }
+      lastByteWasNewline = chunk[chunk.length - 1] === 10
+    })
+    stream.on('error', (error: unknown) => {
+      const code = getNodeErrorCode(error)
+      if (code === 'ENOENT' || code === 'ENOTDIR' || code === 'EACCES' || code === 'EPERM') {
+        resolve(0)
+        return
+      }
+      reject(error)
+    })
+    stream.on('end', () => {
+      resolve(sawAnyByte && !lastByteWasNewline ? lineCount + 1 : lineCount)
+    })
+  })
+  return { fileCount: 1, addedLineCount, removedLineCount: 0 }
+}
+
+async function buildWorkspaceDiffSummary(repoRoot: string, workspaceView: ReviewWorkspaceView): Promise<ReviewSummary> {
+  if (workspaceView === 'staged') {
+    try {
+      const output = await runCommandCapture('git', ['diff', '--cached', '--no-ext-diff', '--find-renames', '--numstat'], { cwd: repoRoot })
+      return parseNumstatSummary(output)
+    } catch (error) {
+      if (isMissingHeadError(error)) {
+        return { fileCount: 0, addedLineCount: 0, removedLineCount: 0 }
+      }
+      throw error
+    }
+  }
+
+  let summary: ReviewSummary = { fileCount: 0, addedLineCount: 0, removedLineCount: 0 }
+  try {
+    const output = await runCommandCapture('git', ['diff', '--no-ext-diff', '--find-renames', '--numstat'], { cwd: repoRoot })
+    summary = addReviewSummary(summary, parseNumstatSummary(output))
+  } catch (error) {
+    if (!isMissingHeadError(error)) {
+      throw error
+    }
+  }
+
+  const statusOutput = await runCommandCapture('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: repoRoot })
+  for (const path of parseUntrackedPaths(statusOutput)) {
+    summary = addReviewSummary(summary, await summarizeUntrackedFile(repoRoot, path))
+  }
+  return summary
+}
+
 async function diffUntrackedFile(repoRoot: string, path: string): Promise<string> {
   const result = await runCommandResult(
     'git',
@@ -354,6 +465,16 @@ async function buildBaseBranchDiff(
     diffText,
     mergeBaseSha: mergeBaseResult.stdout,
   }
+}
+
+async function buildCommitDiff(repoRoot: string, commitSha: string): Promise<{ diffText: string; commitSha: string }> {
+  const resolvedSha = await runCommandCapture('git', ['rev-parse', '--verify', `${commitSha}^{commit}`], { cwd: repoRoot })
+  const diffText = await runCommandCapture(
+    'git',
+    ['diff-tree', '--root', '-r', '--no-commit-id', '--no-ext-diff', '--find-renames', '--patch', resolvedSha],
+    { cwd: repoRoot },
+  )
+  return { diffText, commitSha: resolvedSha }
 }
 
 function normalizeDiffPath(value: string): string | null {
@@ -617,6 +738,7 @@ async function buildReviewSnapshot(
   scope: ReviewScope,
   workspaceView: ReviewWorkspaceView,
   requestedBaseBranch = '',
+  requestedCommitSha = '',
 ): Promise<ReviewSnapshot> {
   const normalizedCwd = normalizeInputCwd(cwd)
   await ensureDirectory(normalizedCwd)
@@ -631,6 +753,7 @@ async function buildReviewSnapshot(
       workspaceView,
       baseBranch: null,
       baseBranchOptions: [],
+      commitSha: null,
       headBranch: null,
       mergeBaseSha: null,
       generatedAtIso: new Date().toISOString(),
@@ -651,8 +774,16 @@ async function buildReviewSnapshot(
 
   let diffText = ''
   let mergeBaseSha: string | null = null
+  let commitSha: string | null = null
 
-  if (scope === 'baseBranch') {
+  if (scope === 'commit') {
+    if (!requestedCommitSha.trim()) {
+      throw new Error('Missing commit')
+    }
+    const commitDiff = await buildCommitDiff(gitRoot, requestedCommitSha.trim())
+    diffText = commitDiff.diffText
+    commitSha = commitDiff.commitSha
+  } else if (scope === 'baseBranch') {
     if (baseBranch) {
       const baseDiff = await buildBaseBranchDiff(gitRoot, baseBranch)
       diffText = baseDiff.diffText
@@ -671,6 +802,7 @@ async function buildReviewSnapshot(
     workspaceView,
     baseBranch: baseBranch?.displayName ?? null,
     baseBranchOptions,
+    commitSha,
     headBranch,
     mergeBaseSha,
     generatedAtIso: new Date().toISOString(),
@@ -756,7 +888,7 @@ async function applyReviewAction(payload: unknown): Promise<ReviewSnapshot> {
   }
 
   const cwd = readString(record.cwd)
-  const scope = record.scope === 'baseBranch' ? 'baseBranch' : 'workspace'
+  const scope = record.scope === 'baseBranch' ? 'baseBranch' : record.scope === 'commit' ? 'commit' : 'workspace'
   const workspaceView = record.workspaceView === 'staged' ? 'staged' : 'unstaged'
   const action = readString(record.action)
   const level = readString(record.level)
@@ -800,11 +932,39 @@ export async function handleReviewRoutes(
   url: URL,
   context: ReviewRouteContext,
 ): Promise<boolean> {
+  if (req.method === 'GET' && url.pathname === '/codex-api/review/summary') {
+    const cwd = url.searchParams.get('cwd')?.trim() ?? ''
+    const workspaceView = url.searchParams.get('workspaceView') === 'staged' ? 'staged' : 'unstaged'
+    if (!cwd) {
+      setJson(res, 400, { error: 'Missing cwd' })
+      return true
+    }
+
+    try {
+      const normalizedCwd = normalizeInputCwd(cwd)
+      await ensureDirectory(normalizedCwd)
+      const repoRoot = await resolveGitRoot(normalizedCwd)
+      setJson(res, 200, {
+        data: repoRoot
+          ? await buildWorkspaceDiffSummary(repoRoot, workspaceView)
+          : { fileCount: 0, addedLineCount: 0, removedLineCount: 0 },
+      })
+    } catch (error) {
+      setJson(res, 500, { error: getErrorMessage(error, 'Failed to load review summary') })
+    }
+    return true
+  }
+
   if (req.method === 'GET' && url.pathname === '/codex-api/review/snapshot') {
     const cwd = url.searchParams.get('cwd')?.trim() ?? ''
-    const scope = url.searchParams.get('scope') === 'baseBranch' ? 'baseBranch' : 'workspace'
+    const scope = url.searchParams.get('scope') === 'baseBranch'
+      ? 'baseBranch'
+      : url.searchParams.get('scope') === 'commit'
+        ? 'commit'
+        : 'workspace'
     const workspaceView = url.searchParams.get('workspaceView') === 'staged' ? 'staged' : 'unstaged'
     const baseBranch = url.searchParams.get('baseBranch')?.trim() ?? ''
+    const commitSha = url.searchParams.get('commitSha')?.trim() ?? ''
     if (!cwd) {
       setJson(res, 400, { error: 'Missing cwd' })
       return true
@@ -812,7 +972,7 @@ export async function handleReviewRoutes(
 
     try {
       setJson(res, 200, {
-        data: await buildReviewSnapshot(cwd, scope, workspaceView, baseBranch),
+        data: await buildReviewSnapshot(cwd, scope, workspaceView, baseBranch, commitSha),
       })
     } catch (error) {
       setJson(res, 500, { error: getErrorMessage(error, 'Failed to load review snapshot') })
