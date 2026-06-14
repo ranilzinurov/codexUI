@@ -22,6 +22,7 @@
 ## Sources
 - [../raw/features/integrated-terminal.md](../raw/features/integrated-terminal.md): source facts for the integrated terminal implementation and follow-up tests.
 - [../raw/features/directory-hub-composio-skills-search.md](../raw/features/directory-hub-composio-skills-search.md): source facts for Directory Hub, Composio connectors, Skills search/install, and edge-case tests.
+- [../raw/features/installed-plugin-skill-tree.md](../raw/features/installed-plugin-skill-tree.md): source facts for grouping installed plugin skills by plugin cache ownership in the Skills Hub list.
 - [../raw/features/composer-plugin-mentions.md](../raw/features/composer-plugin-mentions.md): source facts for composer plugin mentions, plugin catalog source, and mention payload format.
 - [../raw/features/directory-hub-apps-failure-message.md](../raw/features/directory-hub-apps-failure-message.md): source facts for the Directory Hub Apps tab concise app-list failure message.
 - [../raw/features/realtime-chat-rendering-inline-media.md](../raw/features/realtime-chat-rendering-inline-media.md): source facts for realtime chat rendering and inline media sanitization.

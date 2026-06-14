@@ -127,7 +127,7 @@
             </button>
             <span v-else class="skills-installed-spacer" aria-hidden="true"></span>
 
-            <button class="skills-installed-main" type="button" @click="openDetail(skill)">
+            <button class="skills-installed-main" type="button" @click="handleInstalledRowClick(skill)">
               <span class="skills-installed-avatar" :class="{ 'is-plugin': hasChildSkills(skill) }">
                 <IconTablerFolder v-if="hasChildSkills(skill)" class="skills-installed-folder-icon" />
                 <span v-else>{{ (skill.displayName || skill.name).charAt(0) }}</span>
@@ -281,6 +281,14 @@ function toggleSkillGroup(skill: HubSkill): void {
   if (next.has(key)) next.delete(key)
   else next.add(key)
   expandedSkillGroups.value = next
+}
+
+function handleInstalledRowClick(skill: HubSkill): void {
+  if (hasChildSkills(skill)) {
+    toggleSkillGroup(skill)
+    return
+  }
+  openDetail(skill)
 }
 
 function childSkillToHubSkill(parent: HubSkill, child: HubChildSkill): HubSkill {

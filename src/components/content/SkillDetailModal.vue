@@ -108,6 +108,7 @@ export type HubSkill = {
   path?: string
   enabled?: boolean
   installCountLabel?: string
+  kind?: 'skill' | 'plugin'
   childSkills?: Array<{
     name: string
     displayName?: string

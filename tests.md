@@ -4502,16 +4502,17 @@ Installed Skills Hub entries now show plugin/package roots as expandable list fo
 2. Verify installed entries render as a compact list, not as a three-column card grid
 3. Find a plugin/package row and click its chevron
 4. Verify nested skills appear as an indented sublist below that plugin row
-5. Click the plugin row name and verify the existing detail modal opens for the root `SKILL.md`
+5. Click the plugin row name and verify it toggles the same nested sublist instead of opening a skill modal
 6. Click a nested skill row and verify the detail modal opens for that nested skill
-7. Use the folder icon on a root row and a nested row, if present, and verify local browse opens
+7. Use the folder icon on a plugin row and a nested row, if present, and verify local browse opens the plugin root or child skill folder
 8. Switch to dark theme and repeat steps 2 through 6
 
 #### Expected Results
 - Plugin/package roots are visually distinct from standalone skills with a folder-style icon and child count
-- Nested skills stay grouped under their plugin/package root and do not appear as unrelated top-level cards
+- Installed plugin roots match the plugin cache structure under `.codex/plugins/cache/<marketplace>/<plugin>/<version>/skills`
+- Nested plugin skills stay grouped under their owning plugin and do not appear as unrelated top-level cards
 - Standalone skills still appear as single rows
-- Existing detail, try, enable/disable, uninstall, and browse behaviors remain available
+- Existing detail, try, enable/disable, uninstall, and browse behaviors remain available for standalone and nested skills
 - In dark theme, the installed list, child sublist, row hover states, text, dividers, and badges use dark surfaces and remain legible
 
 #### Rollback/Cleanup

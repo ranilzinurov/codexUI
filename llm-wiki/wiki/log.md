@@ -92,3 +92,10 @@
 - Created wiki page: `concepts/composer-plugin-mentions.md`.
 - Documents `$` picker plugin rows, `plugin://` mention paths, draft/queue preservation, and history rendering.
 - Updated `index.md`.
+
+## 2026-06-14
+
+- Added source notes for installed plugin skill tree grouping.
+- Updated wiki page: `concepts/directory-hub-composio-skills.md`.
+- Documents `.codex/plugins/cache` plugin ownership detection, nested installed plugin skills, duplicate top-level path removal, and Skills Hub performance notes.
+- Updated `index.md`.

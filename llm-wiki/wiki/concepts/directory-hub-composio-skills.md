@@ -22,9 +22,14 @@ Important behavior:
 
 - MCPs appear immediately before installed skills.
 - Normal tab navigation only lists MCPs; the top-level `Refresh` button is the explicit MCP reload path.
-- Installed skill cards are local-first: no repeated `local`, `Installed`, or `Disabled` labels on the card grid.
-- Installed card descriptions are parsed from local `SKILL.md` files.
+- Installed entries render as a compact local-first list, not a repeated card grid.
+- Installed plugin skills are grouped under their owning plugin root by scanning `.codex/plugins/cache/<marketplace>/<plugin>/<version>/.codex-plugin/plugin.json` and the configured plugin `skills` directory.
+- Plugin root rows toggle nested child skills; child skill rows open the specific child `SKILL.md` detail.
+- Plugin-owned child skills are removed from the top-level installed list when their paths are already represented under a plugin group.
+- Installed rows avoid repeated `local`, `Installed`, or `Disabled` labels.
+- Installed skill descriptions are parsed from local `SKILL.md` files.
 - Installed entries are built concurrently so description reads do not add one round trip per skill.
+- Plugin skill group scans use concurrent child reads and a short TTL cache.
 
 ## Skills Registry Search
 
@@ -77,6 +82,7 @@ Recommended checks:
 - Normal Skills navigation does not call MCP reload.
 - The refresh button only says `Refreshing...` during explicit manual refresh.
 - Installed search results open local detail actions.
+- Installed plugin roots expand into child skills such as Build Web Apps, Creative Production, Product Design, and Superpowers.
 - Failed installs do not create installed UI state.
 - Composio search sends `query`, preserves pagination params, and ranks exact matches first.
 - Light and dark screenshots should include both the Skills page and long installed-skill modal content.
@@ -93,4 +99,5 @@ Unit tests now cover:
 - [Concept: Skills route UI](./skills-route-ui.md)
 - [Overview](../overview.md)
 - [Source: Directory Hub Composio and Skills Search](../../raw/features/directory-hub-composio-skills-search.md)
+- [Source: Installed Plugin Skill Tree](../../raw/features/installed-plugin-skill-tree.md)
 - [Source: Directory Hub Apps Failure Message](../../raw/features/directory-hub-apps-failure-message.md)

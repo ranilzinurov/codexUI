@@ -118,9 +118,15 @@ function getSharedSkillsInstallDir(): string {
   return join(getSkillsInstallDir(), 'shared_skills')
 }
 
+function getPluginsCacheDir(): string {
+  return join(getCodexHomeDir(), 'plugins', 'cache')
+}
+
 const DEFAULT_COMMAND_TIMEOUT_MS = 120_000
 const SKILL_SEARCH_METADATA_LIMIT = 20
 const SKILL_SEARCH_METADATA_CONCURRENCY = 4
+const PLUGIN_SKILL_GROUP_CACHE_TTL_MS = 60_000
+let pluginSkillGroupCache: { loadedAt: number; promise: Promise<Map<string, InstalledSkillInfo>> } | null = null
 
 async function runCommand(command: string, args: string[], options: { cwd?: string; timeoutMs?: number } = {}): Promise<void> {
   const timeout = options.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS
@@ -259,6 +265,7 @@ type SkillHubEntry = {
   enabled?: boolean
   installCountLabel?: string
   childSkills?: SkillHubChildEntry[]
+  kind?: 'skill' | 'plugin'
 }
 
 type SkillHubChildEntry = {
@@ -284,17 +291,17 @@ async function runGitFetchWithRefLockRetry(repoDir: string, args: string[] = ['f
 }
 
 async function buildLocalHubEntry(info: InstalledSkillInfo): Promise<SkillHubEntry> {
-  let description = ''
-  if (info.path) {
+  let description = info.description ?? ''
+  if (!description && info.path && info.path.endsWith('/SKILL.md')) {
     try {
       description = extractSkillDescriptionFromMarkdown(await readFile(info.path, 'utf8'))
     } catch {}
   }
   return {
     name: info.name,
-    owner: 'local',
+    owner: info.owner ?? 'local',
     description,
-    displayName: '',
+    displayName: info.displayName ?? '',
     publishedAt: 0,
     avatarUrl: '',
     url: '',
@@ -302,6 +309,7 @@ async function buildLocalHubEntry(info: InstalledSkillInfo): Promise<SkillHubEnt
     path: info.path,
     enabled: info.enabled,
     childSkills: info.children,
+    kind: info.kind ?? 'skill',
   }
 }
 
@@ -538,6 +546,48 @@ function skillDescription(skill: RpcSkillRecord): string {
   return skill.shortDescription || skill.description || ''
 }
 
+function titleCaseSkillName(value: string): string {
+  const specialWords: Record<string, string> = {
+    ai: 'AI',
+    api: 'API',
+    canvas2d: 'Canvas2D',
+    cjs: 'CJS',
+    ci: 'CI',
+    cli: 'CLI',
+    d3: 'D3',
+    esm: 'ESM',
+    gh: 'GitHub',
+    github: 'GitHub',
+    gitlab: 'GitLab',
+    llm: 'LLM',
+    mcp: 'MCP',
+    nextjs: 'Next.js',
+    pdf: 'PDF',
+    postgres: 'Postgres',
+    qa: 'QA',
+    react: 'React',
+    shadcn: 'shadcn/ui',
+    stripe: 'Stripe',
+    supabase: 'Supabase',
+    threejs: 'Three.js',
+    ui: 'UI',
+    url: 'URL',
+    ux: 'UX',
+  }
+  const smallWords = new Set(['and', 'for', 'in', 'of', 'or', 'the', 'to', 'with'])
+  return value
+    .split(/[-_\s]+/u)
+    .filter(Boolean)
+    .map((part, index) => {
+      const lower = part.toLowerCase()
+      const special = specialWords[lower]
+      if (special) return special
+      if (index > 0 && smallWords.has(lower)) return lower
+      return `${part.charAt(0).toUpperCase()}${part.slice(1)}`
+    })
+    .join(' ')
+}
+
 function groupRpcSkillRecordsForHub(skills: RpcSkillRecord[]): InstalledSkillInfo[] {
   const normalizedPathSet = new Set(
     skills
@@ -606,7 +656,16 @@ function groupRpcSkillRecordsForHub(skills: RpcSkillRecord[]): InstalledSkillInf
 }
 
 type InstalledSkillChildInfo = { name: string; displayName?: string; description: string; path: string; enabled: boolean }
-type InstalledSkillInfo = { name: string; path: string; enabled: boolean; children?: InstalledSkillChildInfo[] }
+type InstalledSkillInfo = {
+  name: string
+  path: string
+  enabled: boolean
+  children?: InstalledSkillChildInfo[]
+  displayName?: string
+  owner?: string
+  description?: string
+  kind?: 'skill' | 'plugin'
+}
 type SyncedSkill = { owner?: string; name: string; enabled: boolean }
 
 type SkillsSyncState = {
@@ -682,23 +741,156 @@ async function scanInstalledSkillsFromDisk(): Promise<Map<string, InstalledSkill
   return await scanInstalledSkillsFromDir(getSkillsInstallDir())
 }
 
-async function collectInstalledSkillsMap(appServer: AppServerLike): Promise<Map<string, InstalledSkillInfo>> {
-  const installedMap = await scanInstalledSkillsFromDisk()
+async function readPluginJson(pluginJsonPath: string): Promise<Record<string, unknown> | null> {
   try {
-    const result = await appServer.rpc('skills/list', {}) as { data?: Array<{ skills?: RpcSkillRecord[] }> }
-    for (const entry of result.data ?? []) {
-      for (const skill of groupRpcSkillRecordsForHub(entry.skills ?? [])) {
-        if (skill.name) {
-          installedMap.set(skill.name, {
-            name: skill.name,
-            path: skill.path ?? '',
-            enabled: skill.enabled !== false,
-            children: skill.children,
+    return asRecord(JSON.parse(await readFile(pluginJsonPath, 'utf8')) as unknown)
+  } catch {
+    return null
+  }
+}
+
+function resolvePluginSkillsDir(pluginRoot: string, plugin: Record<string, unknown>): string {
+  const skillsValue = typeof plugin.skills === 'string' ? plugin.skills.trim() : ''
+  const relative = skillsValue.length > 0 ? skillsValue.replace(/^\.\//u, '') : 'skills'
+  return join(pluginRoot, relative)
+}
+
+async function scanPluginSkillChildren(skillsDir: string): Promise<InstalledSkillChildInfo[]> {
+  try {
+    const entries = await readdir(skillsDir, { withFileTypes: true })
+    const children = await Promise.all(entries.map(async (entry): Promise<InstalledSkillChildInfo | null> => {
+      if (!entry.isDirectory() || entry.name.startsWith('.')) return null
+      const skillMd = join(skillsDir, entry.name, 'SKILL.md')
+      try {
+        const markdown = await readFile(skillMd, 'utf8')
+        const frontmatterName = extractSkillFrontmatterField(markdown, 'name')
+        return {
+          name: frontmatterName || entry.name,
+          displayName: titleCaseSkillName(frontmatterName || entry.name),
+          description: extractSkillDescriptionFromMarkdown(markdown),
+          path: skillMd,
+          enabled: true,
+        }
+      } catch {
+        return null
+      }
+    }))
+    return children
+      .filter((child): child is InstalledSkillChildInfo => child !== null)
+      .sort((a, b) => (a.displayName || a.name).localeCompare(b.displayName || b.name))
+  } catch {}
+  return []
+}
+
+async function scanInstalledPluginSkillGroups(): Promise<Map<string, InstalledSkillInfo>> {
+  const now = Date.now()
+  if (pluginSkillGroupCache && now - pluginSkillGroupCache.loadedAt < PLUGIN_SKILL_GROUP_CACHE_TTL_MS) {
+    return pluginSkillGroupCache.promise
+  }
+  const promise = scanInstalledPluginSkillGroupsUncached()
+    .catch((error) => {
+      pluginSkillGroupCache = null
+      throw error
+    })
+  pluginSkillGroupCache = { loadedAt: now, promise }
+  return promise
+}
+
+async function scanInstalledPluginSkillGroupsUncached(): Promise<Map<string, InstalledSkillInfo>> {
+  const groups = new Map<string, InstalledSkillInfo>()
+  try {
+    const marketplaceEntries = await readdir(getPluginsCacheDir(), { withFileTypes: true })
+    for (const marketplaceEntry of marketplaceEntries) {
+      if (!marketplaceEntry.isDirectory() || marketplaceEntry.name.startsWith('.')) continue
+      const marketplaceDir = join(getPluginsCacheDir(), marketplaceEntry.name)
+      const pluginEntries = await readdir(marketplaceDir, { withFileTypes: true }).catch(() => [])
+      for (const pluginEntry of pluginEntries) {
+        if (!pluginEntry.isDirectory() || pluginEntry.name.startsWith('.')) continue
+        const pluginDir = join(marketplaceDir, pluginEntry.name)
+        const versionEntries = await readdir(pluginDir, { withFileTypes: true }).catch(() => [])
+        for (const versionEntry of versionEntries) {
+          if (!versionEntry.isDirectory() || versionEntry.name.startsWith('.')) continue
+          const pluginRoot = join(pluginDir, versionEntry.name)
+          const pluginJsonPath = join(pluginRoot, '.codex-plugin', 'plugin.json')
+          const plugin = await readPluginJson(pluginJsonPath)
+          if (!plugin) continue
+
+          const pluginName = typeof plugin.name === 'string' && plugin.name.trim() ? plugin.name.trim() : pluginEntry.name
+          const iface = asRecord(plugin.interface)
+          const author = asRecord(plugin.author)
+          const displayName = typeof iface?.displayName === 'string' && iface.displayName.trim()
+            ? iface.displayName.trim()
+            : titleCaseSkillName(pluginName)
+          const description = (
+            typeof iface?.shortDescription === 'string' && iface.shortDescription.trim()
+              ? iface.shortDescription
+              : typeof plugin.description === 'string'
+                ? plugin.description
+                : ''
+          ).trim()
+          const owner = (
+            typeof iface?.developerName === 'string' && iface.developerName.trim()
+              ? iface.developerName
+              : typeof author?.name === 'string'
+                ? author.name
+                : 'plugin'
+          ).trim()
+          const children = await scanPluginSkillChildren(resolvePluginSkillsDir(pluginRoot, plugin))
+          if (children.length === 0) continue
+
+          groups.set(`plugin:${pluginName}:${pluginRoot}`, {
+            name: pluginName,
+            displayName,
+            owner,
+            description,
+            path: pluginRoot,
+            enabled: true,
+            kind: 'plugin',
+            children,
           })
         }
       }
     }
   } catch {}
+  return groups
+}
+
+async function collectInstalledSkillsMap(appServer: AppServerLike): Promise<Map<string, InstalledSkillInfo>> {
+  const installedMap = await scanInstalledSkillsFromDisk()
+  try {
+    const result = await appServer.rpc('skills/list', {}) as { data?: Array<{ skills?: RpcSkillRecord[] }> }
+    for (const entry of result.data ?? []) {
+      for (const skill of groupRpcSkillRecords(entry.skills ?? [])) {
+        if (skill.name) {
+          installedMap.set(skill.name, {
+            name: skill.name,
+            path: skill.path ?? '',
+            enabled: skill.enabled !== false,
+          })
+        }
+      }
+    }
+  } catch {}
+  return installedMap
+}
+
+async function collectInstalledSkillsHubMap(appServer: AppServerLike): Promise<Map<string, InstalledSkillInfo>> {
+  const installedMap = await collectInstalledSkillsMap(appServer)
+  const pluginGroups = await scanInstalledPluginSkillGroups()
+  const pluginChildPaths = new Set<string>()
+  for (const group of pluginGroups.values()) {
+    for (const child of group.children ?? []) {
+      pluginChildPaths.add(normalizeSkillMarkdownPath(child.path))
+    }
+  }
+  for (const [key, skill] of installedMap) {
+    if (pluginChildPaths.has(normalizeSkillMarkdownPath(skill.path))) {
+      installedMap.delete(key)
+    }
+  }
+  for (const [key, group] of pluginGroups) {
+    installedMap.set(key, group)
+  }
   return installedMap
 }
 
@@ -1486,9 +1678,9 @@ export async function handleSkillsRoutes(
   const { appServer, readJsonBody } = context
   if (req.method === 'GET' && url.pathname === '/codex-api/skills-hub') {
     try {
-      const installedMap = await collectInstalledSkillsMap(appServer)
+      const installedMap = await collectInstalledSkillsHubMap(appServer)
       const installed = await Promise.all([...installedMap.values()].map((info) => buildLocalHubEntry(info)))
-      installed.sort((a, b) => a.name.localeCompare(b.name))
+      installed.sort((a, b) => (a.displayName || a.name).localeCompare(b.displayName || b.name))
       setJson(res, 200, { installed })
     } catch (error) {
       setJson(res, 502, { error: getErrorMessage(error, 'Failed to fetch skills hub') })
