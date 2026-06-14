@@ -4,6 +4,7 @@ import {
   collectWorkspaceRootPathsForProjectRemoval,
   filterGroupsByWorkspaceRoots,
   findAdjacentThreadId,
+  mergeMessages,
   removeThreadFromGroups,
   isThreadUnreadByLastRead,
   useDesktopState,
@@ -1553,6 +1554,130 @@ describe('thread selection refresh', () => {
 
     expect(state.selectedThreadId.value).toBe('')
     expect(window.localStorage.getItem('codex-web-local.selected-thread-id.v1')).toBe('thread-a')
+  })
+})
+
+describe('thread loading stability', () => {
+  it('drops optimistic user messages once an equivalent persisted user message arrives', () => {
+    const previous = [
+      {
+        id: 'optimistic-user',
+        role: 'user' as const,
+        text: 'Summarize this file',
+        images: ['blob:image-1'],
+        fileAttachments: [{ label: 'notes.md', path: '/tmp/project/notes.md', fsPath: '/tmp/project/notes.md' }],
+        messageType: 'userMessage.optimistic',
+      },
+      {
+        id: 'live-assistant',
+        role: 'assistant' as const,
+        text: 'Thinking...',
+        messageType: 'agentMessage.live',
+      },
+    ]
+    const incoming = [
+      {
+        id: 'persisted-user',
+        role: 'user' as const,
+        text: '  Summarize   this file ',
+        images: ['blob:image-1'],
+        fileAttachments: [{ label: 'notes.md', path: '/tmp/project/notes.md', fsPath: '/tmp/project/notes.md' }],
+      },
+      {
+        id: 'persisted-assistant',
+        role: 'assistant' as const,
+        text: 'Summary ready.',
+      },
+    ]
+
+    const merged = mergeMessages(previous, incoming, { preserveMissing: true })
+
+    expect(merged).toEqual([
+      previous[1],
+      incoming[0],
+      incoming[1],
+    ])
+    expect(merged).not.toContain(previous[0])
+  })
+
+  it('returns not-found and surfaces an in-chat error when the selected thread is missing', async () => {
+    installTestWindow()
+    gatewayMocks.resumeThread.mockRejectedValue(
+      new Error('RPC thread/read failed with HTTP 404: thread not found: missing-thread'),
+    )
+    gatewayMocks.getAvailableModelIds.mockResolvedValue(['gpt-5.5'])
+    gatewayMocks.getCurrentModelConfig.mockResolvedValue({
+      model: 'gpt-5.5',
+      providerId: '',
+      reasoningEffort: 'medium',
+      speedMode: 'standard',
+    })
+    gatewayMocks.getSkillsList.mockResolvedValue([])
+
+    const state = useDesktopState()
+
+    await expect(state.selectThread('missing-thread')).resolves.toBe('not-found')
+    expect(state.selectedThreadId.value).toBe('missing-thread')
+    expect(state.selectedLiveOverlay.value?.errorText).toContain('thread not found')
+  })
+
+  it('refreshes an already loaded active thread after a dirty completion notification', async () => {
+    installTestWindow({ 'codex-web-local.selected-thread-id.v1': 'active-thread' })
+    const notify = installNotificationListener()
+    const nowSpy = vi.spyOn(Date, 'now')
+    nowSpy.mockReturnValue(1_000)
+    gatewayMocks.getThreadGroupsPage.mockResolvedValue({
+      groups: [{ projectName: 'Project', threads: [thread('active-thread', '/tmp/project')] }],
+      nextCursor: null,
+    })
+    gatewayMocks.resumeThread.mockResolvedValue({
+      model: 'gpt-5.5',
+      modelProvider: '',
+      messages: [{ id: 'user-1', role: 'user', text: 'Initial prompt' }],
+      inProgress: false,
+      activeTurnId: '',
+      hasMoreOlder: false,
+      turnIndexByTurnId: {},
+      collabAgents: [],
+    })
+    gatewayMocks.getThreadDetail.mockResolvedValue({
+      model: 'gpt-5.5',
+      modelProvider: '',
+      messages: [
+        { id: 'user-1', role: 'user', text: 'Initial prompt' },
+        { id: 'assistant-1', role: 'assistant', text: 'Completed answer' },
+      ],
+      inProgress: false,
+      activeTurnId: '',
+      hasMoreOlder: false,
+      turnIndexByTurnId: {},
+      collabAgents: [],
+    })
+
+    const state = useDesktopState()
+    try {
+      await state.loadMessages('active-thread')
+      nowSpy.mockReturnValue(4_000)
+      state.startPolling()
+
+      notify({
+        method: 'turn/completed',
+        params: { threadId: 'active-thread', turnId: 'turn-1' },
+        atIso: '2026-06-14T00:00:00.000Z',
+      })
+      for (const callback of scheduledWindowTimeoutCallbacks()) {
+        callback()
+      }
+      await flushAsyncWork()
+
+      expect(gatewayMocks.getThreadDetail).toHaveBeenCalledTimes(1)
+      expect(state.messages.value).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: 'user-1', text: 'Initial prompt' }),
+        expect.objectContaining({ id: 'assistant-1', text: 'Completed answer' }),
+      ]))
+    } finally {
+      nowSpy.mockRestore()
+    }
   })
 })
 

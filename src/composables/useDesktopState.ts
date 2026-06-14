@@ -113,9 +113,17 @@ const GLOBAL_SERVER_REQUEST_SCOPE = '__global__'
 const MODEL_FALLBACK_ID = 'gpt-5.4-mini'
 const CODEX_CLI_MISSING_MESSAGE = 'Codex CLI not found. Install @openai/codex or set CODEXUI_CODEX_COMMAND.'
 
+export type SelectThreadResult = 'ok' | 'not-found' | 'error'
+
 function isCodexCliMissingError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error ?? '')
   return message.includes('Codex CLI is not available')
+}
+
+function isThreadNotFoundError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  const isThreadReadFailure = /thread(?:\/|\s+)(?:read|resume)/iu.test(message)
+  return /thread not found/iu.test(message) || (isThreadReadFailure && /(?:HTTP 404|not found)/iu.test(message))
 }
 
 function isTurnStartThreadNotFoundError(error: unknown): boolean {
@@ -738,7 +746,7 @@ function areMessageArraysEqual(first: UiMessage[], second: UiMessage[]): boolean
   return true
 }
 
-function mergeMessages(
+export function mergeMessages(
   previous: UiMessage[],
   incoming: UiMessage[],
   options: { preserveMissing?: boolean } = {},
@@ -758,16 +766,18 @@ function mergeMessages(
     return areMessageArraysEqual(previous, mergedIncoming) ? previous : mergedIncoming
   }
 
-  const mergedFromPrevious = previous.map((previousMessage) => {
-    const nextMessage = incomingById.get(previousMessage.id)
-    if (!nextMessage) {
-      return previousMessage
-    }
-    if (areMessageFieldsEqual(previousMessage, nextMessage)) {
-      return previousMessage
-    }
-    return nextMessage
-  })
+  const mergedFromPrevious = previous
+    .map((previousMessage) => {
+      const nextMessage = incomingById.get(previousMessage.id)
+      if (!nextMessage) {
+        return previousMessage
+      }
+      if (areMessageFieldsEqual(previousMessage, nextMessage)) {
+        return previousMessage
+      }
+      return nextMessage
+    })
+    .filter((message) => !isOptimisticUserMessage(message) || !hasEquivalentUserMessage(message, incoming))
 
   const previousIdSet = new Set(previous.map((message) => message.id))
   const appended = mergedIncoming.filter((message) => !previousIdSet.has(message.id))
@@ -799,6 +809,36 @@ function areUiFileChangesEqual(first?: UiFileChange[], second?: UiFileChange[]):
 
 function normalizeMessageText(value: string): string {
   return value.replace(/\s+/gu, ' ').trim()
+}
+
+function isOptimisticUserMessage(message: UiMessage): boolean {
+  return message.messageType === 'userMessage.optimistic'
+}
+
+function hasOptimisticUserMessages(messages: UiMessage[]): boolean {
+  return messages.some(isOptimisticUserMessage)
+}
+
+function hasEquivalentUserMessage(target: UiMessage, messages: UiMessage[]): boolean {
+  if (target.role !== 'user') return false
+  const targetText = normalizeMessageText(target.text)
+  const targetImages = Array.isArray(target.images) ? target.images : []
+  const targetFileCount = Array.isArray(target.fileAttachments) ? target.fileAttachments.length : 0
+  const targetSkillCount = Array.isArray(target.skills) ? target.skills.length : 0
+
+  return messages.some((message) => {
+    if (message === target || message.role !== 'user' || isOptimisticUserMessage(message)) return false
+    const messageText = normalizeMessageText(message.text)
+    const messageImages = Array.isArray(message.images) ? message.images : []
+    const messageFileCount = Array.isArray(message.fileAttachments) ? message.fileAttachments.length : 0
+    const messageSkillCount = Array.isArray(message.skills) ? message.skills.length : 0
+    return (
+      messageText === targetText &&
+      areStringArraysEqual(messageImages, targetImages) &&
+      messageFileCount === targetFileCount &&
+      messageSkillCount === targetSkillCount
+    )
+  })
 }
 
 function removeRedundantLiveAgentMessages(previous: UiMessage[], incoming: UiMessage[]): UiMessage[] {
@@ -5440,7 +5480,7 @@ export function useDesktopState() {
       rebindLiveFileChangeTurnIndices(threadId)
       const previousPersisted = persistedMessagesByThreadId.value[threadId] ?? []
       const mergedMessages = mergeMessages(previousPersisted, nextMessages, {
-        preserveMissing: options.silent === true,
+        preserveMissing: options.silent === true || hasOptimisticUserMessages(previousPersisted),
       })
       setPersistedMessagesForThread(threadId, mergedMessages)
 
@@ -5671,15 +5711,21 @@ export function useDesktopState() {
     }
   }
 
-  async function selectThread(threadId: string) {
+  async function selectThread(threadId: string): Promise<SelectThreadResult> {
     setSelectedThreadId(threadId)
 
     try {
       await loadMessages(threadId)
       await refreshModelPreferences({ includeProviderModels: true })
       void refreshSkills()
+      return 'ok'
     } catch (unknownError) {
-      error.value = unknownError instanceof Error ? unknownError.message : 'Unknown application error'
+      const message = unknownError instanceof Error ? unknownError.message : 'Unknown application error'
+      error.value = message
+      if (threadId.trim()) {
+        setTurnErrorForThread(threadId, message, { transient: true })
+      }
+      return isThreadNotFoundError(unknownError) ? 'not-found' : 'error'
     }
   }
 
@@ -6759,8 +6805,8 @@ export function useDesktopState() {
 
       const shouldRefreshActiveThread =
         hasVersionChange ||
+        isActiveDirty ||
         (isInProgress && loadedMessagesByThreadId.value[activeThreadId] !== true) ||
-        (isActiveDirty && loadedMessagesByThreadId.value[activeThreadId] !== true) ||
         (shouldRefreshThreads && loadedMessagesByThreadId.value[activeThreadId] !== true)
 
       if (shouldRefreshActiveThread) {

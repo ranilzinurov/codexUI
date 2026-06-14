@@ -8568,3 +8568,43 @@ Codex account snapshot migration, active account detection, stale quota recovery
 - Restore or delete isolated `CODEX_HOME` directories used for malformed-auth testing.
 - If testing with real account snapshots, back up `accounts.json` and `accounts/` before migration checks.
 - Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
+
+---
+
+### Thread Loading Stability
+
+#### Feature/Change Name
+Thread selection error states, active-thread completion refresh, optimistic user-message dedupe, and cached message loading.
+
+#### Prerequisites/Setup
+1. Use the upstream-sync branch.
+2. Start the app with `pnpm run dev --host 127.0.0.1 --port 4173`.
+3. Have at least one normal thread, one long thread with older turns available, and one thread id that no longer exists.
+4. Keep the persistent `5173` server untouched if it exists.
+
+#### Steps
+1. In light theme, open a normal existing thread and confirm the latest messages render.
+2. Send a new message in an existing thread and confirm the user text remains visible while the turn is running.
+3. Wait for completion and confirm the active thread refreshes to the persisted final answer without duplicating the user message.
+4. Open a missing/deleted direct thread route, for example `#/thread/<missing-thread-id>`.
+5. Confirm the conversation area shows an in-chat error instead of an indefinite loading state.
+6. Open a long thread and confirm the initial load shows the latest messages first.
+7. Click the load-earlier control and confirm older turns prepend without losing the latest messages.
+8. Rapidly switch between two threads while one is loading and confirm messages from the previous thread do not remain visible in the selected thread.
+9. Switch to dark theme and repeat steps 1-7.
+10. Run `PROFILE_BASE_URL=http://127.0.0.1:4173 PROFILE_ROUTE='#/thread/<thread-id>' PROFILE_WAIT_MS=7000 pnpm run profile:browser`.
+11. Open the generated profile JSON and inspect `duplicateCounts`, `warnings`, `totalApiKB`, `topApiSummary`, and `slowestApiRows`.
+
+#### Expected Results
+- `selectThread` distinguishes successful loads, missing threads, and generic errors.
+- Missing thread routes surface a transient live-overlay error in the selected conversation.
+- Active completion events refresh already loaded threads after the message-load reuse window expires.
+- Equivalent persisted user messages replace optimistic user messages instead of rendering duplicates.
+- Silent refreshes preserve non-persisted in-flight messages until equivalent persisted content arrives.
+- Long threads can load older turns on demand while keeping the current message cache stable.
+- Light and dark themes both render loading states, live overlay errors, load-earlier controls, and stop controls without light-theme surfaces in dark mode.
+
+#### Rollback/Cleanup
+- Archive or delete temporary test threads created for the manual checks.
+- Keep profile artifacts until their summary numbers have been copied into the PR or issue comment.
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
