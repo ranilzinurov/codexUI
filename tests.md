@@ -8450,3 +8450,44 @@ Project ZIP export, browser download/share, and ZIP import into the current proj
 - Remove downloaded ZIP files after verification.
 - Remove imported test sessions from the isolated `CODEX_HOME` if one was used.
 - Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
+
+---
+
+### Startup Request Dedupe And Workspace Root Canonicalization
+
+#### Feature/Change Name
+Startup route selection, recent thread-list request reuse, and canonical workspace-root paths.
+
+#### Prerequisites/Setup
+1. Use the upstream-sync branch.
+2. Start the app with `pnpm run dev --host 127.0.0.1 --port 4173`.
+3. Have at least one existing thread and one project path that can also be reached through a symlink or worktree path.
+4. Keep the persistent `5173` server untouched if it exists.
+
+#### Steps
+1. Open `http://127.0.0.1:4173/` in light theme.
+2. Confirm the home screen loads without automatically opening or highlighting the last saved thread.
+3. Navigate to `#/skills` and `#/automations`.
+4. Confirm neither route restores the last saved thread into the active conversation pane.
+5. Open a direct thread route, for example `#/thread/<thread-id>`.
+6. Confirm that thread is selected and messages load for that route.
+7. Import or add a project through a symlinked/worktree path, then refresh the app.
+8. Confirm the project list shows the canonical real path once, not duplicate symlink and realpath entries.
+9. Switch to dark theme and repeat steps 1-6.
+10. Run `PROFILE_BASE_URL=http://127.0.0.1:4173 PROFILE_WAIT_MS=7000 pnpm run profile:browser`.
+11. If a thread id is available, run `PROFILE_BASE_URL=http://127.0.0.1:4173 PROFILE_ROUTE='#/thread/<thread-id>' PROFILE_WAIT_MS=7000 pnpm run profile:browser`.
+12. Open the generated profile JSON files and inspect `duplicateCounts`, `warnings`, `totalApiKB`, `topApiSummary`, and `slowestApiRows`.
+
+#### Expected Results
+- Home, skills, and automations start with an empty selected-thread state while still loading the thread list.
+- Direct thread routes prime and load the requested thread without an extra startup thread read.
+- A stale persisted thread id is still replaced by the first available thread during normal refreshes.
+- Recent repeated thread-list refreshes reuse the in-flight or recent result instead of issuing a duplicate request.
+- Workspace-root state and thread-list `cwd` values are canonicalized so symlink and worktree aliases do not produce duplicate projects.
+- Profile reports have no warnings for duplicate startup thread-list or duplicate thread-read-with-turns requests.
+- Light and dark themes both render the home, skills, automations, and thread routes without light-theme surfaces in dark mode.
+
+#### Rollback/Cleanup
+- Delete temporary symlink/worktree projects created for verification.
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
+- Keep profile artifacts until their summary numbers have been copied into the PR or issue comment.

@@ -482,6 +482,21 @@ describe('thread unread state helpers', () => {
 })
 
 describe('collaboration mode selection', () => {
+  it('can prime an empty selected thread without clearing persisted selection', () => {
+    installTestWindow({
+      'codex-web-local.selected-thread-id.v1': 'thread-a',
+    })
+
+    const state = useDesktopState()
+
+    expect(state.selectedThreadId.value).toBe('thread-a')
+
+    state.primeSelectedThread('', { persist: false })
+
+    expect(state.selectedThreadId.value).toBe('')
+    expect(window.localStorage.getItem('codex-web-local.selected-thread-id.v1')).toBe('thread-a')
+  })
+
   it('does not carry plan mode from new chats into existing threads', () => {
     installTestWindow({
       'codex-web-local.collaboration-mode.v1': 'plan',
@@ -1341,6 +1356,155 @@ describe('Codex CLI availability', () => {
   })
 })
 
+describe('startup request deduplication', () => {
+  it('reloads cached thread titles on forced thread refresh', async () => {
+    installTestWindow()
+    gatewayMocks.getThreadGroupsPage.mockResolvedValue({
+      groups: [{ projectName: 'Project', threads: [thread('thread-1', '/tmp/project')] }],
+      nextCursor: null,
+    })
+    gatewayMocks.getThreadTitleCache
+      .mockResolvedValueOnce({ titles: {} })
+      .mockResolvedValueOnce({ titles: { 'thread-1': 'Imported title' } })
+
+    const state = useDesktopState()
+    await state.refreshAll({ includeSelectedThreadMessages: false })
+    expect(state.projectGroups.value[0]?.threads[0]?.title).toBe('thread-1')
+
+    await state.refreshAll({ includeSelectedThreadMessages: false, forceThreadRefresh: true })
+
+    expect(gatewayMocks.getThreadTitleCache).toHaveBeenCalledTimes(2)
+    expect(state.projectGroups.value[0]?.threads[0]?.title).toBe('Imported title')
+  })
+
+  it('reuses a just-loaded thread list during startup refresh bursts', async () => {
+    installTestWindow()
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1000)
+    gatewayMocks.getThreadGroupsPage.mockResolvedValue({
+      groups: [{ projectName: 'Project', threads: [thread('thread-1', '/tmp/project')] }],
+      nextCursor: null,
+    })
+
+    try {
+      const state = useDesktopState()
+      await state.refreshAll({ includeSelectedThreadMessages: false })
+      await state.refreshAll({ includeSelectedThreadMessages: false })
+
+      expect(gatewayMocks.getThreadGroupsPage).toHaveBeenCalledTimes(1)
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
+
+  it('reuses a just-loaded skills list for the same selected cwd', async () => {
+    installTestWindow()
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1000)
+    gatewayMocks.getThreadGroupsPage.mockResolvedValue({
+      groups: [{ projectName: 'Project', threads: [thread('thread-1', '/tmp/project')] }],
+      nextCursor: null,
+    })
+    gatewayMocks.getAvailableCollaborationModes.mockResolvedValue([{ value: 'default', label: 'Default' }])
+    gatewayMocks.getSkillsList.mockResolvedValue([
+      {
+        name: 'example',
+        description: 'Example skill',
+        path: '/tmp/project/.agents/skills/example/SKILL.md',
+        scope: 'project',
+        enabled: true,
+      },
+    ])
+    gatewayMocks.getAccountRateLimits.mockResolvedValue(null)
+    gatewayMocks.getCurrentModelConfig.mockResolvedValue({
+      model: 'gpt-5.5',
+      providerId: '',
+      reasoningEffort: 'medium',
+      speedMode: 'standard',
+    })
+    gatewayMocks.getAvailableModelIds.mockResolvedValue(['gpt-5.5'])
+
+    try {
+      const state = useDesktopState()
+      state.primeSelectedThread('thread-1')
+      await state.refreshAll({ includeSelectedThreadMessages: false, awaitAncillaryRefreshes: true })
+      await state.refreshAll({ includeSelectedThreadMessages: false, awaitAncillaryRefreshes: true })
+
+      expect(gatewayMocks.getSkillsList).toHaveBeenCalledTimes(1)
+      expect(gatewayMocks.getSkillsList).toHaveBeenCalledWith(['/tmp/project'])
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
+
+  it('reuses a just-loaded empty skills list for the same selected cwd', async () => {
+    installTestWindow()
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1000)
+    gatewayMocks.getThreadGroupsPage.mockResolvedValue({
+      groups: [{ projectName: 'Project', threads: [thread('thread-1', '/tmp/project')] }],
+      nextCursor: null,
+    })
+    gatewayMocks.getAvailableCollaborationModes.mockResolvedValue([{ value: 'default', label: 'Default' }])
+    gatewayMocks.getSkillsList.mockResolvedValue([])
+    gatewayMocks.getAccountRateLimits.mockResolvedValue(null)
+    gatewayMocks.getCurrentModelConfig.mockResolvedValue({
+      model: 'gpt-5.5',
+      providerId: '',
+      reasoningEffort: 'medium',
+      speedMode: 'standard',
+    })
+    gatewayMocks.getAvailableModelIds.mockResolvedValue(['gpt-5.5'])
+
+    try {
+      const state = useDesktopState()
+      state.primeSelectedThread('thread-1')
+      await state.refreshAll({ includeSelectedThreadMessages: false, awaitAncillaryRefreshes: true })
+      await state.refreshAll({ includeSelectedThreadMessages: false, awaitAncillaryRefreshes: true })
+
+      expect(gatewayMocks.getSkillsList).toHaveBeenCalledTimes(1)
+      expect(state.installedSkills.value).toEqual([])
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
+
+  it('bypasses recent thread-list reuse for event-driven thread refreshes', async () => {
+    installTestWindow()
+    let notificationHandler: ((notification: { method: string; params?: unknown }) => void) | undefined
+    gatewayMocks.subscribeCodexNotifications.mockImplementation((handler) => {
+      notificationHandler = handler as typeof notificationHandler
+      return vi.fn()
+    })
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1000)
+    gatewayMocks.getThreadGroupsPage.mockResolvedValue({
+      groups: [{ projectName: 'Project', threads: [thread('thread-1', '/tmp/project')] }],
+      nextCursor: null,
+    })
+
+    try {
+      const state = useDesktopState()
+      await state.refreshAll({ includeSelectedThreadMessages: false })
+      const callsBeforeNotification = gatewayMocks.getThreadGroupsPage.mock.calls.length
+      state.startPolling()
+
+      expect(notificationHandler).toBeDefined()
+      notificationHandler!({
+        method: 'thread/name/updated',
+        params: {
+          threadId: 'thread-1',
+          threadName: 'Updated title',
+        },
+      })
+
+      const callbacks = scheduledWindowTimeoutCallbacks()
+      callbacks.at(-1)?.()
+      await flushAsyncWork()
+
+      expect(gatewayMocks.getThreadGroupsPage.mock.calls.length).toBeGreaterThan(callsBeforeNotification)
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
+})
+
 describe('thread selection refresh', () => {
   it('replaces a persisted selected thread when it is absent from the refreshed thread list', async () => {
     installTestWindow({
@@ -1362,6 +1526,33 @@ describe('thread selection refresh', () => {
 
     expect(state.selectedThreadId.value).toBe('available-thread')
     expect(window.localStorage.getItem('codex-web-local.selected-thread-id.v1')).toBe('available-thread')
+  })
+
+  it('can refresh the thread list without auto-selecting a fallback thread', async () => {
+    installTestWindow({
+      'codex-web-local.selected-thread-id.v1': 'thread-a',
+    })
+    gatewayMocks.getThreadGroupsPage.mockResolvedValue({
+      groups: [
+        {
+          projectName: 'Project',
+          threads: [thread('available-thread', '/tmp/project')],
+        },
+      ],
+      nextCursor: null,
+    })
+
+    const state = useDesktopState()
+    state.primeSelectedThread('', { persist: false })
+
+    await state.refreshAll({
+      includeSelectedThreadMessages: false,
+      awaitAncillaryRefreshes: true,
+      autoSelectThreadFallback: false,
+    })
+
+    expect(state.selectedThreadId.value).toBe('')
+    expect(window.localStorage.getItem('codex-web-local.selected-thread-id.v1')).toBe('thread-a')
   })
 })
 

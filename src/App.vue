@@ -4898,7 +4898,11 @@ async function finishProjectImport(
     newThreadCwd.value = result.path
     pinProjectToTop(getProjectOrderNameForPath(result.path))
     await loadWorkspaceRootOptionsState()
-    await refreshAll({ includeSelectedThreadMessages: false })
+    await refreshAll({
+      includeSelectedThreadMessages: false,
+      forceThreadRefresh: true,
+      autoSelectThreadFallback: false,
+    })
     await refreshDefaultProjectName()
   } catch (error) {
     const message = error instanceof Error ? error.message : fallbackMessage
@@ -5824,10 +5828,13 @@ async function initialize(): Promise<void> {
 
   if (route.name === 'thread' && routeThreadId.value) {
     primeSelectedThread(routeThreadId.value)
+  } else if (route.name === 'home' || route.name === 'skills' || route.name === 'automations') {
+    primeSelectedThread('', { persist: false })
   }
 
   await refreshAll({
     includeSelectedThreadMessages: route.name === 'thread',
+    autoSelectThreadFallback: !(route.name === 'home' || route.name === 'skills' || route.name === 'automations'),
   })
   void loadAccountsState({ silent: true })
 
