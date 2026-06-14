@@ -106,3 +106,10 @@
 - Created wiki page: `concepts/project-zip-portability.md`.
 - Documents `.codex-project/manifest.json`, `.codex-project/chats/**`, imported session rewriting, provider/model metadata behavior, and manual verification locations.
 - Updated `index.md`.
+
+## 2026-06-14
+
+- Added upstream source notes for manual test domain folders, copied auth provider promotion, OpenCode Zen Docker/provider-model fixes, provider config restart follow-ups, and thread-locked provider models.
+- Created wiki pages: `concepts/manual-test-domain-docs.md` and `concepts/provider-auth-models.md`.
+- Updated `overview.md`, `entities/codex-web-local.md`, and `index.md`.
+- Preserved this fork's `tests.md` canonical manual-test policy and `llm-wiki/wiki/log.md` append-only convention.

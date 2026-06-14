@@ -43,6 +43,6 @@ Source: [project-zip-portability.md](../../raw/features/project-zip-portability.
 
 ## Verification
 
-The upstream-sync branch added automated coverage for unsafe ZIP paths, unique import folder creation, session metadata rewriting, gateway download progress, import POST shape, and workspace-root cache invalidation. Root `tests.md` remains the authoritative manual test checklist; the supplemental domain test lives at `tests/projects-sidebar-new-chat/project-menu-save-project-zip.md`.
+The upstream-sync branch added automated coverage for unsafe ZIP paths, unique import folder creation, session metadata rewriting, gateway download progress, import POST shape, and workspace-root cache invalidation. Root `tests.md` remains the authoritative manual test checklist; the supplemental domain test lives at [tests/projects-sidebar-new-chat/project-menu-save-project-zip.md](../../../tests/projects-sidebar-new-chat/project-menu-save-project-zip.md).
 
 Source: [project-zip-portability.md](../../raw/features/project-zip-portability.md)
