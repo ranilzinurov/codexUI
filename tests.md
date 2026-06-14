@@ -8359,3 +8359,38 @@ Protected upstream-sync baseline and GitHub issue tracking.
 #### Rollback/Cleanup
 - Stop only the disposable server on port `4173`; do not stop any persistent `5173` tmux server.
 - Remove temporary profiling artifacts only after their numbers have been copied into the baseline notes or PR body.
+
+---
+
+### Upstream Dev2 And Fast Docker Helpers
+
+#### Feature/Change Name
+Isolated `dev2` Codex home and fast Docker verification helpers.
+
+#### Prerequisites/Setup
+1. Use the upstream-sync branch.
+2. Confirm Docker is installed only if running the optional Docker helper check.
+3. Confirm ports `4174` and `4191` are free before starting helper servers.
+
+#### Steps
+1. Run `node --check scripts/dev-random-home.cjs`.
+2. Run `bash -n scripts/run-docker-fast-test.sh`.
+3. Run `pnpm run dev2 --host 127.0.0.1 --port 4174`.
+4. Confirm the process prints `Using temporary CODEX_HOME:` with a temp directory path.
+5. Open `http://127.0.0.1:4174/` in light theme and confirm the app loads.
+6. Switch to dark theme and confirm the app still renders without light-theme surfaces.
+7. Stop the `4174` helper server.
+8. If Docker is available, run `docker build -t codexapp-fast-test-base:latest -f scripts/docker-fast-test-base.Dockerfile .`.
+9. If Docker is available, run `PORT=4191 scripts/run-docker-fast-test.sh`.
+10. Open `http://127.0.0.1:4191/` and confirm the Docker-served app loads.
+
+#### Expected Results
+- `dev2` starts the existing dev wrapper with an isolated random `CODEX_HOME`.
+- Existing `package.json` scripts such as `secret:scan`, `test`, `test:coverage`, `test:browser-annotation`, and `pack:browser-annotation` remain present.
+- Fast Docker helper scripts are syntax-valid and can build/run when Docker is available.
+- Light and dark themes both load without regressions.
+- No `.env`, certificate, or generated Playwright artifacts are imported.
+
+#### Rollback/Cleanup
+- Stop helper servers on ports `4174` and `4191`.
+- If Docker was used, remove the `codexapp-fast-test` container and `codexapp-fast-test-home` volume when no longer needed.
