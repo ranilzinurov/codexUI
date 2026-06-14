@@ -2,6 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as codexGateway from './codexGateway'
 import {
   createBrowserAnnotationExtensionToken,
+  downloadProjectZip,
+  getProjectZipDownloadUrl,
+  getWorkspaceRootsState,
+  importProjectZip,
   getBrowserAnnotationListenStatus,
   listDirectoryApps,
   listDirectoryComposioConnectors,
@@ -179,6 +183,93 @@ describe('side thread gateway API', () => {
     expect(turnId).toBe('turn-side-1')
     expect(requests[0].method).toBe('turn/start')
     expect(requests[0].params.threadId).toBe('side-thread-3')
+  })
+})
+
+describe('project ZIP gateway API', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('builds encoded project ZIP download URLs', () => {
+    expect(getProjectZipDownloadUrl('/tmp/Project (2)')).toBe('/codex-api/project-zip?cwd=%2Ftmp%2FProject+%282%29')
+  })
+
+  it('downloads project ZIPs with progress and content-disposition filenames', async () => {
+    const progress: Array<{ loaded: number; total: number | null }> = []
+    const body = new Blob(['zip-data'], { type: 'application/zip' })
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('/codex-api/project-zip?cwd=%2Ftmp%2Fdemo')
+      return new Response(body, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/zip',
+          'Content-Length': String(body.size),
+          'Content-Disposition': "attachment; filename*=UTF-8''demo-project.zip",
+        },
+      })
+    }))
+
+    const result = await downloadProjectZip('/tmp/demo', (entry) => progress.push(entry))
+
+    expect(result.fileName).toBe('demo-project.zip')
+    expect(result.blob.type).toBe('application/zip')
+    await expect(result.blob.text()).resolves.toBe('zip-data')
+    expect(progress[0]).toEqual({ loaded: 0, total: body.size })
+    expect(progress.at(-1)).toEqual({ loaded: body.size, total: body.size })
+  })
+
+  it('posts project ZIP imports and invalidates workspace roots cache after success', async () => {
+    const requests: Array<{ url: string; method: string; bodyType: string }> = []
+    let workspaceRootsReads = 0
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      requests.push({
+        url,
+        method: init?.method ?? 'GET',
+        bodyType: init?.body instanceof Blob ? init.body.type : '',
+      })
+      if (url === '/codex-api/workspace-roots-state') {
+        workspaceRootsReads += 1
+        return new Response(JSON.stringify({
+          data: {
+            order: [`/tmp/root-${workspaceRootsReads}`],
+            labels: {},
+            active: [],
+            projectOrder: [],
+            remoteProjects: [],
+          },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      if (url === '/codex-api/project-import?parent=%2Ftmp%2Fparent') {
+        return new Response(JSON.stringify({
+          data: {
+            path: '/tmp/parent/imported',
+            importedSessions: 2,
+          },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      return new Response(JSON.stringify({ error: 'unexpected request' }), { status: 500 })
+    }))
+
+    await expect(getWorkspaceRootsState()).resolves.toMatchObject({ order: ['/tmp/root-1'] })
+    await expect(importProjectZip(new Blob(['zip'], { type: 'application/zip' }), '/tmp/parent')).resolves.toEqual({
+      path: '/tmp/parent/imported',
+      importedSessions: 2,
+    })
+    await expect(getWorkspaceRootsState()).resolves.toMatchObject({ order: ['/tmp/root-2'] })
+
+    expect(requests).toEqual([
+      { url: '/codex-api/workspace-roots-state', method: 'GET', bodyType: '' },
+      { url: '/codex-api/project-import?parent=%2Ftmp%2Fparent', method: 'POST', bodyType: 'application/zip' },
+      { url: '/codex-api/workspace-roots-state', method: 'GET', bodyType: '' },
+    ])
   })
 })
 
