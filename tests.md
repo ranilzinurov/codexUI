@@ -8608,3 +8608,44 @@ Thread selection error states, active-thread completion refresh, optimistic user
 - Archive or delete temporary test threads created for the manual checks.
 - Keep profile artifacts until their summary numbers have been copied into the PR or issue comment.
 - Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
+
+---
+
+### Git Dropdown And Commit Review Workflows
+
+#### Feature/Change Name
+Header Git branch dropdown commit search/detail panel, lazy commit file loading, copyable commit refs, and commit-scoped review pane.
+
+#### Prerequisites/Setup
+1. Use the upstream-sync branch.
+2. Start the app with `pnpm run dev --host 127.0.0.1 --port 4173`.
+3. Open a thread whose `cwd` is a Git repository with at least several local commits.
+4. Have a disposable repository or branch available before testing reset-to-commit actions.
+
+#### Steps
+1. In light theme, open the header Git branch dropdown.
+2. Confirm the review row shows worktree changed-line counts and toggles the review pane.
+3. Select the current branch in the dropdown and confirm commits load without opening file details for every commit.
+4. Search commits by short sha, full sha fragment, subject text, and date text.
+5. Select one commit and confirm a commit detail panel opens.
+6. Confirm the commit detail panel lazily loads only that commit's changed files and shows added/removed line counts.
+7. Click the commit ref and paste into a text field to confirm the full commit sha was copied.
+8. Click a changed file in the commit detail panel and confirm ReviewPane opens in commit scope with that file selected.
+9. Switch ReviewPane back to normal worktree review from the dropdown review row and confirm staged/unstaged actions remain available.
+10. On a disposable local branch, verify reset-to-commit is available for local branches and unavailable for remote branches.
+11. Switch to dark theme and repeat steps 1-8.
+12. At 375x812 and 768x1024 viewport sizes, confirm the dropdown, commit detail panel, and ReviewPane mobile file sheet remain usable.
+
+#### Expected Results
+- Branch search and commit search filter the correct lists independently.
+- Commit lists use `/codex-api/git/branch-commits` and commit file lists use `/codex-api/git/commit-files` only after a commit is selected.
+- Commit file rows show status labels, paths, rename previous paths when present, and added/removed line counts.
+- Copy commit ref uses clipboard when available and falls back to text selection copy.
+- ReviewPane commit scope loads `/codex-api/review/snapshot?scope=commit&commitSha=<sha>` and is read-only for bulk workspace actions.
+- Workspace/base-branch ReviewPane behavior still supports staged/unstaged actions and normal review findings.
+- Dark theme renders dropdown panels, commit details, file rows, and ReviewPane without light strips or unreadable text.
+
+#### Rollback/Cleanup
+- Reset or delete disposable branches used for reset-to-commit testing.
+- Revert any temporary staged/unstaged file changes in test repositories.
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.

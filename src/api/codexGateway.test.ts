@@ -4,7 +4,10 @@ import {
   createBrowserAnnotationExtensionToken,
   downloadProjectZip,
   getAvailableModelIds,
+  getGitBranchCommits,
+  getGitCommitFiles,
   getProjectZipDownloadUrl,
+  getReviewSnapshot,
   getWorkspaceRootsState,
   importProjectZip,
   getBrowserAnnotationListenStatus,
@@ -358,6 +361,130 @@ describe('project ZIP gateway API', () => {
       { url: '/codex-api/project-import?parent=%2Ftmp%2Fparent', method: 'POST', bodyType: 'application/zip' },
       { url: '/codex-api/workspace-roots-state', method: 'GET', bodyType: '' },
     ])
+  })
+})
+
+describe('Git review gateway API', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('passes the reset-history filter when loading branch commits', async () => {
+    const requestedUrls: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      requestedUrls.push(String(input))
+      return new Response(JSON.stringify({
+        data: [{
+          sha: 'abcdef123456',
+          shortSha: 'abcdef1',
+          subject: 'Import git panel',
+          date: '2026-06-14',
+        }],
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }))
+
+    const commits = await getGitBranchCommits('/tmp/repo', 'feature/git-panel', { includeResetHistory: false })
+
+    expect(requestedUrls[0]).toContain('/codex-api/git/branch-commits?')
+    expect(requestedUrls[0]).toContain('cwd=%2Ftmp%2Frepo')
+    expect(requestedUrls[0]).toContain('branch=feature%2Fgit-panel')
+    expect(requestedUrls[0]).toContain('includeResetHistory=false')
+    expect(commits).toEqual([{
+      sha: 'abcdef123456',
+      shortSha: 'abcdef1',
+      subject: 'Import git panel',
+      date: '2026-06-14',
+    }])
+  })
+
+  it('loads and normalizes changed files for a selected commit', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toContain('/codex-api/git/commit-files?')
+      expect(String(input)).toContain('sha=abcdef123456')
+      return new Response(JSON.stringify({
+        data: [
+          {
+            path: 'src/new.ts',
+            previousPath: null,
+            status: 'A',
+            label: 'Added',
+            addedLineCount: 12,
+            removedLineCount: 0,
+          },
+          {
+            path: 'src/new-name.ts',
+            previousPath: 'src/old-name.ts',
+            status: 'R100',
+            label: 'Renamed',
+            addedLineCount: null,
+            removedLineCount: null,
+          },
+        ],
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }))
+
+    await expect(getGitCommitFiles('/tmp/repo', 'abcdef123456')).resolves.toEqual([
+      {
+        path: 'src/new.ts',
+        previousPath: null,
+        status: 'A',
+        label: 'Added',
+        addedLineCount: 12,
+        removedLineCount: 0,
+      },
+      {
+        path: 'src/new-name.ts',
+        previousPath: 'src/old-name.ts',
+        status: 'R100',
+        label: 'Renamed',
+        addedLineCount: null,
+        removedLineCount: null,
+      },
+    ])
+  })
+
+  it('requests commit-scoped review snapshots with the selected commit sha', async () => {
+    const requestedUrls: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      requestedUrls.push(String(input))
+      return new Response(JSON.stringify({
+        data: {
+          cwd: '/tmp/repo',
+          gitRoot: '/tmp/repo',
+          isGitRepo: true,
+          scope: 'commit',
+          workspaceView: 'unstaged',
+          baseBranch: 'main',
+          baseBranchOptions: ['main'],
+          commitSha: 'abcdef123456',
+          headBranch: 'feature/git-panel',
+          mergeBaseSha: null,
+          generatedAtIso: '2026-06-14T00:00:00.000Z',
+          summary: {
+            fileCount: 0,
+            addedLineCount: 0,
+            removedLineCount: 0,
+          },
+          files: [],
+        },
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }))
+
+    const snapshot = await getReviewSnapshot('/tmp/repo', 'commit', 'unstaged', null, 'abcdef123456')
+
+    expect(requestedUrls[0]).toContain('scope=commit')
+    expect(requestedUrls[0]).toContain('commitSha=abcdef123456')
+    expect(snapshot.scope).toBe('commit')
+    expect(snapshot.commitSha).toBe('abcdef123456')
   })
 })
 

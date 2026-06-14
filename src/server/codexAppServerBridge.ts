@@ -4764,7 +4764,7 @@ async function runCommandCaptureRaw(command: string, args: string[], options: { 
     proc.on('error', reject)
     proc.on('close', (code) => {
       if (code === 0) {
-        resolve(stdout.trim())
+        resolve(stdout)
         return
       }
       const details = [stderr.trim(), stdout.trim()].filter(Boolean).join('\n')
@@ -4787,6 +4787,12 @@ function toHeaderGitResetHistoryRef(branchName: string, commitSha: string): stri
 }
 
 const HEADER_GIT_RESET_HISTORY_REF_LIMIT = 25
+
+function splitGitPathList(raw: string): string[] {
+  return raw
+    .split('\0')
+    .filter((entry) => entry.length > 0)
+}
 
 async function assertLocalGitBranch(repoRoot: string, branchName: string): Promise<void> {
   await runCommandCapture('git', ['show-ref', '--verify', `refs/heads/${branchName}`], { cwd: repoRoot })
@@ -9862,6 +9868,7 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
       if (req.method === 'GET' && url.pathname === '/codex-api/git/branch-commits') {
         const rawCwd = (url.searchParams.get('cwd') ?? '').trim()
         const branch = (url.searchParams.get('branch') ?? '').trim()
+        const includeResetHistory = url.searchParams.get('includeResetHistory') !== 'false'
         if (!rawCwd) {
           setJson(res, 400, { error: 'Missing cwd' })
           return
@@ -9874,20 +9881,23 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         try {
           const gitRoot = await runCommandCapture('git', ['rev-parse', '--show-toplevel'], { cwd })
           await runCommandCapture('git', ['rev-parse', '--verify', `${branch}^{commit}`], { cwd: gitRoot })
-          const resetHistoryRefPrefix = `refs/codex/header-git-reset-history/${branch}/`
-          const resetHistoryRefsRaw = await runCommandCapture(
-            'git',
-            ['for-each-ref', '--sort=-creatordate', '--format=%(refname)', resetHistoryRefPrefix],
-            { cwd: gitRoot },
-          ).catch(() => '')
-          const resetHistoryRefs = resetHistoryRefsRaw
-            .split('\n')
-            .map((entry) => entry.trim())
-            .filter(Boolean)
-            .slice(0, HEADER_GIT_RESET_HISTORY_REF_LIMIT)
+          let resetHistoryRefs: string[] = []
+          if (includeResetHistory) {
+            const resetHistoryRefPrefix = `refs/codex/header-git-reset-history/${branch}/`
+            const resetHistoryRefsRaw = await runCommandCapture(
+              'git',
+              ['for-each-ref', '--sort=-creatordate', '--format=%(refname)', resetHistoryRefPrefix],
+              { cwd: gitRoot },
+            ).catch(() => '')
+            resetHistoryRefs = resetHistoryRefsRaw
+              .split('\n')
+              .map((entry) => entry.trim())
+              .filter(Boolean)
+              .slice(0, HEADER_GIT_RESET_HISTORY_REF_LIMIT)
+          }
           const output = await runCommandCapture(
             'git',
-            ['log', '-n', '12', '--date=short', '--format=%H%x09%h%x09%cd%x09%s', branch, ...resetHistoryRefs],
+            ['log', '-n', '50', '--date=short', '--format=%H%x09%h%x09%cd%x09%s', branch, ...resetHistoryRefs],
             { cwd: gitRoot },
           )
           const commits = output.split('\n').flatMap((line) => {
@@ -9900,6 +9910,94 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
           setJson(res, 200, { data: commits })
         } catch (error) {
           setJson(res, 500, { error: getErrorMessage(error, 'Failed to load branch commits') })
+        }
+        return
+      }
+
+      if (req.method === 'GET' && url.pathname === '/codex-api/git/commit-files') {
+        const rawCwd = (url.searchParams.get('cwd') ?? '').trim()
+        const sha = (url.searchParams.get('sha') ?? '').trim()
+        if (!rawCwd) {
+          setJson(res, 400, { error: 'Missing cwd' })
+          return
+        }
+        if (!sha) {
+          setJson(res, 400, { error: 'Missing sha' })
+          return
+        }
+        const cwd = isAbsolute(rawCwd) ? rawCwd : resolve(rawCwd)
+        try {
+          const gitRoot = await runCommandCapture('git', ['rev-parse', '--show-toplevel'], { cwd })
+          await runCommandCapture('git', ['rev-parse', '--verify', `${sha}^{commit}`], { cwd: gitRoot })
+          const output = await runCommandCaptureRaw(
+            'git',
+            ['diff-tree', '--root', '--no-commit-id', '--name-status', '-r', '-M', '-z', sha],
+            { cwd: gitRoot },
+          )
+          const numstatOutput = await runCommandCaptureRaw(
+            'git',
+            ['diff-tree', '--root', '--no-commit-id', '--numstat', '-r', '-M', '-z', sha],
+            { cwd: gitRoot },
+          )
+          const splitNumstatRecord = (record: string): { addedRaw: string; removedRaw: string; path: string } | null => {
+            const firstTab = record.indexOf('\t')
+            if (firstTab < 0) return null
+            const secondTab = record.indexOf('\t', firstTab + 1)
+            if (secondTab < 0) return null
+            return {
+              addedRaw: record.slice(0, firstTab),
+              removedRaw: record.slice(firstTab + 1, secondTab),
+              path: record.slice(secondTab + 1),
+            }
+          }
+          const lineCountsByPath = new Map<string, { addedLineCount: number | null; removedLineCount: number | null }>()
+          const numstatRecords = splitGitPathList(numstatOutput)
+          for (let index = 0; index < numstatRecords.length; index += 1) {
+            const record = splitNumstatRecord(numstatRecords[index] ?? '')
+            if (!record) continue
+            const { addedRaw, removedRaw } = record
+            const path = record.path || numstatRecords[index + 2] || numstatRecords[index + 1] || ''
+            if (!record.path) index += 2
+            if (!path) continue
+            const addedLineCount = /^\d+$/u.test(addedRaw) ? Number(addedRaw) : null
+            const removedLineCount = /^\d+$/u.test(removedRaw) ? Number(removedRaw) : null
+            lineCountsByPath.set(path, { addedLineCount, removedLineCount })
+          }
+          const nameStatusRecords = splitGitPathList(output)
+          const files: Array<{
+            path: string
+            previousPath: string | null
+            status: string
+            label: string
+            addedLineCount: number | null
+            removedLineCount: number | null
+          }> = []
+          for (let index = 0; index < nameStatusRecords.length; index += 1) {
+            const status = nameStatusRecords[index] ?? ''
+            if (!status) continue
+            const statusKind = status.charAt(0)
+            const isRenameOrCopy = statusKind === 'R' || statusKind === 'C'
+            const previousPath = isRenameOrCopy ? nameStatusRecords[index + 1] || null : null
+            const path = isRenameOrCopy ? nameStatusRecords[index + 2] || '' : nameStatusRecords[index + 1] || ''
+            index += isRenameOrCopy ? 2 : 1
+            if (!path) continue
+            const label = statusKind === 'A'
+              ? 'Added'
+              : statusKind === 'D'
+                ? 'Deleted'
+                : statusKind === 'R'
+                  ? 'Renamed'
+                  : statusKind === 'C'
+                    ? 'Copied'
+                    : statusKind === 'M'
+                      ? 'Modified'
+                      : status
+            const lineCounts = lineCountsByPath.get(path) ?? { addedLineCount: null, removedLineCount: null }
+            files.push({ path, previousPath, status, label, ...lineCounts })
+          }
+          setJson(res, 200, { data: files })
+        } catch (error) {
+          setJson(res, 500, { error: getErrorMessage(error, 'Failed to load commit files') })
         }
         return
       }

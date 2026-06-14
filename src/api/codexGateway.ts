@@ -51,6 +51,7 @@ import type {
   UiReviewResult,
   UiReviewScope,
   UiReviewSnapshot,
+  UiReviewSummary,
   UiReviewWorkspaceView,
   UiRateLimitSnapshot,
   UiRateLimitWindow,
@@ -374,6 +375,15 @@ export type GitCommitOption = {
   shortSha: string
   subject: string
   date: string
+}
+
+export type GitCommitFileChange = {
+  path: string
+  previousPath: string | null
+  status: string
+  label: string
+  addedLineCount: number | null
+  removedLineCount: number | null
 }
 
 export type GitRepositoryStatus = {
@@ -1122,7 +1132,8 @@ function normalizeReviewSnapshot(payload: unknown): UiReviewSnapshot {
   const envelope = asRecord(payload)
   const data = asRecord(envelope?.data)
   const summaryRecord = asRecord(data?.summary)
-  const scope = readString(data?.scope) === 'baseBranch' ? 'baseBranch' : 'workspace'
+  const rawScope = readString(data?.scope)
+  const scope = rawScope === 'baseBranch' ? 'baseBranch' : rawScope === 'commit' ? 'commit' : 'workspace'
   const workspaceView = readString(data?.workspaceView) === 'staged' ? 'staged' : 'unstaged'
 
   return {
@@ -1137,6 +1148,7 @@ function normalizeReviewSnapshot(payload: unknown): UiReviewSnapshot {
         .map((entry) => readString(entry))
         .filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
       : [],
+    commitSha: readString(data?.commitSha),
     headBranch: readString(data?.headBranch),
     mergeBaseSha: readString(data?.mergeBaseSha),
     generatedAtIso: readString(data?.generatedAtIso) ?? '',
@@ -1150,6 +1162,16 @@ function normalizeReviewSnapshot(payload: unknown): UiReviewSnapshot {
         .map((entry) => normalizeReviewFile(entry))
         .filter((entry): entry is UiReviewFile => entry !== null)
       : [],
+  }
+}
+
+function normalizeReviewSummary(payload: unknown): UiReviewSummary {
+  const envelope = asRecord(payload)
+  const data = asRecord(envelope?.data)
+  return {
+    fileCount: readNumber(data?.fileCount) ?? 0,
+    addedLineCount: readNumber(data?.addedLineCount) ?? 0,
+    removedLineCount: readNumber(data?.removedLineCount) ?? 0,
   }
 }
 
@@ -3121,11 +3143,19 @@ export async function checkoutGitBranch(cwd: string, branch: string): Promise<st
   return typeof branchName === 'string' && branchName.trim() ? branchName.trim() : null
 }
 
-export async function getGitBranchCommits(cwd: string, branch: string): Promise<GitCommitOption[]> {
+export async function getGitBranchCommits(
+  cwd: string,
+  branch: string,
+  options: { includeResetHistory?: boolean } = {},
+): Promise<GitCommitOption[]> {
   const normalizedCwd = cwd.trim()
   const normalizedBranch = branch.trim()
   if (!normalizedCwd || !normalizedBranch) return []
-  const query = new URLSearchParams({ cwd: normalizedCwd, branch: normalizedBranch })
+  const query = new URLSearchParams({
+    cwd: normalizedCwd,
+    branch: normalizedBranch,
+    includeResetHistory: options.includeResetHistory === false ? 'false' : 'true',
+  })
   const response = await fetch(`/codex-api/git/branch-commits?${query.toString()}`)
   const payload = (await response.json()) as { data?: unknown; error?: string }
   if (!response.ok) {
@@ -3141,6 +3171,45 @@ export async function getGitBranchCommits(cwd: string, branch: string): Promise<
     const date = typeof record.date === 'string' ? record.date.trim() : ''
     if (!sha || !shortSha) return []
     return [{ sha, shortSha, subject: subject || shortSha, date }]
+  })
+}
+
+export async function getGitCommitFiles(cwd: string, sha: string): Promise<GitCommitFileChange[]> {
+  const normalizedCwd = cwd.trim()
+  const normalizedSha = sha.trim()
+  if (!normalizedCwd || !normalizedSha) return []
+  const query = new URLSearchParams({
+    cwd: normalizedCwd,
+    sha: normalizedSha,
+  })
+  const response = await fetch(`/codex-api/git/commit-files?${query.toString()}`)
+  const payload = (await response.json()) as { data?: unknown; error?: string }
+  if (!response.ok) {
+    throw new Error(payload.error || 'Failed to load commit files')
+  }
+  const rawList = Array.isArray(payload.data) ? payload.data : []
+  return rawList.flatMap((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return []
+    const record = item as Record<string, unknown>
+    const path = typeof record.path === 'string' ? record.path.trim() : ''
+    if (!path) return []
+    const previousPath = typeof record.previousPath === 'string' && record.previousPath.trim()
+      ? record.previousPath.trim()
+      : null
+    const status = typeof record.status === 'string' ? record.status.trim() : ''
+    const label = typeof record.label === 'string' && record.label.trim() ? record.label.trim() : status || 'Modified'
+    return [{
+      path,
+      previousPath,
+      status,
+      label,
+      addedLineCount: typeof record.addedLineCount === 'number' && Number.isFinite(record.addedLineCount)
+        ? record.addedLineCount
+        : null,
+      removedLineCount: typeof record.removedLineCount === 'number' && Number.isFinite(record.removedLineCount)
+        ? record.removedLineCount
+        : null,
+    }]
   })
 }
 
@@ -3178,10 +3247,14 @@ export async function getReviewSnapshot(
   scope: UiReviewScope,
   workspaceView: UiReviewWorkspaceView,
   baseBranch?: string | null,
+  commitSha?: string | null,
 ): Promise<UiReviewSnapshot> {
   const query = new URLSearchParams({ cwd, scope, workspaceView })
   if (baseBranch && baseBranch.trim()) {
     query.set('baseBranch', baseBranch.trim())
+  }
+  if (commitSha && commitSha.trim()) {
+    query.set('commitSha', commitSha.trim())
   }
   const response = await fetch(`/codex-api/review/snapshot?${query.toString()}`)
   const payload = (await response.json()) as unknown
@@ -3189,6 +3262,19 @@ export async function getReviewSnapshot(
     throw new Error(getErrorMessageFromPayload(payload, 'Failed to load review snapshot'))
   }
   return normalizeReviewSnapshot(payload)
+}
+
+export async function getReviewSummary(
+  cwd: string,
+  workspaceView: UiReviewWorkspaceView,
+): Promise<UiReviewSummary> {
+  const query = new URLSearchParams({ cwd, workspaceView })
+  const response = await fetch(`/codex-api/review/summary?${query.toString()}`)
+  const payload = (await response.json()) as unknown
+  if (!response.ok) {
+    throw new Error(getErrorMessageFromPayload(payload, 'Failed to load review summary'))
+  }
+  return normalizeReviewSummary(payload)
 }
 
 export async function applyReviewAction(payload: {
