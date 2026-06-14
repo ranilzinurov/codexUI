@@ -8529,3 +8529,42 @@ Thread-level provider/model retention for OpenCode Zen, OpenRouter, custom provi
 - Archive or delete temporary provider test threads.
 - Reset provider/auth configuration to the preferred local default after verification.
 - Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
+
+---
+
+### Account Auth Snapshot And Quota Recovery
+
+#### Feature/Change Name
+Codex account snapshot migration, active account detection, stale quota recovery, and raw auth error visibility.
+
+#### Prerequisites/Setup
+1. Use the upstream-sync branch.
+2. Start the app with `pnpm run dev --host 127.0.0.1 --port 4173`.
+3. Use an isolated `CODEX_HOME` when testing imported or malformed `auth.json` files.
+4. Have at least one valid Codex/ChatGPT auth snapshot available for account switching.
+
+#### Steps
+1. In light theme, open settings and expand `Accounts`.
+2. Click reload/refresh accounts with a valid `auth.json`.
+3. Confirm the active account matches the currently active `CODEX_HOME/auth.json`, even when multiple accounts share the same account id but have different user ids.
+4. Switch to another stored account and confirm the account card becomes active only after validation succeeds.
+5. Simulate a stale `quotaStatus: "loading"` entry older than two minutes in `accounts.json`, then refresh accounts.
+6. Confirm the account leaves `Loading quota...` and becomes either `ready` with quota data or `error` with a visible message.
+7. Simulate a newer unknown ChatGPT plan type in a rate-limit response, such as `prolite`, and confirm quota recovery still produces usable limit data.
+8. Try a malformed or missing-account-id `auth.json` in the isolated home and click refresh.
+9. Confirm the UI shows a visible account error instead of staying stuck on fetching account details.
+10. Switch to dark theme and repeat steps 1-4 and 8-9.
+
+#### Expected Results
+- Account state stores and resolves `activeStorageId` in addition to `activeAccountId`.
+- Existing snapshot directories are migrated to user-aware storage ids without losing prior account metadata.
+- The active account follows the actual active `auth.json` when possible.
+- Stale loading quota rows are retried instead of staying permanently in `Fetching account details`.
+- Unknown plan-type decode failures recover quota payloads through the rate-limit recovery helper.
+- Invalid or malformed auth produces visible account/action errors.
+- Light and dark themes both render account rows, quota messages, error banners, and action buttons without light-theme surfaces in dark mode.
+
+#### Rollback/Cleanup
+- Restore or delete isolated `CODEX_HOME` directories used for malformed-auth testing.
+- If testing with real account snapshots, back up `accounts.json` and `accounts/` before migration checks.
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
