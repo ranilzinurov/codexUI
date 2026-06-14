@@ -712,6 +712,15 @@ html::after {
   @apply border-zinc-600 bg-zinc-700 text-zinc-100;
 }
 
+:root.dark .automation-thread-panel .rename-thread-actions {
+  @apply border-zinc-700 bg-zinc-800;
+}
+
+:root.dark .automation-thread-dropdown .composer-dropdown-trigger,
+:root.dark .automation-schedule-unit-dropdown .composer-dropdown-trigger {
+  @apply border-zinc-700 bg-zinc-900 text-zinc-100;
+}
+
 :root.dark .automation-schedule-mode-group {
   @apply border-zinc-700 bg-zinc-900;
 }

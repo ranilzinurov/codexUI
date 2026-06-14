@@ -8732,3 +8732,40 @@ Chat markdown/file-link rendering, inline code marker isolation, composer attach
 - Delete any disposable files or images created for attachment checks.
 - Remove temporary TestChat threads if real threads were used instead of mocked Playwright data.
 - Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
+
+---
+
+### Automation Editor Dropdowns And Small Viewports
+
+#### Feature/Change Name
+Automation editor small-viewport scrolling, sticky actions, app dropdown controls, and dark-theme action row styling.
+
+#### Prerequisites/Setup
+1. Use the upstream-sync branch.
+2. Start the app with `pnpm run dev --host 127.0.0.1 --port 4173`.
+3. Open a project with at least one existing chat so the automation target picker has a thread target.
+4. Set the browser viewport to a short mobile-like size, for example `390x520`.
+
+#### Steps
+1. In light theme, open the `Automations` route.
+2. Click `New automation`.
+3. Confirm the automation editor opens with a target picker, name, prompt, schedule, status, and action buttons.
+4. Confirm the editor panel scrolls vertically instead of overflowing the viewport.
+5. Scroll to the bottom and confirm the Cancel/Save action row stays reachable and sticky.
+6. Open the target dropdown and confirm it uses the app dropdown with search, not a native select.
+7. Switch schedule mode to `Interval`, open the unit dropdown, and confirm the menu stays inside the viewport.
+8. Open the status dropdown and confirm it uses the app dropdown.
+9. Switch to dark theme and repeat steps 2-8.
+
+#### Expected Results
+- The automation editor panel stays inside the viewport and scrolls when content is taller than the screen.
+- The action row remains visible/reachable at the bottom of the scrolling panel.
+- Target, interval unit, and status controls use `ComposerDropdown`; no native `select` elements remain inside the automation editor.
+- Dropdown menus clamp inside the viewport on short screens.
+- In dark theme, the sticky action row, dropdown triggers, text inputs, schedule row, target picker, and buttons use dark surfaces with readable text.
+- Existing create/edit/pause/resume/delete automation behavior remains unchanged.
+
+#### Rollback/Cleanup
+- Delete any disposable automation created during manual testing.
+- Remove temporary TestChat threads if mocked data was not used.
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
