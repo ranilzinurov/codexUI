@@ -10,6 +10,8 @@ import {
   getReviewSnapshot,
   getWorkspaceRootsState,
   importProjectZip,
+  revertThreadFileChanges,
+  updateThreadFileChanges,
   getBrowserAnnotationListenStatus,
   listDirectoryApps,
   listDirectoryComposioConnectors,
@@ -447,6 +449,81 @@ describe('Git review gateway API', () => {
         removedLineCount: null,
       },
     ])
+  })
+
+  it('posts scoped file-change redo requests with patch ids and normalizes the response', async () => {
+    const requests: Array<{ url: string, body: Record<string, unknown> }> = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: typeof init?.body === 'string' ? JSON.parse(init.body) as Record<string, unknown> : {},
+      })
+      return new Response(JSON.stringify({
+        changed: 2,
+        errors: [],
+        message: 'Reapplied 2 file change(s)',
+        appliedPatchIds: ['patch-a', 'patch-b'],
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }))
+
+    const result = await updateThreadFileChanges(
+      'thread-1',
+      'turn-2',
+      '/tmp/repo',
+      'redo',
+      ['patch-a', 'patch-b'],
+      'single_turn',
+    )
+
+    expect(requests).toEqual([{
+      url: '/codex-api/thread/rollback-files',
+      body: {
+        threadId: 'thread-1',
+        turnId: 'turn-2',
+        cwd: '/tmp/repo',
+        action: 'redo',
+        patchIds: ['patch-a', 'patch-b'],
+        scope: 'single_turn',
+      },
+    }])
+    expect(result).toEqual({
+      changed: 2,
+      errors: [],
+      message: 'Reapplied 2 file change(s)',
+      revertedPatchIds: [],
+      appliedPatchIds: ['patch-a', 'patch-b'],
+    })
+  })
+
+  it('keeps the legacy revertThreadFileChanges wrapper compatible with undo responses', async () => {
+    const requests: Array<{ body: Record<string, unknown> }> = []
+    vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        body: typeof init?.body === 'string' ? JSON.parse(init.body) as Record<string, unknown> : {},
+      })
+      return new Response(JSON.stringify({
+        changed: 1,
+        errors: [],
+        revertedPatchIds: ['patch-a'],
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }))
+
+    await expect(revertThreadFileChanges('thread-1', 'turn-2', '/tmp/repo')).resolves.toEqual({
+      reverted: 1,
+      errors: [],
+    })
+    expect(requests[0]?.body).toMatchObject({
+      threadId: 'thread-1',
+      turnId: 'turn-2',
+      cwd: '/tmp/repo',
+      action: 'undo',
+    })
   })
 
   it('requests commit-scoped review snapshots with the selected commit sha', async () => {

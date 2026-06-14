@@ -8649,3 +8649,44 @@ Header Git branch dropdown commit search/detail panel, lazy commit file loading,
 - Reset or delete disposable branches used for reset-to-commit testing.
 - Revert any temporary staged/unstaged file changes in test repositories.
 - Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
+
+---
+
+### File Change Undo And Redo
+
+#### Feature/Change Name
+Assistant file-change summary undo/redo actions for a single turn.
+
+#### Prerequisites/Setup
+1. Use the upstream-sync branch.
+2. Start the app with `pnpm run dev --host 127.0.0.1 --port 4173`.
+3. Open a thread whose `cwd` is a disposable Git repository.
+4. Create and commit a small baseline file, for example `notes.txt`, before asking the assistant to edit it.
+
+#### Steps
+1. In light theme, ask the assistant to update `notes.txt` with a small text change.
+2. Wait for the assistant turn to complete and expand the file-change summary.
+3. Confirm the summary shows an `Undo` action.
+4. Click `Undo` and confirm the file content returns to the baseline content for that turn.
+5. Confirm the same summary now shows `Redo`.
+6. Click `Redo` and confirm the assistant change is applied again.
+7. Ask the assistant to add a new disposable file and repeat Undo/Redo.
+8. Ask the assistant to move or rename a disposable file and repeat Undo/Redo.
+9. For a partial-failure check, manually edit the changed file between Undo and Redo, then click `Redo`.
+10. Confirm a per-summary error message appears if the patch cannot be applied cleanly.
+11. Switch to another thread and back, then confirm stale pending/error/action state does not bleed into the other thread.
+12. Switch to dark theme and repeat steps 2-6.
+
+#### Expected Results
+- File-change summaries with a turn id show `Undo`.
+- Undo calls the file-change rollback endpoint for the active thread and selected turn only.
+- Successful Undo returns patch ids and changes the action to `Redo`.
+- Redo reuses the stored patch ids and reapplies the same turn changes.
+- Partial failures show a visible error on the affected summary without crashing the app.
+- Thread switching clears local undo/redo/error state.
+- Light and dark themes both render the action button, pending labels, error text, file list, and diff viewer without unreadable text or light-theme button surfaces in dark mode.
+
+#### Rollback/Cleanup
+- Restore or delete the disposable Git repository used for file-change testing.
+- Revert temporary assistant-created files with Git or manual cleanup.
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
