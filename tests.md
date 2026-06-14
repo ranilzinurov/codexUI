@@ -8491,3 +8491,41 @@ Startup route selection, recent thread-list request reuse, and canonical workspa
 - Delete temporary symlink/worktree projects created for verification.
 - Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
 - Keep profile artifacts until their summary numbers have been copied into the PR or issue comment.
+
+---
+
+### Provider Model Locking For Existing Threads
+
+#### Feature/Change Name
+Thread-level provider/model retention for OpenCode Zen, OpenRouter, custom providers, and Codex auth transitions.
+
+#### Prerequisites/Setup
+1. Use the upstream-sync branch.
+2. Start the app with `pnpm run dev --host 127.0.0.1 --port 4173`.
+3. Configure or simulate one provider-backed mode such as OpenCode Zen or OpenRouter free mode.
+4. Have one existing provider-backed thread and one normal Codex/OpenAI thread.
+
+#### Steps
+1. In light theme, open the provider-backed thread.
+2. Confirm the model picker lists provider-specific models and does not fall back to Codex-only models.
+3. Sign in or switch back to Codex/OpenAI auth.
+4. Reopen the same provider-backed thread.
+5. Confirm the model picker still lists that thread's provider models.
+6. Start a new Codex/OpenAI thread and send one short message.
+7. Confirm the new thread uses the active Codex/OpenAI provider and model list.
+8. Fork the provider-backed thread and confirm the fork keeps the provider-backed model context.
+9. Open a side chat from the provider-backed thread and confirm the side chat starts with the same provider context.
+10. Switch to dark theme and repeat steps 1-7.
+
+#### Expected Results
+- `thread/read`, `thread/resume`, `thread/start`, and provider-backed `thread/fork` preserve `modelProvider` metadata when present.
+- Existing OpenCode Zen/OpenRouter/custom-provider threads request provider models with the thread provider id, even if the global active auth has changed to Codex/OpenAI.
+- Provider ids with underscores, such as `opencode_zen`, are treated the same as dash ids, such as `opencode-zen`.
+- Codex/OpenAI provider ids normalize back to the standard Codex model context.
+- New threads remember the provider returned by `thread/start`.
+- Light and dark themes both render the model picker and conversation controls without light-theme surfaces in dark mode.
+
+#### Rollback/Cleanup
+- Archive or delete temporary provider test threads.
+- Reset provider/auth configuration to the preferred local default after verification.
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.

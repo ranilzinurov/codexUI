@@ -909,6 +909,8 @@ async function getThreadSummaryV2(threadId: string): Promise<UiThread> {
 }
 
 async function getThreadDetailV2(threadId: string): Promise<{
+  model: string
+  modelProvider: string
   messages: UiMessage[]
   inProgress: boolean
   activeTurnId: string
@@ -923,6 +925,8 @@ async function getThreadDetailV2(threadId: string): Promise<{
   const startTurnIndex = readThreadTurnStartIndex(payload)
   const normalized = await enrichThreadMessagesWithFallback(threadId, normalizeThreadMessagesV2(payload, startTurnIndex))
   return {
+    model: normalizeThreadModelFromPayload(payload),
+    modelProvider: normalizeThreadModelProviderFromPayload(payload),
     messages: normalized,
     inProgress: readThreadInProgressFromResponse(payload),
     activeTurnId: readActiveTurnIdFromResponse(payload),
@@ -1002,6 +1006,8 @@ export async function getThreadSummary(threadId: string): Promise<UiThread> {
 }
 
 export async function getThreadDetail(threadId: string): Promise<{
+  model: string
+  modelProvider: string
   messages: UiMessage[]
   inProgress: boolean
   activeTurnId: string
@@ -1628,6 +1634,7 @@ export async function removeAccount(accountId: string): Promise<AccountsListResu
 
 export type ResumedThread = {
   model: string
+  modelProvider: string
   messages: UiMessage[]
   inProgress: boolean
   activeTurnId: string
@@ -1642,6 +1649,7 @@ export async function resumeThread(threadId: string): Promise<ResumedThread> {
   const messages = await enrichThreadMessagesWithFallback(threadId, normalizeThreadMessagesV2(payload, startTurnIndex))
   return {
     model: normalizeThreadModelFromPayload(payload),
+    modelProvider: normalizeThreadModelProviderFromPayload(payload),
     messages,
     inProgress: readThreadInProgressFromResponse(payload),
     activeTurnId: readActiveTurnIdFromResponse(payload),
@@ -1757,9 +1765,19 @@ function normalizeThreadModelFromPayload(payload: unknown): string {
   return typeof model === 'string' ? model.trim() : ''
 }
 
+function normalizeThreadModelProviderFromPayload(payload: unknown): string {
+  const record = asRecord(payload)
+  if (!record) return ''
+  const modelProvider = readString(record.modelProvider)?.trim() ?? ''
+  if (modelProvider) return modelProvider
+  const thread = asRecord(record.thread)
+  return readString(thread?.modelProvider)?.trim() ?? ''
+}
+
 export type StartedThread = {
   threadId: string
   model: string
+  modelProvider: string
 }
 
 export type ForkedThread = {
@@ -1792,6 +1810,7 @@ export async function startThread(cwd?: string, model?: string): Promise<Started
     return {
       threadId,
       model: normalizeThreadModelFromPayload(payload),
+      modelProvider: normalizeThreadModelProviderFromPayload(payload),
     }
   } catch (error) {
     throw normalizeCodexApiError(error, 'Failed to start a new thread', 'thread/start')
@@ -1878,6 +1897,7 @@ export async function forkThread(
     return {
       threadId: nextThreadId,
       model: normalizeThreadModelFromPayload(payload),
+      modelProvider: normalizeThreadModelProviderFromPayload(payload),
     }
   } catch (error) {
     throw normalizeCodexApiError(error, `Failed to fork thread ${threadId}`, 'thread/fork')
