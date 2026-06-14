@@ -258,6 +258,15 @@ type SkillHubEntry = {
   path?: string
   enabled?: boolean
   installCountLabel?: string
+  childSkills?: SkillHubChildEntry[]
+}
+
+type SkillHubChildEntry = {
+  name: string
+  displayName?: string
+  description: string
+  path: string
+  enabled: boolean
 }
 
 async function runGitFetchWithRefLockRetry(repoDir: string, args: string[] = ['fetch', 'origin']): Promise<void> {
@@ -292,6 +301,7 @@ async function buildLocalHubEntry(info: InstalledSkillInfo): Promise<SkillHubEnt
     installed: true,
     path: info.path,
     enabled: info.enabled,
+    childSkills: info.children,
   }
 }
 
@@ -517,7 +527,86 @@ function groupRpcSkillRecords<T extends RpcSkillRecord>(skills: T[]): T[] {
   }))
 }
 
-type InstalledSkillInfo = { name: string; path: string; enabled: boolean }
+function skillNameFromPath(pathValue: string): string {
+  const parts = splitAbsolutePath(normalizeSkillMarkdownPath(pathValue))
+  const skillFileIndex = parts.lastIndexOf('SKILL.md')
+  if (skillFileIndex > 0) return parts[skillFileIndex - 1] ?? ''
+  return ''
+}
+
+function skillDescription(skill: RpcSkillRecord): string {
+  return skill.shortDescription || skill.description || ''
+}
+
+function groupRpcSkillRecordsForHub(skills: RpcSkillRecord[]): InstalledSkillInfo[] {
+  const normalizedPathSet = new Set(
+    skills
+      .map((skill) => normalizeSkillMarkdownPath(typeof skill.path === 'string' ? skill.path : ''))
+      .filter(Boolean),
+  )
+  const grouped = new Map<string, {
+    preferred: InstalledSkillInfo
+    hasRoot: boolean
+    children: InstalledSkillChildInfo[]
+    childPathSet: Set<string>
+  }>()
+
+  for (const skill of skills) {
+    const rawPath = typeof skill.path === 'string' ? skill.path : ''
+    const pathInfo = rawPath ? deriveSkillPathInfo(rawPath, normalizedPathSet) : null
+    const normalizedPath = pathInfo?.normalizedPath || normalizeSkillMarkdownPath(rawPath)
+    const shouldGroupUnderRoot = Boolean(
+      pathInfo
+      && !pathInfo.rootSkillName.startsWith('.')
+      && (!pathInfo.isNestedSkill || normalizedPathSet.has(pathInfo.rootSkillPath)),
+    )
+    const groupingKey = shouldGroupUnderRoot
+      ? pathInfo!.rootSkillPath
+      : (normalizedPath || `${skill.scope ?? ''}:${skill.name ?? ''}`)
+    const isRootEntry = Boolean(pathInfo && pathInfo.normalizedPath === pathInfo.rootSkillPath)
+    const fallbackName = skill.name || skillNameFromPath(rawPath)
+    const rootName = shouldGroupUnderRoot ? (pathInfo?.rootSkillName || fallbackName) : fallbackName
+    const existing = grouped.get(groupingKey)
+    const preferred: InstalledSkillInfo = {
+      name: rootName,
+      path: groupingKey,
+      enabled: skill.enabled !== false,
+    }
+
+    const group = existing ?? {
+      preferred,
+      hasRoot: false,
+      children: [],
+      childPathSet: new Set<string>(),
+    }
+
+    if (!existing) grouped.set(groupingKey, group)
+
+    if (!shouldGroupUnderRoot || isRootEntry || (!group.hasRoot && !pathInfo?.isNestedSkill)) {
+      group.preferred = preferred
+      group.hasRoot = true
+    } else if (pathInfo?.isNestedSkill && normalizedPath && !group.childPathSet.has(normalizedPath)) {
+      group.children.push({
+        name: fallbackName,
+        displayName: skill.name || fallbackName,
+        description: skillDescription(skill),
+        path: normalizedPath,
+        enabled: skill.enabled !== false,
+      })
+      group.childPathSet.add(normalizedPath)
+    }
+
+    group.preferred.enabled = group.preferred.enabled || skill.enabled !== false
+  }
+
+  return Array.from(grouped.values()).map((group) => ({
+    ...group.preferred,
+    children: group.children.sort((a, b) => a.name.localeCompare(b.name)),
+  }))
+}
+
+type InstalledSkillChildInfo = { name: string; displayName?: string; description: string; path: string; enabled: boolean }
+type InstalledSkillInfo = { name: string; path: string; enabled: boolean; children?: InstalledSkillChildInfo[] }
 type SyncedSkill = { owner?: string; name: string; enabled: boolean }
 
 type SkillsSyncState = {
@@ -598,9 +687,14 @@ async function collectInstalledSkillsMap(appServer: AppServerLike): Promise<Map<
   try {
     const result = await appServer.rpc('skills/list', {}) as { data?: Array<{ skills?: RpcSkillRecord[] }> }
     for (const entry of result.data ?? []) {
-      for (const skill of groupRpcSkillRecords(entry.skills ?? [])) {
+      for (const skill of groupRpcSkillRecordsForHub(entry.skills ?? [])) {
         if (skill.name) {
-          installedMap.set(skill.name, { name: skill.name, path: skill.path ?? '', enabled: skill.enabled !== false })
+          installedMap.set(skill.name, {
+            name: skill.name,
+            path: skill.path ?? '',
+            enabled: skill.enabled !== false,
+            children: skill.children,
+          })
         }
       }
     }

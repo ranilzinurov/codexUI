@@ -1773,6 +1773,59 @@ html::after {
   @apply border-rose-800 bg-rose-950/40 text-rose-200;
 }
 
+:root.dark .skills-installed-list {
+  @apply border-zinc-700 bg-zinc-900;
+}
+
+:root.dark .skills-installed-group {
+  @apply border-zinc-800;
+}
+
+:root.dark .skills-installed-main,
+:root.dark .skills-installed-child-main {
+  @apply hover:bg-zinc-800;
+}
+
+:root.dark .skills-installed-expand {
+  @apply text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200;
+}
+
+:root.dark .skills-installed-avatar {
+  @apply bg-zinc-800 text-zinc-300;
+}
+
+:root.dark .skills-installed-avatar.is-plugin {
+  @apply bg-emerald-950 text-emerald-300;
+}
+
+:root.dark .skills-installed-name {
+  @apply text-zinc-100;
+}
+
+:root.dark .skills-installed-description {
+  @apply text-zinc-400;
+}
+
+:root.dark .skills-installed-count {
+  @apply border-zinc-700 bg-zinc-800 text-zinc-300;
+}
+
+:root.dark .skills-installed-browse {
+  @apply text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200;
+}
+
+:root.dark .skills-installed-children {
+  @apply border-zinc-800 bg-zinc-950/50;
+}
+
+:root.dark .skills-installed-children::before {
+  @apply bg-zinc-700;
+}
+
+:root.dark .skills-installed-child-dot {
+  @apply bg-zinc-600;
+}
+
 :root.dark .directory-title,
 :root.dark .directory-card-title,
 :root.dark .directory-modal-title,
