@@ -2,6 +2,10 @@
 
 This file tracks manual regression and feature verification steps.
 
+## Supplemental Domain Test Docs
+
+Root `tests.md` remains the canonical manual-test log required by this repository. Supplemental domain docs live under [`tests/`](tests/index.md) to make imported upstream checks easier to browse without replacing or deleting existing root coverage.
+
 ## Template
 
 ### Feature: <name>
