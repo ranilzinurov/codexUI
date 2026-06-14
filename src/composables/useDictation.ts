@@ -15,7 +15,9 @@ import {
 } from '../native/codexAudioSession'
 
 export type DictationState = 'idle' | 'recording' | 'paused' | 'transcribing'
-const DICTATION_SILENCE_THRESHOLD = 0.0025
+const DICTATION_LEVEL_FLOOR = 0.00008
+const DICTATION_ACTIVE_LEVEL_THRESHOLD = 0.06
+const DICTATION_LEVEL_REFERENCE_RMS = 0.035
 const DICTATION_BAR_WIDTH = 3
 const DICTATION_BAR_GAP = 2
 const MAX_WAVEFORM_SAMPLES = 256
@@ -94,6 +96,28 @@ function createDictationMediaRecorder(stream: MediaStream): MediaRecorder {
 
 function hasPauseControls(recorder: MediaRecorder): boolean {
   return typeof recorder.pause === 'function' && typeof recorder.resume === 'function'
+}
+
+export function normalizeDictationWaveformLevel(channelData: ArrayLike<number>): number {
+  if (channelData.length === 0) return 0
+
+  let sumSquares = 0
+  let peak = 0
+
+  for (let index = 0; index < channelData.length; index += 1) {
+    const amplitude = Math.abs(channelData[index] ?? 0)
+    sumSquares += amplitude * amplitude
+    peak = Math.max(peak, amplitude)
+  }
+
+  if (peak <= DICTATION_LEVEL_FLOOR) return 0
+
+  const rms = Math.sqrt(sumSquares / channelData.length)
+  const adjustedRms = Math.max(0, rms - DICTATION_LEVEL_FLOOR)
+  const compressedRms = Math.sqrt(adjustedRms / DICTATION_LEVEL_REFERENCE_RMS)
+  const peakBoost = Math.min(0.25, peak * 3)
+
+  return Math.min(1, compressedRms + peakBoost)
 }
 
 export function useDictation(options: {
@@ -190,11 +214,11 @@ export function useDictation(options: {
 
     for (let index = 0; index < maxBars; index += 1) {
       const value = recentSamples[index - leadingBars] ?? 0
-      const heightRatio = Math.max(0.08, Math.min(1, value * 18))
+      const heightRatio = Math.max(0.08, Math.min(1, value))
       const barHeight = heightRatio * centerY
       const x = index * (DICTATION_BAR_WIDTH + DICTATION_BAR_GAP)
 
-      context.globalAlpha = value <= DICTATION_SILENCE_THRESHOLD ? 0.35 : 1
+      context.globalAlpha = value <= DICTATION_ACTIVE_LEVEL_THRESHOLD ? 0.35 : 1
       context.fillStyle = fill
       context.fillRect(x, centerY - barHeight, DICTATION_BAR_WIDTH, barHeight * 2)
     }
@@ -276,14 +300,7 @@ export function useDictation(options: {
         return
       }
 
-      const channelData = event.inputBuffer.getChannelData(0)
-      let total = 0
-      for (let index = 0; index < channelData.length; index += 1) {
-        const amplitude = Math.abs(channelData[index] ?? 0)
-        total += amplitude < DICTATION_SILENCE_THRESHOLD ? 0 : amplitude
-      }
-
-      waveformSamples.push(total / channelData.length)
+      waveformSamples.push(normalizeDictationWaveformLevel(event.inputBuffer.getChannelData(0)))
       if (waveformSamples.length > MAX_WAVEFORM_SAMPLES) {
         waveformSamples.shift()
       }

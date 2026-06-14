@@ -7279,6 +7279,39 @@ Composer dictation uses the OpenAI API-key transcription path with `gpt-4o-mini-
 
 ---
 
+### Composer Dictation Waveform Responds To Quiet Mobile Input
+
+#### Feature/Change Name
+Main composer dictation waveform level normalization for quiet PWA microphone input.
+
+#### Prerequisites/Setup
+1. Run from the repository root with dependencies installed.
+2. Start the dev server with `pnpm run dev --host 127.0.0.1 --port 4173`.
+3. Open the app from a browser or installed PWA with microphone permission allowed.
+4. Use a project/thread where composer dictation is available.
+
+#### Steps
+1. Run `pnpm exec vitest run src/composables/useDictation.test.ts`.
+2. In light theme, start dictation from the main composer.
+3. Speak at a normal phone/PWA distance and confirm the waveform bars change height instead of staying as a flat dotted line.
+4. Stop speaking briefly and confirm the waveform returns to the low muted baseline.
+5. Pause dictation and confirm the last waveform remains dimmed and the timer stops increasing.
+6. Resume dictation, speak again, and confirm the bars animate again.
+7. Stop dictation and confirm transcription or background auto-send still follows the existing configured behavior.
+8. Switch to dark theme and repeat steps 2-7, confirming the waveform, timer, pause, draft-transcribe, stop, and reasoning-effort controls remain readable and aligned.
+
+#### Expected Results
+- The focused unit test passes and covers silence, quiet microphone levels, and loud input capping.
+- Quiet but valid microphone input produces visible waveform variation while near-silence remains visually subdued.
+- Dictation recording, pause/resume, draft transcription, stop/transcription, and background auto-send behavior remain unchanged.
+- Light and dark theme active recording controls remain aligned, readable, and free of overlap.
+
+#### Rollback/Cleanup
+- Delete any test messages produced by the final stop/transcription check.
+- Remove any temporary draft text or attachments left in the composer.
+
+---
+
 ### Browser Annotation Persistent Binding, Server Transcription, And Page-State Queue
 
 #### Feature/Change Name
