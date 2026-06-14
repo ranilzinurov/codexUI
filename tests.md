@@ -8327,3 +8327,35 @@ Active dictation replaces the red stop button with `m`, `h`, and `xh` reasoning-
 - Turn off `Auto send dictation` or reset it to the tester's preferred setting.
 - Remove any test messages or queued turns created during verification.
 - Stop temporary dev servers or profiling runs started for this check.
+
+---
+
+### Upstream Sync Preflight Baseline
+
+#### Feature/Change Name
+Protected upstream-sync baseline and GitHub issue tracking.
+
+#### Prerequisites/Setup
+1. Use the isolated upstream-sync worktree branch.
+2. Confirm GitHub issues #1-#13 exist in `ranilzinurov/codexUI`.
+3. Confirm the disposable dev server port `4173` is free before profiling.
+
+#### Steps
+1. Run `git status --short` and confirm no unrelated tracked changes exist.
+2. Run `pnpm run build`.
+3. Run `pnpm run test:unit`.
+4. Start the disposable server with `pnpm run dev --host 127.0.0.1 --port 4173`.
+5. Run `PROFILE_BASE_URL=http://127.0.0.1:4173 PROFILE_WAIT_MS=7000 pnpm run profile:browser`.
+6. Open the generated `output/playwright/browser-runtime-profile-*.json`.
+7. Inspect `duplicateCounts`, `warnings`, `totalApiKB`, `topApiSummary`, and `slowestApiRows`.
+
+#### Expected Results
+- Build completes successfully.
+- Unit tests pass.
+- The profile report has no warnings.
+- Duplicate startup request counts remain bounded and are recorded as the baseline for later upstream-sync issues.
+- No `main` push or direct upstream merge occurs during preflight.
+
+#### Rollback/Cleanup
+- Stop only the disposable server on port `4173`; do not stop any persistent `5173` tmux server.
+- Remove temporary profiling artifacts only after their numbers have been copied into the baseline notes or PR body.
