@@ -187,6 +187,93 @@ describe('side thread gateway API', () => {
   })
 })
 
+describe('account gateway API', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('normalizes active accounts by storage id', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        activeAccountId: 'shared-account',
+        activeStorageId: 'storage-b',
+        accounts: [
+          {
+            accountId: 'shared-account',
+            storageId: 'storage-a',
+            userId: 'user-a',
+            lastRefreshedAtIso: '2026-06-14T00:00:00.000Z',
+          },
+          {
+            accountId: 'shared-account',
+            storageId: 'storage-b',
+            userId: 'user-b',
+            lastRefreshedAtIso: '2026-06-14T00:00:00.000Z',
+          },
+        ],
+      },
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })))
+
+    const result = await codexGateway.getAccounts()
+
+    expect(result.activeAccountId).toBe('shared-account')
+    expect(result.activeStorageId).toBe('storage-b')
+    expect(result.accounts.map((account) => ({
+      storageId: account.storageId,
+      userId: account.userId,
+      isActive: account.isActive,
+    }))).toEqual([
+      { storageId: 'storage-a', userId: 'user-a', isActive: false },
+      { storageId: 'storage-b', userId: 'user-b', isActive: true },
+    ])
+  })
+
+  it('sends storage ids when switching and removing accounts', async () => {
+    const requests: Array<{ url: string, body: unknown }> = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : null,
+      })
+      const payload = String(input).endsWith('/switch')
+        ? {
+          data: {
+            activeAccountId: 'account-a',
+            activeStorageId: 'storage-a',
+            account: {
+              accountId: 'account-a',
+              storageId: 'storage-a',
+              userId: 'user-a',
+              lastRefreshedAtIso: '2026-06-14T00:00:00.000Z',
+            },
+          },
+        }
+        : {
+          data: {
+            activeAccountId: null,
+            activeStorageId: null,
+            accounts: [],
+          },
+        }
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }))
+
+    await codexGateway.switchAccount('storage-a')
+    await codexGateway.removeAccount('storage-a')
+
+    expect(requests).toEqual([
+      { url: '/codex-api/accounts/switch', body: { storageId: 'storage-a' } },
+      { url: '/codex-api/accounts/remove', body: { storageId: 'storage-a' } },
+    ])
+  })
+})
+
 describe('project ZIP gateway API', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
