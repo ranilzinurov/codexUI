@@ -140,21 +140,21 @@ describe('codex app-server stdio fallback', () => {
     await expect(rpcPromise).resolves.toEqual({ ok: 'config/read' })
 
     expect(spawnMock).toHaveBeenCalledTimes(2)
-    expect(spawnMock.mock.calls[0][1]).toEqual([
-      'app-server',
-      '--stdio',
-      '-c',
+    expect(spawnMock.mock.calls[0][1]?.slice(0, 2)).toEqual(['app-server', '--stdio'])
+    expect(spawnMock.mock.calls[0][1]).toEqual(expect.arrayContaining([
       'approval_policy="on-request"',
-      '-c',
       'sandbox_mode="workspace-write"',
-    ])
-    expect(spawnMock.mock.calls[1][1]).toEqual([
-      'app-server',
-      '-c',
+      'features.memories=true',
+      'model_providers.opencode_zen.wire_api="responses"',
+    ]))
+    expect(spawnMock.mock.calls[1][1]?.[0]).toBe('app-server')
+    expect(spawnMock.mock.calls[1][1]).not.toContain('--stdio')
+    expect(spawnMock.mock.calls[1][1]).toEqual(expect.arrayContaining([
       'approval_policy="on-request"',
-      '-c',
       'sandbox_mode="workspace-write"',
-    ])
+      'features.memories=true',
+      'model_providers.opencode_zen.wire_api="responses"',
+    ]))
     expect(spawned[1].writes.some((line) => line.includes('"method":"initialize"'))).toBe(true)
 
     appServer.dispose()

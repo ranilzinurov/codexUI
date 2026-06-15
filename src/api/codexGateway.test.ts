@@ -2,6 +2,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as codexGateway from './codexGateway'
 import {
   createBrowserAnnotationExtensionToken,
+  downloadProjectZip,
+  getAvailableModelIds,
+  getGitBranchCommits,
+  getGitCommitFiles,
+  getProjectZipDownloadUrl,
+  getReviewSnapshot,
+  getWorkspaceRootsState,
+  importProjectZip,
+  revertThreadFileChanges,
+  updateThreadFileChanges,
   getBrowserAnnotationListenStatus,
   listDirectoryApps,
   listDirectoryComposioConnectors,
@@ -179,6 +189,379 @@ describe('side thread gateway API', () => {
     expect(turnId).toBe('turn-side-1')
     expect(requests[0].method).toBe('turn/start')
     expect(requests[0].params.threadId).toBe('side-thread-3')
+  })
+})
+
+describe('account gateway API', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('normalizes active accounts by storage id', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        activeAccountId: 'shared-account',
+        activeStorageId: 'storage-b',
+        accounts: [
+          {
+            accountId: 'shared-account',
+            storageId: 'storage-a',
+            userId: 'user-a',
+            lastRefreshedAtIso: '2026-06-14T00:00:00.000Z',
+          },
+          {
+            accountId: 'shared-account',
+            storageId: 'storage-b',
+            userId: 'user-b',
+            lastRefreshedAtIso: '2026-06-14T00:00:00.000Z',
+          },
+        ],
+      },
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })))
+
+    const result = await codexGateway.getAccounts()
+
+    expect(result.activeAccountId).toBe('shared-account')
+    expect(result.activeStorageId).toBe('storage-b')
+    expect(result.accounts.map((account) => ({
+      storageId: account.storageId,
+      userId: account.userId,
+      isActive: account.isActive,
+    }))).toEqual([
+      { storageId: 'storage-a', userId: 'user-a', isActive: false },
+      { storageId: 'storage-b', userId: 'user-b', isActive: true },
+    ])
+  })
+
+  it('sends storage ids when switching and removing accounts', async () => {
+    const requests: Array<{ url: string, body: unknown }> = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : null,
+      })
+      const payload = String(input).endsWith('/switch')
+        ? {
+          data: {
+            activeAccountId: 'account-a',
+            activeStorageId: 'storage-a',
+            account: {
+              accountId: 'account-a',
+              storageId: 'storage-a',
+              userId: 'user-a',
+              lastRefreshedAtIso: '2026-06-14T00:00:00.000Z',
+            },
+          },
+        }
+        : {
+          data: {
+            activeAccountId: null,
+            activeStorageId: null,
+            accounts: [],
+          },
+        }
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }))
+
+    await codexGateway.switchAccount('storage-a')
+    await codexGateway.removeAccount('storage-a')
+
+    expect(requests).toEqual([
+      { url: '/codex-api/accounts/switch', body: { storageId: 'storage-a' } },
+      { url: '/codex-api/accounts/remove', body: { storageId: 'storage-a' } },
+    ])
+  })
+})
+
+describe('project ZIP gateway API', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('builds encoded project ZIP download URLs', () => {
+    expect(getProjectZipDownloadUrl('/tmp/Project (2)')).toBe('/codex-api/project-zip?cwd=%2Ftmp%2FProject+%282%29')
+  })
+
+  it('downloads project ZIPs with progress and content-disposition filenames', async () => {
+    const progress: Array<{ loaded: number; total: number | null }> = []
+    const body = new Blob(['zip-data'], { type: 'application/zip' })
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('/codex-api/project-zip?cwd=%2Ftmp%2Fdemo')
+      return new Response(body, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/zip',
+          'Content-Length': String(body.size),
+          'Content-Disposition': "attachment; filename*=UTF-8''demo-project.zip",
+        },
+      })
+    }))
+
+    const result = await downloadProjectZip('/tmp/demo', (entry) => progress.push(entry))
+
+    expect(result.fileName).toBe('demo-project.zip')
+    expect(result.blob.type).toBe('application/zip')
+    await expect(result.blob.text()).resolves.toBe('zip-data')
+    expect(progress[0]).toEqual({ loaded: 0, total: body.size })
+    expect(progress.at(-1)).toEqual({ loaded: body.size, total: body.size })
+  })
+
+  it('posts project ZIP imports and invalidates workspace roots cache after success', async () => {
+    const requests: Array<{ url: string; method: string; bodyType: string }> = []
+    let workspaceRootsReads = 0
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      requests.push({
+        url,
+        method: init?.method ?? 'GET',
+        bodyType: init?.body instanceof Blob ? init.body.type : '',
+      })
+      if (url === '/codex-api/workspace-roots-state') {
+        workspaceRootsReads += 1
+        return new Response(JSON.stringify({
+          data: {
+            order: [`/tmp/root-${workspaceRootsReads}`],
+            labels: {},
+            active: [],
+            projectOrder: [],
+            remoteProjects: [],
+          },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      if (url === '/codex-api/project-import?parent=%2Ftmp%2Fparent') {
+        return new Response(JSON.stringify({
+          data: {
+            path: '/tmp/parent/imported',
+            importedSessions: 2,
+          },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      return new Response(JSON.stringify({ error: 'unexpected request' }), { status: 500 })
+    }))
+
+    await expect(getWorkspaceRootsState()).resolves.toMatchObject({ order: ['/tmp/root-1'] })
+    await expect(importProjectZip(new Blob(['zip'], { type: 'application/zip' }), '/tmp/parent')).resolves.toEqual({
+      path: '/tmp/parent/imported',
+      importedSessions: 2,
+    })
+    await expect(getWorkspaceRootsState()).resolves.toMatchObject({ order: ['/tmp/root-2'] })
+
+    expect(requests).toEqual([
+      { url: '/codex-api/workspace-roots-state', method: 'GET', bodyType: '' },
+      { url: '/codex-api/project-import?parent=%2Ftmp%2Fparent', method: 'POST', bodyType: 'application/zip' },
+      { url: '/codex-api/workspace-roots-state', method: 'GET', bodyType: '' },
+    ])
+  })
+})
+
+describe('Git review gateway API', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('passes the reset-history filter when loading branch commits', async () => {
+    const requestedUrls: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      requestedUrls.push(String(input))
+      return new Response(JSON.stringify({
+        data: [{
+          sha: 'abcdef123456',
+          shortSha: 'abcdef1',
+          subject: 'Import git panel',
+          date: '2026-06-14',
+        }],
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }))
+
+    const commits = await getGitBranchCommits('/tmp/repo', 'feature/git-panel', { includeResetHistory: false })
+
+    expect(requestedUrls[0]).toContain('/codex-api/git/branch-commits?')
+    expect(requestedUrls[0]).toContain('cwd=%2Ftmp%2Frepo')
+    expect(requestedUrls[0]).toContain('branch=feature%2Fgit-panel')
+    expect(requestedUrls[0]).toContain('includeResetHistory=false')
+    expect(commits).toEqual([{
+      sha: 'abcdef123456',
+      shortSha: 'abcdef1',
+      subject: 'Import git panel',
+      date: '2026-06-14',
+    }])
+  })
+
+  it('loads and normalizes changed files for a selected commit', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toContain('/codex-api/git/commit-files?')
+      expect(String(input)).toContain('sha=abcdef123456')
+      return new Response(JSON.stringify({
+        data: [
+          {
+            path: 'src/new.ts',
+            previousPath: null,
+            status: 'A',
+            label: 'Added',
+            addedLineCount: 12,
+            removedLineCount: 0,
+          },
+          {
+            path: 'src/new-name.ts',
+            previousPath: 'src/old-name.ts',
+            status: 'R100',
+            label: 'Renamed',
+            addedLineCount: null,
+            removedLineCount: null,
+          },
+        ],
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }))
+
+    await expect(getGitCommitFiles('/tmp/repo', 'abcdef123456')).resolves.toEqual([
+      {
+        path: 'src/new.ts',
+        previousPath: null,
+        status: 'A',
+        label: 'Added',
+        addedLineCount: 12,
+        removedLineCount: 0,
+      },
+      {
+        path: 'src/new-name.ts',
+        previousPath: 'src/old-name.ts',
+        status: 'R100',
+        label: 'Renamed',
+        addedLineCount: null,
+        removedLineCount: null,
+      },
+    ])
+  })
+
+  it('posts scoped file-change redo requests with patch ids and normalizes the response', async () => {
+    const requests: Array<{ url: string, body: Record<string, unknown> }> = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: typeof init?.body === 'string' ? JSON.parse(init.body) as Record<string, unknown> : {},
+      })
+      return new Response(JSON.stringify({
+        changed: 2,
+        errors: [],
+        message: 'Reapplied 2 file change(s)',
+        appliedPatchIds: ['patch-a', 'patch-b'],
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }))
+
+    const result = await updateThreadFileChanges(
+      'thread-1',
+      'turn-2',
+      '/tmp/repo',
+      'redo',
+      ['patch-a', 'patch-b'],
+      'single_turn',
+    )
+
+    expect(requests).toEqual([{
+      url: '/codex-api/thread/rollback-files',
+      body: {
+        threadId: 'thread-1',
+        turnId: 'turn-2',
+        cwd: '/tmp/repo',
+        action: 'redo',
+        patchIds: ['patch-a', 'patch-b'],
+        scope: 'single_turn',
+      },
+    }])
+    expect(result).toEqual({
+      changed: 2,
+      errors: [],
+      message: 'Reapplied 2 file change(s)',
+      revertedPatchIds: [],
+      appliedPatchIds: ['patch-a', 'patch-b'],
+    })
+  })
+
+  it('keeps the legacy revertThreadFileChanges wrapper compatible with undo responses', async () => {
+    const requests: Array<{ body: Record<string, unknown> }> = []
+    vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        body: typeof init?.body === 'string' ? JSON.parse(init.body) as Record<string, unknown> : {},
+      })
+      return new Response(JSON.stringify({
+        changed: 1,
+        errors: [],
+        revertedPatchIds: ['patch-a'],
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }))
+
+    await expect(revertThreadFileChanges('thread-1', 'turn-2', '/tmp/repo')).resolves.toEqual({
+      reverted: 1,
+      errors: [],
+    })
+    expect(requests[0]?.body).toMatchObject({
+      threadId: 'thread-1',
+      turnId: 'turn-2',
+      cwd: '/tmp/repo',
+      action: 'undo',
+    })
+  })
+
+  it('requests commit-scoped review snapshots with the selected commit sha', async () => {
+    const requestedUrls: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      requestedUrls.push(String(input))
+      return new Response(JSON.stringify({
+        data: {
+          cwd: '/tmp/repo',
+          gitRoot: '/tmp/repo',
+          isGitRepo: true,
+          scope: 'commit',
+          workspaceView: 'unstaged',
+          baseBranch: 'main',
+          baseBranchOptions: ['main'],
+          commitSha: 'abcdef123456',
+          headBranch: 'feature/git-panel',
+          mergeBaseSha: null,
+          generatedAtIso: '2026-06-14T00:00:00.000Z',
+          summary: {
+            fileCount: 0,
+            addedLineCount: 0,
+            removedLineCount: 0,
+          },
+          files: [],
+        },
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }))
+
+    const snapshot = await getReviewSnapshot('/tmp/repo', 'commit', 'unstaged', null, 'abcdef123456')
+
+    expect(requestedUrls[0]).toContain('scope=commit')
+    expect(requestedUrls[0]).toContain('commitSha=abcdef123456')
+    expect(snapshot.scope).toBe('commit')
+    expect(snapshot.commitSha).toBe('abcdef123456')
   })
 })
 
@@ -474,6 +857,93 @@ describe('browser annotation listen helpers', () => {
     expect(requests[0].init?.method).toBe('POST')
     expect((requests[0].init?.headers as Record<string, string>).Authorization).toBe('Bearer pairing-token-1')
     expect(JSON.parse(String(requests[0].init?.body))).toEqual({ sessionId: 'session-1', threadId: 'thread-1' })
+  })
+})
+
+describe('getAvailableModelIds', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('uses provider models without waiting for model/list when provider models are required', async () => {
+    const requests: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      requests.push(String(input))
+      if (String(input) === '/codex-api/provider-models') {
+        return new Response(JSON.stringify({
+          data: ['big-pickle', 'deepseek-v4-flash-free'],
+          exclusive: true,
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      throw new Error(`unexpected request ${String(input)}`)
+    }))
+
+    await expect(getAvailableModelIds({
+      includeProviderModels: true,
+      requireProviderModels: true,
+    })).resolves.toEqual(['big-pickle', 'deepseek-v4-flash-free'])
+    expect(requests).toEqual(['/codex-api/provider-models'])
+  })
+
+  it('requests models for an explicit thread provider', async () => {
+    const requests: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      requests.push(String(input))
+      if (String(input) === '/codex-api/provider-models?provider=opencode-zen') {
+        return new Response(JSON.stringify({
+          data: ['big-pickle', 'ring-2.6-1t-free'],
+          exclusive: true,
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      throw new Error(`unexpected request ${String(input)}`)
+    }))
+
+    await expect(getAvailableModelIds({
+      includeProviderModels: true,
+      requireProviderModels: true,
+      providerId: 'opencode-zen',
+    })).resolves.toEqual(['big-pickle', 'ring-2.6-1t-free'])
+    expect(requests).toEqual(['/codex-api/provider-models?provider=opencode-zen'])
+  })
+
+  it('falls back to model/list when provider models are optional and unavailable', async () => {
+    const requests: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push(String(input))
+      if (String(input) === '/codex-api/provider-models') {
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 503,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+
+      const body = typeof init?.body === 'string'
+        ? JSON.parse(init.body) as { method: string }
+        : { method: '' }
+      expect(body.method).toBe('model/list')
+      return new Response(JSON.stringify({
+        result: {
+          data: [
+            { id: 'gpt-5.5' },
+            { model: 'gpt-5.4-mini' },
+          ],
+        },
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }))
+
+    await expect(getAvailableModelIds({
+      includeProviderModels: true,
+    })).resolves.toEqual(['gpt-5.5', 'gpt-5.4-mini'])
+    expect(requests).toEqual(['/codex-api/provider-models', '/codex-api/rpc'])
   })
 })
 

@@ -2,6 +2,10 @@
 
 This file tracks manual regression and feature verification steps.
 
+## Supplemental Domain Test Docs
+
+Root `tests.md` remains the canonical manual-test log required by this repository. Supplemental domain docs live under [`tests/`](tests/index.md) to make imported upstream checks easier to browse without replacing or deleting existing root coverage.
+
 ## Template
 
 ### Feature: <name>
@@ -8327,3 +8331,445 @@ Active dictation replaces the red stop button with `m`, `h`, and `xh` reasoning-
 - Turn off `Auto send dictation` or reset it to the tester's preferred setting.
 - Remove any test messages or queued turns created during verification.
 - Stop temporary dev servers or profiling runs started for this check.
+
+---
+
+### Upstream Sync Preflight Baseline
+
+#### Feature/Change Name
+Protected upstream-sync baseline and GitHub issue tracking.
+
+#### Prerequisites/Setup
+1. Use the isolated upstream-sync worktree branch.
+2. Confirm GitHub issues #1-#13 exist in `ranilzinurov/codexUI`.
+3. Confirm the disposable dev server port `4173` is free before profiling.
+
+#### Steps
+1. Run `git status --short` and confirm no unrelated tracked changes exist.
+2. Run `pnpm run build`.
+3. Run `pnpm run test:unit`.
+4. Start the disposable server with `pnpm run dev --host 127.0.0.1 --port 4173`.
+5. Run `PROFILE_BASE_URL=http://127.0.0.1:4173 PROFILE_WAIT_MS=7000 pnpm run profile:browser`.
+6. Open the generated `output/playwright/browser-runtime-profile-*.json`.
+7. Inspect `duplicateCounts`, `warnings`, `totalApiKB`, `topApiSummary`, and `slowestApiRows`.
+
+#### Expected Results
+- Build completes successfully.
+- Unit tests pass.
+- The profile report has no warnings.
+- Duplicate startup request counts remain bounded and are recorded as the baseline for later upstream-sync issues.
+- No `main` push or direct upstream merge occurs during preflight.
+
+#### Rollback/Cleanup
+- Stop only the disposable server on port `4173`; do not stop any persistent `5173` tmux server.
+- Remove temporary profiling artifacts only after their numbers have been copied into the baseline notes or PR body.
+
+---
+
+### Upstream Dev2 And Fast Docker Helpers
+
+#### Feature/Change Name
+Isolated `dev2` Codex home and fast Docker verification helpers.
+
+#### Prerequisites/Setup
+1. Use the upstream-sync branch.
+2. Confirm Docker is installed only if running the optional Docker helper check.
+3. Confirm ports `4174` and `4191` are free before starting helper servers.
+
+#### Steps
+1. Run `node --check scripts/dev-random-home.cjs`.
+2. Run `bash -n scripts/run-docker-fast-test.sh`.
+3. Run `pnpm run dev2 --host 127.0.0.1 --port 4174`.
+4. Confirm the process prints `Using temporary CODEX_HOME:` with a temp directory path.
+5. Open `http://127.0.0.1:4174/` in light theme and confirm the app loads.
+6. Switch to dark theme and confirm the app still renders without light-theme surfaces.
+7. Stop the `4174` helper server.
+8. If Docker is available, run `docker build -t codexapp-fast-test-base:latest -f scripts/docker-fast-test-base.Dockerfile .`.
+9. If Docker is available, run `PORT=4191 scripts/run-docker-fast-test.sh`.
+10. Open `http://127.0.0.1:4191/` and confirm the Docker-served app loads.
+
+#### Expected Results
+- `dev2` starts the existing dev wrapper with an isolated random `CODEX_HOME`.
+- Existing `package.json` scripts such as `secret:scan`, `test`, `test:coverage`, `test:browser-annotation`, and `pack:browser-annotation` remain present.
+- Fast Docker helper scripts are syntax-valid and can build/run when Docker is available.
+- Light and dark themes both load without regressions.
+- No `.env`, certificate, or generated Playwright artifacts are imported.
+
+#### Rollback/Cleanup
+- Stop helper servers on ports `4174` and `4191`.
+- If Docker was used, remove the `codexapp-fast-test` container and `codexapp-fast-test-home` volume when no longer needed.
+
+---
+
+### Project ZIP Export Import And Share
+
+#### Feature/Change Name
+Project ZIP export, browser download/share, and ZIP import into the current projects list.
+
+#### Prerequisites/Setup
+1. Use the upstream-sync branch.
+2. Start the app with `pnpm run dev --host 127.0.0.1 --port 4173`.
+3. Open `http://127.0.0.1:4173/`.
+4. Have at least one existing project with a thread, or create a small temporary project from the home screen.
+5. For metadata checks, use an isolated `CODEX_HOME` with one or more session JSONL files whose `session_meta.payload.cwd` points at the project folder.
+6. Optionally enable free/custom/OpenCode Zen provider mode before import to verify imported provider/model rewriting.
+
+#### Steps
+1. In light theme, open a project menu in the sidebar.
+2. Click `Export Project`.
+3. Confirm the `Export Project` modal opens, shows progress, then shows `Ready` with a ZIP filename.
+4. Click `Download` and confirm the browser downloads a `.zip` file.
+5. Click `Share` if the browser supports file sharing; otherwise confirm the modal shows a clear fallback message and `Download` still works.
+6. Inspect the ZIP contents.
+7. Confirm `.codex-project/manifest.json` exists and does not contain the source machine's absolute project path.
+8. Confirm project files use relative paths and generated folders such as `.git`, `node_modules`, `.venv`, `.cache`, `.next`, `.gradle`, `target`, `build`, `dist`, and coverage folders are absent.
+9. Confirm matching session JSONL files, when present, live under `.codex-project/chats/sessions/` or `.codex-project/chats/archived_sessions/`.
+10. Confirm `.codex-project/chats/thread-titles.json` exists when exported chats have title or update-time metadata.
+11. Open a thread menu in the same project and click `Export Project`.
+12. Confirm it exports the same project folder rather than only the chat transcript.
+13. Return to the home screen and click `Import Project`.
+14. Pick the exported `.zip` file.
+15. Confirm the imported project becomes the selected new-thread folder and appears in the sidebar after refresh.
+16. Confirm imported sessions appear as normal threads when the ZIP contains stored session JSON.
+17. Inspect one imported JSONL under the destination `CODEX_HOME/sessions/imported/` and confirm its thread ID is new and its `cwd` points at the imported project path.
+18. If provider mode was enabled before import, confirm imported session `model` and `model_provider` match the destination app's active provider/model defaults.
+19. Switch to dark theme and repeat steps 1-4 and 13-15.
+
+#### Expected Results
+- Project and thread menu export actions both create a project ZIP through `/codex-api/project-zip`.
+- The export modal reports progress, blocks close while exporting, and keeps buttons disabled until a ZIP blob is ready.
+- Download preserves the server-provided filename when present.
+- Share uses browser file sharing only when supported and falls back to an in-modal message otherwise.
+- Import posts the selected ZIP to `/codex-api/project-import`, selects the imported folder, refreshes workspace roots, and reloads the thread list.
+- `.codex-project/manifest.json` records portable metadata: `version`, `exportedAt`, and `projectName`.
+- `.codex-project/chats/**` is reserved for Codex session import; other non-chat `.codex-project/` files round-trip as normal project files.
+- Imported project folders get unique suffixes when the destination already has a folder with the exported project name.
+- Imported chats are written to `CODEX_HOME/sessions/imported/`, get new thread IDs, and have `cwd` rewritten to the imported project path.
+- Imported title and update-time metadata come from `.codex-project/chats/thread-titles.json` when available.
+- Imported provider/model metadata is rewritten to the current local free/custom/OpenCode Zen provider defaults when that provider mode is active.
+- Light and dark themes both render the modal, progress bar, buttons, and home-screen import action without light-theme surfaces in dark mode.
+
+#### Rollback/Cleanup
+- Delete temporary imported project folders created during manual testing.
+- Remove downloaded ZIP files after verification.
+- Remove imported test sessions from the isolated `CODEX_HOME` if one was used.
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
+
+---
+
+### Startup Request Dedupe And Workspace Root Canonicalization
+
+#### Feature/Change Name
+Startup route selection, recent thread-list request reuse, and canonical workspace-root paths.
+
+#### Prerequisites/Setup
+1. Use the upstream-sync branch.
+2. Start the app with `pnpm run dev --host 127.0.0.1 --port 4173`.
+3. Have at least one existing thread and one project path that can also be reached through a symlink or worktree path.
+4. Keep the persistent `5173` server untouched if it exists.
+
+#### Steps
+1. Open `http://127.0.0.1:4173/` in light theme.
+2. Confirm the home screen loads without automatically opening or highlighting the last saved thread.
+3. Navigate to `#/skills` and `#/automations`.
+4. Confirm neither route restores the last saved thread into the active conversation pane.
+5. Open a direct thread route, for example `#/thread/<thread-id>`.
+6. Confirm that thread is selected and messages load for that route.
+7. Import or add a project through a symlinked/worktree path, then refresh the app.
+8. Confirm the project list shows the canonical real path once, not duplicate symlink and realpath entries.
+9. Switch to dark theme and repeat steps 1-6.
+10. Run `PROFILE_BASE_URL=http://127.0.0.1:4173 PROFILE_WAIT_MS=7000 pnpm run profile:browser`.
+11. If a thread id is available, run `PROFILE_BASE_URL=http://127.0.0.1:4173 PROFILE_ROUTE='#/thread/<thread-id>' PROFILE_WAIT_MS=7000 pnpm run profile:browser`.
+12. Open the generated profile JSON files and inspect `duplicateCounts`, `warnings`, `totalApiKB`, `topApiSummary`, and `slowestApiRows`.
+
+#### Expected Results
+- Home, skills, and automations start with an empty selected-thread state while still loading the thread list.
+- Direct thread routes prime and load the requested thread without an extra startup thread read.
+- A stale persisted thread id is still replaced by the first available thread during normal refreshes.
+- Recent repeated thread-list refreshes reuse the in-flight or recent result instead of issuing a duplicate request.
+- Workspace-root state and thread-list `cwd` values are canonicalized so symlink and worktree aliases do not produce duplicate projects.
+- Profile reports have no warnings for duplicate startup thread-list or duplicate thread-read-with-turns requests.
+- Light and dark themes both render the home, skills, automations, and thread routes without light-theme surfaces in dark mode.
+
+#### Rollback/Cleanup
+- Delete temporary symlink/worktree projects created for verification.
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
+- Keep profile artifacts until their summary numbers have been copied into the PR or issue comment.
+
+---
+
+### Provider Model Locking For Existing Threads
+
+#### Feature/Change Name
+Thread-level provider/model retention for OpenCode Zen, OpenRouter, custom providers, and Codex auth transitions.
+
+#### Prerequisites/Setup
+1. Use the upstream-sync branch.
+2. Start the app with `pnpm run dev --host 127.0.0.1 --port 4173`.
+3. Configure or simulate one provider-backed mode such as OpenCode Zen or OpenRouter free mode.
+4. Have one existing provider-backed thread and one normal Codex/OpenAI thread.
+
+#### Steps
+1. In light theme, open the provider-backed thread.
+2. Confirm the model picker lists provider-specific models and does not fall back to Codex-only models.
+3. Sign in or switch back to Codex/OpenAI auth.
+4. Reopen the same provider-backed thread.
+5. Confirm the model picker still lists that thread's provider models.
+6. Start a new Codex/OpenAI thread and send one short message.
+7. Confirm the new thread uses the active Codex/OpenAI provider and model list.
+8. Fork the provider-backed thread and confirm the fork keeps the provider-backed model context.
+9. Open a side chat from the provider-backed thread and confirm the side chat starts with the same provider context.
+10. Switch to dark theme and repeat steps 1-7.
+
+#### Expected Results
+- `thread/read`, `thread/resume`, `thread/start`, and provider-backed `thread/fork` preserve `modelProvider` metadata when present.
+- Existing OpenCode Zen/OpenRouter/custom-provider threads request provider models with the thread provider id, even if the global active auth has changed to Codex/OpenAI.
+- Provider ids with underscores, such as `opencode_zen`, are treated the same as dash ids, such as `opencode-zen`.
+- Codex/OpenAI provider ids normalize back to the standard Codex model context.
+- New threads remember the provider returned by `thread/start`.
+- Light and dark themes both render the model picker and conversation controls without light-theme surfaces in dark mode.
+
+#### Rollback/Cleanup
+- Archive or delete temporary provider test threads.
+- Reset provider/auth configuration to the preferred local default after verification.
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
+
+---
+
+### Account Auth Snapshot And Quota Recovery
+
+#### Feature/Change Name
+Codex account snapshot migration, active account detection, stale quota recovery, and raw auth error visibility.
+
+#### Prerequisites/Setup
+1. Use the upstream-sync branch.
+2. Start the app with `pnpm run dev --host 127.0.0.1 --port 4173`.
+3. Use an isolated `CODEX_HOME` when testing imported or malformed `auth.json` files.
+4. Have at least one valid Codex/ChatGPT auth snapshot available for account switching.
+
+#### Steps
+1. In light theme, open settings and expand `Accounts`.
+2. Click reload/refresh accounts with a valid `auth.json`.
+3. Confirm the active account matches the currently active `CODEX_HOME/auth.json`, even when multiple accounts share the same account id but have different user ids.
+4. Switch to another stored account and confirm the account card becomes active only after validation succeeds.
+5. Simulate a stale `quotaStatus: "loading"` entry older than two minutes in `accounts.json`, then refresh accounts.
+6. Confirm the account leaves `Loading quota...` and becomes either `ready` with quota data or `error` with a visible message.
+7. Simulate a newer unknown ChatGPT plan type in a rate-limit response, such as `prolite`, and confirm quota recovery still produces usable limit data.
+8. Try a malformed or missing-account-id `auth.json` in the isolated home and click refresh.
+9. Confirm the UI shows a visible account error instead of staying stuck on fetching account details.
+10. Switch to dark theme and repeat steps 1-4 and 8-9.
+
+#### Expected Results
+- Account state stores and resolves `activeStorageId` in addition to `activeAccountId`.
+- Existing snapshot directories are migrated to user-aware storage ids without losing prior account metadata.
+- The active account follows the actual active `auth.json` when possible.
+- Stale loading quota rows are retried instead of staying permanently in `Fetching account details`.
+- Unknown plan-type decode failures recover quota payloads through the rate-limit recovery helper.
+- Invalid or malformed auth produces visible account/action errors.
+- Light and dark themes both render account rows, quota messages, error banners, and action buttons without light-theme surfaces in dark mode.
+
+#### Rollback/Cleanup
+- Restore or delete isolated `CODEX_HOME` directories used for malformed-auth testing.
+- If testing with real account snapshots, back up `accounts.json` and `accounts/` before migration checks.
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
+
+---
+
+### Thread Loading Stability
+
+#### Feature/Change Name
+Thread selection error states, active-thread completion refresh, optimistic user-message dedupe, and cached message loading.
+
+#### Prerequisites/Setup
+1. Use the upstream-sync branch.
+2. Start the app with `pnpm run dev --host 127.0.0.1 --port 4173`.
+3. Have at least one normal thread, one long thread with older turns available, and one thread id that no longer exists.
+4. Keep the persistent `5173` server untouched if it exists.
+
+#### Steps
+1. In light theme, open a normal existing thread and confirm the latest messages render.
+2. Send a new message in an existing thread and confirm the user text remains visible while the turn is running.
+3. Wait for completion and confirm the active thread refreshes to the persisted final answer without duplicating the user message.
+4. Open a missing/deleted direct thread route, for example `#/thread/<missing-thread-id>`.
+5. Confirm the conversation area shows an in-chat error instead of an indefinite loading state.
+6. Open a long thread and confirm the initial load shows the latest messages first.
+7. Click the load-earlier control and confirm older turns prepend without losing the latest messages.
+8. Rapidly switch between two threads while one is loading and confirm messages from the previous thread do not remain visible in the selected thread.
+9. Switch to dark theme and repeat steps 1-7.
+10. Run `PROFILE_BASE_URL=http://127.0.0.1:4173 PROFILE_ROUTE='#/thread/<thread-id>' PROFILE_WAIT_MS=7000 pnpm run profile:browser`.
+11. Open the generated profile JSON and inspect `duplicateCounts`, `warnings`, `totalApiKB`, `topApiSummary`, and `slowestApiRows`.
+
+#### Expected Results
+- `selectThread` distinguishes successful loads, missing threads, and generic errors.
+- Missing thread routes surface a transient live-overlay error in the selected conversation.
+- Active completion events refresh already loaded threads after the message-load reuse window expires.
+- Equivalent persisted user messages replace optimistic user messages instead of rendering duplicates.
+- Silent refreshes preserve non-persisted in-flight messages until equivalent persisted content arrives.
+- Long threads can load older turns on demand while keeping the current message cache stable.
+- Light and dark themes both render loading states, live overlay errors, load-earlier controls, and stop controls without light-theme surfaces in dark mode.
+
+#### Rollback/Cleanup
+- Archive or delete temporary test threads created for the manual checks.
+- Keep profile artifacts until their summary numbers have been copied into the PR or issue comment.
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
+
+---
+
+### Git Dropdown And Commit Review Workflows
+
+#### Feature/Change Name
+Header Git branch dropdown commit search/detail panel, lazy commit file loading, copyable commit refs, and commit-scoped review pane.
+
+#### Prerequisites/Setup
+1. Use the upstream-sync branch.
+2. Start the app with `pnpm run dev --host 127.0.0.1 --port 4173`.
+3. Open a thread whose `cwd` is a Git repository with at least several local commits.
+4. Have a disposable repository or branch available before testing reset-to-commit actions.
+
+#### Steps
+1. In light theme, open the header Git branch dropdown.
+2. Confirm the review row shows worktree changed-line counts and toggles the review pane.
+3. Select the current branch in the dropdown and confirm commits load without opening file details for every commit.
+4. Search commits by short sha, full sha fragment, subject text, and date text.
+5. Select one commit and confirm a commit detail panel opens.
+6. Confirm the commit detail panel lazily loads only that commit's changed files and shows added/removed line counts.
+7. Click the commit ref and paste into a text field to confirm the full commit sha was copied.
+8. Click a changed file in the commit detail panel and confirm ReviewPane opens in commit scope with that file selected.
+9. Switch ReviewPane back to normal worktree review from the dropdown review row and confirm staged/unstaged actions remain available.
+10. On a disposable local branch, verify reset-to-commit is available for local branches and unavailable for remote branches.
+11. Switch to dark theme and repeat steps 1-8.
+12. At 375x812 and 768x1024 viewport sizes, confirm the dropdown, commit detail panel, and ReviewPane mobile file sheet remain usable.
+
+#### Expected Results
+- Branch search and commit search filter the correct lists independently.
+- Commit lists use `/codex-api/git/branch-commits` and commit file lists use `/codex-api/git/commit-files` only after a commit is selected.
+- Commit file rows show status labels, paths, rename previous paths when present, and added/removed line counts.
+- Copy commit ref uses clipboard when available and falls back to text selection copy.
+- ReviewPane commit scope loads `/codex-api/review/snapshot?scope=commit&commitSha=<sha>` and is read-only for bulk workspace actions.
+- Workspace/base-branch ReviewPane behavior still supports staged/unstaged actions and normal review findings.
+- Dark theme renders dropdown panels, commit details, file rows, and ReviewPane without light strips or unreadable text.
+
+#### Rollback/Cleanup
+- Reset or delete disposable branches used for reset-to-commit testing.
+- Revert any temporary staged/unstaged file changes in test repositories.
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
+
+---
+
+### File Change Undo And Redo
+
+#### Feature/Change Name
+Assistant file-change summary undo/redo actions for a single turn.
+
+#### Prerequisites/Setup
+1. Use the upstream-sync branch.
+2. Start the app with `pnpm run dev --host 127.0.0.1 --port 4173`.
+3. Open a thread whose `cwd` is a disposable Git repository.
+4. Create and commit a small baseline file, for example `notes.txt`, before asking the assistant to edit it.
+
+#### Steps
+1. In light theme, ask the assistant to update `notes.txt` with a small text change.
+2. Wait for the assistant turn to complete and expand the file-change summary.
+3. Confirm the summary shows an `Undo` action.
+4. Click `Undo` and confirm the file content returns to the baseline content for that turn.
+5. Confirm the same summary now shows `Redo`.
+6. Click `Redo` and confirm the assistant change is applied again.
+7. Ask the assistant to add a new disposable file and repeat Undo/Redo.
+8. Ask the assistant to move or rename a disposable file and repeat Undo/Redo.
+9. For a partial-failure check, manually edit the changed file between Undo and Redo, then click `Redo`.
+10. Confirm a per-summary error message appears if the patch cannot be applied cleanly.
+11. Switch to another thread and back, then confirm stale pending/error/action state does not bleed into the other thread.
+12. Switch to dark theme and repeat steps 2-6.
+
+#### Expected Results
+- File-change summaries with a turn id show `Undo`.
+- Undo calls the file-change rollback endpoint for the active thread and selected turn only.
+- Successful Undo returns patch ids and changes the action to `Redo`.
+- Redo reuses the stored patch ids and reapplies the same turn changes.
+- Partial failures show a visible error on the affected summary without crashing the app.
+- Thread switching clears local undo/redo/error state.
+- Light and dark themes both render the action button, pending labels, error text, file list, and diff viewer without unreadable text or light-theme button surfaces in dark mode.
+
+#### Rollback/Cleanup
+- Restore or delete the disposable Git repository used for file-change testing.
+- Revert temporary assistant-created files with Git or manual cleanup.
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
+
+---
+
+### Chat Markdown Links And Composer Attachments
+
+#### Feature/Change Name
+Chat markdown/file-link rendering, inline code marker isolation, composer attachment paste/drop, and viewport-clamped composer dropdowns.
+
+#### Prerequisites/Setup
+1. Use the upstream-sync branch.
+2. Start the app with `pnpm run dev --host 127.0.0.1 --port 4173`.
+3. Use the `TestChat` project/thread context or a disposable project with at least one thread.
+4. Have a small image and a small text file available for paste/drop attachment checks.
+
+#### Steps
+1. In light theme, send or load a message containing a unique marker plus `**[Example](https://example.com/path?x=1).**`.
+2. Confirm the rendered link text is `Example`, the literal `**` markers are not shown around the link, and the final period is outside the clickable link.
+3. Send or load `https://example.com/path?x=1.` and confirm the period is not part of the link href.
+4. Send or load `` `https://example.com/code?q=1` `` and confirm it renders as a clickable URL.
+5. Send or load `` `src/App.vue` `` and confirm it renders as a file link resolved relative to the thread `cwd`.
+6. Send or load `[\`hosting_manager.py\`](/home/ubuntu/Documents/New Project (2)/hosting_manager.py)` and confirm the title/href preserve spaces and parentheses correctly.
+7. Send or load inline code such as `` `**not bold** and *not italic*` `` and confirm it stays a single inline-code segment.
+8. Paste an image into the composer and confirm an image attachment chip appears.
+9. Drag and drop a file onto the composer input and confirm a file attachment chip appears.
+10. Send a message with file attachments and confirm the sent user message shows visible file chips.
+11. Open provider/model/skills/project dropdowns near the left and right viewport edges and confirm menus stay inside the viewport.
+12. Repeat steps 1-7 and 11 in dark theme.
+
+#### Expected Results
+- Markdown URL labels, trailing punctuation, backticked URLs, and markdown file links render without leaking raw markdown markers.
+- Backticked bare filenames become file links when resolvable relative to `cwd`.
+- Inline code containing asterisks does not create nested bold/italic segments.
+- File-link `href`, `title`, and visible text remain correct for spaces and parentheses.
+- Clipboard image paste and file drag/drop produce composer attachment chips.
+- Sent user file attachments remain visible in chat.
+- Composer dropdowns use app menus, clamp inside the viewport, and keep resize/scroll listeners only while open.
+- Light and dark themes both render links, inline code, file chips, dropdown menus, and hover states with readable colors.
+
+#### Rollback/Cleanup
+- Delete any disposable files or images created for attachment checks.
+- Remove temporary TestChat threads if real threads were used instead of mocked Playwright data.
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
+
+---
+
+### Automation Editor Dropdowns And Small Viewports
+
+#### Feature/Change Name
+Automation editor small-viewport scrolling, sticky actions, app dropdown controls, and dark-theme action row styling.
+
+#### Prerequisites/Setup
+1. Use the upstream-sync branch.
+2. Start the app with `pnpm run dev --host 127.0.0.1 --port 4173`.
+3. Open a project with at least one existing chat so the automation target picker has a thread target.
+4. Set the browser viewport to a short mobile-like size, for example `390x520`.
+
+#### Steps
+1. In light theme, open the `Automations` route.
+2. Click `New automation`.
+3. Confirm the automation editor opens with a target picker, name, prompt, schedule, status, and action buttons.
+4. Confirm the editor panel scrolls vertically instead of overflowing the viewport.
+5. Scroll to the bottom and confirm the Cancel/Save action row stays reachable and sticky.
+6. Open the target dropdown and confirm it uses the app dropdown with search, not a native select.
+7. Switch schedule mode to `Interval`, open the unit dropdown, and confirm the menu stays inside the viewport.
+8. Open the status dropdown and confirm it uses the app dropdown.
+9. Switch to dark theme and repeat steps 2-8.
+
+#### Expected Results
+- The automation editor panel stays inside the viewport and scrolls when content is taller than the screen.
+- The action row remains visible/reachable at the bottom of the scrolling panel.
+- Target, interval unit, and status controls use `ComposerDropdown`; no native `select` elements remain inside the automation editor.
+- Dropdown menus clamp inside the viewport on short screens.
+- In dark theme, the sticky action row, dropdown triggers, text inputs, schedule row, target picker, and buttons use dark surfaces with readable text.
+- Existing create/edit/pause/resume/delete automation behavior remains unchanged.
+
+#### Rollback/Cleanup
+- Delete any disposable automation created during manual testing.
+- Remove temporary TestChat threads if mocked data was not used.
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.

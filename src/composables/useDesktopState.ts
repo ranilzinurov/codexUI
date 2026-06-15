@@ -104,6 +104,8 @@ const BACKGROUND_THREAD_PAGINATION_DELAY_MS = 10_000
 const RATE_LIMIT_REFRESH_DEBOUNCE_MS = 500
 const TURN_START_FOLLOW_UP_SYNC_DELAY_MS = 3000
 const RECENT_THREAD_MESSAGE_LOAD_REUSE_MS = 2000
+const RECENT_THREAD_LIST_LOAD_REUSE_MS = 2000
+const RECENT_SKILLS_LOAD_REUSE_MS = 2000
 const PREVIOUS_RESPONSE_AUTO_CONTINUE_DELAY_MS = 900
 const PREVIOUS_RESPONSE_AUTO_CONTINUE_PREFIX = 'У нас была ошибка'
 const REASONING_EFFORT_OPTIONS: ReasoningEffort[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh']
@@ -111,9 +113,17 @@ const GLOBAL_SERVER_REQUEST_SCOPE = '__global__'
 const MODEL_FALLBACK_ID = 'gpt-5.4-mini'
 const CODEX_CLI_MISSING_MESSAGE = 'Codex CLI not found. Install @openai/codex or set CODEXUI_CODEX_COMMAND.'
 
+export type SelectThreadResult = 'ok' | 'not-found' | 'error'
+
 function isCodexCliMissingError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error ?? '')
   return message.includes('Codex CLI is not available')
+}
+
+function isThreadNotFoundError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  const isThreadReadFailure = /thread(?:\/|\s+)(?:read|resume)/iu.test(message)
+  return /thread not found/iu.test(message) || (isThreadReadFailure && /(?:HTTP 404|not found)/iu.test(message))
 }
 
 function isTurnStartThreadNotFoundError(error: unknown): boolean {
@@ -283,9 +293,12 @@ function pruneThreadContextStateMap<T>(
   return changed ? next : stateMap
 }
 
-function normalizeProviderContextId(providerId: string): string {
-  const normalized = providerId.trim().toLowerCase()
-  return normalized || 'codex'
+function normalizeProviderContextId(providerId: string | null | undefined): string {
+  const normalized = typeof providerId === 'string'
+    ? providerId.trim().toLowerCase().replace(/_/g, '-')
+    : ''
+  if (!normalized || normalized === 'openai') return 'codex'
+  return normalized
 }
 
 function isNewThreadContextId(contextId: string): boolean {
@@ -733,7 +746,7 @@ function areMessageArraysEqual(first: UiMessage[], second: UiMessage[]): boolean
   return true
 }
 
-function mergeMessages(
+export function mergeMessages(
   previous: UiMessage[],
   incoming: UiMessage[],
   options: { preserveMissing?: boolean } = {},
@@ -753,16 +766,18 @@ function mergeMessages(
     return areMessageArraysEqual(previous, mergedIncoming) ? previous : mergedIncoming
   }
 
-  const mergedFromPrevious = previous.map((previousMessage) => {
-    const nextMessage = incomingById.get(previousMessage.id)
-    if (!nextMessage) {
-      return previousMessage
-    }
-    if (areMessageFieldsEqual(previousMessage, nextMessage)) {
-      return previousMessage
-    }
-    return nextMessage
-  })
+  const mergedFromPrevious = previous
+    .map((previousMessage) => {
+      const nextMessage = incomingById.get(previousMessage.id)
+      if (!nextMessage) {
+        return previousMessage
+      }
+      if (areMessageFieldsEqual(previousMessage, nextMessage)) {
+        return previousMessage
+      }
+      return nextMessage
+    })
+    .filter((message) => !isOptimisticUserMessage(message) || !hasEquivalentUserMessage(message, incoming))
 
   const previousIdSet = new Set(previous.map((message) => message.id))
   const appended = mergedIncoming.filter((message) => !previousIdSet.has(message.id))
@@ -794,6 +809,36 @@ function areUiFileChangesEqual(first?: UiFileChange[], second?: UiFileChange[]):
 
 function normalizeMessageText(value: string): string {
   return value.replace(/\s+/gu, ' ').trim()
+}
+
+function isOptimisticUserMessage(message: UiMessage): boolean {
+  return message.messageType === 'userMessage.optimistic'
+}
+
+function hasOptimisticUserMessages(messages: UiMessage[]): boolean {
+  return messages.some(isOptimisticUserMessage)
+}
+
+function hasEquivalentUserMessage(target: UiMessage, messages: UiMessage[]): boolean {
+  if (target.role !== 'user') return false
+  const targetText = normalizeMessageText(target.text)
+  const targetImages = Array.isArray(target.images) ? target.images : []
+  const targetFileCount = Array.isArray(target.fileAttachments) ? target.fileAttachments.length : 0
+  const targetSkillCount = Array.isArray(target.skills) ? target.skills.length : 0
+
+  return messages.some((message) => {
+    if (message === target || message.role !== 'user' || isOptimisticUserMessage(message)) return false
+    const messageText = normalizeMessageText(message.text)
+    const messageImages = Array.isArray(message.images) ? message.images : []
+    const messageFileCount = Array.isArray(message.fileAttachments) ? message.fileAttachments.length : 0
+    const messageSkillCount = Array.isArray(message.skills) ? message.skills.length : 0
+    return (
+      messageText === targetText &&
+      areStringArraysEqual(messageImages, targetImages) &&
+      messageFileCount === targetFileCount &&
+      messageSkillCount === targetSkillCount
+    )
+  })
 }
 
 function removeRedundantLiveAgentMessages(previous: UiMessage[], incoming: UiMessage[]): UiMessage[] {
@@ -1720,6 +1765,7 @@ export function useDesktopState() {
   const codexRateLimit = ref<UiRateLimitSnapshot | null>(null)
   const threadTokenUsageByThreadId = ref<Record<string, UiThreadTokenUsage>>(loadThreadTokenUsageMap())
   const terminalOpenByThreadId = ref<Record<string, boolean>>(loadThreadTerminalOpenMap())
+  const threadModelProviderByThreadId = ref<Record<string, string>>({})
 
   const threadTitleById = ref<Record<string, string>>({})
 
@@ -1774,8 +1820,13 @@ export function useDesktopState() {
   let loadThreadsPromise: Promise<void> | null = null
   const loadMessagePromiseByThreadId = new Map<string, Promise<void>>()
   let refreshSkillsPromise: Promise<void> | null = null
+  let lastThreadListLoadAt = 0
+  let hasLoadedSkills = false
+  let lastSkillsLoadAt = 0
+  let lastSkillsLoadKey = ''
   let rateLimitRefreshPromise: Promise<void> | null = null
   let pendingThreadsRefresh = false
+  let pendingThreadsRefreshForce = false
   const pendingThreadMessageRefresh = new Set<string>()
   const lastMessageLoadAtByThreadId = new Map<string, number>()
   let threadListNextCursor: string | null = null
@@ -1909,14 +1960,19 @@ export function useDesktopState() {
     const contextId = toThreadContextId(threadId)
     if (contextId === NEW_THREAD_COLLABORATION_MODE_CONTEXT) {
       const normalizedProviderId = normalizeProviderContextId(activeProviderId.value)
-      if (normalizedProviderId !== 'codex') {
-        const providerContextId = toProviderModelContextId(normalizedProviderId)
-        return providerContextId
-          ? normalizeStoredModelId(selectedModelIdByContext.value[providerContextId])
-          : ''
-      }
+      const providerContextId = toProviderModelContextId(normalizedProviderId)
+      const providerModelId = providerContextId
+        ? normalizeStoredModelId(selectedModelIdByContext.value[providerContextId])
+        : ''
+      if (providerModelId) return providerModelId
     }
     return readSelectedModel(selectedModelIdByContext.value, threadId).trim()
+  }
+
+  function readProviderIdForThread(threadId: string): string {
+    const normalizedThreadId = threadId.trim()
+    if (!normalizedThreadId) return normalizeProviderContextId(activeProviderId.value)
+    return normalizeProviderContextId(threadModelProviderByThreadId.value[normalizedThreadId] ?? activeProviderId.value)
   }
 
   function ensureAvailableModelIds(...modelIds: string[]): void {
@@ -1932,12 +1988,20 @@ export function useDesktopState() {
     }
   }
 
-  function setSelectedThreadId(nextThreadId: string): void {
+  function readProviderCompatibleSelectedModel(modelId: string): string {
+    const normalizedModelId = modelId.trim()
+    if (availableModelIds.value.length === 0) return normalizedModelId
+    if (normalizedModelId && availableModelIds.value.includes(normalizedModelId)) return normalizedModelId
+    return availableModelIds.value[0] ?? ''
+  }
+
+  function setSelectedThreadId(nextThreadId: string, options: { persist?: boolean } = {}): void {
     if (selectedThreadId.value === nextThreadId) return
     selectedThreadId.value = nextThreadId
-    saveSelectedThreadId(nextThreadId)
-    selectedModelId.value = readModelIdForThread(nextThreadId)
-    ensureAvailableModelIds(selectedModelId.value)
+    if (options.persist !== false) {
+      saveSelectedThreadId(nextThreadId)
+    }
+    selectedModelId.value = readProviderCompatibleSelectedModel(readModelIdForThread(nextThreadId))
     selectedCollaborationMode.value = readSelectedCollaborationMode(
       selectedCollaborationModeByContext.value,
       nextThreadId,
@@ -1951,7 +2015,7 @@ export function useDesktopState() {
     const contextId = toThreadContextId(threadId)
     const normalizedProviderId = normalizeProviderContextId(activeProviderId.value)
     const providerContextId =
-      contextId === NEW_THREAD_COLLABORATION_MODE_CONTEXT && normalizedProviderId !== 'codex'
+      contextId === NEW_THREAD_COLLABORATION_MODE_CONTEXT
         ? toProviderModelContextId(normalizedProviderId)
         : ''
     const selectedContextId = providerContextId || contextId
@@ -1999,6 +2063,38 @@ export function useDesktopState() {
       selectedModelId.value = readModelIdForThread(selectedThreadId.value)
     }
     saveSelectedModelMap(selectedModelIdByContext.value)
+  }
+
+  function setThreadModelProviderId(threadId: string, providerId: string): void {
+    const normalizedThreadId = threadId.trim()
+    if (!normalizedThreadId) return
+
+    const normalizedProviderId = normalizeProviderContextId(providerId)
+    if (normalizedProviderId) {
+      threadModelProviderByThreadId.value = {
+        ...threadModelProviderByThreadId.value,
+        [normalizedThreadId]: normalizedProviderId,
+      }
+    } else if (threadModelProviderByThreadId.value[normalizedThreadId]) {
+      threadModelProviderByThreadId.value = omitKey(threadModelProviderByThreadId.value, normalizedThreadId)
+    }
+  }
+
+  function resolveThreadModelForProvider(threadId: string, modelId: string, providerId: string): string {
+    const normalizedModelId = modelId.trim()
+    const normalizedProviderId = normalizeProviderContextId(providerId)
+    if (normalizedProviderId !== 'opencode-zen') {
+      return normalizedModelId
+    }
+
+    const previousThreadModel = readModelIdForThread(threadId).trim()
+    if (previousThreadModel && !/^gpt-/i.test(previousThreadModel)) {
+      return previousThreadModel
+    }
+    if (normalizedModelId && !/^gpt-/i.test(normalizedModelId)) {
+      return normalizedModelId
+    }
+    return previousThreadModel || normalizedModelId
   }
 
   function setThreadTokenUsage(threadId: string, usage: UiThreadTokenUsage | null): void {
@@ -2114,7 +2210,13 @@ export function useDesktopState() {
       setThreadInProgress(threadId, true)
 
       if (resumedThreadById.value[threadId] !== true) {
-        await resumeThread(threadId)
+        const resumedThread = await resumeThread(threadId)
+        if (resumedThread.modelProvider) {
+          setThreadModelProviderId(threadId, resumedThread.modelProvider)
+        }
+        if (resumedThread.model) {
+          setThreadModelId(threadId, resolveThreadModelForProvider(threadId, resumedThread.model, resumedThread.modelProvider))
+        }
       }
 
       await startThreadTurn(
@@ -2252,24 +2354,32 @@ export function useDesktopState() {
       const currentConfig = await getCurrentModelConfig()
       const normalizedConfiguredModelId = currentConfig.model.trim()
       const normalizedProviderId = normalizeProviderContextId(currentConfig.providerId)
-      const isProviderBacked = normalizedProviderId !== 'codex'
       activeProviderId.value = normalizedProviderId
+      const targetProviderId = readProviderIdForThread(selectedThreadId.value)
+      const isProviderBacked = targetProviderId !== 'codex'
       const normalizedSelectedModelId = readModelIdForThread(selectedThreadId.value)
       const modelIds = await getAvailableModelIds({
-        includeProviderModels: options?.includeProviderModels !== false || isProviderBacked,
+        includeProviderModels: isProviderBacked || options?.includeProviderModels !== false,
         requireProviderModels: isProviderBacked,
+        providerId: isProviderBacked ? targetProviderId : undefined,
       })
-      const providerModelContextId = toProviderModelContextId(normalizedProviderId)
+      const providerModelContextId = toProviderModelContextId(targetProviderId)
       const providerScopedModelId = providerModelContextId
         ? normalizeStoredModelId(selectedModelIdByContext.value[providerModelContextId])
         : ''
       const nextModelIds = [...modelIds]
-      if (!options?.providerChanged) {
-        const extraModelIds = isProviderBacked ? [normalizedConfiguredModelId] : [normalizedSelectedModelId, normalizedConfiguredModelId]
-        for (const modelId of extraModelIds) {
-          if (modelId && !nextModelIds.includes(modelId)) {
-            nextModelIds.push(modelId)
-          }
+      if (
+        !options?.providerChanged
+        && isProviderBacked
+        && targetProviderId === normalizedProviderId
+        && normalizedConfiguredModelId
+        && !nextModelIds.includes(normalizedConfiguredModelId)
+      ) {
+        nextModelIds.push(normalizedConfiguredModelId)
+      }
+      if (!options?.providerChanged && !isProviderBacked) {
+        for (const modelId of [normalizedSelectedModelId, normalizedConfiguredModelId]) {
+          if (modelId && !nextModelIds.includes(modelId)) nextModelIds.push(modelId)
         }
       }
       availableModelIds.value = nextModelIds
@@ -2279,12 +2389,12 @@ export function useDesktopState() {
         if (options?.providerChanged && nextModelIds.length > 0) {
           if (providerScopedModelId && modelIds.includes(providerScopedModelId)) {
             setSelectedModelId(providerScopedModelId)
-          } else if (normalizedConfiguredModelId && nextModelIds.includes(normalizedConfiguredModelId)) {
+          } else if (targetProviderId === normalizedProviderId && normalizedConfiguredModelId && nextModelIds.includes(normalizedConfiguredModelId)) {
             setSelectedModelId(normalizedConfiguredModelId)
           } else {
             setSelectedModelId(nextModelIds[0])
           }
-        } else if (normalizedConfiguredModelId && nextModelIds.includes(normalizedConfiguredModelId)) {
+        } else if (targetProviderId === normalizedProviderId && normalizedConfiguredModelId && nextModelIds.includes(normalizedConfiguredModelId)) {
           setSelectedModelId(currentConfig.model)
         } else if (nextModelIds.length > 0) {
           setSelectedModelId(nextModelIds[0])
@@ -2297,6 +2407,14 @@ export function useDesktopState() {
       if (providerModelContextId && selectedModelId.value.trim().length > 0) {
         const nextModelMap = cloneStringKeyedRecord(selectedModelIdByContext.value)
         nextModelMap[providerModelContextId] = selectedModelId.value.trim()
+        const activeProviderModelContextId = toProviderModelContextId(normalizedProviderId)
+        if (
+          activeProviderModelContextId
+          && activeProviderModelContextId !== providerModelContextId
+          && normalizedConfiguredModelId
+        ) {
+          nextModelMap[activeProviderModelContextId] = normalizedConfiguredModelId
+        }
         selectedModelIdByContext.value = nextModelMap
         saveSelectedModelMap(selectedModelIdByContext.value)
       }
@@ -2561,6 +2679,7 @@ export function useDesktopState() {
     )
     threadListedByServerById.value = pruneThreadStateMap(threadListedByServerById.value, activeThreadIds)
     persistedUserMessageByThreadId.value = pruneThreadStateMap(persistedUserMessageByThreadId.value, activeThreadIds)
+    threadModelProviderByThreadId.value = pruneThreadStateMap(threadModelProviderByThreadId.value, activeThreadIds)
     const nextQueuedMessages = pruneThreadStateMap(queuedMessagesByThreadId.value, activeThreadIds)
     if (nextQueuedMessages !== queuedMessagesByThreadId.value) {
       queuedMessagesByThreadId.value = nextQueuedMessages
@@ -4935,6 +5054,7 @@ export function useDesktopState() {
 
     if (shouldRefreshThreads) {
       pendingThreadsRefresh = true
+      pendingThreadsRefreshForce = true
     }
 
     if (eventSyncTimer !== null || typeof window === 'undefined') return
@@ -5006,8 +5126,8 @@ export function useDesktopState() {
     }
   }
 
-  async function loadThreadTitleCacheIfNeeded(): Promise<void> {
-    if (Object.keys(threadTitleById.value).length > 0) return
+  async function loadThreadTitleCacheIfNeeded(options: { force?: boolean } = {}): Promise<void> {
+    if (options.force !== true && Object.keys(threadTitleById.value).length > 0) return
     try {
       const cache = await getThreadTitleCache()
       if (Object.keys(cache.titles).length > 0) {
@@ -5233,9 +5353,16 @@ export function useDesktopState() {
     }
   }
 
-  async function loadThreads() {
+  async function loadThreads(options: { force?: boolean; autoSelectFallback?: boolean } = {}) {
     if (loadThreadsPromise) {
       await loadThreadsPromise
+      return
+    }
+    if (
+      options.force !== true &&
+      hasLoadedThreads.value &&
+      Date.now() - lastThreadListLoadAt < RECENT_THREAD_LIST_LOAD_REUSE_MS
+    ) {
       return
     }
 
@@ -5248,7 +5375,7 @@ export function useDesktopState() {
       const [page, rootsState] = await Promise.all([
         getThreadGroupsPage(),
         loadWorkspaceRootsStateForThreadList(),
-        loadThreadTitleCacheIfNeeded(),
+        loadThreadTitleCacheIfNeeded({ force: options.force === true }),
         refreshThreadReadState(),
       ])
       loadedThreadListRootsState = rootsState
@@ -5265,6 +5392,7 @@ export function useDesktopState() {
 
       applyThreadGroups(loadedThreadListGroups, rootsState)
       hasLoadedThreads.value = true
+      lastThreadListLoadAt = Date.now()
       if (!hasLoadedAllThreadPages) {
         scheduleRemainingThreadPages(rootsState)
       }
@@ -5274,7 +5402,7 @@ export function useDesktopState() {
 
       const currentExists = flatThreads.some((thread) => thread.id === selectedThreadId.value)
 
-      if (!currentExists) {
+      if (!currentExists && options.autoSelectFallback !== false) {
         setSelectedThreadId(flatThreads[0]?.id ?? '')
       }
     } finally {
@@ -5329,8 +5457,13 @@ export function useDesktopState() {
       const resumedThread = needsResume ? await resumeThread(threadId) : null
       const detail = resumedThread ?? await getThreadDetail(threadId)
 
+      if (detail.modelProvider) {
+        setThreadModelProviderId(threadId, detail.modelProvider)
+      }
+      if (detail.model) {
+        setThreadModelId(threadId, resolveThreadModelForProvider(threadId, detail.model, detail.modelProvider))
+      }
       if (resumedThread) {
-        setThreadModelId(threadId, resumedThread.model)
         resumedThreadById.value = {
           ...resumedThreadById.value,
           [threadId]: true,
@@ -5347,7 +5480,7 @@ export function useDesktopState() {
       rebindLiveFileChangeTurnIndices(threadId)
       const previousPersisted = persistedMessagesByThreadId.value[threadId] ?? []
       const mergedMessages = mergeMessages(previousPersisted, nextMessages, {
-        preserveMissing: options.silent === true,
+        preserveMissing: options.silent === true || hasOptimisticUserMessages(previousPersisted),
       })
       setPersistedMessagesForThread(threadId, mergedMessages)
 
@@ -5473,16 +5606,28 @@ export function useDesktopState() {
     await loadMessages(threadId, options)
   }
 
-  async function refreshSkills(): Promise<void> {
+  async function refreshSkills(options: { force?: boolean } = {}): Promise<void> {
+    const selectedCwd = selectedThread.value?.cwd?.trim() ?? ''
+    const skillsLoadKey = selectedCwd || '__global__'
     if (refreshSkillsPromise) {
       await refreshSkillsPromise
+      return
+    }
+    if (
+      options.force !== true &&
+      hasLoadedSkills &&
+      lastSkillsLoadKey === skillsLoadKey &&
+      Date.now() - lastSkillsLoadAt < RECENT_SKILLS_LOAD_REUSE_MS
+    ) {
       return
     }
 
     refreshSkillsPromise = (async () => {
       try {
-        const selectedCwd = selectedThread.value?.cwd?.trim() ?? ''
         installedSkills.value = await getSkillsList(selectedCwd ? [selectedCwd] : undefined)
+        hasLoadedSkills = true
+        lastSkillsLoadAt = Date.now()
+        lastSkillsLoadKey = skillsLoadKey
       } catch {
         // keep previous skills on failure
       } finally {
@@ -5523,7 +5668,13 @@ export function useDesktopState() {
   }
 
   async function refreshAll(
-    options: { includeSelectedThreadMessages?: boolean; awaitAncillaryRefreshes?: boolean; providerChanged?: boolean } = {},
+    options: {
+      includeSelectedThreadMessages?: boolean
+      awaitAncillaryRefreshes?: boolean
+      providerChanged?: boolean
+      forceThreadRefresh?: boolean
+      autoSelectThreadFallback?: boolean
+    } = {},
   ) {
     error.value = ''
     codexCliMissingError.value = ''
@@ -5532,7 +5683,10 @@ export function useDesktopState() {
 
     try {
       await loadPersistedQueueStateIfNeeded()
-      await loadThreads()
+      await loadThreads({
+        force: options.forceThreadRefresh === true,
+        autoSelectFallback: options.autoSelectThreadFallback,
+      })
       if (includeSelectedThreadMessages) {
         await loadMessages(selectedThreadId.value)
       }
@@ -5557,14 +5711,21 @@ export function useDesktopState() {
     }
   }
 
-  async function selectThread(threadId: string) {
+  async function selectThread(threadId: string): Promise<SelectThreadResult> {
     setSelectedThreadId(threadId)
 
     try {
       await loadMessages(threadId)
+      await refreshModelPreferences({ includeProviderModels: true })
       void refreshSkills()
+      return 'ok'
     } catch (unknownError) {
-      error.value = unknownError instanceof Error ? unknownError.message : 'Unknown application error'
+      const message = unknownError instanceof Error ? unknownError.message : 'Unknown application error'
+      error.value = message
+      if (threadId.trim()) {
+        setTurnErrorForThread(threadId, message, { transient: true })
+      }
+      return isThreadNotFoundError(unknownError) ? 'not-found' : 'error'
     }
   }
 
@@ -5645,6 +5806,7 @@ export function useDesktopState() {
 
       insertOptimisticThread(nextThreadId, sourceCwd, sourceTitle)
       setThreadModelId(nextThreadId, forkedThread.model)
+      setThreadModelProviderId(nextThreadId, forkedThread.modelProvider || readProviderIdForThread(sourceThreadId))
       resumedThreadById.value = {
         ...resumedThreadById.value,
         [nextThreadId]: true,
@@ -5699,6 +5861,7 @@ export function useDesktopState() {
       const forkedThreadTitle = toForkedThreadTitle(sourceThread?.title || sourceThread?.preview || 'Untitled thread')
       insertOptimisticThread(forkedThreadId, forkedCwd, forkedThreadTitle)
       setThreadModelId(forkedThreadId, forked.model)
+      setThreadModelProviderId(forkedThreadId, readProviderIdForThread(normalizedThreadId))
       setPersistedMessagesForThread(forkedThreadId, forked.messages)
       loadedMessagesByThreadId.value = {
         ...loadedMessagesByThreadId.value,
@@ -5988,6 +6151,7 @@ export function useDesktopState() {
       [nextSideThreadId]: true,
     }
     setThreadModelId(nextSideThreadId, sideThread.model)
+    setThreadModelProviderId(nextSideThreadId, readProviderIdForThread(parentThreadId))
     setSelectedCollaborationModeForThread(nextSideThreadId, selectedCollaborationMode.value)
     return nextSideThreadId
   }
@@ -6111,6 +6275,7 @@ export function useDesktopState() {
         const startedThread = await startThread(targetCwd || undefined, selectedModel || undefined)
         threadId = startedThread.threadId
         setThreadModelId(threadId, startedThread.model)
+        setThreadModelProviderId(threadId, startedThread.modelProvider || activeProviderId.value)
         setSelectedCollaborationModeForThread(threadId, selectedMode)
       } catch (unknownError) {
         if (selectedModel && selectedModel !== MODEL_FALLBACK_ID && isUnsupportedChatGptModelError(unknownError)) {
@@ -6118,6 +6283,7 @@ export function useDesktopState() {
           const fallbackThread = await startThread(targetCwd || undefined, MODEL_FALLBACK_ID)
           threadId = fallbackThread.threadId
           setThreadModelId(threadId, fallbackThread.model)
+          setThreadModelProviderId(threadId, fallbackThread.modelProvider || activeProviderId.value)
           setSelectedCollaborationModeForThread(threadId, selectedMode)
         } else {
           throw unknownError
@@ -6216,7 +6382,12 @@ export function useDesktopState() {
     try {
       if (resumedThreadById.value[threadId] !== true) {
         const resumedThread = await resumeThread(threadId)
-        setThreadModelId(threadId, resumedThread.model)
+        if (resumedThread.modelProvider) {
+          setThreadModelProviderId(threadId, resumedThread.modelProvider)
+        }
+        if (resumedThread.model) {
+          setThreadModelId(threadId, resolveThreadModelForProvider(threadId, resumedThread.model, resumedThread.modelProvider))
+        }
       }
       const modelId = readModelIdForThread(threadId)
 
@@ -6236,7 +6407,12 @@ export function useDesktopState() {
         if (isTurnStartThreadNotFoundError(unknownError)) {
           resumedThreadById.value = omitKey(resumedThreadById.value, threadId)
           const resumedThread = await resumeThread(threadId)
-          setThreadModelId(threadId, resumedThread.model)
+          if (resumedThread.modelProvider) {
+            setThreadModelProviderId(threadId, resumedThread.modelProvider)
+          }
+          if (resumedThread.model) {
+            setThreadModelId(threadId, resolveThreadModelForProvider(threadId, resumedThread.model, resumedThread.modelProvider))
+          }
           const recoveredModelId = readModelIdForThread(threadId)
           startedTurnId = await startThreadTurn(
             threadId,
@@ -6607,13 +6783,15 @@ export function useDesktopState() {
     isPolling.value = true
 
     const shouldRefreshThreads = pendingThreadsRefresh
+    const shouldForceThreadRefresh = pendingThreadsRefreshForce
     const threadIdsToRefresh = new Set(pendingThreadMessageRefresh)
     pendingThreadsRefresh = false
+    pendingThreadsRefreshForce = false
     pendingThreadMessageRefresh.clear()
 
     try {
       if (shouldRefreshThreads) {
-        await loadThreads()
+        await loadThreads({ force: shouldForceThreadRefresh })
       }
 
       const activeThreadId = selectedThreadId.value
@@ -6627,8 +6805,8 @@ export function useDesktopState() {
 
       const shouldRefreshActiveThread =
         hasVersionChange ||
+        isActiveDirty ||
         (isInProgress && loadedMessagesByThreadId.value[activeThreadId] !== true) ||
-        (isActiveDirty && loadedMessagesByThreadId.value[activeThreadId] !== true) ||
         (shouldRefreshThreads && loadedMessagesByThreadId.value[activeThreadId] !== true)
 
       if (shouldRefreshActiveThread) {
@@ -6713,6 +6891,7 @@ export function useDesktopState() {
     }
 
     pendingThreadsRefresh = false
+    pendingThreadsRefreshForce = false
     pendingThreadMessageRefresh.clear()
     pendingTurnStartsById.clear()
     turnDiffSummaryByTurnId.clear()
@@ -6814,8 +6993,8 @@ export function useDesktopState() {
     void sendMessageToSelectedThread(msg.text, msg.imageUrls, msg.skills, 'steer', msg.fileAttachments, undefined, undefined, msg.reasoningEffort)
   }
 
-  function primeSelectedThread(threadId: string): void {
-    setSelectedThreadId(threadId)
+  function primeSelectedThread(threadId: string, options: { persist?: boolean } = {}): void {
+    setSelectedThreadId(threadId, options)
   }
 
   return {
