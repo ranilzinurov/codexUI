@@ -8937,3 +8937,203 @@ Choose the Codex project/thread destination inside the Browser Annotation extens
 - Disconnect the extension binding if manual validation created one.
 - Clear extension storage for `browserAnnotation.binding`, `browserAnnotation.threadTarget`, `browserAnnotation.settings`, and `browserAnnotation.pairingToken` if needed.
 - Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
+
+---
+
+### Browser Annotation Draft, Screenshot State, And Queue Detail
+
+#### Feature/Change Name
+Browser annotation Pick on Page, Draft Annotation save flow, screenshot states, queue row/detail review, panel mode control, and Diagnostics wording.
+
+#### Prerequisites/Setup
+1. Use a branch containing the browser annotation panel UX update.
+2. Run the focused checks from the repository root:
+   - `pnpm exec vitest run src/App.browserAnnotationExtensionSidepanel.test.ts --reporter=verbose`
+   - `node extension/browser-annotation/dev/content-draft-annotation-smoke.cjs`
+   - `node extension/browser-annotation/dev/content-overlay-cancel-smoke.cjs`
+   - `node extension/browser-annotation/dev/sidepanel-host-permission-smoke.cjs`
+   - `node extension/browser-annotation/dev/annotation-queue-smoke.mjs`
+3. For manual UI verification, load `extension/browser-annotation` or the packaged unpacked extension as an unpacked Chrome extension.
+4. Open a normal `http(s)` page and connect Browser Binding if sending to Codex UI will be tested.
+
+#### Steps
+1. In light theme, open the Annotation Panel and confirm the primary action says `Pick on Page`, not `Inject Overlay`.
+2. Confirm the panel shows separate Binding, Destination, Catalog, Queue, and Diagnostics concepts.
+3. Change Panel mode between `Float` and `Dock`, close/reopen the panel, and confirm the selected mode remains.
+4. Click `Pick on Page`, select an element, and confirm an inline Draft Annotation appears with comment, mic, screenshot toggle, `Save to Queue`, and cancel controls.
+5. Type a comment and confirm the queue remains unchanged until `Save to Queue`.
+6. Click `Save to Queue` and confirm a Queue Row appears with a comment preview, screenshot state, clickable thumbnail/detail action, and reorder/delete controls.
+7. Click the thumbnail/detail action and confirm Queue Item Detail opens inside the panel with full comment, screenshot state, metadata, and Back control.
+8. Simulate or inspect a failed screenshot item and confirm `Screenshot Failed` is shown; `Send Queue` remains blocked until `Send without screenshot` is chosen.
+9. Switch to dark theme and repeat steps 1-7, confirming text, buttons, queue rows, detail, and Diagnostics controls remain readable.
+
+#### Expected Results
+- Picking a page target creates a Draft Annotation, not an immediate queue item.
+- `Save to Queue` is the only action that turns a Draft Annotation into a queue item.
+- Ordinary selected page annotations never show `No preview`; they show Screenshot Ready, Screenshot Failed, Screenshot Off, or pending/uploading state.
+- Failed screenshots block sending until the user explicitly retries or chooses to send without screenshot.
+- Queue Item Detail opens inside the Annotation Panel and does not require a new browser tab.
+- Light and dark theme surfaces remain readable.
+
+#### Rollback/Cleanup
+- Remove the unpacked extension from `chrome://extensions` if loaded only for this test.
+- Clear extension storage for `browserAnnotation.annotationQueue`, `browserAnnotation.threadTarget`, `browserAnnotation.binding`, and `browserAnnotation.panelMode` if manual test state should be removed.
+
+---
+
+### Browser Annotation Page-Side Floating Panel
+
+#### Feature/Change Name
+Page-side floating mini panel for active browser annotation mode.
+
+#### Prerequisites/Setup
+1. Use a branch containing the floating panel content-script change.
+2. Run the focused checks from the repository root:
+   - `node --check extension/browser-annotation/content/content-script.js`
+   - `node --check extension/browser-annotation/dev/content-floating-panel-smoke.cjs`
+   - `node extension/browser-annotation/dev/content-floating-panel-smoke.cjs`
+3. For manual UI verification, load `extension/browser-annotation` as an unpacked Chrome extension.
+4. Open a normal `http(s)` page and connect Browser Binding if queue save behavior will be tested.
+
+#### Steps
+1. In light theme, open the Annotation Panel and click `Pick on Page`.
+2. Confirm a compact `Codex annotation` floating panel appears at the page side while annotation mode is active.
+3. Confirm the panel shows Pick on Page state and a Pause control before selecting anything.
+4. Select an element and confirm the page-side panel stays fixed while exposing draft controls for comment, voice, screenshot, and save.
+5. Cancel the draft from the inline annotation controls and confirm the page-side panel remains visible with Pick on Page active state.
+6. Save a draft to the queue and confirm the panel shows the saved state and queue count when the content script already receives that count.
+7. Click Pause and confirm annotation mode exits and the page-side panel hides.
+8. Switch the browser/page to a dark background or dark theme test page and repeat steps 1-5.
+
+#### Expected Results
+- The floating panel is created inside the content-script Shadow DOM and does not require the Chrome side panel to remain open.
+- The panel does not poll storage or background state; queue count appears only after local draft/queue responses include it.
+- Existing inline draft controls and save behavior continue to work.
+- Light and dark theme page states keep the floating panel readable.
+
+#### Rollback/Cleanup
+- Remove the unpacked extension from `chrome://extensions` if loaded only for this test.
+- Clear extension storage for `browserAnnotation.annotationQueue` if manual queue saves should be removed.
+
+---
+
+### Browser Annotation Destination Catalog Cache
+
+#### Feature/Change Name
+Saved Destination and stale Destination Refresh catalog cache.
+
+#### Prerequisites/Setup
+1. Use a branch containing the service-worker destination catalog cache change.
+2. Run the focused checks from the repository root:
+   - `node --check extension/browser-annotation/shared/constants.js`
+   - `node --check extension/browser-annotation/service-worker/service-worker.js`
+   - `node --check extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.mjs`
+   - `node extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.mjs`
+3. For manual UI verification, load `extension/browser-annotation` as an unpacked Chrome extension and connect Browser Binding to a Codex UI server with at least one available destination thread.
+
+#### Steps
+1. In light theme, open the Annotation Panel, refresh Destination Catalog, and select a destination thread.
+2. Close and reopen the panel and confirm the selected destination is still shown.
+3. Temporarily make the destination catalog endpoint fail, such as by stopping the backing server or blocking `/codex-api/extension/threads`.
+4. Reopen the panel or trigger the existing refresh path and confirm the prior project/thread catalog still appears with the saved destination selected.
+5. Switch to dark theme and repeat steps 1-4, confirming Destination and Catalog text remains readable.
+
+#### Expected Results
+- A successful catalog refresh persists sanitized destination groups under `browserAnnotation.threadTargetCatalog`.
+- A transient thread catalog refresh failure does not clear `browserAnnotation.threadTarget`.
+- The panel state returns the cached groups and selected thread with stale catalog metadata instead of an empty hard-unavailable catalog.
+- Light and dark theme Destination/Catalog surfaces remain readable.
+
+#### Rollback/Cleanup
+- Remove the unpacked extension from `chrome://extensions` if loaded only for this test.
+- Clear extension storage for `browserAnnotation.threadTargetCatalog`, `browserAnnotation.threadTarget`, and `browserAnnotation.binding` if manual test state should be removed.
+
+---
+
+### Browser Annotation Screenshot Asset Send
+
+#### Feature/Change Name
+Upload ready annotation screenshots as server assets before sending the queue.
+
+#### Prerequisites/Setup
+1. Use a branch containing the screenshot asset upload/send change.
+2. Run the focused checks from the repository root:
+   - `node --check extension/browser-annotation/shared/annotation-queue.js`
+   - `node --check extension/browser-annotation/service-worker/service-worker.js`
+   - `node --check extension/browser-annotation/dev/annotation-queue-smoke.mjs`
+   - `node --check extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.mjs`
+   - `node extension/browser-annotation/dev/annotation-queue-smoke.mjs`
+   - `node extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.mjs`
+3. For manual UI verification, start Codex UI with `pnpm run dev --host 127.0.0.1 --port 4173`.
+4. Load `extension/browser-annotation` as an unpacked Chrome extension and connect Browser Binding to a destination thread.
+
+#### Steps
+1. In light theme, click `Pick on Page`, select a visible element, leave screenshot enabled, and click `Save to Queue`.
+2. Confirm the queue row shows a ready screenshot thumbnail/detail, not `No preview`.
+3. Click `Send Queue` and inspect network/service-worker logs.
+4. Confirm the extension first POSTs the cropped screenshot to `/codex-api/extension/assets/upload` as multipart `kind=screenshot`.
+5. Confirm the later `/codex-api/extension/annotation-batch` body includes an `annotation-screenshot` asset and the item references it with `screenshotAssetId`.
+6. Confirm the batch body does not include `preview.dataUrl` or any `data:image` string.
+7. Confirm the selected Codex thread receives the batch with the screenshot attached.
+8. Switch Codex UI and the extension side panel to dark theme and repeat steps 1-7.
+
+#### Expected Results
+- Ready screenshots are uploaded before the annotation batch is sent.
+- The annotation batch carries only asset metadata and the server-issued `/codex-local-image` reference.
+- If screenshot upload fails, the local queue remains available for retry instead of being cleared.
+- Light and dark theme queue rows, details, send controls, and received batch rendering remain readable.
+
+#### Rollback/Cleanup
+- Remove the unpacked extension from `chrome://extensions` if loaded only for this test.
+- Clear extension storage for `browserAnnotation.annotationQueue`, `browserAnnotation.threadTarget`, and `browserAnnotation.binding` if manual test state should be removed.
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
+
+---
+
+### ChatGPT Pro-Control Consultation Workflow
+
+#### Feature/Change Name
+ChatGPT Pro-control worker, task queue, repo bundle helper, requested-files follow-up, attachments, audit log, and failure surfacing.
+
+#### Prerequisites/Setup
+1. Use a branch containing the Pro-control backend, extension, and helper changes.
+2. For automated contract checks, run from the repository root:
+   - `pnpm exec vitest run src/server/proControl.test.ts`
+   - `node --check extension/browser-annotation/service-worker/service-worker.js`
+   - `node --check extension/browser-annotation/sidepanel/sidepanel.js`
+   - `node extension/browser-annotation/dev/validate-extension.mjs`
+   - `node extension/browser-annotation/dev/pairing-client-smoke.mjs`
+   - `pnpm run pro:bundle -- "bundle smoke"`
+   - `pnpm run pack:browser-annotation`
+3. For manual UI verification, start Codex UI with `pnpm run dev --host 127.0.0.1 --port 4173`.
+4. Load the browser annotation extension in a Chrome profile that is logged into ChatGPT Pro.
+5. Pair Browser Binding from Codex UI.
+
+#### Steps
+1. In light theme, open the extension sidepanel and confirm the `ChatGPT Pro` section is visible.
+2. Click `Enable`, approve `https://chatgpt.com/*`, and confirm the Pro-control state becomes online or idle.
+3. Disable Pro-control, enable it again, deny the permission prompt if Chrome offers it, and confirm `Permission missing` is shown without starting polling.
+4. Re-enable with permission granted.
+5. Run `pnpm run pro:consult -- "Проверь текущую задачу и верни короткий ответ"`.
+6. Confirm the extension opens or focuses `chatgpt.com`, sends a prompt with `[Codex Pro task: <taskId>]`, waits for a final answer, and returns copied text or DOM fallback text.
+7. Confirm `.codex/pro-control/consultations/<timestamp>/` contains `prompt.md`, `raw-pro-answer.md`, `codex-assessment.md`, `metadata.json`, `bundle/`, and attachment folders when ChatGPT produced files.
+8. If ChatGPT requests additional files using a final `requestedFiles` JSON block, confirm the helper uploads allowed files, blocks denied paths, and stops after at most three follow-ups.
+9. If ChatGPT returns downloadable attachments, confirm allowed files are saved under audit attachments and patches are applied only after `git apply --check`.
+10. Switch the extension sidepanel and ChatGPT/Codex browser environment to dark theme and repeat steps 1-4.
+
+#### Expected Results
+- Internal Pro-control task creation requires the server token; browser binding tokens cannot create tasks.
+- Extension polling requires a browser binding token; the internal token cannot poll as a worker.
+- A worker claims one task at a time, posts running heartbeats, and returns completed or failed states.
+- Per-thread session keys use `projectId:codexThreadId`, and follow-up tasks reuse saved conversation URLs.
+- Repo bundles exclude `.git/`, `node_modules/`, generated artifacts, `.env*`, credentials, browser profiles, and over-limit files.
+- Over-limit full bundles fall back to reduced bundles with warnings in prompt and metadata.
+- Audit metadata records task id, session key, bundle mode, warnings, read method, execution mode, attachments, and failure details.
+- Light and dark theme Pro-control status surfaces remain readable.
+
+#### Rollback/Cleanup
+- Disable Pro-control in the sidepanel.
+- Remove the unpacked extension from `chrome://extensions` if loaded only for this test.
+- Clear extension storage keys `browserAnnotation.proControl` and `browserAnnotation.binding` if manual test state should be removed.
+- Remove `.codex/pro-control/consultations/` and `.codex/pro-control/bundles/` if local audit artifacts are no longer needed.
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.

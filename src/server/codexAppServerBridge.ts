@@ -63,6 +63,7 @@ import {
 import { handleBrowserAnnotationAssetUploadRoute } from './browserAnnotationAssets.js'
 import { handleBrowserAnnotationTranscribeRoute } from './browserAnnotationTranscribe.js'
 import { handleBrowserAnnotationBatchRoute } from './browserAnnotationBatch.js'
+import { handleProControlRoutes } from './proControl.js'
 import { handleVoiceModeRoutes, type VoiceModeNotificationEvent } from './voiceMode.js'
 import { getSpawnInvocation } from '../utils/commandInvocation.js'
 import {
@@ -8641,6 +8642,10 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         appendQueuedMessage: appendThreadQueuedMessage,
         scheduleThreadQueueDrain: (threadId, delayMs) => backendQueueProcessor.scheduleThreadQueueDrain(threadId, delayMs),
       })) {
+        return
+      }
+
+      if (await handleProControlRoutes(req, res, url)) {
         return
       }
 

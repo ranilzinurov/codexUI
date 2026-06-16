@@ -59,6 +59,32 @@ assert.equal(
   "https://annotate.todo-tg-app.ru/codex-api/extension/binding/status"
 );
 
+const defaultProControlPollUrl = BrowserAnnotationPairingClient.buildProControlPollUrl(
+  "https://annotate.todo-tg-app.ru/"
+);
+assert.equal(
+  defaultProControlPollUrl,
+  "https://annotate.todo-tg-app.ru/codex-api/extension/pro-control/poll"
+);
+
+const defaultProControlTaskStatusUrl = BrowserAnnotationPairingClient.buildProControlTaskStatusUrl(
+  "https://annotate.todo-tg-app.ru/",
+  "task/with slash"
+);
+assert.equal(
+  defaultProControlTaskStatusUrl,
+  "https://annotate.todo-tg-app.ru/codex-api/extension/pro-control/tasks/task%2Fwith%20slash/status"
+);
+
+const defaultProControlTaskResultUrl = BrowserAnnotationPairingClient.buildProControlTaskResultUrl(
+  "https://annotate.todo-tg-app.ru/",
+  "task-1"
+);
+assert.equal(
+  defaultProControlTaskResultUrl,
+  "https://annotate.todo-tg-app.ru/codex-api/extension/pro-control/tasks/task-1/result"
+);
+
 const defaultBindingRevokeUrl = BrowserAnnotationPairingClient.buildBrowserBindingRevokeUrl(
   "https://annotate.todo-tg-app.ru/"
 );

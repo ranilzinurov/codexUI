@@ -15,12 +15,19 @@
     saveSettings: document.getElementById("saveSettings"),
     connectionStatus: document.getElementById("connectionStatus"),
     connectionDetail: document.getElementById("connectionDetail"),
+    panelMode: document.getElementById("panelMode"),
     injectOverlay: document.getElementById("injectOverlay"),
     targetStatus: document.getElementById("targetStatus"),
     targetDetail: document.getElementById("targetDetail"),
+    catalogStatus: document.getElementById("catalogStatus"),
     targetProject: document.getElementById("targetProject"),
     targetThread: document.getElementById("targetThread"),
     refreshThreadTargets: document.getElementById("refreshThreadTargets"),
+    proControlStatus: document.getElementById("proControlStatus"),
+    proControlDetail: document.getElementById("proControlDetail"),
+    proControlTask: document.getElementById("proControlTask"),
+    enableProControl: document.getElementById("enableProControl"),
+    disableProControl: document.getElementById("disableProControl"),
     tabStatus: document.getElementById("tabStatus"),
     tabDetail: document.getElementById("tabDetail"),
     devtoolsStatus: document.getElementById("devtoolsStatus"),
@@ -35,6 +42,7 @@
     queueDetail: document.getElementById("queueDetail"),
     batchMeta: document.getElementById("batchMeta"),
     queueList: document.getElementById("queueList"),
+    queueItemDetail: document.getElementById("queueItemDetail"),
     sendBatch: document.getElementById("sendBatch"),
     persistentBinding: document.getElementById("persistentBinding"),
     persistentBindingStatus: document.getElementById("persistentBindingStatus"),
@@ -47,14 +55,18 @@
   let lastState = null;
   let lastDevtoolsStatus = {
     status: "inactive",
-    detail: "DevTools capture is off."
+    detail: "Diagnostics capture is off."
   };
+  let selectedQueueDetailId = "";
 
   elements.saveSettings.addEventListener("click", saveSettings);
+  elements.panelMode.addEventListener("change", persistPanelMode);
   elements.injectOverlay.addEventListener("click", injectOverlay);
   elements.targetProject.addEventListener("change", handleTargetProjectChange);
   elements.targetThread.addEventListener("change", selectThreadTarget);
   elements.refreshThreadTargets.addEventListener("click", refreshState);
+  elements.enableProControl.addEventListener("click", enableProControl);
+  elements.disableProControl.addEventListener("click", disableProControl);
   elements.enableDevtools.addEventListener("click", enableDevtoolsCapture);
   elements.disableDevtools.addEventListener("click", disableDevtoolsCapture);
   elements.pageStateNote.addEventListener("input", () => updatePageStateButton(false));
@@ -85,6 +97,7 @@
     renderQueue(queue);
   });
 
+  restorePanelMode();
   refreshState();
 
   async function refreshState() {
@@ -130,7 +143,7 @@
       renderState(response.state);
       setMessage(
         response.injected
-          ? "Overlay injected into the active tab."
+          ? "Pick on Page is active in the current tab."
           : "Overlay request completed, but no content-script response was received.",
         response.injected ? "ok" : "error"
       );
@@ -166,7 +179,7 @@
         options: captureOptions
       });
       renderDevtoolsStatus(readDevtoolsStatus(response, "active"));
-      setMessage("DevTools capture mode enabled for the active tab.", "ok");
+      setMessage("Diagnostics capture mode enabled for the active tab.", "ok");
     } catch (error) {
       renderDevtoolsStatus({
         status: "error",
@@ -182,13 +195,13 @@
     setBusy(true);
     renderDevtoolsStatus({
       status: "pending",
-      detail: "Stopping DevTools capture mode..."
+      detail: "Stopping Diagnostics capture mode..."
     });
     try {
       const response = await sendRuntimeMessage({ type: MESSAGE_TYPES.STOP_DEVTOOLS_CAPTURE });
       renderDevtoolsStatus(readDevtoolsStatus(response, "inactive"));
       if (!options.silent) {
-        setMessage("DevTools capture mode disabled.", "ok");
+        setMessage("Diagnostics capture mode disabled.", "ok");
       }
     } catch (error) {
       renderDevtoolsStatus({
@@ -210,7 +223,7 @@
       return;
     }
     if (!isDevtoolsCaptureActive()) {
-      setMessage("Enable DevTools capture before adding a page note.", "error");
+      setMessage("Enable Diagnostics capture before adding a page note.", "error");
       return;
     }
 
@@ -249,6 +262,32 @@
     }
   }
 
+  async function enableProControl() {
+    setBusy(true);
+    try {
+      const response = await sendRuntimeMessage({ type: MESSAGE_TYPES.ENABLE_PRO_CONTROL });
+      renderState(response.state);
+      setMessage(proControlMessage(response.state.proControl), response.state.proControl.status === "permission_missing" ? "error" : "ok");
+    } catch (error) {
+      setMessage(error.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function disableProControl() {
+    setBusy(true);
+    try {
+      const response = await sendRuntimeMessage({ type: MESSAGE_TYPES.DISABLE_PRO_CONTROL });
+      renderState(response.state);
+      setMessage("Pro-control worker disabled.", "ok");
+    } catch (error) {
+      setMessage(error.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function sendRuntimeMessage(message) {
     const response = await chrome.runtime.sendMessage(message);
     if (!response || response.ok !== true) {
@@ -276,6 +315,7 @@
     elements.connectionDetail.textContent = connectionDetail(state.connection);
     renderPersistentBinding(state);
     renderThreadTargets(state.threadTargets);
+    renderProControl(state.proControl);
     renderQueue(state.queue);
     renderDevtoolsStatus(state.devtoolsCapture || lastDevtoolsStatus);
     updateSendButton(false);
@@ -310,6 +350,18 @@
       panel.hidden = !selected;
       panel.classList.toggle("is-active", selected);
     }
+  }
+
+  function restorePanelMode() {
+    const saved = localStorage.getItem("browserAnnotation.panelMode") || "floating";
+    elements.panelMode.value = saved === "docked" ? "docked" : "floating";
+    document.body.dataset.panelMode = elements.panelMode.value;
+  }
+
+  function persistPanelMode() {
+    const mode = elements.panelMode.value === "docked" ? "docked" : "floating";
+    localStorage.setItem("browserAnnotation.panelMode", mode);
+    document.body.dataset.panelMode = mode;
   }
 
   async function requestActiveTabHostPermission() {
@@ -371,6 +423,8 @@
     elements.targetProject.disabled = isBusy || !canUseThreadTargets(lastState && lastState.threadTargets);
     elements.targetThread.disabled = isBusy || !canUseThreadTargets(lastState && lastState.threadTargets) || !elements.targetProject.value;
     elements.refreshThreadTargets.disabled = isBusy || !hasBrowserBindingConnection(lastState);
+    elements.enableProControl.disabled = isBusy || !hasBrowserBindingConnection(lastState) || Boolean(lastState && lastState.proControl && lastState.proControl.enabled);
+    elements.disableProControl.disabled = isBusy || !(lastState && lastState.proControl && lastState.proControl.enabled);
     if (!elements.disconnectPersistentBinding.hidden) {
       elements.disconnectPersistentBinding.disabled = isBusy;
     }
@@ -434,6 +488,39 @@
     return "Settings saved locally in the extension.";
   }
 
+  function renderProControl(proControl) {
+    const state = proControl || {};
+    const status = String(state.status || (state.enabled ? "online" : "disabled"));
+    elements.proControlStatus.textContent = proControlStatusLabel(status);
+    elements.proControlStatus.classList.toggle("status-active", state.enabled === true && status !== "error" && status !== "permission_missing");
+    elements.proControlStatus.classList.toggle("status-error", status === "error" || status === "permission_missing");
+    elements.proControlDetail.textContent = state.detail || "Connect browser binding, then enable Pro-control.";
+    const parts = [];
+    if (state.currentTaskId) parts.push(`Task ${state.currentTaskId}`);
+    if (state.lastTaskStatus) parts.push(`Last ${state.lastTaskStatus}`);
+    if (state.lastErrorCode) parts.push(`Error ${state.lastErrorCode}`);
+    if (state.lastUpdatedIso) parts.push(formatDateTime(state.lastUpdatedIso));
+    elements.proControlTask.textContent = parts.filter(Boolean).join(" · ");
+    elements.enableProControl.disabled = !hasBrowserBindingConnection(lastState) || state.enabled === true;
+    elements.disableProControl.disabled = state.enabled !== true;
+  }
+
+  function proControlStatusLabel(status) {
+    if (status === "idle") return "Online/idle";
+    if (status === "online") return "Online";
+    if (status === "running") return "Running";
+    if (status === "permission_missing") return "Permission missing";
+    if (status === "error") return "Error";
+    return "Disabled";
+  }
+
+  function proControlMessage(proControl) {
+    if (!proControl) return "Pro-control state unavailable.";
+    if (proControl.status === "permission_missing") return proControl.detail || "ChatGPT permission missing.";
+    if (proControl.enabled) return "Pro-control worker enabled.";
+    return proControl.detail || "Pro-control worker disabled.";
+  }
+
   function renderPersistentBinding(state) {
     const binding = readPersistentBinding(state);
     if (!binding) {
@@ -466,6 +553,7 @@
     elements.targetStatus.classList.toggle("status-active", Boolean(selectedThread));
     elements.targetStatus.classList.toggle("status-error", normalized.status === "error");
     elements.targetDetail.textContent = threadTargetDetail(normalized, selectedThread);
+    elements.catalogStatus.textContent = catalogFreshnessLabel(normalized);
 
     replaceSelectOptions(elements.targetProject, [
       { value: "", label: "Choose project..." },
@@ -490,6 +578,19 @@
     elements.targetProject.disabled = !usable;
     elements.targetThread.disabled = !usable || !elements.targetProject.value;
     elements.refreshThreadTargets.disabled = !hasBrowserBindingConnection(lastState);
+  }
+
+  function catalogFreshnessLabel(threadTargets) {
+    if (threadTargets.status === "ready") {
+      return "Updated now";
+    }
+    if (threadTargets.status === "stale" || threadTargets.catalogStale === true) {
+      return threadTargets.catalogFetchedAtIso ? "Using saved catalog" : "Refresh stale";
+    }
+    if (threadTargets.status === "error") {
+      return "Refresh failed";
+    }
+    return "Not loaded";
   }
 
   function normalizeThreadTargets(threadTargets) {
@@ -730,6 +831,9 @@
 
   function renderQueue(queue) {
     const items = Array.isArray(queue) ? queue : [];
+    if (selectedQueueDetailId && !items.some((item) => item && item.id === selectedQueueDetailId)) {
+      selectedQueueDetailId = "";
+    }
     elements.queueStatus.textContent =
       items.length === 0 ? "Empty" : `${items.length} item${items.length === 1 ? "" : "s"}`;
     elements.queueDetail.textContent =
@@ -754,11 +858,12 @@
         meta.textContent = queueItemMeta(item);
         heading.append(name, meta);
         header.append(heading, createQueueActions(item, index, items.length));
-        content.append(header);
+        content.append(header, createScreenshotState(item), createCommentPreview(item));
         row.append(createPreview(item.preview, item), content);
         return row;
       })
     );
+    renderQueueItemDetail(items.find((item) => item && item.id === selectedQueueDetailId) || null);
     updateSendButton(false);
   }
 
@@ -781,6 +886,7 @@
     const actions = document.createElement("div");
     actions.className = "queue-actions";
     actions.append(
+      createActionButton("Open detail", "detail", "↗", false),
       createActionButton("Move up", "up", "↑", index === 0),
       createActionButton("Move down", "down", "↓", index === itemCount - 1),
       createActionButton("Delete", "delete", "×", false)
@@ -822,6 +928,10 @@
         });
         applyQueueResponse(response);
         setMessage("Annotation removed from the queue.", "ok");
+      } else if (action === "detail") {
+        selectedQueueDetailId = id;
+        renderQueueItemDetail((lastState && Array.isArray(lastState.queue) ? lastState.queue : []).find((item) => item && item.id === id) || null);
+        setMessage("Queue Item Detail opened.", "ok");
       } else {
         const response = await sendRuntimeMessage({
           type: MESSAGE_TYPES.MOVE_ANNOTATION_QUEUE_ITEM,
@@ -878,7 +988,10 @@
 
   function updateSendButton(isBusy) {
     const itemCount = lastState && Array.isArray(lastState.queue) ? lastState.queue.length : 0;
-    elements.sendBatch.disabled = isBusy || itemCount === 0 || !hasSelectedThreadTarget(lastState);
+    const hasBlockedScreenshot = lastState && Array.isArray(lastState.queue)
+      ? lastState.queue.some((item) => screenshotState(item) === "failed")
+      : false;
+    elements.sendBatch.disabled = isBusy || itemCount === 0 || hasBlockedScreenshot || !hasSelectedThreadTarget(lastState);
   }
 
   function applyQueueResponse(response) {
@@ -905,8 +1018,8 @@
     return {
       status: fallbackStatus || "inactive",
       detail: fallbackStatus === "active"
-        ? "DevTools capture is active for the current tab."
-        : "DevTools capture is off."
+        ? "Diagnostics capture is active for the current tab."
+        : "Diagnostics capture is off."
     };
   }
 
@@ -932,7 +1045,7 @@
     if (status === "active") {
       return {
         status,
-        detail: (devtools.detail || "DevTools capture is active for the current tab.") +
+        detail: (devtools.detail || "Diagnostics capture is active for the current tab.") +
           activeTabId +
           ` ${devtoolsBodyCaptureDetail(captureOptions)}`,
         captureOptions
@@ -941,13 +1054,13 @@
     if (status === "pending" || status === "error") {
       return {
         status,
-        detail: devtools.detail || (status === "pending" ? "Updating DevTools capture mode..." : "DevTools capture status is unavailable."),
+        detail: devtools.detail || (status === "pending" ? "Updating Diagnostics capture mode..." : "Diagnostics capture status is unavailable."),
         captureOptions
       };
     }
     return {
       status: "inactive",
-      detail: devtools && devtools.detail ? devtools.detail : "DevTools capture is off.",
+      detail: devtools && devtools.detail ? devtools.detail : "Diagnostics capture is off.",
       captureOptions
     };
   }
@@ -977,8 +1090,8 @@
     if (state === "active") {
       elements.captureDevtoolsBodies.checked = activeBodyCapture;
       elements.captureDevtoolsBodiesHelp.textContent = activeBodyCapture
-        ? "Active for this capture. Disable DevTools capture to change body collection."
-        : "Metadata-only for this capture. Disable DevTools capture to opt in to body collection.";
+        ? "Active for this capture. Disable Diagnostics capture to change body collection."
+        : "Metadata-only for this capture. Disable Diagnostics capture to opt in to body collection.";
     } else {
       elements.captureDevtoolsBodiesHelp.textContent =
         "Off by default. Enable only for pages where body contents are safe to share with Codex.";
@@ -1047,14 +1160,23 @@
   }
 
   function createPreview(preview, item) {
-    const frame = document.createElement("div");
+    const frame = document.createElement("button");
     frame.className = "queue-preview";
+    frame.type = "button";
+    frame.dataset.queueAction = "detail";
+    frame.title = "Open Queue Item Detail";
+    frame.setAttribute("aria-label", "Open Queue Item Detail");
+    const state = screenshotState(item);
     if (!preview || !preview.dataUrl) {
       if (isPageStateItem(item)) {
         frame.dataset.previewKind = "page-state";
         frame.textContent = "Page";
+      } else if (state === "failed") {
+        frame.textContent = "Screenshot Failed";
+      } else if (state === "off") {
+        frame.textContent = "Screenshot Off";
       } else {
-        frame.textContent = "No preview";
+        frame.textContent = "Screenshot Pending";
       }
       return frame;
     }
@@ -1067,6 +1189,105 @@
     image.height = preview.height || 1;
     frame.append(image);
     return frame;
+  }
+
+  function createScreenshotState(item) {
+    const state = document.createElement("span");
+    state.className = "queue-screenshot-state";
+    const value = screenshotState(item);
+    state.dataset.state = value;
+    state.textContent = screenshotStateLabel(value);
+    return state;
+  }
+
+  function createCommentPreview(item) {
+    const note = document.createElement("span");
+    note.className = "queue-comment-preview";
+    const text = String(item && item.noteText ? item.noteText : "").trim();
+    note.textContent = text ? truncateText(text, 96) : "No comment";
+    return note;
+  }
+
+  function renderQueueItemDetail(item) {
+    if (!item) {
+      elements.queueItemDetail.hidden = true;
+      elements.queueItemDetail.replaceChildren();
+      return;
+    }
+    const title = document.createElement("strong");
+    title.textContent = "Queue Item Detail";
+    const state = document.createElement("span");
+    state.className = "queue-screenshot-state";
+    state.textContent = screenshotStateLabel(screenshotState(item));
+    const comment = document.createElement("textarea");
+    comment.className = "queue-detail-comment";
+    comment.dataset.annotationId = item.id || "";
+    comment.value = String(item.noteText || "");
+    comment.rows = 4;
+    const page = readQueueItemPage(item);
+    const meta = document.createElement("p");
+    meta.className = "muted";
+    meta.textContent = page.title ? `${page.title} - ${page.url}` : page.url;
+    const back = document.createElement("button");
+    back.className = "button button-secondary button-compact";
+    back.type = "button";
+    back.textContent = "Back to queue";
+    back.addEventListener("click", () => {
+      selectedQueueDetailId = "";
+      renderQueueItemDetail(null);
+    });
+    const actions = [back];
+    if (screenshotState(item) === "failed") {
+      const withoutScreenshot = document.createElement("button");
+      withoutScreenshot.className = "button button-secondary button-compact";
+      withoutScreenshot.type = "button";
+      withoutScreenshot.textContent = "Send without screenshot";
+      withoutScreenshot.addEventListener("click", async () => {
+        await saveQueueScreenshotChoice(item.id || "");
+      });
+      actions.unshift(withoutScreenshot);
+    }
+    elements.queueItemDetail.replaceChildren(title, createPreview(item.preview, item), state, comment, meta, ...actions);
+    elements.queueItemDetail.hidden = false;
+  }
+
+  async function saveQueueScreenshotChoice(id) {
+    if (!id) return;
+    setBusy(true);
+    try {
+      const response = await sendRuntimeMessage({
+        type: MESSAGE_TYPES.UPDATE_ANNOTATION_QUEUE_ITEM,
+        id,
+        patch: {
+          screenshot: {
+            state: "off",
+            sendWithoutScreenshot: true
+          }
+        }
+      });
+      applyQueueResponse(response);
+      setMessage("Annotation will send without screenshot.", "ok");
+    } catch (error) {
+      setMessage(error.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function screenshotState(item) {
+    const screenshot = item && item.screenshot && typeof item.screenshot === "object" ? item.screenshot : null;
+    if (screenshot && screenshot.sendWithoutScreenshot === true) return "off";
+    if (screenshot && screenshot.state === "failed") return "failed";
+    if (screenshot && screenshot.state === "off") return "off";
+    if ((screenshot && screenshot.state === "ready") || (item && item.preview && item.preview.dataUrl)) return "ready";
+    return "pending";
+  }
+
+  function screenshotStateLabel(state) {
+    if (state === "ready") return "Screenshot Ready";
+    if (state === "failed") return "Screenshot Failed";
+    if (state === "off") return "Screenshot Off";
+    return "Screenshot Pending";
   }
 
   function isPageStateItem(item) {

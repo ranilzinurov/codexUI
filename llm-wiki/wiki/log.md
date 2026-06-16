@@ -113,3 +113,10 @@
 - Created wiki pages: `concepts/manual-test-domain-docs.md` and `concepts/provider-auth-models.md`.
 - Updated `overview.md`, `entities/codex-web-local.md`, and `index.md`.
 - Preserved this fork's `tests.md` canonical manual-test policy and `llm-wiki/wiki/log.md` append-only convention.
+
+## 2026-06-16
+
+- Added source notes for Browser Annotation Panel UX language and draft save behavior.
+- Created wiki page: `concepts/browser-annotation-panel.md`.
+- Documents Pick on Page, Draft Annotation, screenshot states, Queue Row/Queue Item Detail, destination freshness, and Diagnostics terminology.
+- Updated `index.md`.

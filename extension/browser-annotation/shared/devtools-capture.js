@@ -193,12 +193,12 @@
       return `Capturing ${state.consoleRows.length} console event(s) and ${state.networkRows.length} network request(s) for ${title}.`;
     }
     if (status === "error") {
-      return state.error || "DevTools capture is unavailable.";
+      return state.error || "Diagnostics capture is unavailable.";
     }
     if (state.detachReason) {
-      return `DevTools capture stopped: ${state.detachReason}.`;
+      return `Diagnostics capture stopped: ${state.detachReason}.`;
     }
-    return "DevTools capture is off.";
+    return "Diagnostics capture is off.";
   }
 
   function buildConsoleRow(method, params, options) {

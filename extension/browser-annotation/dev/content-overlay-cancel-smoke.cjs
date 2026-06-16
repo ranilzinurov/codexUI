@@ -79,7 +79,7 @@ async function main() {
               if (message && message.type === 'browserAnnotation.contentPing') {
                 return Promise.resolve({ ok: true });
               }
-              if (message && message.type === 'browserAnnotation.contentElementSelected') {
+              if (message && message.type === 'browserAnnotation.contentSaveDraftAnnotation') {
                 return Promise.resolve({
                   ok: true,
                   queueCount: 1,
@@ -114,29 +114,32 @@ async function main() {
 
     await startOverlay(page)
     await page.click('#target')
-    await waitForMessageCount(page, 'browserAnnotation.contentElementSelected', 1)
+    await page.waitForTimeout(500)
 
     let overlayState = await readOverlayState(page)
     assert.equal(overlayState.selectedHidden, false)
     assert.equal(overlayState.hostHidden, false)
     assert.equal(overlayState.panelHidden, false)
     assert.equal(overlayState.cancelText, '×')
-    assert.deepEqual(overlayState.actionTexts, ['✎', '●', '×'])
-    assert.equal(overlayState.actionLabels.join('|'), 'Add comment|Start voice recording|Close annotation')
+    assert.deepEqual(overlayState.actionTexts, ['✎', '●', '▣', 'Save', '×'])
+    assert.equal(overlayState.actionLabels.join('|'), 'Add comment|Start voice recording|Toggle screenshot|Save to Queue|Close annotation')
     assert.equal(overlayState.closeIsRightmost, true)
     assert.equal(overlayState.hasSelectionToolbar, true)
     assert.match(overlayState.label, /Element selected|button/i)
-    assert.match(overlayState.meta, /Saved/)
+    assert.match(overlayState.meta, /Draft/)
+    assert.equal(await countMessages(page, 'browserAnnotation.contentElementSelected'), 0)
 
     await openNoteAndType(page, 'Check this CTA copy.')
-    await waitForMessageCount(page, 'browserAnnotation.updateAnnotationQueueItem', 1)
-    const noteUpdate = await lastMessage(page, 'browserAnnotation.updateAnnotationQueueItem')
-    assert.equal(noteUpdate.id, 'queued-1')
-    assert.equal(noteUpdate.patch.noteText, 'Check this CTA copy.')
+    await saveDraft(page)
+    await waitForMessageCount(page, 'browserAnnotation.contentSaveDraftAnnotation', 1)
+    const draftSave = await lastMessage(page, 'browserAnnotation.contentSaveDraftAnnotation')
+    assert.equal(draftSave.noteText, 'Check this CTA copy.')
+    assert.equal(draftSave.screenshotEnabled, true)
+    assert.equal(await countMessages(page, 'browserAnnotation.updateAnnotationQueueItem'), 0)
 
     await recordVoice(page)
     await waitForMessageCount(page, 'browserAnnotation.contentTranscribeAudio', 1)
-    await waitForMessageCount(page, 'browserAnnotation.updateAnnotationQueueItem', 2)
+    await waitForMessageCount(page, 'browserAnnotation.updateAnnotationQueueItem', 1)
     const voiceMessage = await lastVoiceMessage(page)
     assert.equal(voiceMessage.itemId, 'queued-1')
     assert.match(voiceMessage.recordingToken, /^\d+-\d+$/)
@@ -168,27 +171,27 @@ async function main() {
     assert.equal(overlayState.hostHidden, false)
     assert.equal(overlayState.panelHidden, false)
     assert.match(overlayState.label, /Click an element|canceled/i)
-    assert.equal(await countMessages(page, 'browserAnnotation.contentElementSelected'), 1)
+    assert.equal(await countMessages(page, 'browserAnnotation.contentElementSelected'), 0)
 
     await dragArea(page, { x: 310, y: 230 }, { x: 560, y: 385 })
-    await waitForMessageCount(page, 'browserAnnotation.contentElementSelected', 2)
+    await page.waitForTimeout(500)
     const areaSelection = await lastMessage(page, 'browserAnnotation.contentElementSelected')
-    assert.equal(areaSelection.context.selectionMode, 'area')
-    assert.equal(areaSelection.context.rect.width, 250)
-    assert.equal(areaSelection.context.rect.height, 155)
+    assert.equal(areaSelection, undefined)
     await page.keyboard.press('Escape')
-    await waitForMessageCount(page, 'browserAnnotation.deleteAnnotationQueueItem', 2)
+    await page.waitForTimeout(450)
     overlayState = await readOverlayState(page)
     assert.equal(overlayState.hostHidden, true)
     assert.equal(overlayState.panelHidden, true)
     assert.equal(overlayState.selectedHidden, true)
     await page.click('#target')
     await page.waitForTimeout(250)
-    assert.equal(await countMessages(page, 'browserAnnotation.contentElementSelected'), 2)
+    assert.equal(await countMessages(page, 'browserAnnotation.contentSaveDraftAnnotation'), 1)
 
     await startOverlay(page)
     await page.click('#target')
-    await waitForMessageCount(page, 'browserAnnotation.contentElementSelected', 3)
+    await page.waitForTimeout(500)
+    await saveDraft(page)
+    await waitForMessageCount(page, 'browserAnnotation.contentSaveDraftAnnotation', 2)
     await page.evaluate(() => {
       window.__transcribeMode = 'reject'
     })
@@ -204,7 +207,7 @@ async function main() {
     })
     await startOverlay(page)
     await page.click('#target')
-    await waitForMessageCount(page, 'browserAnnotation.contentElementSelected', 4)
+    await page.waitForTimeout(500)
     await page.screenshot({ path: darkScreenshot, fullPage: true })
   } finally {
     await browser.close()
@@ -272,6 +275,12 @@ async function openNoteAndType(page, text) {
     input.value = value
     input.dispatchEvent(new Event('input', { bubbles: true }))
   }, [rootId, text])
+}
+
+async function saveDraft(page) {
+  await page.evaluate((id) => {
+    document.getElementById(id).shadowRoot.querySelector('[aria-label="Save to Queue"]').click()
+  }, rootId)
 }
 
 async function recordVoice(page) {

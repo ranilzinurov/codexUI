@@ -230,7 +230,7 @@ storage.set(storageKey, BrowserAnnotationDevtoolsCapture.createDevtoolsCaptureSt
 ));
 context.devtoolsCaptureTabId = null;
 tabRemovedListeners[0](42);
-await delay(10);
+await waitForStoredState(storageKey, (state) => state && state.active === false);
 const closedState = storage.get(storageKey);
 assert.equal(closedState.active, false);
 assert.equal(closedState.detachReason, "tab-closed");
@@ -248,7 +248,7 @@ storage.set(storageKey, BrowserAnnotationDevtoolsCapture.createDevtoolsCaptureSt
 ));
 context.devtoolsCaptureTabId = null;
 tabUpdatedListeners[0](42, { status: "loading", url: "https://app.example.test/after-navigation" });
-await delay(10);
+await waitForStoredState(storageKey, (state) => state && state.active === false);
 const navigatedState = storage.get(storageKey);
 assert.equal(navigatedState.active, false);
 assert.equal(navigatedState.detachReason, "tab-navigated");
@@ -256,12 +256,18 @@ assert.equal(navigatedState.detachReason, "tab-navigated");
 const annotationQueueKey = BrowserAnnotationConstants.STORAGE_KEYS.annotationQueue;
 storage.set(annotationQueueKey, []);
 await Promise.all([
-  context.saveSelectedElementContext(
-    { selector: "#alpha", text: "alpha", rect: { x: 0, y: 0, width: 10, height: 10 }, viewport: { width: 100, height: 100, devicePixelRatio: 1 } },
+  context.saveDraftAnnotation(
+    {
+      context: { selector: "#alpha", text: "alpha", rect: { x: 0, y: 0, width: 10, height: 10 }, viewport: { width: 100, height: 100, devicePixelRatio: 1 } },
+      screenshotEnabled: false
+    },
     { tab: { id: 42, windowId: 7, title: "Queue race", url: "https://app.example.test/queue" } }
   ),
-  context.saveSelectedElementContext(
-    { selector: "#bravo", text: "bravo", rect: { x: 10, y: 10, width: 10, height: 10 }, viewport: { width: 100, height: 100, devicePixelRatio: 1 } },
+  context.saveDraftAnnotation(
+    {
+      context: { selector: "#bravo", text: "bravo", rect: { x: 10, y: 10, width: 10, height: 10 }, viewport: { width: 100, height: 100, devicePixelRatio: 1 } },
+      screenshotEnabled: false
+    },
     { tab: { id: 42, windowId: 7, title: "Queue race", url: "https://app.example.test/queue" } }
   )
 ]);
@@ -321,6 +327,7 @@ assert.equal(revokedState.settings.pairingToken, "");
 assert.equal(storage.has(BrowserAnnotationConstants.STORAGE_KEYS.pairingToken), false);
 
 const persistentFetchCalls = [];
+let failThreadTargetsRefresh = false;
 context.fetch = async (input, init = {}) => {
   const url = String(input);
   const authorization = init.headers && init.headers.Authorization;
@@ -361,6 +368,9 @@ context.fetch = async (input, init = {}) => {
   }
   if (url.includes("/extension/threads")) {
     assert.equal(authorization, "Bearer binding-token-smoke");
+    if (failThreadTargetsRefresh) {
+      throw new Error("catalog refresh temporarily unavailable");
+    }
     return jsonResponse({
       ok: true,
       groups: [
@@ -400,12 +410,41 @@ context.fetch = async (input, init = {}) => {
       }
     });
   }
+  if (url.includes("/assets/upload")) {
+    assert.equal(authorization, "Bearer scoped-thread-token");
+    assert.equal(url.includes("sessionId=scoped-session-selector-1"), true);
+    assert.equal(url.includes("threadId=thread-selector-1"), true);
+    assert.equal(init.body.get("kind"), "screenshot");
+    assert.equal(init.body.get("file").type, "image/png");
+    return jsonResponse({
+      ok: true,
+      asset: {
+        id: "uploaded-screenshot-asset-1",
+        kind: "screenshot",
+        mimeType: "image/png",
+        sizeBytes: 3,
+        fileName: "annotation-screenshot.png",
+        absolutePath: "/tmp/codex-web-uploads/annotation-smoke/annotation-screenshot.png",
+        localImageUrl: "/codex-local-image?path=%2Ftmp%2Fcodex-web-uploads%2Fannotation-smoke%2Fannotation-screenshot.png",
+        sessionId: "scoped-session-selector-1",
+        threadId: "thread-selector-1"
+      }
+    });
+  }
   if (url.includes("/annotation-batch")) {
     assert.equal(authorization, "Bearer scoped-thread-token");
     assert.equal(url.includes("sessionId=scoped-session-selector-1"), true);
     assert.equal(url.includes("threadId=thread-selector-1"), true);
     const body = JSON.parse(init.body);
     assert.equal(body.targetThreadId, "thread-selector-1");
+    assert.equal(body.assets.length, 1);
+    assert.equal(body.assets[0].id, "uploaded-screenshot-asset-1");
+    assert.equal(body.assets[0].kind, "annotation-screenshot");
+    assert.equal(body.assets[0].mimeType, "image/png");
+    assert.equal(body.assets[0].byteLength, 3);
+    assert.equal(body.assets[0].storageKey, "/codex-local-image?path=%2Ftmp%2Fcodex-web-uploads%2Fannotation-smoke%2Fannotation-screenshot.png");
+    assert.equal(body.items[0].screenshotAssetId, "uploaded-screenshot-asset-1");
+    assert.equal(JSON.stringify(body).includes("data:image"), false);
     return jsonResponse({
       ok: true,
       result: {
@@ -413,7 +452,7 @@ context.fetch = async (input, init = {}) => {
         threadId: "thread-selector-1",
         batchId: body.batchId,
         annotationCount: body.items.length,
-        imageCount: 0,
+        imageCount: 1,
         consoleCount: 0,
         networkCount: 0,
         queuedMessageId: "queued-selector-batch"
@@ -456,6 +495,22 @@ assert.equal(selectedTargetState.ok, true);
 assert.equal(storage.get(BrowserAnnotationConstants.STORAGE_KEYS.threadTarget).selectedThreadId, "thread-selector-1");
 assert.equal(selectedTargetState.state.threadTargets.selectedThreadId, "thread-selector-1");
 assert.equal(selectedTargetState.state.threadTargets.selectedThread.title, "Ресерч browser remote extension");
+assert.equal(storage.get(BrowserAnnotationConstants.STORAGE_KEYS.threadTargetCatalog).groups[0].threads[0].id, "thread-selector-1");
+
+failThreadTargetsRefresh = true;
+const staleCatalogState = await context.handleMessage({
+  type: BrowserAnnotationConstants.MESSAGE_TYPES.GET_STATE
+});
+assert.equal(staleCatalogState.ok, true);
+assert.equal(staleCatalogState.state.threadTargets.status, "stale");
+assert.equal(staleCatalogState.state.threadTargets.catalogStale, true);
+assert.match(staleCatalogState.state.threadTargets.detail, /Refresh failed/);
+assert.equal(staleCatalogState.state.threadTargets.groups[0].projectName, "codexUI");
+assert.equal(staleCatalogState.state.threadTargets.groups[0].threads[0].id, "thread-selector-1");
+assert.equal(staleCatalogState.state.threadTargets.selectedThreadId, "thread-selector-1");
+assert.equal(staleCatalogState.state.threadTargets.selectedThread.title, "Ресерч browser remote extension");
+assert.equal(storage.get(BrowserAnnotationConstants.STORAGE_KEYS.threadTarget).selectedThreadId, "thread-selector-1");
+failThreadTargetsRefresh = false;
 
 activeTabs.splice(0, activeTabs.length, {
   id: 101,
@@ -486,16 +541,36 @@ assert.equal(pageStateQueue[0].kind, "devtools/page-state");
 assert.equal(pageStateQueue[0].noteText, "Capture current page behavior");
 assert.equal(storage.get(BrowserAnnotationConstants.STORAGE_KEYS.binding).token, "binding-token-smoke");
 assert.equal(persistentFetchCalls.some((call) => call.url.includes("/listen/stop")), false);
+pageStateQueue[0].screenshot = {
+  state: "ready",
+  capturedAtIso: "2026-06-16T14:31:00.000Z",
+  thumbnail: {
+    dataUrl: "data:image/png;base64,QUJD",
+    width: 3,
+    height: 1
+  }
+};
+pageStateQueue[0].preview = {
+  dataUrl: "data:image/png;base64,QUJD",
+  width: 3,
+  height: 1
+};
+storage.set(annotationQueueKey, pageStateQueue);
 
 const sentScopedBatch = await context.handleMessage({
   type: BrowserAnnotationConstants.MESSAGE_TYPES.SEND_ANNOTATION_BATCH
 });
 assert.equal(sentScopedBatch.ok, true);
 assert.equal(sentScopedBatch.result.threadId, "thread-selector-1");
+assert.equal(sentScopedBatch.result.imageCount, 1);
 assert.equal(JSON.stringify(sentScopedBatch.state).includes("scoped-thread-token"), false);
 assert.equal(storage.get(annotationQueueKey).length, 0);
 assert.equal(persistentFetchCalls.some((call) => call.url.includes("/listen/bind-thread")), true);
 assert.equal(persistentFetchCalls.some((call) => call.url.includes("/annotation-batch")), true);
+assert.ok(
+  persistentFetchCalls.findIndex((call) => call.url.includes("/assets/upload")) <
+    persistentFetchCalls.findIndex((call) => call.url.includes("/annotation-batch"))
+);
 
 const disconnectedPersistent = await context.handleMessage({
   type: BrowserAnnotationConstants.MESSAGE_TYPES.DISCONNECT_BINDING
@@ -635,6 +710,18 @@ function createChromeStub(
 
 function delay(ms) {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
+}
+
+async function waitForStoredState(key, predicate, timeoutMs = 1000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const value = storage.get(key);
+    if (predicate(value)) {
+      return value;
+    }
+    await delay(10);
+  }
+  return storage.get(key);
 }
 
 function deferred() {

@@ -75,6 +75,26 @@
     return url.toString();
   }
 
+  function buildProControlPollUrl(serverUrl) {
+    const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
+    return new URL(constants.PRO_CONTROL_POLL_PATH, `${normalizedServerUrl}/`).toString();
+  }
+
+  function buildProControlTaskStatusUrl(serverUrl, taskId) {
+    const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
+    return new URL(`${constants.PRO_CONTROL_TASK_STATUS_PATH}/${encodeURIComponent(taskId)}/status`, `${normalizedServerUrl}/`).toString();
+  }
+
+  function buildProControlTaskResultUrl(serverUrl, taskId) {
+    const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
+    return new URL(`${constants.PRO_CONTROL_TASK_STATUS_PATH}/${encodeURIComponent(taskId)}/result`, `${normalizedServerUrl}/`).toString();
+  }
+
+  function buildProControlResultFilesUrl(serverUrl) {
+    const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
+    return new URL(constants.PRO_CONTROL_RESULT_FILES_PATH, `${normalizedServerUrl}/`).toString();
+  }
+
   function appendSessionParams(url, session) {
     if (session && session.sessionId) {
       url.searchParams.set("sessionId", session.sessionId);
@@ -195,6 +215,10 @@
     buildBindingStartUrl,
     buildBindingStatusUrl,
     buildBrowserBindingRevokeUrl,
+    buildProControlPollUrl,
+    buildProControlResultFilesUrl,
+    buildProControlTaskResultUrl,
+    buildProControlTaskStatusUrl,
     buildListenBindThreadUrl,
     buildListenBindUrl,
     buildListenStopUrl,

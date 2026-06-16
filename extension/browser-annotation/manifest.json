@@ -23,7 +23,10 @@
   "permissions": [
     "activeTab",
     "alarms",
+    "clipboardRead",
+    "clipboardWrite",
     "debugger",
+    "downloads",
     "scripting",
     "tabs",
     "sidePanel",
@@ -36,6 +39,7 @@
     "http://localhost/*"
   ],
   "optional_host_permissions": [
+    "https://chatgpt.com/*",
     "http://*/*",
     "https://*/*"
   ]
