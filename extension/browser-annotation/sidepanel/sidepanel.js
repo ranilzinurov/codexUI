@@ -388,6 +388,13 @@
       return "Connection state is unavailable.";
     }
 
+    if (connection.status === "connected" && connection.binding) {
+      const expiry = formatDateTime(connection.binding.expiresAtIso);
+      return expiry
+        ? `Browser binding validated. Expires ${expiry}.`
+        : "Browser binding validated.";
+    }
+
     if (connection.status === "connected" && connection.session) {
       const expiry = formatDateTime(connection.session.expiresAtIso);
       return expiry
@@ -403,7 +410,9 @@
       return "Settings saved locally in the extension.";
     }
     if (connection.status === "connected") {
-      return connection.session && connection.session.tokenType === "extension"
+      return connection.binding && connection.binding.tokenType === "browser-binding"
+        ? "Browser binding connected."
+        : connection.session && connection.session.tokenType === "extension"
         ? "Persistent binding connected."
         : "Pairing token validated.";
     }
@@ -467,9 +476,19 @@
       return String(binding.detail);
     }
     const session = binding.session && typeof binding.session === "object" ? binding.session : {};
+    if (binding.reconnectRequired) {
+      return binding.detail || "Reconnect required.";
+    }
+    const bindingId = binding.bindingId || (binding.binding && binding.binding.bindingId);
     const threadId = binding.threadId || session.threadId;
     const expiresAtIso = binding.expiresAtIso || session.expiresAtIso;
     const expiry = formatDateTime(expiresAtIso);
+    if (bindingId && expiry) {
+      return `Browser binding ${truncateText(bindingId, 12)}. Expires ${expiry}.`;
+    }
+    if (bindingId) {
+      return `Browser binding ${truncateText(bindingId, 12)}.`;
+    }
     if (threadId && expiry) {
       return `Thread ${threadId}. Expires ${expiry}.`;
     }
@@ -643,8 +662,10 @@
 
   function updateSendButton(isBusy) {
     const itemCount = lastState && Array.isArray(lastState.queue) ? lastState.queue.length : 0;
-    const connected = lastState && lastState.connection.status === "connected";
-    elements.sendBatch.disabled = isBusy || itemCount === 0 || !connected;
+    const legacySessionConnected = lastState &&
+      lastState.connection.status === "connected" &&
+      lastState.connection.session;
+    elements.sendBatch.disabled = isBusy || itemCount === 0 || !legacySessionConnected;
   }
 
   function applyQueueResponse(response) {

@@ -43,12 +43,28 @@ assert.equal(
   "https://annotate.todo-tg-app.ru/codex-api/extension/listen/status"
 );
 
-const defaultBindUrl = BrowserAnnotationPairingClient.buildListenBindUrl(
+const defaultBindingCompleteUrl = BrowserAnnotationPairingClient.buildBindingCompleteUrl(
   "https://annotate.todo-tg-app.ru/"
 );
 assert.equal(
-  defaultBindUrl,
-  "https://annotate.todo-tg-app.ru/codex-api/extension/listen/bind"
+  defaultBindingCompleteUrl,
+  "https://annotate.todo-tg-app.ru/codex-api/extension/binding/complete"
+);
+
+const defaultBindingStatusUrl = BrowserAnnotationPairingClient.buildBindingStatusUrl(
+  "https://annotate.todo-tg-app.ru/"
+);
+assert.equal(
+  defaultBindingStatusUrl,
+  "https://annotate.todo-tg-app.ru/codex-api/extension/binding/status"
+);
+
+const defaultBindingRevokeUrl = BrowserAnnotationPairingClient.buildBrowserBindingRevokeUrl(
+  "https://annotate.todo-tg-app.ru/"
+);
+assert.equal(
+  defaultBindingRevokeUrl,
+  "https://annotate.todo-tg-app.ru/codex-api/extension/binding/revoke"
 );
 
 const defaultStopUrl = BrowserAnnotationPairingClient.buildListenStopUrl(
@@ -57,14 +73,6 @@ const defaultStopUrl = BrowserAnnotationPairingClient.buildListenStopUrl(
 assert.equal(
   defaultStopUrl,
   "https://annotate.todo-tg-app.ru/codex-api/extension/listen/stop"
-);
-
-const defaultBindingRevokeUrl = BrowserAnnotationPairingClient.buildBindingRevokeUrl(
-  "https://annotate.todo-tg-app.ru/"
-);
-assert.equal(
-  defaultBindingRevokeUrl,
-  "https://annotate.todo-tg-app.ru/codex-api/extension/listen/binding/revoke"
 );
 
 const localStatusUrl = BrowserAnnotationPairingClient.buildListenStatusUrl(
@@ -133,6 +141,34 @@ assert.deepEqual(JSON.parse(JSON.stringify(session)), {
   tokenType: "extension",
   lastUsedAtIso: "2026-05-28T00:03:00.000Z",
   extensionToken: "extension-token-1"
+});
+
+const binding = BrowserAnnotationPairingClient.readBindingFromStatusPayload({
+  ok: true,
+  binding: {
+    bindingId: "binding-1",
+    status: "active",
+    serverUrl: null,
+    serverPath: "/codex-api/extension/binding",
+    expiresAtIso: "2027-05-28T00:10:00.000Z",
+    createdAtIso: "2026-05-28T00:00:00.000Z",
+    tokenType: "browser-binding",
+    lastUsedAtIso: "2026-05-28T00:03:00.000Z",
+    bindingToken: "binding-token-1",
+    threadId: "must-not-be-used",
+    sessionId: "must-not-be-used"
+  }
+});
+assert.deepEqual(JSON.parse(JSON.stringify(binding)), {
+  bindingId: "binding-1",
+  status: "active",
+  tokenType: "browser-binding",
+  serverUrl: null,
+  serverPath: "/codex-api/extension/binding",
+  expiresAtIso: "2027-05-28T00:10:00.000Z",
+  createdAtIso: "2026-05-28T00:00:00.000Z",
+  lastUsedAtIso: "2026-05-28T00:03:00.000Z",
+  bindingToken: "binding-token-1"
 });
 
 const error = BrowserAnnotationPairingClient.readStatusError(

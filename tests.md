@@ -8773,3 +8773,43 @@ Automation editor small-viewport scrolling, sticky actions, app dropdown control
 - Delete any disposable automation created during manual testing.
 - Remove temporary TestChat threads if mocked data was not used.
 - Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
+
+---
+
+### Browser Annotation Browser Binding
+
+#### Feature/Change Name
+Extension-level Browser Binding for browser annotation pairing.
+
+#### Prerequisites/Setup
+1. Use a branch containing the browser binding endpoint and extension updates.
+2. Run the focused checks from the repository root:
+   - `pnpm exec vitest run src/server/browserAnnotationBinding.test.ts src/server/browserAnnotationListen.test.ts`
+   - `node extension/browser-annotation/dev/pairing-client-smoke.mjs`
+   - `node extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.mjs`
+3. For manual UI verification, load `extension/browser-annotation` as an unpacked Chrome extension.
+4. Start Codex UI locally with `pnpm run dev --host 127.0.0.1 --port 4173`.
+
+#### Steps
+1. In Codex UI, create or obtain a browser binding pairing code from the authenticated app surface.
+2. Open the extension side panel on an ordinary `http(s)` page.
+3. In light theme, set `Server URL` to the local or HTTPS Codex UI server and paste the browser binding pairing code.
+4. Click `Save and validate`.
+5. Confirm the extension reports a connected browser binding without showing a thread id or session id.
+6. Confirm the side panel does not expose the binding bearer token in visible UI state.
+7. Seed or simulate a legacy thread-level listen binding in extension local storage and refresh the side panel.
+8. Confirm the extension shows a reconnect-required state instead of silently using the legacy listen token.
+9. Click disconnect and confirm the browser binding is cleared locally.
+10. Repeat the visible side panel checks in dark theme.
+
+#### Expected Results
+- Browser Binding pairing succeeds without selecting or creating a thread-level listen session.
+- Binding status uses `/codex-api/extension/binding/status` and does not return the bearer token in public state.
+- Legacy listen-session bindings are treated as obsolete and require reconnect.
+- `Send Queue` is not enabled by the new browser binding alone until a later Annotation Destination flow is implemented.
+- Light and dark themes both show connected, reconnect-required, and disconnected states with readable text.
+
+#### Rollback/Cleanup
+- Remove the unpacked extension if it was loaded only for this test.
+- Clear extension storage for `browserAnnotation.binding`, `browserAnnotation.settings`, and `browserAnnotation.pairingToken` if manual test data remains.
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
