@@ -31,6 +31,27 @@
           <button id="injectOverlay" class="button button-primary" type="button">Inject Overlay</button>
         </section>
 
+        <section class="section target-section" aria-labelledby="targetHeading">
+          <div class="status-row">
+            <span id="targetHeading">Destination</span>
+            <strong id="targetStatus">Choose thread</strong>
+          </div>
+          <div class="target-grid">
+            <label class="field field-compact">
+              <span>Project</span>
+              <select id="targetProject" class="target-select"></select>
+            </label>
+            <label class="field field-compact">
+              <span>Thread</span>
+              <select id="targetThread" class="target-select"></select>
+            </label>
+          </div>
+          <div class="compact-controls">
+            <button id="refreshThreadTargets" class="button button-secondary button-compact" type="button">Refresh</button>
+          </div>
+          <p id="targetDetail" class="muted">Connect browser binding, then choose the thread that receives queued annotations.</p>
+        </section>
+
         <section class="section devtools-section" aria-labelledby="devtoolsHeading">
           <div class="status-row">
             <span id="devtoolsHeading">DevTools</span>

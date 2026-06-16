@@ -67,6 +67,22 @@ assert.equal(
   "https://annotate.todo-tg-app.ru/codex-api/extension/binding/revoke"
 );
 
+const defaultThreadTargetsUrl = BrowserAnnotationPairingClient.buildThreadTargetsUrl(
+  "https://annotate.todo-tg-app.ru/"
+);
+assert.equal(
+  defaultThreadTargetsUrl,
+  "https://annotate.todo-tg-app.ru/codex-api/extension/threads"
+);
+
+const defaultBindThreadUrl = BrowserAnnotationPairingClient.buildListenBindThreadUrl(
+  "https://annotate.todo-tg-app.ru/"
+);
+assert.equal(
+  defaultBindThreadUrl,
+  "https://annotate.todo-tg-app.ru/codex-api/extension/listen/bind-thread"
+);
+
 const defaultStopUrl = BrowserAnnotationPairingClient.buildListenStopUrl(
   "https://annotate.todo-tg-app.ru/"
 );

@@ -16,6 +16,11 @@
     connectionStatus: document.getElementById("connectionStatus"),
     connectionDetail: document.getElementById("connectionDetail"),
     injectOverlay: document.getElementById("injectOverlay"),
+    targetStatus: document.getElementById("targetStatus"),
+    targetDetail: document.getElementById("targetDetail"),
+    targetProject: document.getElementById("targetProject"),
+    targetThread: document.getElementById("targetThread"),
+    refreshThreadTargets: document.getElementById("refreshThreadTargets"),
     tabStatus: document.getElementById("tabStatus"),
     tabDetail: document.getElementById("tabDetail"),
     devtoolsStatus: document.getElementById("devtoolsStatus"),
@@ -47,6 +52,9 @@
 
   elements.saveSettings.addEventListener("click", saveSettings);
   elements.injectOverlay.addEventListener("click", injectOverlay);
+  elements.targetProject.addEventListener("change", handleTargetProjectChange);
+  elements.targetThread.addEventListener("change", selectThreadTarget);
+  elements.refreshThreadTargets.addEventListener("click", refreshState);
   elements.enableDevtools.addEventListener("click", enableDevtoolsCapture);
   elements.disableDevtools.addEventListener("click", disableDevtoolsCapture);
   elements.pageStateNote.addEventListener("input", () => updatePageStateButton(false));
@@ -267,6 +275,7 @@
     elements.connectionStatus.textContent = connectionLabel(state.connection.status);
     elements.connectionDetail.textContent = connectionDetail(state.connection);
     renderPersistentBinding(state);
+    renderThreadTargets(state.threadTargets);
     renderQueue(state.queue);
     renderDevtoolsStatus(state.devtoolsCapture || lastDevtoolsStatus);
     updateSendButton(false);
@@ -359,6 +368,9 @@
     elements.saveSettings.disabled = isBusy;
     elements.injectOverlay.disabled =
       isBusy || !lastState || !lastState.activeTab || lastState.activeTab.restricted;
+    elements.targetProject.disabled = isBusy || !canUseThreadTargets(lastState && lastState.threadTargets);
+    elements.targetThread.disabled = isBusy || !canUseThreadTargets(lastState && lastState.threadTargets) || !elements.targetProject.value;
+    elements.refreshThreadTargets.disabled = isBusy || !hasBrowserBindingConnection(lastState);
     if (!elements.disconnectPersistentBinding.hidden) {
       elements.disconnectPersistentBinding.disabled = isBusy;
     }
@@ -439,6 +451,210 @@
       Boolean(binding.token || binding.persistentToken || binding.session || binding.sessionId || binding.bindingId);
     elements.disconnectPersistentBinding.hidden = !canDisconnect;
     elements.disconnectPersistentBinding.disabled = !canDisconnect;
+  }
+
+  function renderThreadTargets(threadTargets) {
+    const normalized = normalizeThreadTargets(threadTargets);
+    const groups = normalized.groups;
+    const selectedThreadId = normalized.selectedThreadId;
+    const selectedThread = normalized.selectedThread;
+    const selectedProjectKey = selectedThread
+      ? projectKeyForTarget(selectedThread)
+      : readProjectSelectValue(groups, elements.targetProject.value);
+
+    elements.targetStatus.textContent = threadTargetStatusLabel(normalized, selectedThread);
+    elements.targetStatus.classList.toggle("status-active", Boolean(selectedThread));
+    elements.targetStatus.classList.toggle("status-error", normalized.status === "error");
+    elements.targetDetail.textContent = threadTargetDetail(normalized, selectedThread);
+
+    replaceSelectOptions(elements.targetProject, [
+      { value: "", label: "Choose project..." },
+      ...groups.map((group) => ({
+        value: projectKey(group),
+        label: group.projectName || group.cwd || "Projectless"
+      }))
+    ], selectedProjectKey);
+
+    const activeGroup = groups.find((group) => projectKey(group) === elements.targetProject.value) || null;
+    replaceSelectOptions(elements.targetThread, [
+      { value: "", label: "Choose thread..." },
+      ...(activeGroup ? activeGroup.threads.map((thread) => ({
+        value: thread.id,
+        label: thread.title || thread.preview || thread.id
+      })) : [])
+    ], selectedThreadId && activeGroup && activeGroup.threads.some((thread) => thread.id === selectedThreadId)
+      ? selectedThreadId
+      : "");
+
+    const usable = canUseThreadTargets(normalized);
+    elements.targetProject.disabled = !usable;
+    elements.targetThread.disabled = !usable || !elements.targetProject.value;
+    elements.refreshThreadTargets.disabled = !hasBrowserBindingConnection(lastState);
+  }
+
+  function normalizeThreadTargets(threadTargets) {
+    const source = threadTargets && typeof threadTargets === "object" ? threadTargets : {};
+    const groups = Array.isArray(source.groups)
+      ? source.groups.map((group) => ({
+        projectName: String(group.projectName || "").trim(),
+        cwd: String(group.cwd || "").trim(),
+        threads: Array.isArray(group.threads)
+          ? group.threads.map((thread) => ({
+            id: String(thread.id || "").trim(),
+            title: String(thread.title || thread.preview || thread.id || "").trim(),
+            preview: String(thread.preview || "").trim(),
+            updatedAtIso: String(thread.updatedAtIso || "").trim(),
+            cwd: String(thread.cwd || "").trim()
+          })).filter((thread) => thread.id)
+          : []
+      })).filter((group) => group.projectName || group.threads.length > 0)
+      : [];
+    const selectedThreadId = String(source.selectedThreadId || "").trim();
+    const selectedThread = source.selectedThread && typeof source.selectedThread === "object"
+      ? source.selectedThread
+      : findThreadTarget(groups, selectedThreadId);
+    return {
+      status: String(source.status || "unavailable"),
+      detail: String(source.detail || ""),
+      groups,
+      selectedThreadId,
+      selectedThread
+    };
+  }
+
+  function threadTargetStatusLabel(threadTargets, selectedThread) {
+    if (selectedThread) return "Selected";
+    if (threadTargets.status === "error") return "Error";
+    if (threadTargets.status === "ready") return "Choose thread";
+    return "Unavailable";
+  }
+
+  function threadTargetDetail(threadTargets, selectedThread) {
+    if (selectedThread) {
+      const projectName = selectedThread.projectName || projectNameForSelectedThread(threadTargets.groups, selectedThread.id);
+      const title = selectedThread.title || selectedThread.preview || selectedThread.id;
+      return projectName ? `${projectName} / ${title}` : title;
+    }
+    if (threadTargets.status === "ready") {
+      return "Choose a destination thread before sending the queue.";
+    }
+    return threadTargets.detail || "Connect browser binding, then choose the thread that receives queued annotations.";
+  }
+
+  function canUseThreadTargets(threadTargets) {
+    return Boolean(threadTargets && threadTargets.status === "ready" && Array.isArray(threadTargets.groups) && threadTargets.groups.length > 0);
+  }
+
+  function hasBrowserBindingConnection(state) {
+    return Boolean(
+      state &&
+      state.connection &&
+      state.connection.status === "connected" &&
+      state.connection.binding
+    );
+  }
+
+  function hasSelectedThreadTarget(state) {
+    if (!state || !state.connection || state.connection.status !== "connected") return false;
+    if (state.connection.session) return true;
+    const targets = normalizeThreadTargets(state.threadTargets);
+    return Boolean(state.connection.binding && targets.selectedThreadId && targets.selectedThread);
+  }
+
+  function projectKey(group) {
+    return `${group.projectName || ""}\n${group.cwd || ""}`;
+  }
+
+  function projectKeyForTarget(target) {
+    return `${target.projectName || ""}\n${target.projectCwd || target.cwd || ""}`;
+  }
+
+  function readProjectSelectValue(groups, currentValue) {
+    if (groups.some((group) => projectKey(group) === currentValue)) {
+      return currentValue;
+    }
+    return "";
+  }
+
+  function projectNameForSelectedThread(groups, threadId) {
+    for (const group of groups) {
+      if (group.threads.some((thread) => thread.id === threadId)) {
+        return group.projectName;
+      }
+    }
+    return "";
+  }
+
+  function findThreadTarget(groups, threadId) {
+    if (!threadId) return null;
+    for (const group of groups) {
+      const match = group.threads.find((thread) => thread.id === threadId);
+      if (match) {
+        return {
+          ...match,
+          projectName: group.projectName,
+          projectCwd: group.cwd
+        };
+      }
+    }
+    return null;
+  }
+
+  function replaceSelectOptions(select, options, selectedValue) {
+    select.replaceChildren(...options.map((option) => {
+      const element = document.createElement("option");
+      element.value = option.value;
+      element.textContent = option.label;
+      return element;
+    }));
+    select.value = options.some((option) => option.value === selectedValue) ? selectedValue : "";
+  }
+
+  async function handleTargetProjectChange() {
+    const projectValue = elements.targetProject.value;
+    const targets = normalizeThreadTargets(lastState && lastState.threadTargets);
+    if (!targets.selectedThreadId) {
+      renderThreadTargets(lastState && lastState.threadTargets);
+      return;
+    }
+    setBusy(true);
+    try {
+      const response = await sendRuntimeMessage({
+        type: MESSAGE_TYPES.SELECT_THREAD_TARGET,
+        threadId: ""
+      });
+      renderState(response.state);
+      elements.targetProject.value = projectValue;
+      renderThreadTargets({
+        ...response.state.threadTargets,
+        selectedThreadId: "",
+        selectedThread: null
+      });
+    } catch (error) {
+      setMessage(error.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function selectThreadTarget() {
+    const threadId = elements.targetThread.value;
+    setBusy(true);
+    try {
+      const response = await sendRuntimeMessage({
+        type: MESSAGE_TYPES.SELECT_THREAD_TARGET,
+        threadId
+      });
+      renderState(response.state);
+      setMessage(
+        threadId ? "Destination thread selected." : "Choose a destination thread before sending the queue.",
+        threadId ? "ok" : "neutral"
+      );
+    } catch (error) {
+      setMessage(error.message, "error");
+    } finally {
+      setBusy(false);
+    }
   }
 
   function readPersistentBinding(state) {
@@ -662,10 +878,7 @@
 
   function updateSendButton(isBusy) {
     const itemCount = lastState && Array.isArray(lastState.queue) ? lastState.queue.length : 0;
-    const legacySessionConnected = lastState &&
-      lastState.connection.status === "connected" &&
-      lastState.connection.session;
-    elements.sendBatch.disabled = isBusy || itemCount === 0 || !legacySessionConnected;
+    elements.sendBatch.disabled = isBusy || itemCount === 0 || !hasSelectedThreadTarget(lastState);
   }
 
   function applyQueueResponse(response) {

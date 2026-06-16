@@ -197,7 +197,8 @@ h1 {
   font-weight: 700;
 }
 
-input {
+input,
+select {
   width: 100%;
   min-height: 34px;
   color: var(--text);
@@ -206,6 +207,19 @@ input {
   border-radius: 6px;
   padding: 7px 9px;
   font: inherit;
+}
+
+select {
+  appearance: none;
+  padding-right: 28px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 15px) 50%,
+    calc(100% - 10px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
 }
 
 textarea {
@@ -231,9 +245,25 @@ textarea {
 }
 
 input:focus,
+select:focus,
 textarea:focus {
   border-color: var(--accent);
   outline: 2px solid color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.target-section {
+  gap: 8px;
+}
+
+.target-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.target-select:disabled {
+  opacity: 0.62;
+  cursor: not-allowed;
 }
 
 .toggle-row {

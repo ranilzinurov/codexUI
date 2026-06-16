@@ -8887,3 +8887,43 @@ Remove obsolete thread-menu `Listen` browser annotation action.
 
 #### Rollback/Cleanup
 - Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
+
+---
+
+### Browser Annotation Extension Thread Selector
+
+#### Feature/Change Name
+Choose the Codex project/thread destination inside the Browser Annotation extension.
+
+#### Prerequisites/Setup
+1. Use a branch containing the extension thread selector change.
+2. Run the focused checks from the repository root:
+   - `pnpm exec vitest run src/server/browserAnnotationListen.test.ts src/server/browserAnnotationThreads.test.ts src/App.browserAnnotationExtensionSidepanel.test.ts`
+   - `node extension/browser-annotation/dev/pairing-client-smoke.mjs`
+   - `node extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.mjs`
+   - `pnpm run pack:browser-annotation`
+   - `pnpm run build:frontend`
+3. For manual UI verification, start Codex UI with `pnpm run dev --host 127.0.0.1 --port 4173`.
+4. Load `extension/browser-annotation` or the packaged unpacked extension as an unpacked Chrome extension.
+
+#### Steps
+1. Open Codex UI in light theme.
+2. In Codex UI, open `Settings` > `Advanced` > `Browser binding`, create a Browser Binding code, and copy the Server URL and code.
+3. In the extension side panel, open `Settings`, paste the Server URL and Browser Binding code, then click `Save and validate`.
+4. Return to `Main` and confirm the `Destination` section appears with `Project`, `Thread`, and `Refresh`.
+5. Select the `codexUI` project and the active browser annotation thread.
+6. Add one annotation or page note to the queue.
+7. Confirm `Send Queue` is disabled until a thread is selected, then enabled after selecting a thread.
+8. Click `Send Queue` and confirm the batch appears in the selected Codex UI thread.
+9. Switch Codex UI and the extension side panel to dark theme and repeat steps 4-8.
+
+#### Expected Results
+- The extension lists recent Codex projects and threads after persistent Browser Binding validation.
+- The user selects the destination in the extension; no old Codex UI `Listen` action is required.
+- Sending the queue creates a scoped listen session for the selected thread and leaves the persistent Browser Binding connected.
+- Light and dark theme dropdowns, status text, buttons, and queue controls remain readable.
+
+#### Rollback/Cleanup
+- Disconnect the extension binding if manual validation created one.
+- Clear extension storage for `browserAnnotation.binding`, `browserAnnotation.threadTarget`, `browserAnnotation.settings`, and `browserAnnotation.pairingToken` if needed.
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.

@@ -324,7 +324,7 @@ const persistentFetchCalls = [];
 context.fetch = async (input, init = {}) => {
   const url = String(input);
   const authorization = init.headers && init.headers.Authorization;
-  persistentFetchCalls.push({ url, method: init.method || "GET", authorization });
+  persistentFetchCalls.push({ url, method: init.method || "GET", authorization, body: init.body ? String(init.body) : "" });
   if (url.includes("/binding/revoke")) {
     assert.equal(authorization, "Bearer binding-token-smoke");
     return jsonResponse({
@@ -359,6 +359,67 @@ context.fetch = async (input, init = {}) => {
       binding: persistentBindingPayload()
     });
   }
+  if (url.includes("/extension/threads")) {
+    assert.equal(authorization, "Bearer binding-token-smoke");
+    return jsonResponse({
+      ok: true,
+      groups: [
+        {
+          projectName: "codexUI",
+          cwd: "/home/rnl1/prog/codexUI",
+          threads: [
+            {
+              id: "thread-selector-1",
+              title: "Ресерч browser remote extension",
+              preview: "ок, законнектился",
+              updatedAtIso: "2026-06-16T14:30:00.000Z",
+              cwd: "/home/rnl1/prog/codexUI"
+            }
+          ]
+        }
+      ]
+    });
+  }
+  if (url.includes("/listen/bind-thread")) {
+    assert.equal(authorization, "Bearer binding-token-smoke");
+    const body = JSON.parse(init.body);
+    assert.equal(body.threadId, "thread-selector-1");
+    return jsonResponse({
+      ok: true,
+      session: {
+        sessionId: "scoped-session-selector-1",
+        threadId: "thread-selector-1",
+        status: "active",
+        tokenType: "extension",
+        serverUrl: "https://codex-ui.todo-tg-app.ru",
+        serverPath: "/codex-api/extension/listen",
+        expiresAtIso: "2026-07-16T14:30:00.000Z",
+        createdAtIso: "2026-06-16T14:30:00.000Z",
+        lastUsedAtIso: "2026-06-16T14:30:00.000Z",
+        extensionToken: "scoped-thread-token"
+      }
+    });
+  }
+  if (url.includes("/annotation-batch")) {
+    assert.equal(authorization, "Bearer scoped-thread-token");
+    assert.equal(url.includes("sessionId=scoped-session-selector-1"), true);
+    assert.equal(url.includes("threadId=thread-selector-1"), true);
+    const body = JSON.parse(init.body);
+    assert.equal(body.targetThreadId, "thread-selector-1");
+    return jsonResponse({
+      ok: true,
+      result: {
+        status: "queued",
+        threadId: "thread-selector-1",
+        batchId: body.batchId,
+        annotationCount: body.items.length,
+        imageCount: 0,
+        consoleCount: 0,
+        networkCount: 0,
+        queuedMessageId: "queued-selector-batch"
+      }
+    });
+  }
   throw new Error(`Unexpected persistent smoke fetch: ${url}`);
 };
 
@@ -382,7 +443,19 @@ assert.equal(savedPersistentState.state.connection.authToken, undefined);
 assert.equal(savedPersistentState.state.persistentBinding.status, "active");
 assert.equal(savedPersistentState.state.persistentBinding.bindingId, "browser-binding-smoke");
 assert.equal(savedPersistentState.state.persistentBinding.token, undefined);
+assert.equal(savedPersistentState.state.threadTargets.status, "ready");
+assert.equal(savedPersistentState.state.threadTargets.groups[0].projectName, "codexUI");
+assert.equal(savedPersistentState.state.threadTargets.groups[0].threads[0].id, "thread-selector-1");
 assert.equal(JSON.stringify(savedPersistentState.state).includes("binding-token-smoke"), false);
+
+const selectedTargetState = await context.handleMessage({
+  type: BrowserAnnotationConstants.MESSAGE_TYPES.SELECT_THREAD_TARGET,
+  threadId: "thread-selector-1"
+});
+assert.equal(selectedTargetState.ok, true);
+assert.equal(storage.get(BrowserAnnotationConstants.STORAGE_KEYS.threadTarget).selectedThreadId, "thread-selector-1");
+assert.equal(selectedTargetState.state.threadTargets.selectedThreadId, "thread-selector-1");
+assert.equal(selectedTargetState.state.threadTargets.selectedThread.title, "Ресерч browser remote extension");
 
 activeTabs.splice(0, activeTabs.length, {
   id: 101,
@@ -413,6 +486,16 @@ assert.equal(pageStateQueue[0].kind, "devtools/page-state");
 assert.equal(pageStateQueue[0].noteText, "Capture current page behavior");
 assert.equal(storage.get(BrowserAnnotationConstants.STORAGE_KEYS.binding).token, "binding-token-smoke");
 assert.equal(persistentFetchCalls.some((call) => call.url.includes("/listen/stop")), false);
+
+const sentScopedBatch = await context.handleMessage({
+  type: BrowserAnnotationConstants.MESSAGE_TYPES.SEND_ANNOTATION_BATCH
+});
+assert.equal(sentScopedBatch.ok, true);
+assert.equal(sentScopedBatch.result.threadId, "thread-selector-1");
+assert.equal(JSON.stringify(sentScopedBatch.state).includes("scoped-thread-token"), false);
+assert.equal(storage.get(annotationQueueKey).length, 0);
+assert.equal(persistentFetchCalls.some((call) => call.url.includes("/listen/bind-thread")), true);
+assert.equal(persistentFetchCalls.some((call) => call.url.includes("/annotation-batch")), true);
 
 const disconnectedPersistent = await context.handleMessage({
   type: BrowserAnnotationConstants.MESSAGE_TYPES.DISCONNECT_BINDING

@@ -27,8 +27,10 @@ const {
   buildBindingCompleteUrl,
   buildBindingStatusUrl,
   buildBrowserBindingRevokeUrl,
+  buildListenBindThreadUrl,
   buildListenStatusUrl,
   buildListenStopUrl,
+  buildThreadTargetsUrl,
   buildTranscribeUrl,
   readJsonSafely,
   readBindingFromStatusPayload,
@@ -197,6 +199,10 @@ async function handleMessage(message, sender) {
     return disconnectBinding();
   }
 
+  if (message.type === MESSAGE_TYPES.SELECT_THREAD_TARGET) {
+    return selectThreadTarget(message.threadId);
+  }
+
   if (message.type === MESSAGE_TYPES.INJECT_OVERLAY) {
     return injectOverlayIntoActiveTab();
   }
@@ -264,10 +270,11 @@ async function getPanelState() {
   const visibleSettings = connection.clearPairingToken
     ? { ...settings, pairingToken: "" }
     : settings;
-  return buildPanelState(visibleSettings, toPublicConnection(connection), activeTab, queue, devtoolsCapture, binding);
+  const threadTargets = await readThreadTargetsState(settings, connection, binding);
+  return buildPanelState(visibleSettings, toPublicConnection(connection), activeTab, queue, devtoolsCapture, binding, threadTargets);
 }
 
-async function buildPanelState(settings, connection, activeTab, queue, devtoolsCapture, binding = null) {
+async function buildPanelState(settings, connection, activeTab, queue, devtoolsCapture, binding = null, threadTargets = null) {
   const tabUrl = activeTab && activeTab.url ? activeTab.url : "";
   const restricted = isRestrictedTabUrl(tabUrl);
   const hostPermissionPattern = restricted ? "" : getTabOriginPattern(tabUrl);
@@ -280,6 +287,7 @@ async function buildPanelState(settings, connection, activeTab, queue, devtoolsC
     settings,
     connection,
     persistentBinding: buildPersistentBindingState(binding, connection),
+    threadTargets: threadTargets || emptyThreadTargetsState("Connect browser binding to choose a destination thread."),
     queue,
     devtoolsCapture: buildDevtoolsCaptureStatus(captureState),
     activeTab: activeTab
@@ -327,6 +335,15 @@ async function saveSettings(rawSettings) {
   return { ok: true, state: await getPanelState() };
 }
 
+async function selectThreadTarget(threadId) {
+  const next = await writeThreadTargetSelection(threadId);
+  return {
+    ok: true,
+    selectedThreadId: next.selectedThreadId,
+    state: await getPanelState()
+  };
+}
+
 async function readSettings() {
   const [stored, pairingToken] = await Promise.all([
     chrome.storage.local.get(STORAGE_KEYS.settings),
@@ -365,6 +382,140 @@ async function clearBinding() {
     return;
   }
   await chrome.storage.local.set({ [STORAGE_KEYS.binding]: null });
+}
+
+async function readThreadTargetSelection() {
+  const stored = await chrome.storage.local.get(STORAGE_KEYS.threadTarget);
+  const value = stored[STORAGE_KEYS.threadTarget];
+  const selectedThreadId = value && typeof value === "object"
+    ? String(value.selectedThreadId || "").trim()
+    : "";
+  return { selectedThreadId };
+}
+
+async function writeThreadTargetSelection(threadId) {
+  const selectedThreadId = String(threadId || "").trim();
+  if (!selectedThreadId) {
+    if (chrome.storage.local.remove) {
+      await chrome.storage.local.remove(STORAGE_KEYS.threadTarget);
+    } else {
+      await chrome.storage.local.set({ [STORAGE_KEYS.threadTarget]: null });
+    }
+    return { selectedThreadId: "" };
+  }
+  const next = { selectedThreadId };
+  await chrome.storage.local.set({ [STORAGE_KEYS.threadTarget]: next });
+  return next;
+}
+
+async function readThreadTargetsState(settings, connection, binding) {
+  const selection = await readThreadTargetSelection();
+  if (!binding || !binding.token || binding.reconnectRequired) {
+    return emptyThreadTargetsState("Connect browser binding to choose a destination thread.", selection.selectedThreadId);
+  }
+  if (!connection || connection.status !== "connected" || !connection.binding) {
+    return emptyThreadTargetsState("Browser binding must be connected before loading threads.", selection.selectedThreadId);
+  }
+
+  let url;
+  try {
+    url = buildThreadTargetsUrl(settings.serverUrl);
+  } catch (error) {
+    return {
+      status: "error",
+      detail: error instanceof Error ? error.message : "Invalid server URL.",
+      groups: [],
+      selectedThreadId: selection.selectedThreadId,
+      selectedThread: null
+    };
+  }
+
+  try {
+    const response = await fetchWithTimeout(url, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${binding.token}`
+      },
+      cache: "no-store"
+    }, STATUS_FETCH_TIMEOUT_MS);
+    const payload = await readJsonSafely(response);
+    if (!response.ok) {
+      throw new Error(readStatusError(payload, `Thread targets request failed (${response.status}).`));
+    }
+    const groups = sanitizeThreadTargetGroups(payload && payload.groups);
+    const selectedThread = findThreadTarget(groups, selection.selectedThreadId);
+    return {
+      status: "ready",
+      detail: groups.length > 0
+        ? "Choose the Codex thread that will receive queued annotations."
+        : "No Codex threads are available yet.",
+      groups,
+      selectedThreadId: selection.selectedThreadId,
+      selectedThread
+    };
+  } catch (error) {
+    return {
+      status: "error",
+      detail: error instanceof Error ? error.message : "Unable to load destination threads.",
+      groups: [],
+      selectedThreadId: selection.selectedThreadId,
+      selectedThread: null
+    };
+  }
+}
+
+function emptyThreadTargetsState(detail, selectedThreadId = "") {
+  return {
+    status: "unavailable",
+    detail,
+    groups: [],
+    selectedThreadId,
+    selectedThread: null
+  };
+}
+
+function sanitizeThreadTargetGroups(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((group) => {
+    const source = group && typeof group === "object" ? group : {};
+    return {
+      projectName: String(source.projectName || "").trim(),
+      cwd: String(source.cwd || "").trim(),
+      threads: Array.isArray(source.threads)
+        ? source.threads.map(sanitizeThreadTarget).filter(Boolean)
+        : []
+    };
+  }).filter((group) => group.projectName || group.threads.length > 0);
+}
+
+function sanitizeThreadTarget(value) {
+  if (!value || typeof value !== "object") return null;
+  const id = String(value.id || "").trim();
+  if (!id) return null;
+  return {
+    id,
+    title: String(value.title || value.preview || id).trim(),
+    preview: String(value.preview || "").trim(),
+    updatedAtIso: String(value.updatedAtIso || "").trim(),
+    cwd: String(value.cwd || "").trim()
+  };
+}
+
+function findThreadTarget(groups, threadId) {
+  const targetId = String(threadId || "").trim();
+  if (!targetId) return null;
+  for (const group of groups) {
+    const match = group.threads.find((thread) => thread.id === targetId);
+    if (match) {
+      return {
+        ...match,
+        projectName: group.projectName,
+        projectCwd: group.cwd
+      };
+    }
+  }
+  return null;
 }
 
 function sanitizeBinding(value) {
@@ -629,6 +780,14 @@ function toPublicConnection(connection) {
     return connection;
   }
   const { authToken: _authToken, ...publicConnection } = connection;
+  if (publicConnection.session && typeof publicConnection.session === "object") {
+    const {
+      extensionToken: _extensionToken,
+      pairingToken: _pairingToken,
+      ...publicSession
+    } = publicConnection.session;
+    publicConnection.session = publicSession;
+  }
   return publicConnection;
 }
 
@@ -860,15 +1019,64 @@ async function addPageStateAnnotation(noteText) {
 async function resolveAuthContext() {
   const settings = await readSettings();
   const connection = await validateConnection(settings, { includeAuth: true });
-  if (connection.status !== "connected" || !connection.session || !connection.authToken) {
+  if (connection.status !== "connected" || !connection.authToken) {
     throw new Error(connection.detail || "Connect the extension before sending annotations.");
   }
-  return {
-    settings,
-    connection,
-    token: connection.authToken,
-    tokenType: connection.session.tokenType || connection.tokenType || "pairing"
-  };
+  if (connection.session) {
+    return {
+      settings,
+      connection,
+      token: connection.authToken,
+      tokenType: connection.session.tokenType || connection.tokenType || "pairing"
+    };
+  }
+  if (connection.binding && connection.binding.tokenType === "browser-binding") {
+    const selection = await readThreadTargetSelection();
+    if (!selection.selectedThreadId) {
+      throw new Error("Choose a destination thread in the extension before sending annotations.");
+    }
+    const session = await bindBrowserBindingToThread(settings, connection.authToken, selection.selectedThreadId);
+    return {
+      settings,
+      connection: {
+        ...connection,
+        session,
+        detail: `Connected to thread ${session.threadId}.`
+      },
+      token: session.extensionToken,
+      tokenType: session.tokenType || "extension"
+    };
+  }
+  throw new Error(connection.detail || "Choose a destination thread before sending annotations.");
+}
+
+async function bindBrowserBindingToThread(settings, bindingToken, threadId) {
+  let bindUrl;
+  try {
+    bindUrl = buildListenBindThreadUrl(settings.serverUrl);
+  } catch (error) {
+    throw new Error(error instanceof Error ? error.message : "Invalid server URL.");
+  }
+
+  const response = await fetchWithTimeout(bindUrl, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${bindingToken}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ threadId }),
+    cache: "no-store"
+  }, STATUS_FETCH_TIMEOUT_MS);
+  const payload = await readJsonSafely(response);
+  if (!response.ok) {
+    throw new Error(readStatusError(payload, `Thread binding failed (${response.status}).`));
+  }
+  const session = readSessionFromStatusPayload(payload);
+  if (!session || !session.extensionToken) {
+    throw new Error("Thread binding response did not include a scoped extension token.");
+  }
+  return session;
 }
 
 async function sendAnnotationBatch() {
@@ -933,11 +1141,12 @@ async function sendAnnotationBatch() {
     };
   }
   const binding = await readBinding();
+  const threadTargets = await readThreadTargetsState(settings, nextConnection, binding);
   return {
     ok: true,
     result: payload && payload.result ? payload.result : null,
     devtoolsStop,
-    state: await buildPanelState({ ...settings, pairingToken: "" }, nextConnection, activeTab, [], stoppedDevtoolsCapture, binding)
+    state: await buildPanelState({ ...settings, pairingToken: "" }, nextConnection, activeTab, [], stoppedDevtoolsCapture, binding, threadTargets)
   };
 }
 
@@ -1009,6 +1218,7 @@ async function disconnectBinding() {
   }
   await clearBinding();
   await clearPairingToken();
+  await writeThreadTargetSelection("");
   return { ok: true, state: await getPanelState() };
 }
 
