@@ -1,7 +1,7 @@
 (function bootBrowserAnnotationSidePanel() {
   "use strict";
 
-  const { MESSAGE_TYPES, STORAGE_KEYS } = globalThis.BrowserAnnotationConstants;
+  const { MESSAGE_TYPES, STORAGE_KEYS, PRO_CONTROL_CHATGPT_ORIGIN } = globalThis.BrowserAnnotationConstants;
   const {
     describeRestrictedUrl,
     getTabOriginPattern,
@@ -287,6 +287,12 @@
   async function enableProControl() {
     setBusy(true);
     try {
+      const permissionGranted = await requestProControlPermissionFromPanel();
+      if (!permissionGranted) {
+        await refreshState();
+        setMessage("ChatGPT permission was denied.", "error");
+        return;
+      }
       const response = await sendRuntimeMessage({ type: MESSAGE_TYPES.ENABLE_PRO_CONTROL });
       renderState(response.state);
       setMessage(proControlMessage(response.state.proControl), response.state.proControl.status === "permission_missing" ? "error" : "ok");
@@ -295,6 +301,17 @@
     } finally {
       setBusy(false);
     }
+  }
+
+  async function requestProControlPermissionFromPanel() {
+    if (!chrome.permissions || typeof chrome.permissions.contains !== "function" || typeof chrome.permissions.request !== "function") {
+      return true;
+    }
+    const request = { origins: [PRO_CONTROL_CHATGPT_ORIGIN] };
+    if (await chrome.permissions.contains(request)) {
+      return true;
+    }
+    return chrome.permissions.request(request);
   }
 
   async function disableProControl() {

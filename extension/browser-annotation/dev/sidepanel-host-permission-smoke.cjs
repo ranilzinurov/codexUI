@@ -18,6 +18,8 @@ async function main() {
   mkdirSync(outputDir, { recursive: true })
   await runScenario({ grantPermission: true })
   await runScenario({ grantPermission: false })
+  await runProControlScenario({ grantPermission: true })
+  await runProControlScenario({ grantPermission: false })
   await runPageStateScenario()
   console.log('Sidepanel host permission smoke passed.')
 }
@@ -158,6 +160,147 @@ async function runScenario({ grantPermission }) {
       assert.match(messageText || '', /Pick on Page is active/)
     } else {
       assert.match(messageText || '', /Permission denied/)
+    }
+  } finally {
+    await browser.close()
+  }
+}
+
+async function runProControlScenario({ grantPermission }) {
+  const browser = await chromium.launch({ headless: true })
+  const page = await browser.newPage()
+  try {
+    await page.addInitScript(({ tab, grant }) => {
+      const grantedOrigins = new Set()
+      const storageLocal = new Map()
+      const storageListeners = []
+      window.__runtimeMessages = []
+      window.__permissionRequests = []
+      window.chrome = {
+        permissions: {
+          contains: async (request) => {
+            const origins = Array.isArray(request && request.origins) ? request.origins : []
+            return origins.every((origin) => grantedOrigins.has(origin))
+          },
+          request: async (request) => {
+            const origins = Array.isArray(request && request.origins) ? request.origins : []
+            window.__permissionRequests.push(origins)
+            if (grant) {
+              origins.forEach((origin) => grantedOrigins.add(origin))
+              return true
+            }
+            return false
+          },
+        },
+        runtime: {
+          sendMessage: async (message) => {
+            window.__runtimeMessages.push(message)
+            if (message && message.type === 'browserAnnotation.getState') {
+              return { ok: true, state: buildConnectedState({ enabled: false, status: 'disabled' }) }
+            }
+            if (message && message.type === 'browserAnnotation.devtools.getStatus') {
+              return { ok: true, devtoolsCapture: { status: 'inactive', detail: 'DevTools capture is off.' } }
+            }
+            if (message && message.type === 'browserAnnotation.proControl.enable') {
+              return {
+                ok: true,
+                state: buildConnectedState(
+                  grant
+                    ? { enabled: true, status: 'online', detail: 'Pro-control worker enabled.', permission: 'granted' }
+                    : { enabled: false, status: 'permission_missing', detail: 'ChatGPT host permission was denied.', permission: 'missing' }
+                ),
+              }
+            }
+            return { ok: true }
+          },
+          getURL: (path) => `chrome-extension://test/${path}`,
+        },
+        storage: {
+          local: {
+            get: async (key) => {
+              const keys = Array.isArray(key) ? key : [key]
+              return Object.fromEntries(keys.map((name) => [name, storageLocal.get(name)]))
+            },
+            set: async (values) => {
+              for (const [key, value] of Object.entries(values || {})) {
+                const oldValue = storageLocal.get(key)
+                storageLocal.set(key, value)
+                for (const listener of storageListeners) {
+                  listener({ [key]: { oldValue, newValue: value } }, 'local')
+                }
+              }
+            },
+          },
+          onChanged: { addListener: (listener) => storageListeners.push(listener) },
+        },
+        tabs: { query: async () => [tab] },
+      }
+
+      function buildConnectedState(proControl) {
+        return {
+          settings: {
+            serverUrl: 'https://codex-ui.todo-tg-app.ru',
+            pairingToken: '',
+          },
+          connection: {
+            status: 'connected',
+            checkedAtIso: '2026-06-16T00:00:00.000Z',
+            session: null,
+            binding: {
+              bindingId: 'binding-1',
+              status: 'active',
+              tokenType: 'browser-binding',
+              expiresAtIso: '2027-06-16T00:00:00.000Z',
+            },
+            detail: 'Browser binding validated.',
+          },
+          persistentBinding: {
+            connected: true,
+            status: 'active',
+            tokenType: 'browser-binding',
+            expiresAtIso: '2027-06-16T00:00:00.000Z',
+          },
+          threadTargets: { status: 'empty', groups: [], detail: 'No targets.' },
+          proControl,
+          queue: [],
+          devtoolsCapture: {
+            status: 'inactive',
+            detail: 'DevTools capture is off.',
+          },
+          activeTab: {
+            id: tab.id,
+            title: tab.title,
+            url: tab.url,
+            restricted: false,
+            restrictionReason: '',
+            hostPermissionPattern: 'https://chatgpt.com/*',
+            hasHostAccess: true,
+            needsHostPermission: false,
+            hostAccessStatus: 'granted',
+          },
+        }
+      }
+    }, { tab: arbitraryTab, grant: grantPermission })
+
+    await page.goto(sidepanelUrl)
+    await page.locator('#enableProControl').click()
+    await page.waitForFunction(() => window.__permissionRequests.length > 0)
+
+    const permissionRequests = await page.evaluate(() => window.__permissionRequests)
+    assert.deepEqual(permissionRequests[0], ['https://chatgpt.com/*'])
+
+    const enableMessages = await page.evaluate(() =>
+      window.__runtimeMessages.filter((message) => message.type === 'browserAnnotation.proControl.enable').length)
+    assert.equal(enableMessages, grantPermission ? 1 : 0)
+
+    const statusText = await page.locator('#proControlStatus').textContent()
+    const messageText = await page.locator('#message').textContent()
+    if (grantPermission) {
+      assert.equal(statusText, 'Online')
+      assert.match(messageText || '', /enabled/i)
+    } else {
+      assert.equal(statusText, 'Disabled')
+      assert.match(messageText || '', /permission was denied/i)
     }
   } finally {
     await browser.close()

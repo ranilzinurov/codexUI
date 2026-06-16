@@ -8890,3 +8890,41 @@ Floating Pick on Page uses one light page-side annotation panel and closes the C
 - Remove the unpacked extension from `chrome://extensions` if loaded only for this test.
 - Clear extension storage for `browserAnnotation.annotationQueue`, `browserAnnotation.threadTarget`, `browserAnnotation.binding`, and `browserAnnotation.panelMode` if manual state should be removed.
 - Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
+
+---
+
+### Browser Annotation ChatGPT Pro Enable Permission
+
+#### Feature/Change Name
+ChatGPT Pro-control Enable requests ChatGPT host permission from the sidepanel click handler.
+
+#### Prerequisites/Setup
+1. Load `extension/browser-annotation` as an unpacked Chrome extension.
+2. Pair Browser Binding so the `ChatGPT Pro` section has an active browser binding.
+3. Open the extension sidepanel on a normal page or on `https://chatgpt.com/`.
+4. Run focused checks from the repository root:
+   - `node --check extension/browser-annotation/sidepanel/sidepanel.js`
+   - `node --check extension/browser-annotation/dev/sidepanel-host-permission-smoke.cjs`
+   - `node extension/browser-annotation/dev/sidepanel-host-permission-smoke.cjs`
+   - `node extension/browser-annotation/dev/validate-extension.mjs`
+   - `pnpm run pack:browser-annotation`
+
+#### Steps
+1. In light theme, scroll to the `ChatGPT Pro` section.
+2. Click `Enable`.
+3. Approve the Chrome permission prompt for `https://chatgpt.com/*`.
+4. Confirm the section changes from `Disabled` to `Online` or `Online/idle`.
+5. Disable Pro-control, revoke the `chatgpt.com` site permission for the extension, then click `Enable` again and deny the permission prompt.
+6. Confirm the section remains disabled and shows a clear denied-permission message.
+7. Repeat steps 1-6 in dark theme and confirm the status text and error message remain readable.
+
+#### Expected Results
+- Clicking `Enable` triggers the Chrome permission prompt directly from the sidepanel user gesture.
+- Granting permission allows the sidepanel to send the Pro-control enable message and render an enabled worker state.
+- Denying permission does not silently fail; the sidepanel keeps Pro-control disabled and shows `ChatGPT permission was denied.`
+- Light and dark themes both keep the `ChatGPT Pro` section legible.
+
+#### Rollback/Cleanup
+- Disable Pro-control from the sidepanel.
+- Revoke `chatgpt.com` access from the extension details page if the permission was granted only for this test.
+- Remove the unpacked extension from `chrome://extensions` if loaded only for this test.
