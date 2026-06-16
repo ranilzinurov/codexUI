@@ -8220,7 +8220,7 @@ Native iOS Voice mode starts a fresh voice job for each follow-up message and wa
 ### GitHub Actions CI And Hetzner Deploy
 
 #### Feature/Change Name
-GitHub-backed source of truth with reproducible CI, locked pnpm dependencies, and a manual Hetzner deploy workflow that deploys an exact commit SHA.
+GitHub-backed source of truth with parallel CI jobs and a Hetzner deploy workflow that skips duplicate verification when the selected commit already passed CI.
 
 #### Prerequisites/Setup
 1. Use the git checkout at `/Users/rnl1/prog/codexUI`.
@@ -8237,15 +8237,25 @@ GitHub-backed source of truth with reproducible CI, locked pnpm dependencies, an
 3. Run the build and smoke test gate:
    `pnpm run test`
 4. Push the branch and confirm the `CI` workflow starts for the pushed branch or PR.
-5. Confirm the `CI` workflow uses Node 22, pnpm 10.6.2, `pnpm install --frozen-lockfile`, `pnpm run test:unit`, and `pnpm run test`.
-6. Run the `Deploy Hetzner` workflow manually against the target ref.
-7. Confirm only one deploy can run at a time through the `deploy-hetzner` concurrency group.
-8. Confirm the server deploy log fetches `origin/main`, validates the requested SHA, installs with `--frozen-lockfile --force`, rebuilds, syncs `dist/` to `/var/www/codexui-dist`, restarts `codexui`, and passes the healthcheck.
-9. Open the hosted app in light theme and confirm the main thread UI loads current assets without missing hashed CSS/JS.
-10. Switch to dark theme and confirm the main thread UI loads current assets without light-theme surfaces caused by stale static files.
+5. Confirm the `CI` workflow starts `Secret scan`, `Unit tests`, and `Build and smoke tests` as separate jobs.
+6. Confirm the final `Typecheck, build, and tests` job succeeds only after all three required jobs succeed.
+7. Confirm the `Unit tests` job uses Node 22, pnpm 10.6.2, `pnpm install --frozen-lockfile`, and `pnpm run test:unit` without installing Playwright browsers.
+8. Confirm the `Build and smoke tests` job uses Node 22, pnpm 10.6.2, installs Playwright WebKit, and runs `pnpm run test`.
+9. Merge or push to `main` and confirm a successful `CI` run automatically triggers `Deploy Hetzner`.
+10. Confirm the automatic deploy resolves the triggering CI `head_sha`, reports `needs_full=false`, and skips dependency installation, Playwright installation, unit tests, and build/smoke tests.
+11. Run `Deploy Hetzner` manually with `verification=require-ci` against a commit that already passed CI and confirm it also reports `needs_full=false`.
+12. Run `Deploy Hetzner` manually with `verification=full` on a disposable ref and confirm it performs secret scan, dependency installation, Playwright WebKit installation, unit tests, and build/smoke tests before deploy.
+13. Confirm only one deploy can run at a time through the `deploy-hetzner` concurrency group.
+14. Confirm the server deploy log fetches `origin/main`, validates the requested SHA, installs with `--frozen-lockfile --force`, rebuilds, syncs `dist/` to `/var/www/codexui-dist`, restarts `codexui`, and passes the healthcheck.
+15. Open the hosted app in light theme and confirm the main thread UI loads current assets without missing hashed CSS/JS.
+16. Switch to dark theme and confirm the main thread UI loads current assets without light-theme surfaces caused by stale static files.
 
 #### Expected Results
 - CI fails if dependencies drift from `pnpm-lock.yaml`.
+- CI keeps the existing required check name `Typecheck, build, and tests` while running secret scan, unit tests, and build/smoke checks in parallel.
+- Deploy no longer repeats the full CI gate after the same commit already passed CI.
+- Successful `main` CI automatically starts the Hetzner deploy workflow for the exact CI `head_sha`.
+- Manual deploy defaults to `verification=require-ci`; use `verification=full` only when the selected commit needs fresh verification, or `verification=skip` only for emergency rollback.
 - `.env` is no longer tracked; `.env.example` documents safe non-secret keys.
 - The deploy workflow requires a dedicated SSH key and deploy secrets before it can reach Hetzner.
 - The deploy key can only trigger `scripts/deploy-from-github.sh` when installed with the forced-command `authorized_keys` entry.
