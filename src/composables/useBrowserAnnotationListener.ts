@@ -1,9 +1,7 @@
-import { computed, onUnmounted, ref, watch, type ComputedRef, type Ref } from 'vue'
+import { computed, onUnmounted, ref, type ComputedRef, type Ref } from 'vue'
 import {
-  getBrowserAnnotationListenStatus,
-  startBrowserAnnotationListenSession,
-  stopBrowserAnnotationListenSession,
-  type BrowserAnnotationListenSession,
+  startBrowserAnnotationBindingPairing,
+  type BrowserAnnotationBindingPairing,
 } from '../api/codexGateway'
 import { useUiLanguage } from './useUiLanguage'
 
@@ -12,7 +10,7 @@ type CopiedField = 'url' | 'token' | ''
 type ListenerRef<T> = Ref<T> | ComputedRef<T>
 
 export type BrowserAnnotationListenerController = {
-  session: Ref<BrowserAnnotationListenSession | null>
+  session: Ref<BrowserAnnotationBindingPairing | null>
   pairingToken: Ref<string>
   phase: Ref<BusyPhase>
   errorMessage: Ref<string>
@@ -41,73 +39,50 @@ export function useBrowserAnnotationListener(
   threadTitle: ListenerRef<string>,
 ): BrowserAnnotationListenerController {
   const { t } = useUiLanguage()
-  const session = ref<BrowserAnnotationListenSession | null>(null)
+  void threadId
+  void threadTitle
+  const session = ref<BrowserAnnotationBindingPairing | null>(null)
   const pairingToken = ref('')
   const phase = ref<BusyPhase>('idle')
   const errorMessage = ref('')
   const copiedField = ref<CopiedField>('')
   const detailsOpen = ref(false)
-  let statusInterval: number | null = null
   let copyResetTimeout: number | null = null
   let sessionGeneration = 0
 
-  const currentThreadId = computed(() => threadId.value.trim())
   const isBusy = computed(() => phase.value !== 'idle')
   const isActive = computed(() => session.value?.status === 'active' && pairingToken.value.length > 0)
-  const targetThreadTitle = computed(() => threadTitle.value.trim() || currentThreadId.value)
+  const targetThreadTitle = computed(() => t('Browser binding'))
   const listenerUrl = computed(() => {
     const current = session.value
     if (!current) return ''
-    const path = current.serverPath || '/codex-api/extension/listen'
-    if (!current.serverUrl) return path
-    return `${current.serverUrl.replace(/\/+$/, '')}${path.startsWith('/') ? path : `/${path}`}`
+    return current.serverUrl || window.location.origin
   })
   const expiresLabel = computed(() => formatDateTime(session.value?.expiresAtIso ?? ''))
-  const lastBatchLabel = computed(() => {
-    const batch = session.value?.lastReceivedBatch
-    if (!batch) return ''
-    const receivedAt = formatDateTime(batch.receivedAtIso)
-    const count = countLabel(batch.annotationCount, t('annotation'), t('annotations'))
-    return receivedAt ? `${count} at ${receivedAt}` : count
-  })
-  const lastBatchContextLabel = computed(() => {
-    const batch = session.value?.lastReceivedBatch
-    if (!batch) return ''
-    return [
-      countLabel(batch.imageCount, t('image'), t('images')),
-      countLabel(batch.consoleCount, t('console row'), t('console rows')),
-      countLabel(batch.networkCount, t('network request'), t('network requests')),
-    ].join(' · ')
-  })
+  const lastBatchLabel = computed(() => '')
+  const lastBatchContextLabel = computed(() => '')
   const statusText = computed(() => {
-    if (!currentThreadId.value) return t('Choose a thread to receive browser annotations.')
-    if (phase.value === 'starting') return t('Creating a short-lived extension pairing session.')
-    if (phase.value === 'stopping') return t('Revoking the active browser listener.')
-    if (phase.value === 'checking') return t('Checking listener status.')
-    if (isActive.value) return t('Active for the selected thread.')
-    if (session.value?.status === 'revoked') return t('Listener stopped.')
-    if (session.value?.status === 'expired') return t('Listener expired.')
-    return t('Create a temporary token for the browser extension.')
+    if (phase.value === 'starting') return t('Creating a browser binding code.')
+    if (phase.value === 'stopping') return t('Clearing the browser binding code.')
+    if (phase.value === 'checking') return t('Checking browser binding status.')
+    if (isActive.value) return t('Paste this code into the browser extension settings.')
+    if (session.value?.status === 'revoked') return t('Browser binding code cleared.')
+    if (session.value?.status === 'expired') return t('Browser binding code expired.')
+    return t('Create a browser binding code for the extension.')
   })
   const buttonTitle = computed(() => {
-    if (!currentThreadId.value) return t('Choose a thread before listening for browser annotations.')
-    if (phase.value === 'starting') return t('Starting browser annotation listener')
-    if (phase.value === 'stopping') return t('Stopping browser annotation listener')
-    if (phase.value === 'checking') return t('Checking browser annotation listener')
-    if (isActive.value) return t('Stop browser annotation listener')
-    return t('Listen for browser annotations')
+    if (phase.value === 'starting') return t('Creating browser binding code')
+    if (phase.value === 'stopping') return t('Clearing browser binding code')
+    if (phase.value === 'checking') return t('Checking browser binding')
+    if (isActive.value) return t('Clear browser binding code')
+    return t('Create browser binding code')
   })
   const settingsStatusLabel = computed(() => {
-    if (!currentThreadId.value) return t('No thread')
     if (phase.value !== 'idle') return t('Busy')
     if (isActive.value) return t('Active')
     if (session.value?.status === 'expired') return t('Expired')
     if (session.value?.status === 'revoked') return t('Stopped')
     return t('Idle')
-  })
-
-  watch(currentThreadId, () => {
-    clearActiveSession()
   })
 
   onUnmounted(() => {
@@ -116,65 +91,49 @@ export function useBrowserAnnotationListener(
   })
 
   async function start(): Promise<void> {
-    const requestedThreadId = currentThreadId.value
-    if (!requestedThreadId || phase.value !== 'idle') return
+    if (phase.value !== 'idle') return
     const generation = sessionGeneration
     phase.value = 'starting'
     errorMessage.value = ''
     copiedField.value = ''
-    stopStatusPolling()
     try {
-      const nextSession = await startBrowserAnnotationListenSession(requestedThreadId)
-      if (generation !== sessionGeneration || currentThreadId.value !== requestedThreadId) {
-        if (nextSession.pairingToken) {
-          void stopBrowserAnnotationListenSession(nextSession.pairingToken, {
-            sessionId: nextSession.sessionId,
-            threadId: nextSession.threadId,
-          }).catch(() => undefined)
-        }
+      const nextSession = await startBrowserAnnotationBindingPairing()
+      if (generation !== sessionGeneration) {
         return
       }
-      if (!nextSession.pairingToken) {
-        throw new Error(t('Listener started without a pairing token.'))
+      if (!nextSession.pairingCode) {
+        throw new Error(t('Browser binding started without a pairing code.'))
       }
       session.value = nextSession
-      pairingToken.value = nextSession.pairingToken
-      detailsOpen.value = false
-      startStatusPolling()
+      pairingToken.value = nextSession.pairingCode
+      detailsOpen.value = true
     } catch (error) {
-      if (generation !== sessionGeneration || currentThreadId.value !== requestedThreadId) return
+      if (generation !== sessionGeneration) return
       clearActiveSession()
-      errorMessage.value = error instanceof Error ? error.message : t('Failed to start browser annotation listener.')
+      errorMessage.value = error instanceof Error ? error.message : t('Failed to start browser binding.')
     } finally {
-      if (generation === sessionGeneration && currentThreadId.value === requestedThreadId) {
+      if (generation === sessionGeneration) {
         phase.value = 'idle'
       }
     }
   }
 
   async function stop(): Promise<void> {
-    const currentToken = pairingToken.value
     const currentSession = session.value
-    if (!currentToken || !currentSession || phase.value !== 'idle') return
+    if (!currentSession || phase.value !== 'idle') return
     const generation = sessionGeneration
     phase.value = 'stopping'
     errorMessage.value = ''
     try {
-      const stoppedSession = await stopBrowserAnnotationListenSession(currentToken, {
-        sessionId: currentSession.sessionId,
-        threadId: currentSession.threadId,
-      })
-      if (generation === sessionGeneration && session.value?.sessionId === currentSession.sessionId) {
-        session.value = stoppedSession
+      if (generation === sessionGeneration && session.value?.pairingId === currentSession.pairingId) {
+        clearActiveSession()
       }
     } catch (error) {
-      if (generation === sessionGeneration && session.value?.sessionId === currentSession.sessionId) {
-        errorMessage.value = error instanceof Error ? error.message : t('Failed to stop browser annotation listener.')
+      if (generation === sessionGeneration && session.value?.pairingId === currentSession.pairingId) {
+        errorMessage.value = error instanceof Error ? error.message : t('Failed to clear browser binding.')
       }
     } finally {
-      if (generation === sessionGeneration && session.value?.sessionId === currentSession.sessionId) {
-        pairingToken.value = ''
-        stopStatusPolling()
+      if (generation === sessionGeneration) {
         phase.value = 'idle'
       }
     }
@@ -188,50 +147,8 @@ export function useBrowserAnnotationListener(
     await start()
   }
 
-  function startStatusPolling(): void {
-    stopStatusPolling()
-    statusInterval = window.setInterval(() => {
-      void refreshStatus()
-    }, 15_000)
-  }
-
-  function stopStatusPolling(): void {
-    if (statusInterval !== null) {
-      window.clearInterval(statusInterval)
-      statusInterval = null
-    }
-  }
-
   async function refreshStatus(): Promise<void> {
-    const currentToken = pairingToken.value
-    const currentSession = session.value
-    if (!currentToken || !currentSession || phase.value !== 'idle') return
-    const generation = sessionGeneration
-    phase.value = 'checking'
-    try {
-      const nextSession = await getBrowserAnnotationListenStatus(currentToken, {
-        sessionId: currentSession.sessionId,
-        threadId: currentSession.threadId,
-      })
-      if (generation !== sessionGeneration || session.value?.sessionId !== currentSession.sessionId) return
-      session.value = nextSession
-      if (nextSession.status !== 'active') {
-        pairingToken.value = ''
-        stopStatusPolling()
-      }
-    } catch {
-      if (generation !== sessionGeneration || session.value?.sessionId !== currentSession.sessionId) return
-      pairingToken.value = ''
-      stopStatusPolling()
-      session.value = {
-        ...currentSession,
-        status: 'expired',
-      }
-    } finally {
-      if (generation === sessionGeneration && session.value?.sessionId === currentSession.sessionId) {
-        phase.value = 'idle'
-      }
-    }
+    return undefined
   }
 
   async function copyText(value: string, field: CopiedField): Promise<void> {
@@ -257,7 +174,6 @@ export function useBrowserAnnotationListener(
     copiedField.value = ''
     detailsOpen.value = false
     phase.value = 'idle'
-    stopStatusPolling()
   }
 
   function clearCopyReset(): void {
@@ -298,8 +214,4 @@ function formatDateTime(value: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}
-
-function countLabel(count: number, singular: string, plural: string): string {
-  return `${count} ${count === 1 ? singular : plural}`
 }

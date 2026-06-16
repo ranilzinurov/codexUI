@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as codexGateway from './codexGateway'
 import {
+  startBrowserAnnotationBindingPairing,
   createBrowserAnnotationExtensionToken,
   downloadProjectZip,
   getAvailableModelIds,
@@ -738,6 +739,37 @@ describe('listDirectoryMcpServers', () => {
 describe('browser annotation listen helpers', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
+  })
+
+  it('starts an extension-level browser binding pairing without a thread selector', async () => {
+    const requests: Array<{ input: string; init?: RequestInit }> = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ input: String(input), init })
+      return new Response(JSON.stringify({
+        ok: true,
+        pairing: {
+          pairingId: 'browser-binding-pairing-1',
+          serverUrl: 'https://codex-ui.todo-tg-app.ru',
+          serverPath: '/codex-api/extension/binding',
+          expiresAtIso: '2026-06-16T13:44:00.000Z',
+          createdAtIso: '2026-06-16T13:34:00.000Z',
+          status: 'active',
+          pairingCode: 'binding-code-1',
+        },
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }))
+
+    const pairing = await startBrowserAnnotationBindingPairing()
+
+    expect(pairing.pairingCode).toBe('binding-code-1')
+    expect(pairing.serverPath).toBe('/codex-api/extension/binding')
+    expect(requests).toHaveLength(1)
+    expect(requests[0].input).toBe('/codex-api/extension/binding/start')
+    expect(requests[0].init?.method).toBe('POST')
+    expect(requests[0].init?.body).toBeUndefined()
   })
 
   it('starts a listener session for the selected thread', async () => {
