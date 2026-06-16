@@ -66,7 +66,7 @@ node extension/browser-annotation/dev/content-overlay-cancel-smoke.cjs
 4. Open any normal `http(s)` page. For the included test page, serve the repository locally first, for example `python3 -m http.server 8899`, then open `http://127.0.0.1:8899/extension/browser-annotation/dev/test-page.html`.
 5. Click the extension action, or press `Ctrl+Shift+Y`, to open the side panel and start annotation mode on the active page.
 6. Keep the default server URL (`https://codex-ui.todo-tg-app.ru`) or enter `http://127.0.0.1:<port>` / `http://localhost:<port>` for local testing. Non-local `http://` server URLs are rejected so bearer tokens are not sent in cleartext.
-7. Paste a Codex UI browser annotation pairing token. The extension exchanges it for a scoped persistent binding token, clears the pasted token, and keeps only the revocable extension token in local storage.
+7. Paste a Codex UI browser binding code from `Settings` > `Browser binding`. The extension exchanges it for a scoped persistent binding token, clears the pasted code, and keeps only the revocable extension token in local storage.
 8. Click **Save and validate**.
 9. Confirm the side panel shows **Connected** for an active token, **Disconnected** when no token is stored, and **Error** for invalid, expired, unreachable, or malformed status responses.
 10. If annotation mode is not already active, click **Inject overlay** and approve Chrome's host access prompt for the current site when it appears.

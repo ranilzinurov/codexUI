@@ -1,8 +1,8 @@
 <template>
-  <section class="browser-annotation-settings" aria-label="Browser annotation listener settings">
+  <section class="browser-annotation-settings" aria-label="Browser annotation binding settings">
     <header class="browser-annotation-settings-header">
       <div class="browser-annotation-settings-heading">
-        <p class="browser-annotation-settings-title">{{ t('Listen settings') }}</p>
+        <p class="browser-annotation-settings-title">{{ t('Browser binding') }}</p>
         <p class="browser-annotation-settings-subtitle">{{ statusText }}</p>
       </div>
       <button
@@ -12,7 +12,7 @@
         :disabled="isBusy || !canListen"
         @click="$emit('start')"
       >
-        {{ phase === 'starting' ? t('Starting...') : t('Listen') }}
+        {{ phase === 'starting' ? t('Creating...') : t('Create code') }}
       </button>
       <button
         v-else
@@ -21,7 +21,7 @@
         :disabled="isBusy"
         @click="$emit('stop')"
       >
-        {{ phase === 'stopping' ? t('Stopping...') : t('Stop') }}
+        {{ phase === 'stopping' ? t('Clearing...') : t('Clear') }}
       </button>
     </header>
 
@@ -33,21 +33,17 @@
         <span class="browser-annotation-settings-chip-value">{{ session.status }}</span>
       </span>
       <span class="browser-annotation-settings-chip" :title="targetThreadTitle">
-        <span class="browser-annotation-settings-chip-label">{{ t('Thread') }}</span>
+        <span class="browser-annotation-settings-chip-label">{{ t('Scope') }}</span>
         <span class="browser-annotation-settings-chip-value">{{ targetThreadTitle }}</span>
       </span>
       <span class="browser-annotation-settings-chip" :title="session.expiresAtIso">
         <span class="browser-annotation-settings-chip-label">{{ t('Expires') }}</span>
         <span class="browser-annotation-settings-chip-value">{{ expiresLabel }}</span>
       </span>
-      <span v-if="session.lastReceivedBatch" class="browser-annotation-settings-chip" :title="`${session.lastReceivedBatch.batchId} · ${lastBatchContextLabel}`">
-        <span class="browser-annotation-settings-chip-label">{{ t('Last batch') }}</span>
-        <span class="browser-annotation-settings-chip-value">{{ lastBatchLabel }}</span>
-      </span>
     </div>
 
     <p v-else class="browser-annotation-settings-empty">
-      {{ t('Start listening from the composer, then paste the token into the browser extension.') }}
+      {{ t('Create a binding code here, then paste it into the browser extension settings.') }}
     </p>
 
     <button
@@ -57,7 +53,7 @@
       :aria-expanded="detailsOpen"
       @click="$emit('update:detailsOpen', !detailsOpen)"
     >
-      {{ detailsOpen ? t('Hide setup') : t('Show setup') }}
+      {{ detailsOpen ? t('Hide code') : t('Show code') }}
     </button>
 
     <div v-if="session && detailsOpen" class="browser-annotation-settings-details">
@@ -77,13 +73,13 @@
       </div>
       <div v-if="isActive && pairingToken" class="browser-annotation-settings-copy-row">
         <label class="browser-annotation-settings-copy-field">
-          <span class="browser-annotation-settings-label">{{ t('Pairing token') }}</span>
+          <span class="browser-annotation-settings-label">{{ t('Browser binding code') }}</span>
           <input class="browser-annotation-settings-input browser-annotation-settings-token" type="text" :value="pairingToken" readonly />
         </label>
         <button
           class="browser-annotation-settings-copy-button"
           type="button"
-          :aria-label="t('Copy pairing token')"
+          :aria-label="t('Copy browser binding code')"
           @click="$emit('copy-token')"
         >
           {{ copiedField === 'token' ? t('Copied') : t('Copy') }}
@@ -94,14 +90,14 @@
 </template>
 
 <script setup lang="ts">
-import type { BrowserAnnotationListenSession } from '../../api/codexGateway'
+import type { BrowserAnnotationBindingPairing } from '../../api/codexGateway'
 import { useUiLanguage } from '../../composables/useUiLanguage'
 
 type BusyPhase = 'idle' | 'starting' | 'stopping' | 'checking'
 type CopiedField = 'url' | 'token' | ''
 
 defineProps<{
-  session: BrowserAnnotationListenSession | null
+  session: BrowserAnnotationBindingPairing | null
   pairingToken: string
   phase: BusyPhase
   errorMessage: string

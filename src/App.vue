@@ -379,7 +379,7 @@
                   <span class="sidebar-settings-section-meta">{{ t('Providers and integrations') }}</span>
                 </summary>
               <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.browserAnnotationListen" @click="isListenSettingsOpen = !isListenSettingsOpen">
-                <span class="sidebar-settings-label">{{ t('Listen settings') }}</span>
+                <span class="sidebar-settings-label">{{ t('Browser binding') }}</span>
                 <span class="sidebar-settings-value">{{ browserAnnotationSettingsStatusLabel }}</span>
               </button>
               <BrowserAnnotationListenerPanel
@@ -392,7 +392,7 @@
                 :details-open="isBrowserAnnotationDetailsOpen"
                 :is-busy="isBrowserAnnotationListenerBusy"
                 :is-active="isBrowserAnnotationListenerActive"
-                :can-listen="selectedThreadId.length > 0"
+                :can-listen="true"
                 :target-thread-title="browserAnnotationTargetThreadTitle"
                 :listener-url="browserAnnotationListenerUrl"
                 :expires-label="browserAnnotationExpiresLabel"
@@ -1782,7 +1782,7 @@ const SETTINGS_HELP = {
   voiceTtsModel: t('Choose the OpenAI text-to-speech model used for generated voice answers.'),
   voiceTelegramFallback: t('Send a Telegram alert when a background voice answer is ready or fails.'),
   backendUrl: t('Remote Codex UI server used by the iOS shell for API and WebSocket traffic.'),
-  browserAnnotationListen: t('Pair the browser annotation extension with the selected thread.'),
+  browserAnnotationListen: t('Create a browser binding code for the annotation extension.'),
   githubTrendingProjects: t('Show or hide GitHub trending project cards on the new thread screen.'),
   dictationLanguage: t('Choose transcription language or keep auto-detect.'),
 } as const

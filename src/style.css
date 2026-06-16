@@ -70,6 +70,26 @@ html::after {
   @apply border-zinc-700;
 }
 
+:root.dark .sidebar-settings-section {
+  @apply border-zinc-700 bg-zinc-900 shadow-black/20;
+}
+
+:root.dark .sidebar-settings-section-summary {
+  @apply border-zinc-700 bg-zinc-800;
+}
+
+:root.dark .sidebar-settings-section-summary::after {
+  @apply bg-zinc-900 text-zinc-300;
+}
+
+:root.dark .sidebar-settings-section-title {
+  @apply text-zinc-100;
+}
+
+:root.dark .sidebar-settings-section-meta {
+  @apply text-zinc-400;
+}
+
 :root.dark .sidebar-settings-context-value {
   @apply text-zinc-300;
 }

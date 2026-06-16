@@ -25,7 +25,7 @@
             <span>Status</span>
             <strong id="connectionStatus">Checking...</strong>
           </div>
-          <p id="connectionDetail" class="muted">Paste a pairing token from Codex UI.</p>
+          <p id="connectionDetail" class="muted">Paste a browser binding code from Codex UI.</p>
           <span id="tabStatus" class="sr-only">Checking...</span>
           <p id="tabDetail" class="sr-only">Inject the overlay on an http(s) page to select elements.</p>
           <button id="injectOverlay" class="button button-primary" type="button">Inject Overlay</button>
@@ -72,8 +72,8 @@
             <input id="serverUrl" type="url" autocomplete="off" spellcheck="false">
           </label>
           <label class="field">
-            <span>Pairing token</span>
-            <input id="pairingToken" type="password" autocomplete="off" spellcheck="false" placeholder="Paste token later">
+            <span>Browser binding code</span>
+            <input id="pairingToken" type="password" autocomplete="off" spellcheck="false" placeholder="Paste code from Codex UI">
           </label>
           <div id="persistentBinding" class="persistent-binding" hidden>
             <div>
@@ -92,7 +92,7 @@
           <p>Откройте нужную страницу, нажмите <strong>Inject Overlay</strong> и выберите элементы прямо на странице.</p>
           <p>Комментарии и голосовые заметки вводятся inline в overlay. В очереди остаются только выбранные элементы, порядок и отправка.</p>
           <p>DevTools включайте только когда нужны console/network данные. Checkbox <strong>Bodies</strong> добавляет тела запросов и ответов, поэтому используйте его только для безопасных страниц.</p>
-          <p>Server URL и Pairing token находятся во вкладке Settings.</p>
+          <p>Server URL и Browser binding code находятся во вкладке Settings.</p>
         </section>
       </section>
 

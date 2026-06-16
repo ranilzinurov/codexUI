@@ -8813,3 +8813,46 @@ Extension-level Browser Binding for browser annotation pairing.
 - Remove the unpacked extension if it was loaded only for this test.
 - Clear extension storage for `browserAnnotation.binding`, `browserAnnotation.settings`, and `browserAnnotation.pairingToken` if manual test data remains.
 - Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
+
+---
+
+### Browser Annotation Binding Code UI
+
+#### Feature/Change Name
+Codex UI Browser Binding code generation for the annotation extension.
+
+#### Prerequisites/Setup
+1. Use a branch containing the Browser Binding UI fix.
+2. Run the focused checks from the repository root:
+   - `pnpm exec vitest run src/api/codexGateway.test.ts src/composables/useBrowserAnnotationListener.test.ts`
+   - `pnpm exec vitest run src/server/browserAnnotationBinding.test.ts src/server/browserAnnotationListen.test.ts src/api/codexGateway.test.ts src/composables/useBrowserAnnotationListener.test.ts`
+   - `pnpm run test:browser-annotation`
+   - `pnpm run build:frontend`
+   - `node extension/browser-annotation/dev/sidepanel-host-permission-smoke.cjs`
+3. For manual UI verification, start Codex UI with `pnpm run dev --host 127.0.0.1 --port 4173`.
+4. Load `extension/browser-annotation` as an unpacked Chrome extension.
+
+#### Steps
+1. Open Codex UI in light theme.
+2. Open `Settings` > `Advanced`.
+3. Confirm the row is labeled `Browser binding`, not `Listen settings`.
+4. Open the Browser Binding panel and click `Create code`.
+5. Confirm the panel shows `Status`, `Scope Browser binding`, `Expires`, an origin-only `Server URL`, and a `Browser binding code`.
+6. Copy the Server URL and Browser Binding code into the extension `Settings` tab.
+7. Click `Save and validate`.
+8. Confirm the extension connects and does not show `Invalid or expired browser binding pairing code`.
+9. Confirm creating the code does not require a selected thread and does not show a thread id in the Browser Binding panel.
+10. Switch Codex UI and the extension side panel to dark theme and repeat the visible checks.
+
+#### Expected Results
+- Codex UI calls `/codex-api/extension/binding/start`, not `/codex-api/extension/listen/start`, when creating the code.
+- The copied Server URL is the app origin, for example `https://codex-ui.todo-tg-app.ru`, not a `/codex-api/extension/listen` endpoint.
+- A new extension build accepts the Browser Binding code and stores only the long-lived binding token after validation.
+- Old thread-level listen tokens are not presented as the new Browser Binding code.
+- Light and dark theme text, buttons, chips, and copy fields remain readable.
+
+#### Rollback/Cleanup
+- Click `Clear` in the Browser Binding panel if a temporary code is visible.
+- Disconnect the extension binding if manual validation created one.
+- Clear extension storage for `browserAnnotation.binding`, `browserAnnotation.settings`, and `browserAnnotation.pairingToken` if needed.
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.

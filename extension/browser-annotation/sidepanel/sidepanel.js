@@ -402,7 +402,7 @@
         : `Validated for thread ${connection.session.threadId}.`;
     }
 
-    return connection.detail || "Paste a pairing token from Codex UI.";
+    return connection.detail || "Paste a browser binding code from Codex UI.";
   }
 
   function connectionMessage(connection) {
@@ -414,10 +414,10 @@
         ? "Browser binding connected."
         : connection.session && connection.session.tokenType === "extension"
         ? "Persistent binding connected."
-        : "Pairing token validated.";
+        : "Browser binding code validated.";
     }
     if (connection.status === "error") {
-      return connection.detail || "Pairing token could not be validated.";
+      return connection.detail || "Browser binding code could not be validated.";
     }
     return "Settings saved locally in the extension.";
   }
