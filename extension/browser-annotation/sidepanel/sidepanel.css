@@ -261,6 +261,20 @@ textarea:focus {
   gap: 8px;
 }
 
+.panel-mode {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.status-row-subtle {
+  color: var(--muted);
+}
+
 .target-select:disabled {
   opacity: 0.62;
   cursor: not-allowed;
@@ -460,6 +474,7 @@ textarea:focus {
 }
 
 .queue-preview {
+  appearance: none;
   display: grid;
   place-items: center;
   width: 100%;
@@ -471,6 +486,9 @@ textarea:focus {
   border-radius: 6px;
   overflow: hidden;
   font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  text-align: center;
 }
 
 .queue-preview img {
@@ -485,6 +503,54 @@ textarea:focus {
   padding: 6px;
   text-align: center;
   font-weight: 700;
+}
+
+.queue-screenshot-state {
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.queue-screenshot-state[data-state="failed"] {
+  color: var(--danger);
+}
+
+.queue-screenshot-state[data-state="off"],
+.queue-screenshot-state[data-state="pending"] {
+  color: var(--muted);
+}
+
+.queue-comment-preview {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.queue-detail {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.queue-detail .queue-preview {
+  width: 100%;
+  min-height: 160px;
+  aspect-ratio: 16 / 9;
+}
+
+.queue-detail-comment {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  padding: 8px;
 }
 
 .queue-list strong,

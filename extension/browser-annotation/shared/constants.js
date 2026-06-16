@@ -33,6 +33,7 @@
       CONTENT_PING: "browserAnnotation.contentPing",
       CONTENT_START_OVERLAY: "browserAnnotation.contentStartOverlay",
       CONTENT_ELEMENT_SELECTED: "browserAnnotation.contentElementSelected",
+      CONTENT_SAVE_DRAFT_ANNOTATION: "browserAnnotation.contentSaveDraftAnnotation",
       CONTENT_TRANSCRIBE_AUDIO: "browserAnnotation.contentTranscribeAudio",
       CONTENT_TRANSCRIPTION_RESULT: "browserAnnotation.contentTranscriptionResult"
     }),

@@ -94,6 +94,12 @@ let edited = BrowserAnnotationQueue.updateAnnotationQueueItem(stageQueue, "annot
 edited = BrowserAnnotationQueue.updateAnnotationQueueItem(edited, "annotation-bravo", {
   noteText: "Second note"
 });
+edited = BrowserAnnotationQueue.updateAnnotationQueueItem(edited, "annotation-bravo", {
+  screenshot: {
+    state: "off",
+    sendWithoutScreenshot: true
+  }
+});
 edited = BrowserAnnotationQueue.moveAnnotationQueueItem(edited, "annotation-bravo", -1);
 edited = BrowserAnnotationQueue.deleteAnnotationQueueItem(edited, "annotation-charlie");
 
@@ -101,6 +107,8 @@ assert.deepEqual(
   edited.map((item) => item.id),
   ["annotation-bravo", "annotation-alpha"]
 );
+assert.equal(edited[0].screenshot.state, "off");
+assert.equal(edited[0].screenshot.sendWithoutScreenshot, true);
 
 const batch = BrowserAnnotationQueue.buildAnnotationBatchPayload(edited, {
   batchId: "annotation-batch-smoke",

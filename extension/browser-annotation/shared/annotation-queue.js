@@ -72,6 +72,14 @@
           delete nextItem.voice;
         }
       }
+      if (patch && Object.prototype.hasOwnProperty.call(patch, "screenshot")) {
+        const screenshot = sanitizeQueueScreenshot(patch.screenshot);
+        if (screenshot) {
+          nextItem.screenshot = screenshot;
+        } else {
+          delete nextItem.screenshot;
+        }
+      }
       return nextItem;
     });
   }
@@ -361,6 +369,30 @@
       }
     }
     return Object.keys(voice).length > 0 ? voice : null;
+  }
+
+  function sanitizeQueueScreenshot(value) {
+    if (!isRecord(value)) {
+      return null;
+    }
+    const state = ["ready", "failed", "off", "pending"].includes(value.state)
+      ? value.state
+      : "";
+    if (!state) {
+      return null;
+    }
+    const screenshot = { state };
+    const error = sanitizeText(value.error, 240);
+    if (error) {
+      screenshot.error = error;
+    }
+    if (value.sendWithoutScreenshot === true) {
+      screenshot.sendWithoutScreenshot = true;
+    }
+    if (isRecord(value.thumbnail)) {
+      screenshot.thumbnail = value.thumbnail;
+    }
+    return screenshot;
   }
 
   function buildDevtoolsSnapshot(devtoolsCapture, capturedAtIso) {
@@ -780,6 +812,7 @@
     deleteAnnotationQueueItem,
     estimateJsonBytes,
     moveAnnotationQueueItem,
+    sanitizeQueueScreenshot,
     sanitizeNoteText,
     updateAnnotationQueueItem,
     trimAnnotationQueue

@@ -45,6 +45,7 @@ const {
   deleteAnnotationQueueItem,
   estimateJsonBytes,
   moveAnnotationQueueItem,
+  sanitizeNoteText,
   trimAnnotationQueue,
   updateAnnotationQueueItem
 } = globalThis.BrowserAnnotationQueue;
@@ -209,6 +210,10 @@ async function handleMessage(message, sender) {
 
   if (message.type === MESSAGE_TYPES.ADD_PAGE_STATE_ANNOTATION) {
     return addPageStateAnnotation(message.noteText);
+  }
+
+  if (message.type === MESSAGE_TYPES.CONTENT_SAVE_DRAFT_ANNOTATION) {
+    return saveDraftAnnotation(message, sender);
   }
 
   if (message.type === MESSAGE_TYPES.UPDATE_ANNOTATION_QUEUE_ITEM) {
@@ -871,7 +876,7 @@ async function ensureTabHostAccess(tab) {
   }
 
   throw new Error(
-    `Grant site access for ${originPattern} before injecting the annotation overlay. Open the extension side panel on that tab, click Inject overlay, and approve Chrome's access prompt.`
+    `Grant site access for ${originPattern} before using Pick on Page. Open the Annotation Panel on that tab, click Pick on Page, and approve Chrome's access prompt.`
   );
 }
 
@@ -883,12 +888,29 @@ async function hasHostPermission(originPattern) {
   return chrome.permissions.contains({ origins: [originPattern] });
 }
 
-async function saveSelectedElementContext(context, sender) {
+async function saveDraftAnnotation(message, sender) {
+  const context = message && message.context;
   if (!context || typeof context !== "object") {
     throw new Error("Selected element context is missing.");
   }
 
-  const previewResult = await captureSelectedElementPreviewSafely(context, sender);
+  const screenshotEnabled = message.screenshotEnabled !== false;
+  const noteText = sanitizeNoteText(message.noteText);
+  const previewResult = screenshotEnabled
+    ? await captureSelectedElementPreviewSafely(context, sender)
+    : { preview: null, error: "" };
+  const screenshot = screenshotEnabled
+    ? previewResult.preview
+      ? {
+          state: "ready",
+          capturedAtIso: new Date().toISOString(),
+          thumbnail: previewResult.preview
+        }
+      : {
+          state: "failed",
+          error: previewResult.error || "Screenshot capture failed."
+        }
+    : { state: "off" };
   return enqueueAnnotationQueueMutation(async () => {
     const queue = await readAnnotationQueue();
     const item = {
@@ -903,6 +925,8 @@ async function saveSelectedElementContext(context, sender) {
           }
         : null,
       context,
+      noteText,
+      screenshot,
       preview: previewResult.preview,
       previewError: previewResult.error
     };
@@ -913,6 +937,10 @@ async function saveSelectedElementContext(context, sender) {
       item
     };
   });
+}
+
+async function saveSelectedElementContext(context, sender) {
+  return saveDraftAnnotation({ context, noteText: "", screenshotEnabled: true }, sender);
 }
 
 async function readAnnotationQueue() {
@@ -980,7 +1008,7 @@ async function addPageStateAnnotation(noteText) {
   }
   const devtoolsCapture = await readDevtoolsCaptureState();
   if (!devtoolsCapture || devtoolsCapture.active !== true) {
-    throw new Error("Enable DevTools capture before adding a page note.");
+    throw new Error("Enable Diagnostics before adding a page note.");
   }
 
   return enqueueAnnotationQueueMutation(async () => {
@@ -1087,6 +1115,9 @@ async function sendAnnotationBatch() {
   if (queue.length === 0) {
     throw new Error("Annotation queue is empty.");
   }
+  if (queue.some(hasBlockedScreenshot)) {
+    throw new Error("Retry failed screenshots or choose send without screenshot before sending the queue.");
+  }
   const sentQueueItemIds = new Set(queue.map((item) => item && item.id).filter(Boolean));
 
   const devtoolsCapture = await readDevtoolsCaptureState();
@@ -1148,6 +1179,13 @@ async function sendAnnotationBatch() {
     devtoolsStop,
     state: await buildPanelState({ ...settings, pairingToken: "" }, nextConnection, activeTab, [], stoppedDevtoolsCapture, binding, threadTargets)
   };
+}
+
+function hasBlockedScreenshot(item) {
+  const screenshot = item && item.screenshot && typeof item.screenshot === "object"
+    ? item.screenshot
+    : null;
+  return Boolean(screenshot && screenshot.state === "failed" && screenshot.sendWithoutScreenshot !== true);
 }
 
 async function readSettledAnnotationQueue() {
@@ -1383,7 +1421,7 @@ async function startDevtoolsCapture(options = {}) {
   assertDebuggerApiAvailable();
   const tab = await getActiveTab();
   if (!tab || typeof tab.id !== "number") {
-    throw new Error("No active tab is available for DevTools capture.");
+    throw new Error("No active tab is available for Diagnostics capture.");
   }
   if (isRestrictedTabUrl(tab.url)) {
     throw new Error(describeRestrictedUrl(tab.url));
@@ -1403,7 +1441,7 @@ async function startDevtoolsCapture(options = {}) {
     const message = error instanceof Error ? error.message : String(error);
     const failedState = stopDevtoolsCaptureState(state, "attach-failed", { error: message });
     await replaceDevtoolsCaptureState(failedState);
-    throw new Error(`Unable to start DevTools capture: ${message}`);
+    throw new Error(`Unable to start Diagnostics capture: ${message}`);
   }
 
   devtoolsCaptureTabId = tab.id;
@@ -1698,7 +1736,7 @@ async function safeDetachDebuggee(debuggee) {
 function assertDebuggerApiAvailable() {
   if (!chrome.debugger || !chrome.debugger.attach || !chrome.debugger.sendCommand) {
     throw new Error(
-      "DevTools capture requires the chrome.debugger permission in the extension manifest."
+      "Diagnostics capture requires the chrome.debugger permission in the extension manifest."
     );
   }
 }

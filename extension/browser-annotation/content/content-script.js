@@ -26,6 +26,9 @@
   let active = false;
   let hoveredElement = null;
   let selectedSelection = null;
+  let selectedDraftContext = null;
+  let selectedDraftId = "";
+  let selectedDraftScreenshotEnabled = true;
   let selectedQueueItemId = "";
   let currentSelectionToken = 0;
   const canceledSelectionTokens = new Set();
@@ -165,6 +168,8 @@
       cancelButton: panel.cancelButton,
       noteButton: panel.noteButton,
       micButton: panel.micButton,
+      screenshotButton: panel.screenshotButton,
+      saveButton: panel.saveButton,
       noteWrap: panel.noteWrap,
       noteInput: panel.noteInput
     };
@@ -286,7 +291,7 @@
       element: target,
       label
     };
-    beginQueuedSelection(context, label, "Element selected");
+    beginDraftSelection(context, label);
   }
 
   function selectArea(rect) {
@@ -305,11 +310,14 @@
       },
       label: "Selected area"
     };
-    beginQueuedSelection(context, "Selected area", "Area selected");
+    beginDraftSelection(context, "Selected area");
   }
 
-  function beginQueuedSelection(context, label, savedLabel) {
+  function beginDraftSelection(context, label) {
     selectedQueueItemId = "";
+    selectedDraftContext = context;
+    selectedDraftId = `draft-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    selectedDraftScreenshotEnabled = true;
     activeTranscription = null;
     pendingNoteText = "";
     clearTimeout(noteUpdateTimer);
@@ -323,43 +331,7 @@
     canceledSelectionTokens.delete(selectionToken);
 
     updateSelectedOverlay();
-    showSelectionPanel(label, "Saving...");
-
-    chrome.runtime
-      .sendMessage({
-        type: MESSAGE_TYPES.CONTENT_ELEMENT_SELECTED,
-        context
-      })
-      .then((response) => {
-        if (!response || response.ok !== true) {
-          throw new Error(
-            response && response.error
-              ? response.error
-              : "Selection was not accepted by the extension."
-          );
-        }
-        const queuedItemId = response.item && response.item.id ? String(response.item.id) : "";
-        if (selectionToken !== currentSelectionToken || canceledSelectionTokens.has(selectionToken)) {
-          if (queuedItemId) {
-            void deleteQueuedAnnotation(queuedItemId);
-          }
-          canceledSelectionTokens.delete(selectionToken);
-          return;
-        }
-        selectedQueueItemId = queuedItemId;
-        showSelectionPanel(savedLabel, "Saved");
-        if (pendingNoteText) {
-          void saveNoteUpdate();
-        }
-      })
-      .catch((error) => {
-        if (selectionToken !== currentSelectionToken || canceledSelectionTokens.has(selectionToken)) {
-          canceledSelectionTokens.delete(selectionToken);
-          return;
-        }
-        console.warn("Unable to queue selected annotation.", error);
-        showSelectionPanel("Could not save selection", "Try again");
-      });
+    showSelectionPanel(label, "Draft");
   }
 
   function handleKeyDown(event) {
@@ -383,6 +355,8 @@
 
     const queuedItemId = selectedQueueItemId;
     selectedQueueItemId = "";
+    selectedDraftContext = null;
+    selectedDraftId = "";
     selectedSelection = null;
     pendingNoteText = "";
     clearTimeout(noteUpdateTimer);
@@ -427,7 +401,7 @@
     pendingNoteText = overlay.noteInput.value;
     clearTimeout(noteUpdateTimer);
     if (!selectedQueueItemId) {
-      overlay.panelMeta.textContent = "Saving...";
+      overlay.panelMeta.textContent = "Draft";
       return;
     }
     overlay.panelMeta.textContent = "Saving note...";
@@ -496,8 +470,9 @@
       return;
     }
 
-    if (!selectedQueueItemId) {
-      overlay.panelMeta.textContent = "Wait for selection to save";
+    const activeItemId = selectedQueueItemId || selectedDraftId;
+    if (!activeItemId) {
+      overlay.panelMeta.textContent = "Select a target first";
       return;
     }
     if (!globalThis.MediaRecorder || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -507,10 +482,10 @@
 
     stopVoiceInput({ discard: true, silent: true });
     const recordingToken = createRecordingToken();
-    const queueItemId = selectedQueueItemId;
+    const queueItemId = activeItemId;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (queueItemId !== selectedQueueItemId || recordingToken !== voiceRecordingToken) {
+      if (!isActiveDraftOrQueueItem(queueItemId) || recordingToken !== voiceRecordingToken) {
         stopStream(stream);
         return;
       }
@@ -544,7 +519,7 @@
         if (stoppedToken !== voiceRecordingToken) {
           return;
         }
-        if (stoppedQueueItemId !== selectedQueueItemId) {
+        if (!isActiveDraftOrQueueItem(stoppedQueueItemId)) {
           return;
         }
         if (chunks.length === 0) {
@@ -697,8 +672,12 @@
         activeTranscription &&
         activeTranscription.itemId === itemId &&
         activeTranscription.recordingToken === recordingToken &&
-        selectedQueueItemId === itemId
+        isActiveDraftOrQueueItem(itemId)
     );
+  }
+
+  function isActiveDraftOrQueueItem(itemId) {
+    return Boolean(itemId && (selectedQueueItemId === itemId || selectedDraftId === itemId));
   }
 
   function readTranscriptText(value) {
@@ -750,6 +729,67 @@
     const current = overlay.noteInput.value.trim();
     overlay.noteInput.value = current ? `${current} ${normalized}` : normalized;
     scheduleNoteUpdate();
+  }
+
+  async function saveDraftAnnotation() {
+    if (!overlay || !selectedDraftContext || selectedQueueItemId) {
+      return;
+    }
+    const draftToken = currentSelectionToken;
+    const context = selectedDraftContext;
+    const noteText = overlay.noteInput.value.trim();
+    overlay.panelMeta.textContent = selectedDraftScreenshotEnabled ? "Saving screenshot..." : "Saving...";
+    overlay.saveButton.disabled = true;
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: MESSAGE_TYPES.CONTENT_SAVE_DRAFT_ANNOTATION,
+        context,
+        noteText,
+        screenshotEnabled: selectedDraftScreenshotEnabled
+      });
+      if (!response || response.ok !== true) {
+        throw new Error(
+          response && response.error
+            ? response.error
+            : "Draft was not saved by the extension."
+        );
+      }
+      if (draftToken !== currentSelectionToken || canceledSelectionTokens.has(draftToken)) {
+        const queuedItemId = response.item && response.item.id ? String(response.item.id) : "";
+        if (queuedItemId) {
+          void deleteQueuedAnnotation(queuedItemId);
+        }
+        canceledSelectionTokens.delete(draftToken);
+        return;
+      }
+      selectedQueueItemId = response.item && response.item.id ? String(response.item.id) : "";
+      selectedDraftContext = null;
+      selectedDraftId = "";
+      overlay.panelMeta.textContent = "Saved";
+      overlay.saveButton.hidden = true;
+      overlay.screenshotButton.disabled = true;
+    } catch (error) {
+      console.warn("Unable to save draft annotation.", error);
+      overlay.panelMeta.textContent = "Could not save";
+      overlay.saveButton.disabled = false;
+    }
+  }
+
+  function toggleScreenshotCapture() {
+    selectedDraftScreenshotEnabled = !selectedDraftScreenshotEnabled;
+    updateScreenshotButton();
+    if (overlay && !selectedQueueItemId) {
+      overlay.panelMeta.textContent = selectedDraftScreenshotEnabled ? "Draft" : "Draft - screenshot off";
+    }
+  }
+
+  function updateScreenshotButton() {
+    if (!overlay || !overlay.screenshotButton) {
+      return;
+    }
+    overlay.screenshotButton.textContent = selectedDraftScreenshotEnabled ? "▣" : "□";
+    overlay.screenshotButton.title = selectedDraftScreenshotEnabled ? "Screenshot on" : "Screenshot off";
+    overlay.screenshotButton.setAttribute("aria-pressed", String(selectedDraftScreenshotEnabled));
   }
 
   function resetVoiceButton() {
@@ -903,6 +943,11 @@
     overlay.panelLabel.textContent = label;
     overlay.panelMeta.textContent = meta;
     overlay.actions.hidden = false;
+    overlay.saveButton.hidden = Boolean(selectedQueueItemId);
+    overlay.saveButton.disabled = false;
+    overlay.screenshotButton.hidden = false;
+    overlay.screenshotButton.disabled = Boolean(selectedQueueItemId);
+    updateScreenshotButton();
     const rect = readSelectedRect(selectedSelection);
     if (rect) {
       positionPanelForRect(rect);
@@ -1223,6 +1268,21 @@
     micButton.setAttribute("aria-label", "Start voice recording");
     micButton.textContent = "●";
 
+    const screenshotButton = document.createElement("button");
+    screenshotButton.className = "action";
+    screenshotButton.type = "button";
+    screenshotButton.title = "Screenshot on";
+    screenshotButton.setAttribute("aria-label", "Toggle screenshot");
+    screenshotButton.setAttribute("aria-pressed", "true");
+    screenshotButton.textContent = "▣";
+
+    const saveButton = document.createElement("button");
+    saveButton.className = "action action-save";
+    saveButton.type = "button";
+    saveButton.title = "Save to Queue";
+    saveButton.setAttribute("aria-label", "Save to Queue");
+    saveButton.textContent = "Save";
+
     const noteWrap = document.createElement("div");
     noteWrap.className = "note-wrap";
     noteWrap.hidden = true;
@@ -1245,7 +1305,19 @@
       toggleVoiceInput();
     });
 
-    actions.append(noteButton, micButton, cancelButton);
+    screenshotButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleScreenshotCapture();
+    });
+
+    saveButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void saveDraftAnnotation();
+    });
+
+    actions.append(noteButton, micButton, screenshotButton, saveButton, cancelButton);
     noteWrap.append(noteInput);
     copy.append(label, meta);
     panel.append(copy, actions, noteWrap);
@@ -1257,6 +1329,8 @@
       cancelButton,
       noteButton,
       micButton,
+      screenshotButton,
+      saveButton,
       noteWrap,
       noteInput
     };

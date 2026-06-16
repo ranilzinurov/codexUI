@@ -8937,3 +8937,44 @@ Choose the Codex project/thread destination inside the Browser Annotation extens
 - Disconnect the extension binding if manual validation created one.
 - Clear extension storage for `browserAnnotation.binding`, `browserAnnotation.threadTarget`, `browserAnnotation.settings`, and `browserAnnotation.pairingToken` if needed.
 - Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
+
+---
+
+### Browser Annotation Draft, Screenshot State, And Queue Detail
+
+#### Feature/Change Name
+Browser annotation Pick on Page, Draft Annotation save flow, screenshot states, queue row/detail review, panel mode control, and Diagnostics wording.
+
+#### Prerequisites/Setup
+1. Use a branch containing the browser annotation panel UX update.
+2. Run the focused checks from the repository root:
+   - `pnpm exec vitest run src/App.browserAnnotationExtensionSidepanel.test.ts --reporter=verbose`
+   - `node extension/browser-annotation/dev/content-draft-annotation-smoke.cjs`
+   - `node extension/browser-annotation/dev/content-overlay-cancel-smoke.cjs`
+   - `node extension/browser-annotation/dev/sidepanel-host-permission-smoke.cjs`
+   - `node extension/browser-annotation/dev/annotation-queue-smoke.mjs`
+3. For manual UI verification, load `extension/browser-annotation` or the packaged unpacked extension as an unpacked Chrome extension.
+4. Open a normal `http(s)` page and connect Browser Binding if sending to Codex UI will be tested.
+
+#### Steps
+1. In light theme, open the Annotation Panel and confirm the primary action says `Pick on Page`, not `Inject Overlay`.
+2. Confirm the panel shows separate Binding, Destination, Catalog, Queue, and Diagnostics concepts.
+3. Change Panel mode between `Float` and `Dock`, close/reopen the panel, and confirm the selected mode remains.
+4. Click `Pick on Page`, select an element, and confirm an inline Draft Annotation appears with comment, mic, screenshot toggle, `Save to Queue`, and cancel controls.
+5. Type a comment and confirm the queue remains unchanged until `Save to Queue`.
+6. Click `Save to Queue` and confirm a Queue Row appears with a comment preview, screenshot state, clickable thumbnail/detail action, and reorder/delete controls.
+7. Click the thumbnail/detail action and confirm Queue Item Detail opens inside the panel with full comment, screenshot state, metadata, and Back control.
+8. Simulate or inspect a failed screenshot item and confirm `Screenshot Failed` is shown; `Send Queue` remains blocked until `Send without screenshot` is chosen.
+9. Switch to dark theme and repeat steps 1-7, confirming text, buttons, queue rows, detail, and Diagnostics controls remain readable.
+
+#### Expected Results
+- Picking a page target creates a Draft Annotation, not an immediate queue item.
+- `Save to Queue` is the only action that turns a Draft Annotation into a queue item.
+- Ordinary selected page annotations never show `No preview`; they show Screenshot Ready, Screenshot Failed, Screenshot Off, or pending/uploading state.
+- Failed screenshots block sending until the user explicitly retries or chooses to send without screenshot.
+- Queue Item Detail opens inside the Annotation Panel and does not require a new browser tab.
+- Light and dark theme surfaces remain readable.
+
+#### Rollback/Cleanup
+- Remove the unpacked extension from `chrome://extensions` if loaded only for this test.
+- Clear extension storage for `browserAnnotation.annotationQueue`, `browserAnnotation.threadTarget`, `browserAnnotation.binding`, and `browserAnnotation.panelMode` if manual test state should be removed.

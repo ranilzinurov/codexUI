@@ -230,7 +230,7 @@ storage.set(storageKey, BrowserAnnotationDevtoolsCapture.createDevtoolsCaptureSt
 ));
 context.devtoolsCaptureTabId = null;
 tabRemovedListeners[0](42);
-await delay(10);
+await waitForStoredState(storageKey, (state) => state && state.active === false);
 const closedState = storage.get(storageKey);
 assert.equal(closedState.active, false);
 assert.equal(closedState.detachReason, "tab-closed");
@@ -248,7 +248,7 @@ storage.set(storageKey, BrowserAnnotationDevtoolsCapture.createDevtoolsCaptureSt
 ));
 context.devtoolsCaptureTabId = null;
 tabUpdatedListeners[0](42, { status: "loading", url: "https://app.example.test/after-navigation" });
-await delay(10);
+await waitForStoredState(storageKey, (state) => state && state.active === false);
 const navigatedState = storage.get(storageKey);
 assert.equal(navigatedState.active, false);
 assert.equal(navigatedState.detachReason, "tab-navigated");
@@ -256,12 +256,18 @@ assert.equal(navigatedState.detachReason, "tab-navigated");
 const annotationQueueKey = BrowserAnnotationConstants.STORAGE_KEYS.annotationQueue;
 storage.set(annotationQueueKey, []);
 await Promise.all([
-  context.saveSelectedElementContext(
-    { selector: "#alpha", text: "alpha", rect: { x: 0, y: 0, width: 10, height: 10 }, viewport: { width: 100, height: 100, devicePixelRatio: 1 } },
+  context.saveDraftAnnotation(
+    {
+      context: { selector: "#alpha", text: "alpha", rect: { x: 0, y: 0, width: 10, height: 10 }, viewport: { width: 100, height: 100, devicePixelRatio: 1 } },
+      screenshotEnabled: false
+    },
     { tab: { id: 42, windowId: 7, title: "Queue race", url: "https://app.example.test/queue" } }
   ),
-  context.saveSelectedElementContext(
-    { selector: "#bravo", text: "bravo", rect: { x: 10, y: 10, width: 10, height: 10 }, viewport: { width: 100, height: 100, devicePixelRatio: 1 } },
+  context.saveDraftAnnotation(
+    {
+      context: { selector: "#bravo", text: "bravo", rect: { x: 10, y: 10, width: 10, height: 10 }, viewport: { width: 100, height: 100, devicePixelRatio: 1 } },
+      screenshotEnabled: false
+    },
     { tab: { id: 42, windowId: 7, title: "Queue race", url: "https://app.example.test/queue" } }
   )
 ]);
@@ -635,6 +641,18 @@ function createChromeStub(
 
 function delay(ms) {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
+}
+
+async function waitForStoredState(key, predicate, timeoutMs = 1000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const value = storage.get(key);
+    if (predicate(value)) {
+      return value;
+    }
+    await delay(10);
+  }
+  return storage.get(key);
 }
 
 function deferred() {

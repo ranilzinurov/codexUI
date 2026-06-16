@@ -22,19 +22,30 @@
       <section id="mainPanel" class="tab-panel is-active" data-tab-panel>
         <section class="section status-section">
           <div class="status-strip">
-            <span>Status</span>
+            <span>Binding</span>
             <strong id="connectionStatus">Checking...</strong>
           </div>
           <p id="connectionDetail" class="muted">Paste a browser binding code from Codex UI.</p>
           <span id="tabStatus" class="sr-only">Checking...</span>
-          <p id="tabDetail" class="sr-only">Inject the overlay on an http(s) page to select elements.</p>
-          <button id="injectOverlay" class="button button-primary" type="button">Inject Overlay</button>
+          <p id="tabDetail" class="sr-only">Pick on Page works on http(s) pages.</p>
+          <div class="panel-mode" aria-label="Panel mode">
+            <span>Panel</span>
+            <select id="panelMode" class="target-select">
+              <option value="floating">Float</option>
+              <option value="docked">Dock</option>
+            </select>
+          </div>
+          <button id="injectOverlay" class="button button-primary" type="button">Pick on Page</button>
         </section>
 
         <section class="section target-section" aria-labelledby="targetHeading">
           <div class="status-row">
             <span id="targetHeading">Destination</span>
             <strong id="targetStatus">Choose thread</strong>
+          </div>
+          <div class="status-row status-row-subtle">
+            <span>Catalog</span>
+            <strong id="catalogStatus">Not loaded</strong>
           </div>
           <div class="target-grid">
             <label class="field field-compact">
@@ -54,7 +65,7 @@
 
         <section class="section devtools-section" aria-labelledby="devtoolsHeading">
           <div class="status-row">
-            <span id="devtoolsHeading">DevTools</span>
+            <span id="devtoolsHeading">Diagnostics</span>
             <strong id="devtoolsStatus">Checking...</strong>
           </div>
           <div class="compact-controls">
@@ -82,6 +93,7 @@
           <p id="queueDetail" class="muted">Select elements or add a page note, then send one batch.</p>
           <div id="batchMeta" class="batch-meta" hidden></div>
           <ol id="queueList" class="queue-list" aria-label="Queued annotations"></ol>
+          <section id="queueItemDetail" class="queue-detail" aria-label="Queue Item Detail" hidden></section>
           <button id="sendBatch" class="button button-primary" type="button" disabled>Send Queue</button>
         </section>
       </section>
@@ -110,9 +122,9 @@
       <section id="helpPanel" class="tab-panel" data-tab-panel hidden>
         <section class="section help-section" lang="ru">
           <h2>Справка</h2>
-          <p>Откройте нужную страницу, нажмите <strong>Inject Overlay</strong> и выберите элементы прямо на странице.</p>
+          <p>Откройте нужную страницу, нажмите <strong>Pick on Page</strong> и выберите элементы прямо на странице.</p>
           <p>Комментарии и голосовые заметки вводятся inline в overlay. В очереди остаются только выбранные элементы, порядок и отправка.</p>
-          <p>DevTools включайте только когда нужны console/network данные. Checkbox <strong>Bodies</strong> добавляет тела запросов и ответов, поэтому используйте его только для безопасных страниц.</p>
+          <p>Diagnostics включайте только когда нужны console/network данные. Checkbox <strong>Bodies</strong> добавляет тела запросов и ответов, поэтому используйте его только для безопасных страниц.</p>
           <p>Server URL и Browser binding code находятся во вкладке Settings.</p>
         </section>
       </section>
