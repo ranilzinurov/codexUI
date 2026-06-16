@@ -7,9 +7,26 @@ on:
         description: Git ref to deploy
         required: true
         default: main
+      verification:
+        description: Verification strategy before deploying
+        required: true
+        default: require-ci
+        type: choice
+        options:
+          - require-ci
+          - full
+          - skip
+  workflow_run:
+    workflows:
+      - CI
+    branches:
+      - main
+    types:
+      - completed
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: deploy-hetzner
@@ -18,50 +35,129 @@ concurrency:
 jobs:
   deploy:
     name: Verify and deploy
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: production
 
     steps:
+      - name: Resolve deploy ref
+        id: deploy-ref
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_REF: ${{ inputs.ref }}
+          WORKFLOW_RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          if [[ "${EVENT_NAME}" == "workflow_run" ]]; then
+            ref="${WORKFLOW_RUN_HEAD_SHA}"
+          else
+            ref="${INPUT_REF:-main}"
+          fi
+
+          if [[ -z "${ref}" ]]; then
+            echo "::error::No deploy ref was resolved"
+            exit 1
+          fi
+
+          echo "ref=${ref}" >> "${GITHUB_OUTPUT}"
+          echo "Deploy ref: ${ref}" >> "${GITHUB_STEP_SUMMARY}"
+
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ steps.deploy-ref.outputs.ref }}
           fetch-depth: 0
 
+      - name: Resolve target commit
+        id: target
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve verification mode
+        id: verification
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERIFICATION: ${{ inputs.verification }}
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.target.outputs.sha }}
+        run: |
+          mode="${INPUT_VERIFICATION:-require-ci}"
+          needs_full="true"
+          reason="manual full verification requested"
+
+          if [[ "${EVENT_NAME}" == "workflow_run" ]]; then
+            needs_full="false"
+            reason="triggering CI workflow already succeeded"
+          elif [[ "${mode}" == "skip" ]]; then
+            needs_full="false"
+            reason="manual verification skip requested"
+          elif [[ "${mode}" == "require-ci" ]]; then
+            runs_path="${RUNNER_TEMP}/ci-runs.json"
+            gh api \
+              -X GET \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
+              -f head_sha="${TARGET_SHA}" \
+              -f per_page=20 \
+              > "${runs_path}"
+
+            if jq -e --arg sha "${TARGET_SHA}" \
+              '.workflow_runs | any(.head_sha == $sha and .conclusion == "success")' \
+              "${runs_path}" >/dev/null
+            then
+              needs_full="false"
+              reason="successful CI run already exists for target commit"
+            else
+              needs_full="true"
+              reason="no successful CI run found for target commit"
+            fi
+          elif [[ "${mode}" == "full" ]]; then
+            needs_full="true"
+            reason="manual full verification requested"
+          else
+            echo "::error::Unknown verification mode: ${mode}"
+            exit 1
+          fi
+
+          echo "needs_full=${needs_full}" >> "${GITHUB_OUTPUT}"
+          echo "reason=${reason}" >> "${GITHUB_OUTPUT}"
+          echo "Verification: ${reason}; needs_full=${needs_full}" >> "${GITHUB_STEP_SUMMARY}"
+
       - name: Set up pnpm
+        if: steps.verification.outputs.needs_full == 'true'
         uses: pnpm/action-setup@v6
         with:
           version: 10.6.2
           run_install: false
 
       - name: Set up Node.js
+        if: steps.verification.outputs.needs_full == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: "22"
           cache: pnpm
 
       - name: Install Gitleaks
+        if: steps.verification.outputs.needs_full == 'true'
         run: bash scripts/install-gitleaks.sh
 
       - name: Run secret scan
-        run: pnpm run secret:scan
+        if: steps.verification.outputs.needs_full == 'true'
+        run: bash scripts/gitleaks-scan.sh
 
       - name: Install dependencies
+        if: steps.verification.outputs.needs_full == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Install Playwright WebKit
+        if: steps.verification.outputs.needs_full == 'true'
         run: pnpm exec playwright install --with-deps webkit
 
       - name: Run unit tests
+        if: steps.verification.outputs.needs_full == 'true'
         run: pnpm run test:unit
 
       - name: Run build and smoke tests
+        if: steps.verification.outputs.needs_full == 'true'
         run: pnpm run test
-
-      - name: Resolve target commit
-        id: target
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Validate deploy secrets
         env:

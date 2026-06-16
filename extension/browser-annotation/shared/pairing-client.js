@@ -4,6 +4,36 @@
   const constants = globalScope.BrowserAnnotationConstants;
   const urlUtils = globalScope.BrowserAnnotationUrlUtils;
 
+  function buildBindingStartUrl(serverUrl) {
+    const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
+    return new URL(constants.BINDING_START_PATH, `${normalizedServerUrl}/`).toString();
+  }
+
+  function buildBindingCompleteUrl(serverUrl) {
+    const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
+    return new URL(constants.BINDING_COMPLETE_PATH, `${normalizedServerUrl}/`).toString();
+  }
+
+  function buildBindingStatusUrl(serverUrl) {
+    const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
+    return new URL(constants.BINDING_STATUS_PATH, `${normalizedServerUrl}/`).toString();
+  }
+
+  function buildBrowserBindingRevokeUrl(serverUrl) {
+    const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
+    return new URL(constants.BINDING_REVOKE_PATH, `${normalizedServerUrl}/`).toString();
+  }
+
+  function buildThreadTargetsUrl(serverUrl) {
+    const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
+    return new URL(constants.THREAD_TARGETS_PATH, `${normalizedServerUrl}/`).toString();
+  }
+
+  function buildListenBindThreadUrl(serverUrl) {
+    const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
+    return new URL(constants.LISTEN_BIND_THREAD_PATH, `${normalizedServerUrl}/`).toString();
+  }
+
   function buildListenStatusUrl(serverUrl) {
     const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
     return new URL(constants.LISTEN_STATUS_PATH, `${normalizedServerUrl}/`).toString();
@@ -43,6 +73,26 @@
     const url = new URL(constants.TRANSCRIBE_PATH, `${normalizedServerUrl}/`);
     appendSessionParams(url, session);
     return url.toString();
+  }
+
+  function buildProControlPollUrl(serverUrl) {
+    const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
+    return new URL(constants.PRO_CONTROL_POLL_PATH, `${normalizedServerUrl}/`).toString();
+  }
+
+  function buildProControlTaskStatusUrl(serverUrl, taskId) {
+    const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
+    return new URL(`${constants.PRO_CONTROL_TASK_STATUS_PATH}/${encodeURIComponent(taskId)}/status`, `${normalizedServerUrl}/`).toString();
+  }
+
+  function buildProControlTaskResultUrl(serverUrl, taskId) {
+    const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
+    return new URL(`${constants.PRO_CONTROL_TASK_STATUS_PATH}/${encodeURIComponent(taskId)}/result`, `${normalizedServerUrl}/`).toString();
+  }
+
+  function buildProControlResultFilesUrl(serverUrl) {
+    const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
+    return new URL(constants.PRO_CONTROL_RESULT_FILES_PATH, `${normalizedServerUrl}/`).toString();
   }
 
   function appendSessionParams(url, session) {
@@ -112,6 +162,39 @@
     return parsed;
   }
 
+  function readBindingFromStatusPayload(payload) {
+    if (!isRecord(payload) || payload.ok !== true || !isRecord(payload.binding)) {
+      return null;
+    }
+
+    const binding = payload.binding;
+    const bindingId = readString(binding.bindingId);
+    const status = readString(binding.status);
+    if (!bindingId || !status) {
+      return null;
+    }
+
+    const parsed = {
+      bindingId,
+      status,
+      tokenType: readString(binding.tokenType) || "browser-binding",
+      serverUrl: readNullableString(binding.serverUrl),
+      serverPath: readString(binding.serverPath),
+      expiresAtIso: readString(binding.expiresAtIso),
+      createdAtIso: readString(binding.createdAtIso)
+    };
+
+    const lastUsedAtIso = readString(binding.lastUsedAtIso);
+    const bindingToken = readString(binding.bindingToken);
+    if (lastUsedAtIso) {
+      parsed.lastUsedAtIso = lastUsedAtIso;
+    }
+    if (bindingToken) {
+      parsed.bindingToken = bindingToken;
+    }
+    return parsed;
+  }
+
   function readString(value) {
     return typeof value === "string" ? value : "";
   }
@@ -127,12 +210,23 @@
   globalScope.BrowserAnnotationPairingClient = {
     buildAnnotationBatchUrl,
     buildAssetUploadUrl,
+    buildBindingCompleteUrl,
     buildBindingRevokeUrl,
+    buildBindingStartUrl,
+    buildBindingStatusUrl,
+    buildBrowserBindingRevokeUrl,
+    buildProControlPollUrl,
+    buildProControlResultFilesUrl,
+    buildProControlTaskResultUrl,
+    buildProControlTaskStatusUrl,
+    buildListenBindThreadUrl,
     buildListenBindUrl,
     buildListenStopUrl,
     buildListenStatusUrl,
+    buildThreadTargetsUrl,
     buildTranscribeUrl,
     readJsonSafely,
+    readBindingFromStatusPayload,
     readStatusError,
     readSessionFromStatusPayload
   };

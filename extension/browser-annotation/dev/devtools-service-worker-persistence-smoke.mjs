@@ -230,7 +230,7 @@ storage.set(storageKey, BrowserAnnotationDevtoolsCapture.createDevtoolsCaptureSt
 ));
 context.devtoolsCaptureTabId = null;
 tabRemovedListeners[0](42);
-await delay(10);
+await waitForStoredState(storageKey, (state) => state && state.active === false);
 const closedState = storage.get(storageKey);
 assert.equal(closedState.active, false);
 assert.equal(closedState.detachReason, "tab-closed");
@@ -248,7 +248,7 @@ storage.set(storageKey, BrowserAnnotationDevtoolsCapture.createDevtoolsCaptureSt
 ));
 context.devtoolsCaptureTabId = null;
 tabUpdatedListeners[0](42, { status: "loading", url: "https://app.example.test/after-navigation" });
-await delay(10);
+await waitForStoredState(storageKey, (state) => state && state.active === false);
 const navigatedState = storage.get(storageKey);
 assert.equal(navigatedState.active, false);
 assert.equal(navigatedState.detachReason, "tab-navigated");
@@ -256,12 +256,18 @@ assert.equal(navigatedState.detachReason, "tab-navigated");
 const annotationQueueKey = BrowserAnnotationConstants.STORAGE_KEYS.annotationQueue;
 storage.set(annotationQueueKey, []);
 await Promise.all([
-  context.saveSelectedElementContext(
-    { selector: "#alpha", text: "alpha", rect: { x: 0, y: 0, width: 10, height: 10 }, viewport: { width: 100, height: 100, devicePixelRatio: 1 } },
+  context.saveDraftAnnotation(
+    {
+      context: { selector: "#alpha", text: "alpha", rect: { x: 0, y: 0, width: 10, height: 10 }, viewport: { width: 100, height: 100, devicePixelRatio: 1 } },
+      screenshotEnabled: false
+    },
     { tab: { id: 42, windowId: 7, title: "Queue race", url: "https://app.example.test/queue" } }
   ),
-  context.saveSelectedElementContext(
-    { selector: "#bravo", text: "bravo", rect: { x: 10, y: 10, width: 10, height: 10 }, viewport: { width: 100, height: 100, devicePixelRatio: 1 } },
+  context.saveDraftAnnotation(
+    {
+      context: { selector: "#bravo", text: "bravo", rect: { x: 10, y: 10, width: 10, height: 10 }, viewport: { width: 100, height: 100, devicePixelRatio: 1 } },
+      screenshotEnabled: false
+    },
     { tab: { id: 42, windowId: 7, title: "Queue race", url: "https://app.example.test/queue" } }
   )
 ]);
@@ -321,78 +327,136 @@ assert.equal(revokedState.settings.pairingToken, "");
 assert.equal(storage.has(BrowserAnnotationConstants.STORAGE_KEYS.pairingToken), false);
 
 const persistentFetchCalls = [];
-const transcribeRequests = [];
+let failThreadTargetsRefresh = false;
 context.fetch = async (input, init = {}) => {
   const url = String(input);
   const authorization = init.headers && init.headers.Authorization;
-  persistentFetchCalls.push({ url, method: init.method || "GET", authorization });
-  if (url.includes("/listen/binding/revoke")) {
-    assert.equal(authorization, "Bearer extension-token-smoke");
+  persistentFetchCalls.push({ url, method: init.method || "GET", authorization, body: init.body ? String(init.body) : "" });
+  if (url.includes("/binding/revoke")) {
+    assert.equal(authorization, "Bearer binding-token-smoke");
     return jsonResponse({
       ok: true,
-      session: {
-        ...persistentSessionPayload(),
+      binding: {
+        ...persistentBindingPayload(),
         status: "revoked"
       }
     });
   }
-  if (url.includes("/listen/bind")) {
+  if (url.includes("/binding/complete")) {
     assert.equal(authorization, "Bearer pairing-token-smoke");
     return jsonResponse({
       ok: true,
+      binding: {
+        bindingId: "browser-binding-smoke",
+        status: "active",
+        tokenType: "browser-binding",
+        serverUrl: "https://codex-ui.todo-tg-app.ru",
+        serverPath: "/codex-api/extension/binding",
+        expiresAtIso: "2027-05-30T12:00:00.000Z",
+        createdAtIso: "2026-05-30T12:00:00.000Z",
+        lastUsedAtIso: "2026-05-30T12:00:00.000Z",
+        bindingToken: "binding-token-smoke"
+      }
+    });
+  }
+  if (url.includes("/binding/status")) {
+    assert.equal(authorization, "Bearer binding-token-smoke");
+    return jsonResponse({
+      ok: true,
+      binding: persistentBindingPayload()
+    });
+  }
+  if (url.includes("/extension/threads")) {
+    assert.equal(authorization, "Bearer binding-token-smoke");
+    if (failThreadTargetsRefresh) {
+      throw new Error("catalog refresh temporarily unavailable");
+    }
+    return jsonResponse({
+      ok: true,
+      groups: [
+        {
+          projectName: "codexUI",
+          cwd: "/home/rnl1/prog/codexUI",
+          threads: [
+            {
+              id: "thread-selector-1",
+              title: "Ресерч browser remote extension",
+              preview: "ок, законнектился",
+              updatedAtIso: "2026-06-16T14:30:00.000Z",
+              cwd: "/home/rnl1/prog/codexUI"
+            }
+          ]
+        }
+      ]
+    });
+  }
+  if (url.includes("/listen/bind-thread")) {
+    assert.equal(authorization, "Bearer binding-token-smoke");
+    const body = JSON.parse(init.body);
+    assert.equal(body.threadId, "thread-selector-1");
+    return jsonResponse({
+      ok: true,
       session: {
-        sessionId: "persistent-session",
-        threadId: "thread-persistent",
+        sessionId: "scoped-session-selector-1",
+        threadId: "thread-selector-1",
         status: "active",
         tokenType: "extension",
         serverUrl: "https://codex-ui.todo-tg-app.ru",
         serverPath: "/codex-api/extension/listen",
-        expiresAtIso: "2026-06-29T12:00:00.000Z",
-        createdAtIso: "2026-05-30T12:00:00.000Z",
-        lastUsedAtIso: "2026-05-30T12:00:00.000Z",
-        extensionToken: "extension-token-smoke"
+        expiresAtIso: "2026-07-16T14:30:00.000Z",
+        createdAtIso: "2026-06-16T14:30:00.000Z",
+        lastUsedAtIso: "2026-06-16T14:30:00.000Z",
+        extensionToken: "scoped-thread-token"
       }
     });
   }
-  if (url.includes("/listen/status")) {
-    assert.equal(authorization, "Bearer extension-token-smoke");
+  if (url.includes("/assets/upload")) {
+    assert.equal(authorization, "Bearer scoped-thread-token");
+    assert.equal(url.includes("sessionId=scoped-session-selector-1"), true);
+    assert.equal(url.includes("threadId=thread-selector-1"), true);
+    assert.equal(init.body.get("kind"), "screenshot");
+    assert.equal(init.body.get("file").type, "image/png");
     return jsonResponse({
       ok: true,
-      session: persistentSessionPayload()
+      asset: {
+        id: "uploaded-screenshot-asset-1",
+        kind: "screenshot",
+        mimeType: "image/png",
+        sizeBytes: 3,
+        fileName: "annotation-screenshot.png",
+        absolutePath: "/tmp/codex-web-uploads/annotation-smoke/annotation-screenshot.png",
+        localImageUrl: "/codex-local-image?path=%2Ftmp%2Fcodex-web-uploads%2Fannotation-smoke%2Fannotation-screenshot.png",
+        sessionId: "scoped-session-selector-1",
+        threadId: "thread-selector-1"
+      }
     });
   }
   if (url.includes("/annotation-batch")) {
-    assert.equal(authorization, "Bearer extension-token-smoke");
-    assert.equal(url.includes("sessionId=persistent-session"), true);
+    assert.equal(authorization, "Bearer scoped-thread-token");
+    assert.equal(url.includes("sessionId=scoped-session-selector-1"), true);
+    assert.equal(url.includes("threadId=thread-selector-1"), true);
+    const body = JSON.parse(init.body);
+    assert.equal(body.targetThreadId, "thread-selector-1");
+    assert.equal(body.assets.length, 1);
+    assert.equal(body.assets[0].id, "uploaded-screenshot-asset-1");
+    assert.equal(body.assets[0].kind, "annotation-screenshot");
+    assert.equal(body.assets[0].mimeType, "image/png");
+    assert.equal(body.assets[0].byteLength, 3);
+    assert.equal(body.assets[0].storageKey, "/codex-local-image?path=%2Ftmp%2Fcodex-web-uploads%2Fannotation-smoke%2Fannotation-screenshot.png");
+    assert.equal(body.items[0].screenshotAssetId, "uploaded-screenshot-asset-1");
+    assert.equal(JSON.stringify(body).includes("data:image"), false);
     return jsonResponse({
       ok: true,
       result: {
         status: "queued",
-        threadId: "thread-persistent",
-        batchId: "batch-smoke",
-        annotationCount: 1
+        threadId: "thread-selector-1",
+        batchId: body.batchId,
+        annotationCount: body.items.length,
+        imageCount: 1,
+        consoleCount: 0,
+        networkCount: 0,
+        queuedMessageId: "queued-selector-batch"
       }
-    });
-  }
-  if (url.includes("/transcribe")) {
-    assert.equal(authorization, "Bearer extension-token-smoke");
-    assert.equal(url.includes("sessionId=persistent-session"), true);
-    const file = init.body.get("file");
-    assert(file, "transcribe request must include file");
-    assert.equal(file.type, "audio/webm");
-    assert.equal(file.name, "voice.webm");
-    assert.equal(init.body.get("durationMs"), "1234");
-    assert.equal(init.body.get("itemId"), "annotation-voice");
-    transcribeRequests.push({
-      fileType: file.type,
-      fileName: file.name,
-      fileText: Buffer.from(await file.arrayBuffer()).toString("utf8")
-    });
-    return jsonResponse({
-      ok: true,
-      text: "Русский голосовой комментарий",
-      language: "ru",
-      model: "gpt-4o-mini-transcribe"
     });
   }
   throw new Error(`Unexpected persistent smoke fetch: ${url}`);
@@ -406,12 +470,47 @@ const savedPersistentState = await context.handleMessage({
   }
 });
 const binding = storage.get(BrowserAnnotationConstants.STORAGE_KEYS.binding);
-assert.equal(binding.token, "extension-token-smoke");
-assert.equal(binding.sessionId, "persistent-session");
+assert.equal(binding.token, "binding-token-smoke");
+assert.equal(binding.bindingId, "browser-binding-smoke");
+assert.equal(binding.tokenType, "browser-binding");
+assert.equal(binding.threadId, undefined);
+assert.equal(binding.sessionId, undefined);
 assert.equal(storage.has(BrowserAnnotationConstants.STORAGE_KEYS.pairingToken), false);
 assert.equal(savedPersistentState.state.connection.status, "connected");
-assert.equal(savedPersistentState.state.connection.session.tokenType, "extension");
+assert.equal(savedPersistentState.state.connection.binding.tokenType, "browser-binding");
+assert.equal(savedPersistentState.state.connection.authToken, undefined);
 assert.equal(savedPersistentState.state.persistentBinding.status, "active");
+assert.equal(savedPersistentState.state.persistentBinding.bindingId, "browser-binding-smoke");
+assert.equal(savedPersistentState.state.persistentBinding.token, undefined);
+assert.equal(savedPersistentState.state.threadTargets.status, "ready");
+assert.equal(savedPersistentState.state.threadTargets.groups[0].projectName, "codexUI");
+assert.equal(savedPersistentState.state.threadTargets.groups[0].threads[0].id, "thread-selector-1");
+assert.equal(JSON.stringify(savedPersistentState.state).includes("binding-token-smoke"), false);
+
+const selectedTargetState = await context.handleMessage({
+  type: BrowserAnnotationConstants.MESSAGE_TYPES.SELECT_THREAD_TARGET,
+  threadId: "thread-selector-1"
+});
+assert.equal(selectedTargetState.ok, true);
+assert.equal(storage.get(BrowserAnnotationConstants.STORAGE_KEYS.threadTarget).selectedThreadId, "thread-selector-1");
+assert.equal(selectedTargetState.state.threadTargets.selectedThreadId, "thread-selector-1");
+assert.equal(selectedTargetState.state.threadTargets.selectedThread.title, "Ресерч browser remote extension");
+assert.equal(storage.get(BrowserAnnotationConstants.STORAGE_KEYS.threadTargetCatalog).groups[0].threads[0].id, "thread-selector-1");
+
+failThreadTargetsRefresh = true;
+const staleCatalogState = await context.handleMessage({
+  type: BrowserAnnotationConstants.MESSAGE_TYPES.GET_STATE
+});
+assert.equal(staleCatalogState.ok, true);
+assert.equal(staleCatalogState.state.threadTargets.status, "stale");
+assert.equal(staleCatalogState.state.threadTargets.catalogStale, true);
+assert.match(staleCatalogState.state.threadTargets.detail, /Refresh failed/);
+assert.equal(staleCatalogState.state.threadTargets.groups[0].projectName, "codexUI");
+assert.equal(staleCatalogState.state.threadTargets.groups[0].threads[0].id, "thread-selector-1");
+assert.equal(staleCatalogState.state.threadTargets.selectedThreadId, "thread-selector-1");
+assert.equal(staleCatalogState.state.threadTargets.selectedThread.title, "Ресерч browser remote extension");
+assert.equal(storage.get(BrowserAnnotationConstants.STORAGE_KEYS.threadTarget).selectedThreadId, "thread-selector-1");
+failThreadTargetsRefresh = false;
 
 activeTabs.splice(0, activeTabs.length, {
   id: 101,
@@ -440,33 +539,38 @@ const pageStateQueue = storage.get(annotationQueueKey);
 assert.equal(pageStateQueue.length, 1);
 assert.equal(pageStateQueue[0].kind, "devtools/page-state");
 assert.equal(pageStateQueue[0].noteText, "Capture current page behavior");
+assert.equal(storage.get(BrowserAnnotationConstants.STORAGE_KEYS.binding).token, "binding-token-smoke");
+assert.equal(persistentFetchCalls.some((call) => call.url.includes("/listen/stop")), false);
+pageStateQueue[0].screenshot = {
+  state: "ready",
+  capturedAtIso: "2026-06-16T14:31:00.000Z",
+  thumbnail: {
+    dataUrl: "data:image/png;base64,QUJD",
+    width: 3,
+    height: 1
+  }
+};
+pageStateQueue[0].preview = {
+  dataUrl: "data:image/png;base64,QUJD",
+  width: 3,
+  height: 1
+};
+storage.set(annotationQueueKey, pageStateQueue);
 
-const sentPersistent = await context.handleMessage({
+const sentScopedBatch = await context.handleMessage({
   type: BrowserAnnotationConstants.MESSAGE_TYPES.SEND_ANNOTATION_BATCH
 });
-assert.equal(sentPersistent.ok, true);
+assert.equal(sentScopedBatch.ok, true);
+assert.equal(sentScopedBatch.result.threadId, "thread-selector-1");
+assert.equal(sentScopedBatch.result.imageCount, 1);
+assert.equal(JSON.stringify(sentScopedBatch.state).includes("scoped-thread-token"), false);
 assert.equal(storage.get(annotationQueueKey).length, 0);
-assert.equal(storage.get(BrowserAnnotationConstants.STORAGE_KEYS.binding).token, "extension-token-smoke");
-assert.equal(persistentFetchCalls.some((call) => call.url.includes("/listen/stop")), false);
-
-const transcript = await context.handleMessage({
-  type: BrowserAnnotationConstants.MESSAGE_TYPES.CONTENT_TRANSCRIBE_AUDIO,
-  itemId: "annotation-voice",
-  recordingToken: "recording-token-smoke",
-  mimeType: "audio/webm;codecs=opus",
-  durationMs: 1234,
-  audioDataUrl: `data:audio/webm;codecs=opus;base64,${Buffer.from("voice").toString("base64")}`
-});
-assert.equal(transcript.transcriptText, "Русский голосовой комментарий");
-assert.equal(transcript.itemId, "annotation-voice");
-assert.equal(transcript.recordingToken, "recording-token-smoke");
-assert.deepEqual(transcribeRequests, [
-  {
-    fileType: "audio/webm",
-    fileName: "voice.webm",
-    fileText: "voice"
-  }
-]);
+assert.equal(persistentFetchCalls.some((call) => call.url.includes("/listen/bind-thread")), true);
+assert.equal(persistentFetchCalls.some((call) => call.url.includes("/annotation-batch")), true);
+assert.ok(
+  persistentFetchCalls.findIndex((call) => call.url.includes("/assets/upload")) <
+    persistentFetchCalls.findIndex((call) => call.url.includes("/annotation-batch"))
+);
 
 const disconnectedPersistent = await context.handleMessage({
   type: BrowserAnnotationConstants.MESSAGE_TYPES.DISCONNECT_BINDING
@@ -477,15 +581,14 @@ assert.equal(disconnectedPersistent.state.connection.status, "disconnected");
 
 console.log("Extension DevTools service worker persistence smoke passed.");
 
-function persistentSessionPayload() {
+function persistentBindingPayload() {
   return {
-    sessionId: "persistent-session",
-    threadId: "thread-persistent",
+    bindingId: "browser-binding-smoke",
     status: "active",
-    tokenType: "extension",
+    tokenType: "browser-binding",
     serverUrl: "https://codex-ui.todo-tg-app.ru",
-    serverPath: "/codex-api/extension/listen",
-    expiresAtIso: "2026-06-29T12:00:00.000Z",
+    serverPath: "/codex-api/extension/binding",
+    expiresAtIso: "2027-05-30T12:00:01.000Z",
     createdAtIso: "2026-05-30T12:00:00.000Z",
     lastUsedAtIso: "2026-05-30T12:00:01.000Z"
   };
@@ -607,6 +710,18 @@ function createChromeStub(
 
 function delay(ms) {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
+}
+
+async function waitForStoredState(key, predicate, timeoutMs = 1000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const value = storage.get(key);
+    if (predicate(value)) {
+      return value;
+    }
+    await delay(10);
+  }
+  return storage.get(key);
 }
 
 function deferred() {

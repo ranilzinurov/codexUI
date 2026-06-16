@@ -54,10 +54,16 @@ import {
 import { ThreadTerminalManager } from './terminalManager.js'
 import { WebPushNotifications } from './webPushNotifications.js'
 import { ThreadAutoTitleManager } from './threadAutoTitle.js'
+import { handleBrowserAnnotationBindingRoutes } from './browserAnnotationBinding.js'
 import { handleBrowserAnnotationListenRoutes } from './browserAnnotationListen.js'
+import {
+  handleBrowserAnnotationThreadRoutes,
+  listBrowserAnnotationThreadGroupsFromRpc,
+} from './browserAnnotationThreads.js'
 import { handleBrowserAnnotationAssetUploadRoute } from './browserAnnotationAssets.js'
 import { handleBrowserAnnotationTranscribeRoute } from './browserAnnotationTranscribe.js'
 import { handleBrowserAnnotationBatchRoute } from './browserAnnotationBatch.js'
+import { handleProControlRoutes } from './proControl.js'
 import { handleVoiceModeRoutes, type VoiceModeNotificationEvent } from './voiceMode.js'
 import { getSpawnInvocation } from '../utils/commandInvocation.js'
 import {
@@ -8610,6 +8616,16 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
 
       const url = new URL(req.url, 'http://localhost')
 
+      if (await handleBrowserAnnotationBindingRoutes(req, res, url)) {
+        return
+      }
+
+      if (await handleBrowserAnnotationThreadRoutes(req, res, url, {
+        listThreadGroups: () => listBrowserAnnotationThreadGroupsFromRpc(appServer),
+      })) {
+        return
+      }
+
       if (await handleBrowserAnnotationListenRoutes(req, res, url)) {
         return
       }
@@ -8626,6 +8642,10 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         appendQueuedMessage: appendThreadQueuedMessage,
         scheduleThreadQueueDrain: (threadId, delayMs) => backendQueueProcessor.scheduleThreadQueueDrain(threadId, delayMs),
       })) {
+        return
+      }
+
+      if (await handleProControlRoutes(req, res, url)) {
         return
       }
 

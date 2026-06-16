@@ -6,8 +6,8 @@
    *
    * @typedef {Object} BrowserAnnotationSettings
    * @property {string} serverUrl Pairing server base URL.
-   * @property {string} pairingToken Ephemeral thread listener token pasted from Codex UI.
-   * @property {string=} extensionToken Long-lived scoped token issued after pairing.
+   * @property {string} pairingToken Ephemeral browser binding pairing code pasted from Codex UI.
+   * @property {string=} extensionToken Legacy long-lived scoped token issued after thread-level pairing.
    *
    * @typedef {Object} BrowserAnnotationRuntimeMessage
    * @property {string} type One of MESSAGE_TYPES.
@@ -19,6 +19,7 @@
       GET_STATE: "browserAnnotation.getState",
       SAVE_SETTINGS: "browserAnnotation.saveSettings",
       DISCONNECT_BINDING: "browserAnnotation.disconnectBinding",
+      SELECT_THREAD_TARGET: "browserAnnotation.selectThreadTarget",
       INJECT_OVERLAY: "browserAnnotation.injectOverlay",
       ADD_PAGE_STATE_ANNOTATION: "browserAnnotation.addPageStateAnnotation",
       UPDATE_ANNOTATION_QUEUE_ITEM: "browserAnnotation.updateAnnotationQueueItem",
@@ -29,9 +30,12 @@
       START_DEVTOOLS_CAPTURE: "browserAnnotation.devtools.enable",
       STOP_DEVTOOLS_CAPTURE: "browserAnnotation.devtools.disable",
       GET_DEVTOOLS_CAPTURE_STATUS: "browserAnnotation.devtools.getStatus",
+      ENABLE_PRO_CONTROL: "browserAnnotation.proControl.enable",
+      DISABLE_PRO_CONTROL: "browserAnnotation.proControl.disable",
       CONTENT_PING: "browserAnnotation.contentPing",
       CONTENT_START_OVERLAY: "browserAnnotation.contentStartOverlay",
       CONTENT_ELEMENT_SELECTED: "browserAnnotation.contentElementSelected",
+      CONTENT_SAVE_DRAFT_ANNOTATION: "browserAnnotation.contentSaveDraftAnnotation",
       CONTENT_TRANSCRIBE_AUDIO: "browserAnnotation.contentTranscribeAudio",
       CONTENT_TRANSCRIPTION_RESULT: "browserAnnotation.contentTranscriptionResult"
     }),
@@ -39,6 +43,12 @@
       serverUrl: "https://codex-ui.todo-tg-app.ru",
       pairingToken: ""
     }),
+    BINDING_START_PATH: "/codex-api/extension/binding/start",
+    BINDING_COMPLETE_PATH: "/codex-api/extension/binding/complete",
+    BINDING_STATUS_PATH: "/codex-api/extension/binding/status",
+    BINDING_REVOKE_PATH: "/codex-api/extension/binding/revoke",
+    THREAD_TARGETS_PATH: "/codex-api/extension/threads",
+    LISTEN_BIND_THREAD_PATH: "/codex-api/extension/listen/bind-thread",
     LISTEN_BIND_PATH: "/codex-api/extension/listen/bind",
     LISTEN_STATUS_PATH: "/codex-api/extension/listen/status",
     LISTEN_STOP_PATH: "/codex-api/extension/listen/stop",
@@ -46,6 +56,10 @@
     ANNOTATION_BATCH_PATH: "/codex-api/extension/annotation-batch",
     ASSET_UPLOAD_PATH: "/codex-api/extension/assets/upload",
     TRANSCRIBE_PATH: "/codex-api/extension/transcribe",
+    PRO_CONTROL_POLL_PATH: "/codex-api/extension/pro-control/poll",
+    PRO_CONTROL_TASK_STATUS_PATH: "/codex-api/extension/pro-control/tasks",
+    PRO_CONTROL_RESULT_FILES_PATH: "/codex-api/extension/pro-control/result-files",
+    PRO_CONTROL_CHATGPT_ORIGIN: "https://chatgpt.com/*",
     TARGET_HOST_PATTERN: "https://codex-ui.todo-tg-app.ru/*",
     OPTIONAL_HOST_PERMISSION_PATTERNS: Object.freeze([
       "http://*/*",
@@ -59,8 +73,11 @@
       settings: "browserAnnotation.settings",
       pairingToken: "browserAnnotation.pairingToken",
       binding: "browserAnnotation.binding",
+      threadTarget: "browserAnnotation.threadTarget",
+      threadTargetCatalog: "browserAnnotation.threadTargetCatalog",
       annotationQueue: "browserAnnotation.annotationQueue",
-      devtoolsCapture: "browserAnnotation.devtoolsCapture"
+      devtoolsCapture: "browserAnnotation.devtoolsCapture",
+      proControl: "browserAnnotation.proControl"
     }),
     MAX_ANNOTATION_QUEUE_ITEMS: 25,
     MAX_SCREENSHOT_PREVIEW_EDGE_PX: 640,

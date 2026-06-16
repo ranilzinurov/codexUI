@@ -231,6 +231,7 @@ export type DirectoryComposioLinkResult = {
 
 export type BrowserAnnotationListenStatus = 'active' | 'expired' | 'revoked'
 export type BrowserAnnotationListenTokenType = 'pairing' | 'extension'
+export type BrowserAnnotationBindingStatus = 'active' | 'expired' | 'revoked'
 
 export type BrowserAnnotationListenSession = {
   sessionId: string
@@ -245,6 +246,28 @@ export type BrowserAnnotationListenSession = {
   lastReceivedBatch?: BrowserAnnotationLastReceivedBatch
   pairingToken?: string
   extensionToken?: string
+}
+
+export type BrowserAnnotationBindingPairing = {
+  pairingId: string
+  serverUrl: string | null
+  serverPath: string
+  expiresAtIso: string
+  createdAtIso: string
+  status: BrowserAnnotationBindingStatus
+  pairingCode?: string
+}
+
+export type BrowserAnnotationBinding = {
+  bindingId: string
+  serverUrl: string | null
+  serverPath: string
+  expiresAtIso: string
+  createdAtIso: string
+  status: BrowserAnnotationBindingStatus
+  tokenType: 'browser-binding'
+  lastUsedAtIso?: string
+  bindingToken?: string
 }
 
 export type BrowserAnnotationLastReceivedBatch = {
@@ -4068,10 +4091,23 @@ export async function removeComposerPrompt(path: string): Promise<boolean> {
 }
 
 const BROWSER_ANNOTATION_LISTEN_BASE_PATH = '/codex-api/extension/listen'
+const BROWSER_ANNOTATION_BINDING_BASE_PATH = '/codex-api/extension/binding'
 
 type BrowserAnnotationListenResponse = {
   ok?: boolean
   session?: BrowserAnnotationListenSession
+  error?: string
+}
+
+type BrowserAnnotationBindingPairingResponse = {
+  ok?: boolean
+  pairing?: BrowserAnnotationBindingPairing
+  error?: string
+}
+
+type BrowserAnnotationBindingResponse = {
+  ok?: boolean
+  binding?: BrowserAnnotationBinding
   error?: string
 }
 
@@ -4092,6 +4128,54 @@ async function parseBrowserAnnotationListenResponse(response: Response, fallback
     throw new Error(fallbackMessage)
   }
   return payload.session
+}
+
+async function parseBrowserAnnotationBindingPairingResponse(response: Response, fallbackMessage: string): Promise<BrowserAnnotationBindingPairing> {
+  const payload = await response.json().catch(() => null) as BrowserAnnotationBindingPairingResponse | null
+  if (!response.ok) {
+    throw new Error(payload?.error || `${fallbackMessage} (${response.status})`)
+  }
+  if (!payload?.pairing) {
+    throw new Error(fallbackMessage)
+  }
+  return payload.pairing
+}
+
+async function parseBrowserAnnotationBindingResponse(response: Response, fallbackMessage: string): Promise<BrowserAnnotationBinding> {
+  const payload = await response.json().catch(() => null) as BrowserAnnotationBindingResponse | null
+  if (!response.ok) {
+    throw new Error(payload?.error || `${fallbackMessage} (${response.status})`)
+  }
+  if (!payload?.binding) {
+    throw new Error(fallbackMessage)
+  }
+  return payload.binding
+}
+
+export async function startBrowserAnnotationBindingPairing(): Promise<BrowserAnnotationBindingPairing> {
+  const response = await fetch(`${BROWSER_ANNOTATION_BINDING_BASE_PATH}/start`, {
+    method: 'POST',
+  })
+  return parseBrowserAnnotationBindingPairingResponse(response, 'Failed to start browser annotation binding')
+}
+
+export async function getBrowserAnnotationBindingStatus(bindingToken: string): Promise<BrowserAnnotationBinding> {
+  const response = await fetch(`${BROWSER_ANNOTATION_BINDING_BASE_PATH}/status`, {
+    headers: { Authorization: `Bearer ${bindingToken}` },
+  })
+  return parseBrowserAnnotationBindingResponse(response, 'Failed to load browser annotation binding status')
+}
+
+export async function revokeBrowserAnnotationBinding(bindingToken: string): Promise<BrowserAnnotationBinding> {
+  const response = await fetch(`${BROWSER_ANNOTATION_BINDING_BASE_PATH}/revoke`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${bindingToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({}),
+  })
+  return parseBrowserAnnotationBindingResponse(response, 'Failed to revoke browser annotation binding')
 }
 
 export async function startBrowserAnnotationListenSession(threadId: string): Promise<BrowserAnnotationListenSession> {

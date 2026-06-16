@@ -1,6 +1,9 @@
 import { createServer, type Server } from 'node:http'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  BrowserAnnotationBindingStore,
+} from './browserAnnotationBinding'
+import {
   BROWSER_ANNOTATION_EXTENSION_TOKEN_TTL_MS,
   BROWSER_ANNOTATION_LISTEN_TTL_MS,
   BrowserAnnotationListenStore,
@@ -15,10 +18,13 @@ type JsonResponse = {
 
 const servers: Server[] = []
 
-async function listenWithStore(store: BrowserAnnotationListenStore): Promise<{ baseUrl: string; close: () => Promise<void> }> {
+async function listenWithStore(
+  store: BrowserAnnotationListenStore,
+  bindingStore?: BrowserAnnotationBindingStore,
+): Promise<{ baseUrl: string; close: () => Promise<void> }> {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1')
-    if (await handleBrowserAnnotationListenRoutes(req, res, url, { store })) return
+    if (await handleBrowserAnnotationListenRoutes(req, res, url, { store, bindingStore } as never)) return
     res.statusCode = 404
     res.end()
   })
@@ -121,6 +127,49 @@ describe('browser annotation listen endpoints', () => {
       consoleCount: 3,
       networkCount: 4,
     })
+  })
+
+  it('creates a scoped listen session for a selected thread from a browser binding token', async () => {
+    let now = Date.UTC(2026, 0, 1)
+    const store = new BrowserAnnotationListenStore({
+      nowMs: () => now,
+      extensionTokenTtlMs: 30 * 24 * 60 * 60 * 1000,
+    })
+    const bindingStore = new BrowserAnnotationBindingStore({ nowMs: () => now, pairingTtlMs: 60_000 })
+    const { baseUrl } = await listenWithStore(store, bindingStore)
+    const start = bindingStore.start({
+      serverUrl: baseUrl,
+      serverPath: '/codex-api/extension/binding',
+    })
+    const binding = bindingStore.complete(start.pairingCode ?? '')
+    expect(binding).not.toBeNull()
+    const bindingToken = binding?.bindingToken
+    expect(bindingToken).toEqual(expect.any(String))
+    now += 5_000
+
+    const bound = await requestJson(baseUrl, '/codex-api/extension/listen/bind-thread', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${bindingToken}` },
+      body: JSON.stringify({ threadId: 'thread-from-extension-selector' }),
+    })
+
+    expect(bound.status).toBe(200)
+    const session = sessionFrom(bound.body)
+    expect(session.threadId).toBe('thread-from-extension-selector')
+    expect(session.status).toBe('active')
+    expect(session.tokenType).toBe('extension')
+    expect(session.extensionToken).toEqual(expect.any(String))
+    expect(session.pairingToken).toBeUndefined()
+    expect(session.createdAtIso).toBe('2026-01-01T00:00:05.000Z')
+    expect(session.expiresAtIso).toBe('2026-01-31T00:00:05.000Z')
+    expect(session.serverPath).toBe('/codex-api/extension/listen')
+    expect(session.serverUrl).toMatch(/^http:\/\/127\.0\.0\.1:/)
+
+    const status = await requestJson(baseUrl, `/codex-api/extension/listen/status?sessionId=${session.sessionId}`, {
+      headers: { Authorization: `Bearer ${session.extensionToken}` },
+    })
+    expect(status.status).toBe(200)
+    expect(sessionFrom(status.body).threadId).toBe('thread-from-extension-selector')
   })
 
   it('exchanges a valid pairing token for a long-lived scoped extension token', async () => {

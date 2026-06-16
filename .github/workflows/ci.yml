@@ -15,8 +15,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
-    name: Typecheck, build, and tests
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install Gitleaks
+        run: bash scripts/install-gitleaks.sh
+
+      - name: Run secret scan
+        run: bash scripts/gitleaks-scan.sh
+
+  unit-tests:
+    name: Unit tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -38,11 +55,34 @@ jobs:
           node-version: "22"
           cache: pnpm
 
-      - name: Install Gitleaks
-        run: bash scripts/install-gitleaks.sh
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
-      - name: Run secret scan
-        run: pnpm run secret:scan
+      - name: Run unit tests
+        run: pnpm run test:unit
+
+  build-and-smoke:
+    name: Build and smoke tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.6.2
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -50,8 +90,39 @@ jobs:
       - name: Install Playwright WebKit
         run: pnpm exec playwright install --with-deps webkit
 
-      - name: Run unit tests
-        run: pnpm run test:unit
-
       - name: Run build and smoke tests
         run: pnpm run test
+
+  test:
+    name: Typecheck, build, and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs:
+      - secret-scan
+      - unit-tests
+      - build-and-smoke
+    if: always()
+
+    steps:
+      - name: Check required jobs
+        env:
+          SECRET_SCAN_RESULT: ${{ needs.secret-scan.result }}
+          UNIT_TESTS_RESULT: ${{ needs.unit-tests.result }}
+          BUILD_AND_SMOKE_RESULT: ${{ needs.build-and-smoke.result }}
+        run: |
+          failed=0
+
+          for pair in \
+            "Secret scan:${SECRET_SCAN_RESULT}" \
+            "Unit tests:${UNIT_TESTS_RESULT}" \
+            "Build and smoke tests:${BUILD_AND_SMOKE_RESULT}"
+          do
+            name="${pair%%:*}"
+            result="${pair#*:}"
+            if [[ "${result}" != "success" ]]; then
+              echo "::error::${name} finished with result ${result}"
+              failed=1
+            fi
+          done
+
+          exit "${failed}"

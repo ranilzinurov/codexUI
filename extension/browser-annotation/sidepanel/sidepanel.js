@@ -15,7 +15,19 @@
     saveSettings: document.getElementById("saveSettings"),
     connectionStatus: document.getElementById("connectionStatus"),
     connectionDetail: document.getElementById("connectionDetail"),
+    panelMode: document.getElementById("panelMode"),
     injectOverlay: document.getElementById("injectOverlay"),
+    targetStatus: document.getElementById("targetStatus"),
+    targetDetail: document.getElementById("targetDetail"),
+    catalogStatus: document.getElementById("catalogStatus"),
+    targetProject: document.getElementById("targetProject"),
+    targetThread: document.getElementById("targetThread"),
+    refreshThreadTargets: document.getElementById("refreshThreadTargets"),
+    proControlStatus: document.getElementById("proControlStatus"),
+    proControlDetail: document.getElementById("proControlDetail"),
+    proControlTask: document.getElementById("proControlTask"),
+    enableProControl: document.getElementById("enableProControl"),
+    disableProControl: document.getElementById("disableProControl"),
     tabStatus: document.getElementById("tabStatus"),
     tabDetail: document.getElementById("tabDetail"),
     devtoolsStatus: document.getElementById("devtoolsStatus"),
@@ -30,6 +42,7 @@
     queueDetail: document.getElementById("queueDetail"),
     batchMeta: document.getElementById("batchMeta"),
     queueList: document.getElementById("queueList"),
+    queueItemDetail: document.getElementById("queueItemDetail"),
     sendBatch: document.getElementById("sendBatch"),
     persistentBinding: document.getElementById("persistentBinding"),
     persistentBindingStatus: document.getElementById("persistentBindingStatus"),
@@ -42,11 +55,18 @@
   let lastState = null;
   let lastDevtoolsStatus = {
     status: "inactive",
-    detail: "DevTools capture is off."
+    detail: "Diagnostics capture is off."
   };
+  let selectedQueueDetailId = "";
 
   elements.saveSettings.addEventListener("click", saveSettings);
+  elements.panelMode.addEventListener("change", persistPanelMode);
   elements.injectOverlay.addEventListener("click", injectOverlay);
+  elements.targetProject.addEventListener("change", handleTargetProjectChange);
+  elements.targetThread.addEventListener("change", selectThreadTarget);
+  elements.refreshThreadTargets.addEventListener("click", refreshState);
+  elements.enableProControl.addEventListener("click", enableProControl);
+  elements.disableProControl.addEventListener("click", disableProControl);
   elements.enableDevtools.addEventListener("click", enableDevtoolsCapture);
   elements.disableDevtools.addEventListener("click", disableDevtoolsCapture);
   elements.pageStateNote.addEventListener("input", () => updatePageStateButton(false));
@@ -77,6 +97,7 @@
     renderQueue(queue);
   });
 
+  restorePanelMode();
   refreshState();
 
   async function refreshState() {
@@ -122,7 +143,7 @@
       renderState(response.state);
       setMessage(
         response.injected
-          ? "Overlay injected into the active tab."
+          ? "Pick on Page is active in the current tab."
           : "Overlay request completed, but no content-script response was received.",
         response.injected ? "ok" : "error"
       );
@@ -158,7 +179,7 @@
         options: captureOptions
       });
       renderDevtoolsStatus(readDevtoolsStatus(response, "active"));
-      setMessage("DevTools capture mode enabled for the active tab.", "ok");
+      setMessage("Diagnostics capture mode enabled for the active tab.", "ok");
     } catch (error) {
       renderDevtoolsStatus({
         status: "error",
@@ -174,13 +195,13 @@
     setBusy(true);
     renderDevtoolsStatus({
       status: "pending",
-      detail: "Stopping DevTools capture mode..."
+      detail: "Stopping Diagnostics capture mode..."
     });
     try {
       const response = await sendRuntimeMessage({ type: MESSAGE_TYPES.STOP_DEVTOOLS_CAPTURE });
       renderDevtoolsStatus(readDevtoolsStatus(response, "inactive"));
       if (!options.silent) {
-        setMessage("DevTools capture mode disabled.", "ok");
+        setMessage("Diagnostics capture mode disabled.", "ok");
       }
     } catch (error) {
       renderDevtoolsStatus({
@@ -202,7 +223,7 @@
       return;
     }
     if (!isDevtoolsCaptureActive()) {
-      setMessage("Enable DevTools capture before adding a page note.", "error");
+      setMessage("Enable Diagnostics capture before adding a page note.", "error");
       return;
     }
 
@@ -241,6 +262,32 @@
     }
   }
 
+  async function enableProControl() {
+    setBusy(true);
+    try {
+      const response = await sendRuntimeMessage({ type: MESSAGE_TYPES.ENABLE_PRO_CONTROL });
+      renderState(response.state);
+      setMessage(proControlMessage(response.state.proControl), response.state.proControl.status === "permission_missing" ? "error" : "ok");
+    } catch (error) {
+      setMessage(error.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function disableProControl() {
+    setBusy(true);
+    try {
+      const response = await sendRuntimeMessage({ type: MESSAGE_TYPES.DISABLE_PRO_CONTROL });
+      renderState(response.state);
+      setMessage("Pro-control worker disabled.", "ok");
+    } catch (error) {
+      setMessage(error.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function sendRuntimeMessage(message) {
     const response = await chrome.runtime.sendMessage(message);
     if (!response || response.ok !== true) {
@@ -267,6 +314,8 @@
     elements.connectionStatus.textContent = connectionLabel(state.connection.status);
     elements.connectionDetail.textContent = connectionDetail(state.connection);
     renderPersistentBinding(state);
+    renderThreadTargets(state.threadTargets);
+    renderProControl(state.proControl);
     renderQueue(state.queue);
     renderDevtoolsStatus(state.devtoolsCapture || lastDevtoolsStatus);
     updateSendButton(false);
@@ -301,6 +350,18 @@
       panel.hidden = !selected;
       panel.classList.toggle("is-active", selected);
     }
+  }
+
+  function restorePanelMode() {
+    const saved = localStorage.getItem("browserAnnotation.panelMode") || "floating";
+    elements.panelMode.value = saved === "docked" ? "docked" : "floating";
+    document.body.dataset.panelMode = elements.panelMode.value;
+  }
+
+  function persistPanelMode() {
+    const mode = elements.panelMode.value === "docked" ? "docked" : "floating";
+    localStorage.setItem("browserAnnotation.panelMode", mode);
+    document.body.dataset.panelMode = mode;
   }
 
   async function requestActiveTabHostPermission() {
@@ -359,6 +420,11 @@
     elements.saveSettings.disabled = isBusy;
     elements.injectOverlay.disabled =
       isBusy || !lastState || !lastState.activeTab || lastState.activeTab.restricted;
+    elements.targetProject.disabled = isBusy || !canUseThreadTargets(lastState && lastState.threadTargets);
+    elements.targetThread.disabled = isBusy || !canUseThreadTargets(lastState && lastState.threadTargets) || !elements.targetProject.value;
+    elements.refreshThreadTargets.disabled = isBusy || !hasBrowserBindingConnection(lastState);
+    elements.enableProControl.disabled = isBusy || !hasBrowserBindingConnection(lastState) || Boolean(lastState && lastState.proControl && lastState.proControl.enabled);
+    elements.disableProControl.disabled = isBusy || !(lastState && lastState.proControl && lastState.proControl.enabled);
     if (!elements.disconnectPersistentBinding.hidden) {
       elements.disconnectPersistentBinding.disabled = isBusy;
     }
@@ -388,6 +454,13 @@
       return "Connection state is unavailable.";
     }
 
+    if (connection.status === "connected" && connection.binding) {
+      const expiry = formatDateTime(connection.binding.expiresAtIso);
+      return expiry
+        ? `Browser binding validated. Expires ${expiry}.`
+        : "Browser binding validated.";
+    }
+
     if (connection.status === "connected" && connection.session) {
       const expiry = formatDateTime(connection.session.expiresAtIso);
       return expiry
@@ -395,7 +468,7 @@
         : `Validated for thread ${connection.session.threadId}.`;
     }
 
-    return connection.detail || "Paste a pairing token from Codex UI.";
+    return connection.detail || "Paste a browser binding code from Codex UI.";
   }
 
   function connectionMessage(connection) {
@@ -403,14 +476,49 @@
       return "Settings saved locally in the extension.";
     }
     if (connection.status === "connected") {
-      return connection.session && connection.session.tokenType === "extension"
+      return connection.binding && connection.binding.tokenType === "browser-binding"
+        ? "Browser binding connected."
+        : connection.session && connection.session.tokenType === "extension"
         ? "Persistent binding connected."
-        : "Pairing token validated.";
+        : "Browser binding code validated.";
     }
     if (connection.status === "error") {
-      return connection.detail || "Pairing token could not be validated.";
+      return connection.detail || "Browser binding code could not be validated.";
     }
     return "Settings saved locally in the extension.";
+  }
+
+  function renderProControl(proControl) {
+    const state = proControl || {};
+    const status = String(state.status || (state.enabled ? "online" : "disabled"));
+    elements.proControlStatus.textContent = proControlStatusLabel(status);
+    elements.proControlStatus.classList.toggle("status-active", state.enabled === true && status !== "error" && status !== "permission_missing");
+    elements.proControlStatus.classList.toggle("status-error", status === "error" || status === "permission_missing");
+    elements.proControlDetail.textContent = state.detail || "Connect browser binding, then enable Pro-control.";
+    const parts = [];
+    if (state.currentTaskId) parts.push(`Task ${state.currentTaskId}`);
+    if (state.lastTaskStatus) parts.push(`Last ${state.lastTaskStatus}`);
+    if (state.lastErrorCode) parts.push(`Error ${state.lastErrorCode}`);
+    if (state.lastUpdatedIso) parts.push(formatDateTime(state.lastUpdatedIso));
+    elements.proControlTask.textContent = parts.filter(Boolean).join(" · ");
+    elements.enableProControl.disabled = !hasBrowserBindingConnection(lastState) || state.enabled === true;
+    elements.disableProControl.disabled = state.enabled !== true;
+  }
+
+  function proControlStatusLabel(status) {
+    if (status === "idle") return "Online/idle";
+    if (status === "online") return "Online";
+    if (status === "running") return "Running";
+    if (status === "permission_missing") return "Permission missing";
+    if (status === "error") return "Error";
+    return "Disabled";
+  }
+
+  function proControlMessage(proControl) {
+    if (!proControl) return "Pro-control state unavailable.";
+    if (proControl.status === "permission_missing") return proControl.detail || "ChatGPT permission missing.";
+    if (proControl.enabled) return "Pro-control worker enabled.";
+    return proControl.detail || "Pro-control worker disabled.";
   }
 
   function renderPersistentBinding(state) {
@@ -430,6 +538,224 @@
       Boolean(binding.token || binding.persistentToken || binding.session || binding.sessionId || binding.bindingId);
     elements.disconnectPersistentBinding.hidden = !canDisconnect;
     elements.disconnectPersistentBinding.disabled = !canDisconnect;
+  }
+
+  function renderThreadTargets(threadTargets) {
+    const normalized = normalizeThreadTargets(threadTargets);
+    const groups = normalized.groups;
+    const selectedThreadId = normalized.selectedThreadId;
+    const selectedThread = normalized.selectedThread;
+    const selectedProjectKey = selectedThread
+      ? projectKeyForTarget(selectedThread)
+      : readProjectSelectValue(groups, elements.targetProject.value);
+
+    elements.targetStatus.textContent = threadTargetStatusLabel(normalized, selectedThread);
+    elements.targetStatus.classList.toggle("status-active", Boolean(selectedThread));
+    elements.targetStatus.classList.toggle("status-error", normalized.status === "error");
+    elements.targetDetail.textContent = threadTargetDetail(normalized, selectedThread);
+    elements.catalogStatus.textContent = catalogFreshnessLabel(normalized);
+
+    replaceSelectOptions(elements.targetProject, [
+      { value: "", label: "Choose project..." },
+      ...groups.map((group) => ({
+        value: projectKey(group),
+        label: group.projectName || group.cwd || "Projectless"
+      }))
+    ], selectedProjectKey);
+
+    const activeGroup = groups.find((group) => projectKey(group) === elements.targetProject.value) || null;
+    replaceSelectOptions(elements.targetThread, [
+      { value: "", label: "Choose thread..." },
+      ...(activeGroup ? activeGroup.threads.map((thread) => ({
+        value: thread.id,
+        label: thread.title || thread.preview || thread.id
+      })) : [])
+    ], selectedThreadId && activeGroup && activeGroup.threads.some((thread) => thread.id === selectedThreadId)
+      ? selectedThreadId
+      : "");
+
+    const usable = canUseThreadTargets(normalized);
+    elements.targetProject.disabled = !usable;
+    elements.targetThread.disabled = !usable || !elements.targetProject.value;
+    elements.refreshThreadTargets.disabled = !hasBrowserBindingConnection(lastState);
+  }
+
+  function catalogFreshnessLabel(threadTargets) {
+    if (threadTargets.status === "ready") {
+      return "Updated now";
+    }
+    if (threadTargets.status === "stale" || threadTargets.catalogStale === true) {
+      return threadTargets.catalogFetchedAtIso ? "Using saved catalog" : "Refresh stale";
+    }
+    if (threadTargets.status === "error") {
+      return "Refresh failed";
+    }
+    return "Not loaded";
+  }
+
+  function normalizeThreadTargets(threadTargets) {
+    const source = threadTargets && typeof threadTargets === "object" ? threadTargets : {};
+    const groups = Array.isArray(source.groups)
+      ? source.groups.map((group) => ({
+        projectName: String(group.projectName || "").trim(),
+        cwd: String(group.cwd || "").trim(),
+        threads: Array.isArray(group.threads)
+          ? group.threads.map((thread) => ({
+            id: String(thread.id || "").trim(),
+            title: String(thread.title || thread.preview || thread.id || "").trim(),
+            preview: String(thread.preview || "").trim(),
+            updatedAtIso: String(thread.updatedAtIso || "").trim(),
+            cwd: String(thread.cwd || "").trim()
+          })).filter((thread) => thread.id)
+          : []
+      })).filter((group) => group.projectName || group.threads.length > 0)
+      : [];
+    const selectedThreadId = String(source.selectedThreadId || "").trim();
+    const selectedThread = source.selectedThread && typeof source.selectedThread === "object"
+      ? source.selectedThread
+      : findThreadTarget(groups, selectedThreadId);
+    return {
+      status: String(source.status || "unavailable"),
+      detail: String(source.detail || ""),
+      groups,
+      selectedThreadId,
+      selectedThread
+    };
+  }
+
+  function threadTargetStatusLabel(threadTargets, selectedThread) {
+    if (selectedThread) return "Selected";
+    if (threadTargets.status === "error") return "Error";
+    if (threadTargets.status === "ready") return "Choose thread";
+    return "Unavailable";
+  }
+
+  function threadTargetDetail(threadTargets, selectedThread) {
+    if (selectedThread) {
+      const projectName = selectedThread.projectName || projectNameForSelectedThread(threadTargets.groups, selectedThread.id);
+      const title = selectedThread.title || selectedThread.preview || selectedThread.id;
+      return projectName ? `${projectName} / ${title}` : title;
+    }
+    if (threadTargets.status === "ready") {
+      return "Choose a destination thread before sending the queue.";
+    }
+    return threadTargets.detail || "Connect browser binding, then choose the thread that receives queued annotations.";
+  }
+
+  function canUseThreadTargets(threadTargets) {
+    return Boolean(threadTargets && threadTargets.status === "ready" && Array.isArray(threadTargets.groups) && threadTargets.groups.length > 0);
+  }
+
+  function hasBrowserBindingConnection(state) {
+    return Boolean(
+      state &&
+      state.connection &&
+      state.connection.status === "connected" &&
+      state.connection.binding
+    );
+  }
+
+  function hasSelectedThreadTarget(state) {
+    if (!state || !state.connection || state.connection.status !== "connected") return false;
+    if (state.connection.session) return true;
+    const targets = normalizeThreadTargets(state.threadTargets);
+    return Boolean(state.connection.binding && targets.selectedThreadId && targets.selectedThread);
+  }
+
+  function projectKey(group) {
+    return `${group.projectName || ""}\n${group.cwd || ""}`;
+  }
+
+  function projectKeyForTarget(target) {
+    return `${target.projectName || ""}\n${target.projectCwd || target.cwd || ""}`;
+  }
+
+  function readProjectSelectValue(groups, currentValue) {
+    if (groups.some((group) => projectKey(group) === currentValue)) {
+      return currentValue;
+    }
+    return "";
+  }
+
+  function projectNameForSelectedThread(groups, threadId) {
+    for (const group of groups) {
+      if (group.threads.some((thread) => thread.id === threadId)) {
+        return group.projectName;
+      }
+    }
+    return "";
+  }
+
+  function findThreadTarget(groups, threadId) {
+    if (!threadId) return null;
+    for (const group of groups) {
+      const match = group.threads.find((thread) => thread.id === threadId);
+      if (match) {
+        return {
+          ...match,
+          projectName: group.projectName,
+          projectCwd: group.cwd
+        };
+      }
+    }
+    return null;
+  }
+
+  function replaceSelectOptions(select, options, selectedValue) {
+    select.replaceChildren(...options.map((option) => {
+      const element = document.createElement("option");
+      element.value = option.value;
+      element.textContent = option.label;
+      return element;
+    }));
+    select.value = options.some((option) => option.value === selectedValue) ? selectedValue : "";
+  }
+
+  async function handleTargetProjectChange() {
+    const projectValue = elements.targetProject.value;
+    const targets = normalizeThreadTargets(lastState && lastState.threadTargets);
+    if (!targets.selectedThreadId) {
+      renderThreadTargets(lastState && lastState.threadTargets);
+      return;
+    }
+    setBusy(true);
+    try {
+      const response = await sendRuntimeMessage({
+        type: MESSAGE_TYPES.SELECT_THREAD_TARGET,
+        threadId: ""
+      });
+      renderState(response.state);
+      elements.targetProject.value = projectValue;
+      renderThreadTargets({
+        ...response.state.threadTargets,
+        selectedThreadId: "",
+        selectedThread: null
+      });
+    } catch (error) {
+      setMessage(error.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function selectThreadTarget() {
+    const threadId = elements.targetThread.value;
+    setBusy(true);
+    try {
+      const response = await sendRuntimeMessage({
+        type: MESSAGE_TYPES.SELECT_THREAD_TARGET,
+        threadId
+      });
+      renderState(response.state);
+      setMessage(
+        threadId ? "Destination thread selected." : "Choose a destination thread before sending the queue.",
+        threadId ? "ok" : "neutral"
+      );
+    } catch (error) {
+      setMessage(error.message, "error");
+    } finally {
+      setBusy(false);
+    }
   }
 
   function readPersistentBinding(state) {
@@ -467,9 +793,19 @@
       return String(binding.detail);
     }
     const session = binding.session && typeof binding.session === "object" ? binding.session : {};
+    if (binding.reconnectRequired) {
+      return binding.detail || "Reconnect required.";
+    }
+    const bindingId = binding.bindingId || (binding.binding && binding.binding.bindingId);
     const threadId = binding.threadId || session.threadId;
     const expiresAtIso = binding.expiresAtIso || session.expiresAtIso;
     const expiry = formatDateTime(expiresAtIso);
+    if (bindingId && expiry) {
+      return `Browser binding ${truncateText(bindingId, 12)}. Expires ${expiry}.`;
+    }
+    if (bindingId) {
+      return `Browser binding ${truncateText(bindingId, 12)}.`;
+    }
     if (threadId && expiry) {
       return `Thread ${threadId}. Expires ${expiry}.`;
     }
@@ -495,6 +831,9 @@
 
   function renderQueue(queue) {
     const items = Array.isArray(queue) ? queue : [];
+    if (selectedQueueDetailId && !items.some((item) => item && item.id === selectedQueueDetailId)) {
+      selectedQueueDetailId = "";
+    }
     elements.queueStatus.textContent =
       items.length === 0 ? "Empty" : `${items.length} item${items.length === 1 ? "" : "s"}`;
     elements.queueDetail.textContent =
@@ -519,11 +858,12 @@
         meta.textContent = queueItemMeta(item);
         heading.append(name, meta);
         header.append(heading, createQueueActions(item, index, items.length));
-        content.append(header);
+        content.append(header, createScreenshotState(item), createCommentPreview(item));
         row.append(createPreview(item.preview, item), content);
         return row;
       })
     );
+    renderQueueItemDetail(items.find((item) => item && item.id === selectedQueueDetailId) || null);
     updateSendButton(false);
   }
 
@@ -546,6 +886,7 @@
     const actions = document.createElement("div");
     actions.className = "queue-actions";
     actions.append(
+      createActionButton("Open detail", "detail", "↗", false),
       createActionButton("Move up", "up", "↑", index === 0),
       createActionButton("Move down", "down", "↓", index === itemCount - 1),
       createActionButton("Delete", "delete", "×", false)
@@ -587,6 +928,10 @@
         });
         applyQueueResponse(response);
         setMessage("Annotation removed from the queue.", "ok");
+      } else if (action === "detail") {
+        selectedQueueDetailId = id;
+        renderQueueItemDetail((lastState && Array.isArray(lastState.queue) ? lastState.queue : []).find((item) => item && item.id === id) || null);
+        setMessage("Queue Item Detail opened.", "ok");
       } else {
         const response = await sendRuntimeMessage({
           type: MESSAGE_TYPES.MOVE_ANNOTATION_QUEUE_ITEM,
@@ -643,8 +988,10 @@
 
   function updateSendButton(isBusy) {
     const itemCount = lastState && Array.isArray(lastState.queue) ? lastState.queue.length : 0;
-    const connected = lastState && lastState.connection.status === "connected";
-    elements.sendBatch.disabled = isBusy || itemCount === 0 || !connected;
+    const hasBlockedScreenshot = lastState && Array.isArray(lastState.queue)
+      ? lastState.queue.some((item) => screenshotState(item) === "failed")
+      : false;
+    elements.sendBatch.disabled = isBusy || itemCount === 0 || hasBlockedScreenshot || !hasSelectedThreadTarget(lastState);
   }
 
   function applyQueueResponse(response) {
@@ -671,8 +1018,8 @@
     return {
       status: fallbackStatus || "inactive",
       detail: fallbackStatus === "active"
-        ? "DevTools capture is active for the current tab."
-        : "DevTools capture is off."
+        ? "Diagnostics capture is active for the current tab."
+        : "Diagnostics capture is off."
     };
   }
 
@@ -698,7 +1045,7 @@
     if (status === "active") {
       return {
         status,
-        detail: (devtools.detail || "DevTools capture is active for the current tab.") +
+        detail: (devtools.detail || "Diagnostics capture is active for the current tab.") +
           activeTabId +
           ` ${devtoolsBodyCaptureDetail(captureOptions)}`,
         captureOptions
@@ -707,13 +1054,13 @@
     if (status === "pending" || status === "error") {
       return {
         status,
-        detail: devtools.detail || (status === "pending" ? "Updating DevTools capture mode..." : "DevTools capture status is unavailable."),
+        detail: devtools.detail || (status === "pending" ? "Updating Diagnostics capture mode..." : "Diagnostics capture status is unavailable."),
         captureOptions
       };
     }
     return {
       status: "inactive",
-      detail: devtools && devtools.detail ? devtools.detail : "DevTools capture is off.",
+      detail: devtools && devtools.detail ? devtools.detail : "Diagnostics capture is off.",
       captureOptions
     };
   }
@@ -743,8 +1090,8 @@
     if (state === "active") {
       elements.captureDevtoolsBodies.checked = activeBodyCapture;
       elements.captureDevtoolsBodiesHelp.textContent = activeBodyCapture
-        ? "Active for this capture. Disable DevTools capture to change body collection."
-        : "Metadata-only for this capture. Disable DevTools capture to opt in to body collection.";
+        ? "Active for this capture. Disable Diagnostics capture to change body collection."
+        : "Metadata-only for this capture. Disable Diagnostics capture to opt in to body collection.";
     } else {
       elements.captureDevtoolsBodiesHelp.textContent =
         "Off by default. Enable only for pages where body contents are safe to share with Codex.";
@@ -813,14 +1160,23 @@
   }
 
   function createPreview(preview, item) {
-    const frame = document.createElement("div");
+    const frame = document.createElement("button");
     frame.className = "queue-preview";
+    frame.type = "button";
+    frame.dataset.queueAction = "detail";
+    frame.title = "Open Queue Item Detail";
+    frame.setAttribute("aria-label", "Open Queue Item Detail");
+    const state = screenshotState(item);
     if (!preview || !preview.dataUrl) {
       if (isPageStateItem(item)) {
         frame.dataset.previewKind = "page-state";
         frame.textContent = "Page";
+      } else if (state === "failed") {
+        frame.textContent = "Screenshot Failed";
+      } else if (state === "off") {
+        frame.textContent = "Screenshot Off";
       } else {
-        frame.textContent = "No preview";
+        frame.textContent = "Screenshot Pending";
       }
       return frame;
     }
@@ -833,6 +1189,105 @@
     image.height = preview.height || 1;
     frame.append(image);
     return frame;
+  }
+
+  function createScreenshotState(item) {
+    const state = document.createElement("span");
+    state.className = "queue-screenshot-state";
+    const value = screenshotState(item);
+    state.dataset.state = value;
+    state.textContent = screenshotStateLabel(value);
+    return state;
+  }
+
+  function createCommentPreview(item) {
+    const note = document.createElement("span");
+    note.className = "queue-comment-preview";
+    const text = String(item && item.noteText ? item.noteText : "").trim();
+    note.textContent = text ? truncateText(text, 96) : "No comment";
+    return note;
+  }
+
+  function renderQueueItemDetail(item) {
+    if (!item) {
+      elements.queueItemDetail.hidden = true;
+      elements.queueItemDetail.replaceChildren();
+      return;
+    }
+    const title = document.createElement("strong");
+    title.textContent = "Queue Item Detail";
+    const state = document.createElement("span");
+    state.className = "queue-screenshot-state";
+    state.textContent = screenshotStateLabel(screenshotState(item));
+    const comment = document.createElement("textarea");
+    comment.className = "queue-detail-comment";
+    comment.dataset.annotationId = item.id || "";
+    comment.value = String(item.noteText || "");
+    comment.rows = 4;
+    const page = readQueueItemPage(item);
+    const meta = document.createElement("p");
+    meta.className = "muted";
+    meta.textContent = page.title ? `${page.title} - ${page.url}` : page.url;
+    const back = document.createElement("button");
+    back.className = "button button-secondary button-compact";
+    back.type = "button";
+    back.textContent = "Back to queue";
+    back.addEventListener("click", () => {
+      selectedQueueDetailId = "";
+      renderQueueItemDetail(null);
+    });
+    const actions = [back];
+    if (screenshotState(item) === "failed") {
+      const withoutScreenshot = document.createElement("button");
+      withoutScreenshot.className = "button button-secondary button-compact";
+      withoutScreenshot.type = "button";
+      withoutScreenshot.textContent = "Send without screenshot";
+      withoutScreenshot.addEventListener("click", async () => {
+        await saveQueueScreenshotChoice(item.id || "");
+      });
+      actions.unshift(withoutScreenshot);
+    }
+    elements.queueItemDetail.replaceChildren(title, createPreview(item.preview, item), state, comment, meta, ...actions);
+    elements.queueItemDetail.hidden = false;
+  }
+
+  async function saveQueueScreenshotChoice(id) {
+    if (!id) return;
+    setBusy(true);
+    try {
+      const response = await sendRuntimeMessage({
+        type: MESSAGE_TYPES.UPDATE_ANNOTATION_QUEUE_ITEM,
+        id,
+        patch: {
+          screenshot: {
+            state: "off",
+            sendWithoutScreenshot: true
+          }
+        }
+      });
+      applyQueueResponse(response);
+      setMessage("Annotation will send without screenshot.", "ok");
+    } catch (error) {
+      setMessage(error.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function screenshotState(item) {
+    const screenshot = item && item.screenshot && typeof item.screenshot === "object" ? item.screenshot : null;
+    if (screenshot && screenshot.sendWithoutScreenshot === true) return "off";
+    if (screenshot && screenshot.state === "failed") return "failed";
+    if (screenshot && screenshot.state === "off") return "off";
+    if ((screenshot && screenshot.state === "ready") || (item && item.preview && item.preview.dataUrl)) return "ready";
+    return "pending";
+  }
+
+  function screenshotStateLabel(state) {
+    if (state === "ready") return "Screenshot Ready";
+    if (state === "failed") return "Screenshot Failed";
+    if (state === "off") return "Screenshot Off";
+    return "Screenshot Pending";
   }
 
   function isPageStateItem(item) {

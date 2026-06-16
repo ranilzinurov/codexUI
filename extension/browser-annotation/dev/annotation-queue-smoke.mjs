@@ -94,6 +94,12 @@ let edited = BrowserAnnotationQueue.updateAnnotationQueueItem(stageQueue, "annot
 edited = BrowserAnnotationQueue.updateAnnotationQueueItem(edited, "annotation-bravo", {
   noteText: "Second note"
 });
+edited = BrowserAnnotationQueue.updateAnnotationQueueItem(edited, "annotation-bravo", {
+  screenshot: {
+    state: "off",
+    sendWithoutScreenshot: true
+  }
+});
 edited = BrowserAnnotationQueue.moveAnnotationQueueItem(edited, "annotation-bravo", -1);
 edited = BrowserAnnotationQueue.deleteAnnotationQueueItem(edited, "annotation-charlie");
 
@@ -101,6 +107,8 @@ assert.deepEqual(
   edited.map((item) => item.id),
   ["annotation-bravo", "annotation-alpha"]
 );
+assert.equal(edited[0].screenshot.state, "off");
+assert.equal(edited[0].screenshot.sendWithoutScreenshot, true);
 
 const batch = BrowserAnnotationQueue.buildAnnotationBatchPayload(edited, {
   batchId: "annotation-batch-smoke",
@@ -123,6 +131,98 @@ assert.ok(
   BrowserAnnotationQueue.estimateJsonBytes(batch) <
     BrowserAnnotationConstants.MAX_ANNOTATION_BATCH_BYTES
 );
+
+const screenshotAssetBatch = BrowserAnnotationQueue.buildAnnotationBatchPayload(
+  [
+    {
+      ...stageQueue[0],
+      id: "annotation-screenshot-asset",
+      noteText: "Screenshot is uploaded.",
+      screenshot: {
+        state: "ready",
+        asset: {
+          id: "screenshot-asset-1",
+          localImageUrl: "/codex-local-image?path=%2Ftmp%2Fcodex-web-uploads%2Fshot.png",
+          mimeType: "image/png",
+          byteLength: 8192,
+          width: 320,
+          height: 180,
+          uploadedAtIso: "2026-05-28T10:01:15.000Z"
+        }
+      }
+    }
+  ],
+  {
+    batchId: "annotation-batch-screenshot-asset",
+    createdAtIso: "2026-05-28T10:01:20.000Z"
+  }
+);
+assert.equal(screenshotAssetBatch.assets[0].kind, "annotation-screenshot");
+assert.equal(screenshotAssetBatch.assets[0].id, "screenshot-asset-1");
+assert.equal(screenshotAssetBatch.assets[0].mimeType, "image/png");
+assert.equal(screenshotAssetBatch.assets[0].byteLength, 8192);
+assert.equal(screenshotAssetBatch.assets[0].width, 320);
+assert.equal(screenshotAssetBatch.assets[0].height, 180);
+assert.equal(screenshotAssetBatch.assets[0].uploadedAtIso, "2026-05-28T10:01:15.000Z");
+assert.equal(screenshotAssetBatch.assets[0].storageKey, "/codex-local-image?path=%2Ftmp%2Fcodex-web-uploads%2Fshot.png");
+assert.equal(screenshotAssetBatch.items[0].screenshotAssetId, "screenshot-asset-1");
+assert.ok(!JSON.stringify(screenshotAssetBatch).includes("data:image"));
+assert.ok(!JSON.stringify(screenshotAssetBatch).includes("must-not-ship"));
+
+const screenshotOffAssetBatch = BrowserAnnotationQueue.buildAnnotationBatchPayload(
+  [
+    {
+      ...stageQueue[0],
+      id: "annotation-screenshot-off-asset",
+      screenshot: {
+        state: "off",
+        sendWithoutScreenshot: true,
+        asset: {
+          id: "screenshot-asset-off",
+          localImageUrl: "data:image/png;base64,must-not-ship",
+          mimeType: "image/png",
+          byteLength: 8192,
+          width: 320,
+          height: 180,
+          uploadedAtIso: "2026-05-28T10:01:25.000Z"
+        }
+      }
+    }
+  ],
+  {
+    batchId: "annotation-batch-screenshot-off-asset",
+    createdAtIso: "2026-05-28T10:01:30.000Z"
+  }
+);
+assert.equal(screenshotOffAssetBatch.assets.length, 0);
+assert.equal(screenshotOffAssetBatch.items[0].screenshotAssetId, undefined);
+assert.ok(!JSON.stringify(screenshotOffAssetBatch).includes("data:image"));
+
+const screenshotDataUrlAssetBatch = BrowserAnnotationQueue.buildAnnotationBatchPayload(
+  [
+    {
+      ...stageQueue[0],
+      id: "annotation-screenshot-data-url-asset",
+      screenshot: {
+        state: "ready",
+        asset: {
+          id: "screenshot-asset-data-url",
+          localImageUrl: "data:image/png;base64,must-not-ship",
+          mimeType: "image/png",
+          byteLength: 8192,
+          uploadedAtIso: "2026-05-28T10:01:35.000Z"
+        }
+      }
+    }
+  ],
+  {
+    batchId: "annotation-batch-screenshot-data-url-asset",
+    createdAtIso: "2026-05-28T10:01:40.000Z"
+  }
+);
+assert.equal(screenshotDataUrlAssetBatch.assets[0].storageKey, undefined);
+assert.ok(!JSON.stringify(screenshotDataUrlAssetBatch).includes("data:image"));
+assert.ok(!JSON.stringify(screenshotDataUrlAssetBatch).includes("must-not-ship"));
 
 const blankNoteBatch = BrowserAnnotationQueue.buildAnnotationBatchPayload(
   [

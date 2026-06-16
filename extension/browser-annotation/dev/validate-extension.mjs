@@ -14,7 +14,10 @@ const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
 const requiredPermissions = [
   "activeTab",
   "alarms",
+  "clipboardRead",
+  "clipboardWrite",
   "debugger",
+  "downloads",
   "scripting",
   "tabs",
   "sidePanel",
@@ -31,6 +34,7 @@ const developmentHostPermissions = [
 ];
 const requiredHostPermissions = productionMode ? productionHostPermissions : developmentHostPermissions;
 const requiredOptionalHostPermissions = [
+  "https://chatgpt.com/*",
   "http://*/*",
   "https://*/*"
 ];

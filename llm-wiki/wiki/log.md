@@ -126,4 +126,10 @@
 - Added source notes for composer Skills dropdown recent ordering.
 - Updated wiki page: `concepts/composer-plugin-mentions.md`.
 - Documents local recent storage, eight-item cap, stable option ordering, and shared behavior across the combined Skills dropdown and `$` picker.
+
+## 2026-06-16
+
+- Added source notes for Browser Annotation Panel UX language and draft save behavior.
+- Created wiki page: `concepts/browser-annotation-panel.md`.
+- Documents Pick on Page, Draft Annotation, screenshot states, Queue Row/Queue Item Detail, destination freshness, and Diagnostics terminology.
 - Updated `index.md`.

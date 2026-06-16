@@ -10,6 +10,7 @@
 - [concepts/integrated-terminal.md](./concepts/integrated-terminal.md): Codex.app-style integrated xterm/PTY terminal architecture, edge cases, and verification.
 - [concepts/directory-hub-composio-skills.md](./concepts/directory-hub-composio-skills.md): Directory Hub tab routing, Composio connector behavior, Skills search/install semantics, and edge-case testing.
 - [concepts/composer-plugin-mentions.md](./concepts/composer-plugin-mentions.md): Composer `$` picker support for installed plugin mentions alongside skills, plus local recent ordering in the composer Skills dropdown.
+- [concepts/browser-annotation-panel.md](./concepts/browser-annotation-panel.md): Browser Annotation Panel language, Draft Annotation flow, screenshot states, queue detail, destination freshness, and Diagnostics wording.
 - [concepts/merge-to-main-workflow.md](./concepts/merge-to-main-workflow.md): branch integration and conflict-resolution workflow.
 - [concepts/opencode-zen-big-pickle.md](./concepts/opencode-zen-big-pickle.md): OpenCode Zen Big Pickle model configuration for Codex CLI and OpenCode CLI.
 - [concepts/provider-auth-models.md](./concepts/provider-auth-models.md): copied Codex auth promotion, provider model discovery, app-server config restart, and thread-locked provider behavior.
@@ -28,6 +29,7 @@
 - [../raw/features/installed-plugin-skill-tree.md](../raw/features/installed-plugin-skill-tree.md): source facts for grouping installed plugin skills by plugin cache ownership in the Skills Hub list.
 - [../raw/features/composer-plugin-mentions.md](../raw/features/composer-plugin-mentions.md): source facts for composer plugin mentions, plugin catalog source, and mention payload format.
 - [../raw/features/composer-skills-recent-options.md](../raw/features/composer-skills-recent-options.md): source facts for local recent ordering in the composer Skills dropdown.
+- [../raw/features/browser-annotation-panel-ux.md](../raw/features/browser-annotation-panel-ux.md): source facts for Browser Annotation Panel UX language, draft save flow, screenshot states, queue detail, and Diagnostics naming.
 - [../raw/features/directory-hub-apps-failure-message.md](../raw/features/directory-hub-apps-failure-message.md): source facts for the Directory Hub Apps tab concise app-list failure message.
 - [../raw/features/realtime-chat-rendering-inline-media.md](../raw/features/realtime-chat-rendering-inline-media.md): source facts for realtime chat rendering and inline media sanitization.
 - [../raw/features/runtime-activity-agents-mcp.md](../raw/features/runtime-activity-agents-mcp.md): source facts for grouped agents/MCP runtime activity and collapsed summaries.

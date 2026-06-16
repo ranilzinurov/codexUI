@@ -155,7 +155,7 @@ async function runScenario({ grantPermission }) {
 
     const messageText = await page.locator('#message').textContent()
     if (grantPermission) {
-      assert.match(messageText || '', /Overlay injected/)
+      assert.match(messageText || '', /Pick on Page is active/)
     } else {
       assert.match(messageText || '', /Permission denied/)
     }

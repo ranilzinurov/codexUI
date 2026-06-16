@@ -1,5 +1,9 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import {
+  BrowserAnnotationBindingStore,
+  sharedBrowserAnnotationBindingStore,
+} from './browserAnnotationBinding.js'
 
 export const BROWSER_ANNOTATION_LISTEN_BASE_PATH = '/codex-api/extension/listen'
 export const BROWSER_ANNOTATION_LISTEN_TTL_MS = 10 * 60 * 1000
@@ -110,6 +114,43 @@ export class BrowserAnnotationListenStore {
     return {
       ...this.toResponse(session, session.pairingCredential),
       pairingToken,
+    }
+  }
+
+  startExtensionSession(input: StartSessionInput): BrowserAnnotationListenSessionResponse {
+    this.pruneExpired()
+    this.revokeActiveSessionsForThread(input.threadId)
+    this.pruneOldestSessionsOverLimit(this.maxActiveSessions - 1)
+    const now = this.nowMs()
+    const extensionToken = randomBytes(this.tokenBytes).toString('base64url')
+    const extensionCredential: BrowserAnnotationListenCredentialRecord = {
+      type: 'extension',
+      tokenHash: hashPairingToken(extensionToken),
+      createdAtMs: now,
+      lastUsedAtMs: now,
+      expiresAtMs: now + this.extensionTokenTtlMs,
+      revokedAtMs: null,
+    }
+    const session: BrowserAnnotationListenSessionRecord = {
+      sessionId: randomBytes(16).toString('hex'),
+      threadId: input.threadId,
+      serverUrl: input.serverUrl,
+      serverPath: input.serverPath,
+      pairingCredential: {
+        type: 'pairing',
+        tokenHash: hashPairingToken(randomBytes(this.tokenBytes).toString('base64url')),
+        createdAtMs: now,
+        lastUsedAtMs: null,
+        expiresAtMs: now,
+        revokedAtMs: null,
+      },
+      extensionCredential,
+      lastReceivedBatch: null,
+    }
+    this.sessions.set(session.sessionId, session)
+    return {
+      ...this.toResponse(session, extensionCredential),
+      extensionToken,
     }
   }
 
@@ -278,6 +319,7 @@ export const sharedBrowserAnnotationListenStore = new BrowserAnnotationListenSto
 
 export type BrowserAnnotationListenRouteOptions = {
   store?: BrowserAnnotationListenStore
+  bindingStore?: BrowserAnnotationBindingStore
 }
 
 export async function handleBrowserAnnotationListenRoutes(
@@ -359,6 +401,42 @@ export async function handleBrowserAnnotationListenRoutes(
     }
 
     setJson(res, 200, { ok: true, session })
+    return true
+  }
+
+  if (req.method === 'POST' && routePath === `${BROWSER_ANNOTATION_LISTEN_BASE_PATH}/bind-thread`) {
+    const token = readBrowserAnnotationBearerToken(req)
+    if (!token) {
+      setJson(res, 401, { error: 'Missing browser binding bearer token' })
+      return true
+    }
+
+    const bindingStore = options.bindingStore ?? sharedBrowserAnnotationBindingStore
+    const binding = bindingStore.getAuthorizedBinding(token)
+    if (!binding) {
+      setJson(res, 401, { error: 'Invalid or expired browser binding token' })
+      return true
+    }
+
+    const bodyResult = await readJsonBody(req)
+    if (!bodyResult.ok) {
+      setJson(res, bodyResult.statusCode, { error: bodyResult.error })
+      return true
+    }
+    const body = bodyResult.body
+    if (!isRecord(body) || typeof body.threadId !== 'string' || body.threadId.trim().length === 0) {
+      setJson(res, 400, { error: 'Missing threadId' })
+      return true
+    }
+
+    setJson(res, 200, {
+      ok: true,
+      session: store.startExtensionSession({
+        threadId: body.threadId.trim(),
+        serverUrl: deriveServerUrl(req),
+        serverPath: BROWSER_ANNOTATION_LISTEN_BASE_PATH,
+      }),
+    })
     return true
   }
 
