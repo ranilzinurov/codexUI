@@ -767,18 +767,6 @@
                   <span class="content-header-feature-menu-text">Side</span>
                   <span v-if="sideThreadId.length > 0" class="content-header-feature-menu-status">Open</span>
                 </button>
-                <button
-                  class="content-header-feature-menu-item"
-                  :class="{ 'is-active': isBrowserAnnotationListenerActive }"
-                  type="button"
-                  role="menuitem"
-                  :disabled="!hasActiveThreadForFeatureMenu || isBrowserAnnotationListenerBusy"
-                  @click="onToggleBrowserAnnotationFromFeatureMenu"
-                >
-                  <IconTablerBolt class="content-header-feature-menu-icon" />
-                  <span class="content-header-feature-menu-text">{{ browserAnnotationFeatureMenuLabel }}</span>
-                  <span v-if="browserAnnotationFeatureMenuStatus" class="content-header-feature-menu-status">{{ browserAnnotationFeatureMenuStatus }}</span>
-                </button>
                 <template v-if="isNativeIosVoiceModeAvailable">
                   <button
                     class="content-header-feature-menu-item"
@@ -2426,15 +2414,12 @@ const {
   settingsStatusLabel: browserAnnotationSettingsStatusLabel,
   start: startBrowserAnnotationListener,
   stop: stopBrowserAnnotationListener,
-  toggle: toggleBrowserAnnotationListener,
   copyText: copyBrowserAnnotationText,
 } = useBrowserAnnotationListener(selectedThreadId, selectedThreadListenTitle)
 const canShowThreadFeatureMenu = computed(() => route.name === 'thread' || isHomeRoute.value)
 const hasActiveThreadForFeatureMenu = computed(() => route.name === 'thread' && selectedThreadId.value.length > 0)
 const isThreadFeatureMenuActive = computed(() => (
   sideThreadId.value.length > 0 ||
-  isBrowserAnnotationListenerActive.value ||
-  isBrowserAnnotationListenerBusy.value ||
   (
     isNativeIosVoiceModeAvailable && (
       isVoiceModeEnabled.value ||
@@ -2447,15 +2432,6 @@ const isThreadFeatureMenuActive = computed(() => (
 const threadFeatureMenuTitle = computed(() => (
   isThreadFeatureMenuOpen.value ? t('Close thread features') : t('Thread features')
 ))
-const browserAnnotationFeatureMenuLabel = computed(() => {
-  if (isBrowserAnnotationListenerActive.value) return t('Stop Listen')
-  return t('Listen')
-})
-const browserAnnotationFeatureMenuStatus = computed(() => {
-  if (isBrowserAnnotationListenerBusy.value) return t('Busy')
-  if (isBrowserAnnotationListenerActive.value) return t('Active')
-  return ''
-})
 const latestAssistantVoiceMessage = computed(() => {
   for (let index = filteredMessages.value.length - 1; index >= 0; index -= 1) {
     const message = filteredMessages.value[index]
@@ -3898,13 +3874,6 @@ async function onOpenSideChatFromFeatureMenu(): Promise<void> {
     return
   }
   await onOpenSideChat()
-}
-
-async function onToggleBrowserAnnotationFromFeatureMenu(): Promise<void> {
-  if (!hasActiveThreadForFeatureMenu.value) return
-  if (isBrowserAnnotationListenerBusy.value) return
-  isThreadFeatureMenuOpen.value = false
-  await toggleBrowserAnnotationListener()
 }
 
 function onToggleVoiceModeFromFeatureMenu(): void {

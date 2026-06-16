@@ -8856,3 +8856,34 @@ Codex UI Browser Binding code generation for the annotation extension.
 - Disconnect the extension binding if manual validation created one.
 - Clear extension storage for `browserAnnotation.binding`, `browserAnnotation.settings`, and `browserAnnotation.pairingToken` if needed.
 - Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
+
+---
+
+### Browser Annotation Feature Menu Cleanup
+
+#### Feature/Change Name
+Remove obsolete thread-menu `Listen` browser annotation action.
+
+#### Prerequisites/Setup
+1. Use a branch containing the feature-menu cleanup.
+2. Run the focused checks from the repository root:
+   - `pnpm exec vitest run src/App.browserAnnotationMenu.test.ts`
+   - `pnpm run build:frontend`
+3. For manual UI verification, start Codex UI with `pnpm run dev --host 127.0.0.1 --port 4173`.
+
+#### Steps
+1. Open Codex UI in light theme.
+2. Open any thread or the new-thread screen where the top-right `...` thread feature menu is visible.
+3. Click the `...` menu.
+4. Confirm the menu contains `Side` and any available voice actions, but does not contain `Listen`, `Stop Listen`, or an annotation lightning-row action.
+5. Open `Settings` > `Advanced` and confirm `Browser binding` remains available there.
+6. Switch to dark theme and repeat steps 3-5.
+
+#### Expected Results
+- The old thread-level browser annotation `Listen` action is absent from the top-right feature menu.
+- Browser annotation setup remains available only through `Settings` > `Advanced` > `Browser binding`.
+- The feature menu trigger no longer shows active state solely because a Browser Binding code is active.
+- Light and dark theme menu text remains readable.
+
+#### Rollback/Cleanup
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
