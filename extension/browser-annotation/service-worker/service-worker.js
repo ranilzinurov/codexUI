@@ -24,6 +24,7 @@ const {
 } = globalThis.BrowserAnnotationUrlUtils;
 const {
   buildAnnotationBatchUrl,
+  buildAssetUploadUrl,
   buildBindingCompleteUrl,
   buildBindingStatusUrl,
   buildBrowserBindingRevokeUrl,
@@ -76,6 +77,7 @@ const DEVTOOLS_NETWORK_EVENT_METHODS = new Set([
 const DEVTOOLS_CAPTURE_TIMEOUT_ALARM = "browserAnnotation.devtoolsCaptureTimeout";
 const STATUS_FETCH_TIMEOUT_MS = 8000;
 const BATCH_SEND_TIMEOUT_MS = 30000;
+const ASSET_UPLOAD_TIMEOUT_MS = 30000;
 const REVOKE_FETCH_TIMEOUT_MS = 8000;
 const TRANSCRIBE_FETCH_TIMEOUT_MS = 60000;
 
@@ -1168,10 +1170,11 @@ async function sendAnnotationBatch() {
     throw new Error("Retry failed screenshots or choose send without screenshot before sending the queue.");
   }
   const sentQueueItemIds = new Set(queue.map((item) => item && item.id).filter(Boolean));
+  const sendQueue = await uploadReadyScreenshotAssets(queue, auth);
 
   const devtoolsCapture = await readDevtoolsCaptureState();
   const manifest = chrome.runtime.getManifest ? chrome.runtime.getManifest() : {};
-  const batch = buildAnnotationBatchPayload(queue, {
+  const batch = buildAnnotationBatchPayload(sendQueue, {
     targetThreadId: connection.session.threadId,
     extensionVersion: manifest.version || "",
     browserName: "Chrome",
@@ -1235,6 +1238,130 @@ function hasBlockedScreenshot(item) {
     ? item.screenshot
     : null;
   return Boolean(screenshot && screenshot.state === "failed" && screenshot.sendWithoutScreenshot !== true);
+}
+
+async function uploadReadyScreenshotAssets(queue, auth) {
+  const uploaded = [];
+  for (const item of queue) {
+    uploaded.push(await uploadReadyScreenshotAsset(item, auth));
+  }
+  return uploaded;
+}
+
+async function uploadReadyScreenshotAsset(item, auth) {
+  const screenshot = item && item.screenshot && typeof item.screenshot === "object"
+    ? item.screenshot
+    : null;
+  if (!screenshot || screenshot.state !== "ready" || screenshot.sendWithoutScreenshot === true) {
+    return item;
+  }
+  if (screenshot.asset && typeof screenshot.asset === "object") {
+    const localImageUrl = String(screenshot.asset.localImageUrl || screenshot.asset.storageKey || "").trim();
+    if (screenshot.asset.id && localImageUrl && !localImageUrl.toLowerCase().startsWith("data:")) {
+      return item;
+    }
+  }
+
+  const preview = readScreenshotPreviewForUpload(item);
+  if (!preview) {
+    return item;
+  }
+
+  const form = new FormData();
+  form.append("kind", "screenshot");
+  form.append("file", preview.blob, screenshotFileName(preview.mimeType));
+
+  const response = await fetchWithTimeout(buildAssetUploadUrl(auth.settings.serverUrl, auth.connection.session), {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${auth.token}`
+    },
+    body: form,
+    cache: "no-store"
+  }, ASSET_UPLOAD_TIMEOUT_MS);
+  const payload = await readJsonSafely(response);
+  if (!response.ok || !payload || payload.ok !== true || !payload.asset) {
+    throw new Error(readStatusError(payload, `Screenshot upload failed (${response.status}).`));
+  }
+
+  const asset = normalizeUploadedScreenshotAsset(payload.asset, preview);
+  return {
+    ...item,
+    screenshot: {
+      ...screenshot,
+      asset
+    }
+  };
+}
+
+function readScreenshotPreviewForUpload(item) {
+  const screenshot = item && item.screenshot && typeof item.screenshot === "object"
+    ? item.screenshot
+    : {};
+  const thumbnail = screenshot.thumbnail && typeof screenshot.thumbnail === "object"
+    ? screenshot.thumbnail
+    : {};
+  const preview = item && item.preview && typeof item.preview === "object"
+    ? item.preview
+    : {};
+  const dataUrl = String(thumbnail.dataUrl || preview.dataUrl || "").trim();
+  if (!dataUrl || !dataUrl.toLowerCase().startsWith("data:")) {
+    return null;
+  }
+  const parsed = parseDataUrl(dataUrl, "image/png");
+  if (!parsed || !parsed.mimeType.toLowerCase().startsWith("image/")) {
+    return null;
+  }
+  return {
+    ...parsed,
+    width: positiveNumber(thumbnail.width || preview.width),
+    height: positiveNumber(thumbnail.height || preview.height)
+  };
+}
+
+function normalizeUploadedScreenshotAsset(value, preview) {
+  const uploadedAtIso = new Date().toISOString();
+  const id = String(value.id || "").trim();
+  const localImageUrl = String(value.localImageUrl || "").trim();
+  if (!id || !localImageUrl) {
+    throw new Error("Screenshot upload response did not include an image asset reference.");
+  }
+  const asset = {
+    id,
+    localImageUrl,
+    storageKey: localImageUrl,
+    mimeType: String(value.mimeType || preview.mimeType || "image/png").trim(),
+    byteLength: positiveNumber(value.sizeBytes || value.byteLength || preview.blob.size) || preview.blob.size,
+    uploadedAtIso: String(value.uploadedAtIso || uploadedAtIso).trim()
+  };
+  if (preview.width !== undefined) {
+    asset.width = preview.width;
+  }
+  if (preview.height !== undefined) {
+    asset.height = preview.height;
+  }
+  const sha256 = String(value.sha256 || "").trim();
+  if (sha256) {
+    asset.sha256 = sha256;
+  }
+  return asset;
+}
+
+function screenshotFileName(mimeType) {
+  const normalized = String(mimeType || "").toLowerCase();
+  if (normalized.includes("webp")) {
+    return "annotation-screenshot.webp";
+  }
+  if (normalized.includes("jpeg") || normalized.includes("jpg")) {
+    return "annotation-screenshot.jpg";
+  }
+  return "annotation-screenshot.png";
+}
+
+function positiveNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
 async function readSettledAnnotationQueue() {

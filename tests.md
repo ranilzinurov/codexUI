@@ -9047,3 +9047,43 @@ Saved Destination and stale Destination Refresh catalog cache.
 #### Rollback/Cleanup
 - Remove the unpacked extension from `chrome://extensions` if loaded only for this test.
 - Clear extension storage for `browserAnnotation.threadTargetCatalog`, `browserAnnotation.threadTarget`, and `browserAnnotation.binding` if manual test state should be removed.
+
+---
+
+### Browser Annotation Screenshot Asset Send
+
+#### Feature/Change Name
+Upload ready annotation screenshots as server assets before sending the queue.
+
+#### Prerequisites/Setup
+1. Use a branch containing the screenshot asset upload/send change.
+2. Run the focused checks from the repository root:
+   - `node --check extension/browser-annotation/shared/annotation-queue.js`
+   - `node --check extension/browser-annotation/service-worker/service-worker.js`
+   - `node --check extension/browser-annotation/dev/annotation-queue-smoke.mjs`
+   - `node --check extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.mjs`
+   - `node extension/browser-annotation/dev/annotation-queue-smoke.mjs`
+   - `node extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.mjs`
+3. For manual UI verification, start Codex UI with `pnpm run dev --host 127.0.0.1 --port 4173`.
+4. Load `extension/browser-annotation` as an unpacked Chrome extension and connect Browser Binding to a destination thread.
+
+#### Steps
+1. In light theme, click `Pick on Page`, select a visible element, leave screenshot enabled, and click `Save to Queue`.
+2. Confirm the queue row shows a ready screenshot thumbnail/detail, not `No preview`.
+3. Click `Send Queue` and inspect network/service-worker logs.
+4. Confirm the extension first POSTs the cropped screenshot to `/codex-api/extension/assets/upload` as multipart `kind=screenshot`.
+5. Confirm the later `/codex-api/extension/annotation-batch` body includes an `annotation-screenshot` asset and the item references it with `screenshotAssetId`.
+6. Confirm the batch body does not include `preview.dataUrl` or any `data:image` string.
+7. Confirm the selected Codex thread receives the batch with the screenshot attached.
+8. Switch Codex UI and the extension side panel to dark theme and repeat steps 1-7.
+
+#### Expected Results
+- Ready screenshots are uploaded before the annotation batch is sent.
+- The annotation batch carries only asset metadata and the server-issued `/codex-local-image` reference.
+- If screenshot upload fails, the local queue remains available for retry instead of being cleared.
+- Light and dark theme queue rows, details, send controls, and received batch rendering remain readable.
+
+#### Rollback/Cleanup
+- Remove the unpacked extension from `chrome://extensions` if loaded only for this test.
+- Clear extension storage for `browserAnnotation.annotationQueue`, `browserAnnotation.threadTarget`, and `browserAnnotation.binding` if manual test state should be removed.
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.

@@ -115,7 +115,10 @@
     const createdAtIso = options.createdAtIso || new Date().toISOString();
     const devtoolsSnapshot = buildDevtoolsSnapshot(options.devtoolsCapture, createdAtIso);
     const voiceAssetMap = new Map();
-    const batchItems = items.map((item) => buildBatchItem(item, devtoolsSnapshot, voiceAssetMap));
+    const screenshotAssetMap = new Map();
+    const batchItems = items.map((item) => (
+      buildBatchItem(item, devtoolsSnapshot, voiceAssetMap, screenshotAssetMap)
+    ));
     return {
       schemaVersion: 1,
       batchId: options.batchId || createId("annotation-batch"),
@@ -128,7 +131,10 @@
       targetThreadId: options.targetThreadId || undefined,
       page: readBatchPage(items),
       privacy: DEFAULT_PRIVACY_RULES,
-      assets: Array.from(voiceAssetMap.values()),
+      assets: [
+        ...Array.from(voiceAssetMap.values()),
+        ...Array.from(screenshotAssetMap.values())
+      ],
       items: batchItems,
       ...(devtoolsSnapshot ? { devTools: devtoolsSnapshot } : {})
     };
@@ -138,12 +144,13 @@
     return Array.isArray(queue) ? queue.filter(isRecord) : [];
   }
 
-  function buildBatchItem(item, devtoolsSnapshot, voiceAssetMap) {
+  function buildBatchItem(item, devtoolsSnapshot, voiceAssetMap, screenshotAssetMap) {
     const context = isRecord(item.context) ? item.context : {};
     const page = readItemPage(item);
     const noteText = sanitizeNoteText(item.noteText);
     const createdAtIso = item.createdAtIso || new Date().toISOString();
     const voiceNote = readVoiceNote(item.voice, item.id, voiceAssetMap);
+    const screenshotAsset = readScreenshotAsset(item.screenshot, item.id);
     const batchItem = {
       id: item.id || createId("annotation"),
       kind: readAnnotationKind(noteText, voiceNote),
@@ -164,6 +171,10 @@
     batchItem.noteText = noteText;
     if (voiceNote) {
       batchItem.voiceNote = voiceNote;
+    }
+    if (screenshotAsset) {
+      batchItem.screenshotAssetId = screenshotAsset.id;
+      screenshotAssetMap.set(screenshotAsset.id, screenshotAsset);
     }
 
     const selectedText = sanitizeText(context.text, 1000);
@@ -294,6 +305,59 @@
     return asset;
   }
 
+  function readScreenshotAsset(value, itemId) {
+    if (!isRecord(value) || value.state !== "ready" || value.sendWithoutScreenshot === true) {
+      return null;
+    }
+
+    const nestedAsset = isRecord(value.asset) ? value.asset : {};
+    const assetId = sanitizeText(nestedAsset.id || value.assetId || value.screenshotAssetId, 160);
+    const byteLength = positiveNumber(nestedAsset.byteLength || value.byteLength);
+    const uploadedAtIso = sanitizeText(nestedAsset.uploadedAtIso || value.uploadedAtIso, 80);
+    if (!assetId || byteLength === undefined || !uploadedAtIso) {
+      return null;
+    }
+
+    const asset = {
+      id: assetId,
+      kind: "annotation-screenshot",
+      mimeType: sanitizeText(nestedAsset.mimeType || value.mimeType, 120) || "image/png",
+      byteLength,
+      uploadedAtIso
+    };
+    const width = positiveNumber(nestedAsset.width || value.width);
+    const height = positiveNumber(nestedAsset.height || value.height);
+    const sha256 = sanitizeText(nestedAsset.sha256 || value.sha256, 160);
+    const storageKey = sanitizeScreenshotStorageKey(
+      nestedAsset.storageKey ||
+        nestedAsset.localImageUrl ||
+        value.storageKey ||
+        value.localImageUrl
+    );
+
+    if (width !== undefined) {
+      asset.width = width;
+    }
+    if (height !== undefined) {
+      asset.height = height;
+    }
+    if (sha256) {
+      asset.sha256 = sha256;
+    }
+    if (storageKey) {
+      asset.storageKey = storageKey;
+    }
+    return asset;
+  }
+
+  function sanitizeScreenshotStorageKey(value) {
+    const key = sanitizeText(value, 2048);
+    if (!key || /^data:/i.test(key)) {
+      return "";
+    }
+    return key;
+  }
+
   function readVoiceTranscript(value) {
     const transcript = isRecord(value.transcript) ? value.transcript : {};
     const status = sanitizeText(value.transcriptStatus || transcript.status, 40);
@@ -392,7 +456,38 @@
     if (isRecord(value.thumbnail)) {
       screenshot.thumbnail = value.thumbnail;
     }
+    const asset = sanitizeQueueScreenshotAsset(value.asset);
+    if (asset) {
+      screenshot.asset = asset;
+    }
     return screenshot;
+  }
+
+  function sanitizeQueueScreenshotAsset(value) {
+    if (!isRecord(value)) {
+      return null;
+    }
+    const asset = {};
+    for (const [key, item] of Object.entries(value)) {
+      const normalizedKey = key.toLowerCase();
+      if (
+        normalizedKey === "dataurl" ||
+        normalizedKey === "imagedata" ||
+        normalizedKey === "base64" ||
+        normalizedKey === "imagebase64" ||
+        normalizedKey === "blob"
+      ) {
+        continue;
+      }
+      if (typeof item === "number") {
+        asset[key] = finiteNumber(item);
+      } else if (typeof item === "boolean") {
+        asset[key] = item;
+      } else if (!isRecord(item) && !Array.isArray(item)) {
+        asset[key] = sanitizeText(item, normalizedKey.includes("url") ? 2048 : 500);
+      }
+    }
+    return Object.keys(asset).length > 0 ? asset : null;
   }
 
   function buildDevtoolsSnapshot(devtoolsCapture, capturedAtIso) {

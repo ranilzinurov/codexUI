@@ -410,12 +410,41 @@ context.fetch = async (input, init = {}) => {
       }
     });
   }
+  if (url.includes("/assets/upload")) {
+    assert.equal(authorization, "Bearer scoped-thread-token");
+    assert.equal(url.includes("sessionId=scoped-session-selector-1"), true);
+    assert.equal(url.includes("threadId=thread-selector-1"), true);
+    assert.equal(init.body.get("kind"), "screenshot");
+    assert.equal(init.body.get("file").type, "image/png");
+    return jsonResponse({
+      ok: true,
+      asset: {
+        id: "uploaded-screenshot-asset-1",
+        kind: "screenshot",
+        mimeType: "image/png",
+        sizeBytes: 3,
+        fileName: "annotation-screenshot.png",
+        absolutePath: "/tmp/codex-web-uploads/annotation-smoke/annotation-screenshot.png",
+        localImageUrl: "/codex-local-image?path=%2Ftmp%2Fcodex-web-uploads%2Fannotation-smoke%2Fannotation-screenshot.png",
+        sessionId: "scoped-session-selector-1",
+        threadId: "thread-selector-1"
+      }
+    });
+  }
   if (url.includes("/annotation-batch")) {
     assert.equal(authorization, "Bearer scoped-thread-token");
     assert.equal(url.includes("sessionId=scoped-session-selector-1"), true);
     assert.equal(url.includes("threadId=thread-selector-1"), true);
     const body = JSON.parse(init.body);
     assert.equal(body.targetThreadId, "thread-selector-1");
+    assert.equal(body.assets.length, 1);
+    assert.equal(body.assets[0].id, "uploaded-screenshot-asset-1");
+    assert.equal(body.assets[0].kind, "annotation-screenshot");
+    assert.equal(body.assets[0].mimeType, "image/png");
+    assert.equal(body.assets[0].byteLength, 3);
+    assert.equal(body.assets[0].storageKey, "/codex-local-image?path=%2Ftmp%2Fcodex-web-uploads%2Fannotation-smoke%2Fannotation-screenshot.png");
+    assert.equal(body.items[0].screenshotAssetId, "uploaded-screenshot-asset-1");
+    assert.equal(JSON.stringify(body).includes("data:image"), false);
     return jsonResponse({
       ok: true,
       result: {
@@ -423,7 +452,7 @@ context.fetch = async (input, init = {}) => {
         threadId: "thread-selector-1",
         batchId: body.batchId,
         annotationCount: body.items.length,
-        imageCount: 0,
+        imageCount: 1,
         consoleCount: 0,
         networkCount: 0,
         queuedMessageId: "queued-selector-batch"
@@ -512,16 +541,36 @@ assert.equal(pageStateQueue[0].kind, "devtools/page-state");
 assert.equal(pageStateQueue[0].noteText, "Capture current page behavior");
 assert.equal(storage.get(BrowserAnnotationConstants.STORAGE_KEYS.binding).token, "binding-token-smoke");
 assert.equal(persistentFetchCalls.some((call) => call.url.includes("/listen/stop")), false);
+pageStateQueue[0].screenshot = {
+  state: "ready",
+  capturedAtIso: "2026-06-16T14:31:00.000Z",
+  thumbnail: {
+    dataUrl: "data:image/png;base64,QUJD",
+    width: 3,
+    height: 1
+  }
+};
+pageStateQueue[0].preview = {
+  dataUrl: "data:image/png;base64,QUJD",
+  width: 3,
+  height: 1
+};
+storage.set(annotationQueueKey, pageStateQueue);
 
 const sentScopedBatch = await context.handleMessage({
   type: BrowserAnnotationConstants.MESSAGE_TYPES.SEND_ANNOTATION_BATCH
 });
 assert.equal(sentScopedBatch.ok, true);
 assert.equal(sentScopedBatch.result.threadId, "thread-selector-1");
+assert.equal(sentScopedBatch.result.imageCount, 1);
 assert.equal(JSON.stringify(sentScopedBatch.state).includes("scoped-thread-token"), false);
 assert.equal(storage.get(annotationQueueKey).length, 0);
 assert.equal(persistentFetchCalls.some((call) => call.url.includes("/listen/bind-thread")), true);
 assert.equal(persistentFetchCalls.some((call) => call.url.includes("/annotation-batch")), true);
+assert.ok(
+  persistentFetchCalls.findIndex((call) => call.url.includes("/assets/upload")) <
+    persistentFetchCalls.findIndex((call) => call.url.includes("/annotation-batch"))
+);
 
 const disconnectedPersistent = await context.handleMessage({
   type: BrowserAnnotationConstants.MESSAGE_TYPES.DISCONNECT_BINDING

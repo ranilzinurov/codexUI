@@ -86,7 +86,7 @@ node extension/browser-annotation/dev/content-overlay-cancel-smoke.cjs
 20. Click the mic icon, speak a short Russian comment, stop recording, and confirm the transcript appears in that selected item's inline comment after the server transcription response returns.
 21. Optional Diagnostics smoke: run `node extension/browser-annotation/dev/devtools-fixture-server.mjs`, open `http://127.0.0.1:8899/`, enable **Diagnostics**, click console/network fixture buttons, add a Page note without Pick on Page, and send it.
 22. Click **Send Queue** with a valid connected binding and confirm the queue clears after the server accepts the batch. The batch request should be a POST to `/codex-api/extension/annotation-batch` with the persistent extension token as `Authorization: Bearer <token>`.
-23. Inspect the annotation-batch request body if available. Confirm it contains one top-level `page`, queued `items`, each item note, selector/rect/viewport context when an element or area was selected, `assets: []`, no `preview.dataUrl` or other screenshot data URL, and `devTools` only when Diagnostics capture was explicitly enabled.
+23. Inspect the upload and annotation-batch requests if available. Confirm ready screenshots are first uploaded to `/codex-api/extension/assets/upload` as multipart `kind=screenshot`, then the batch contains one top-level `page`, queued `items`, each item note, selector/rect/viewport context when an element or area was selected, uploaded screenshot assets referenced by `screenshotAssetId`, no `preview.dataUrl` or other screenshot data URL, and `devTools` only when Diagnostics capture was explicitly enabled.
 24. Click the selected element close control and confirm the selected box disappears, the queued item is removed, and annotation mode remains ready for another selection.
 25. Select another element, press Esc, and confirm the Draft Annotation is discarded, the overlay host disappears, and hover/click tracking stops until **Pick on Page** is clicked again.
 
@@ -102,7 +102,7 @@ Restricted pages such as `chrome://extensions`, `chrome-extension://...`, `file:
 
 Preview payloads are bounded by `MAX_SCREENSHOT_PREVIEW_EDGE_PX` and `MAX_SCREENSHOT_PREVIEW_DATA_URL_CHARS`. The service worker keeps the full visible-tab screenshot only in memory long enough to crop it, then stores only the cropped preview with the queue item. Preview capture is best-effort: if Chrome denies `captureVisibleTab`, the selected element context is still queued without a preview.
 
-Annotation-batch payloads are capped before send by `MAX_ANNOTATION_BATCH_BYTES`. Local crop previews remain extension-only in this stage because uploaded screenshot asset references are produced by a later stage.
+Annotation-batch payloads are capped before send by `MAX_ANNOTATION_BATCH_BYTES`. Ready local crop previews are uploaded as server-issued screenshot assets before send; the batch payload carries only asset metadata and the server-issued `/codex-local-image` reference, never the local `data:image` preview.
 
 Diagnostics capture uses Chrome's debugger permission only after the user enables **Diagnostics** in the Annotation Panel. Capture stops on explicit disable, successful send, tab close, timeout, or debugger detach. Console and network rows are count- and byte-bounded; request and response bodies are metadata-only by default. The panel includes an explicit opt-in control for request/response bodies; captured text bodies are byte-capped and sensitive headers/body fields are redacted before they are stored or sent.
 
