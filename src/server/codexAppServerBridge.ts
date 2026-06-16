@@ -56,6 +56,10 @@ import { WebPushNotifications } from './webPushNotifications.js'
 import { ThreadAutoTitleManager } from './threadAutoTitle.js'
 import { handleBrowserAnnotationBindingRoutes } from './browserAnnotationBinding.js'
 import { handleBrowserAnnotationListenRoutes } from './browserAnnotationListen.js'
+import {
+  handleBrowserAnnotationThreadRoutes,
+  listBrowserAnnotationThreadGroupsFromRpc,
+} from './browserAnnotationThreads.js'
 import { handleBrowserAnnotationAssetUploadRoute } from './browserAnnotationAssets.js'
 import { handleBrowserAnnotationTranscribeRoute } from './browserAnnotationTranscribe.js'
 import { handleBrowserAnnotationBatchRoute } from './browserAnnotationBatch.js'
@@ -8612,6 +8616,12 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
       const url = new URL(req.url, 'http://localhost')
 
       if (await handleBrowserAnnotationBindingRoutes(req, res, url)) {
+        return
+      }
+
+      if (await handleBrowserAnnotationThreadRoutes(req, res, url, {
+        listThreadGroups: () => listBrowserAnnotationThreadGroupsFromRpc(appServer),
+      })) {
         return
       }
 

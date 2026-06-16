@@ -24,6 +24,16 @@
     return new URL(constants.BINDING_REVOKE_PATH, `${normalizedServerUrl}/`).toString();
   }
 
+  function buildThreadTargetsUrl(serverUrl) {
+    const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
+    return new URL(constants.THREAD_TARGETS_PATH, `${normalizedServerUrl}/`).toString();
+  }
+
+  function buildListenBindThreadUrl(serverUrl) {
+    const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
+    return new URL(constants.LISTEN_BIND_THREAD_PATH, `${normalizedServerUrl}/`).toString();
+  }
+
   function buildListenStatusUrl(serverUrl) {
     const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
     return new URL(constants.LISTEN_STATUS_PATH, `${normalizedServerUrl}/`).toString();
@@ -185,9 +195,11 @@
     buildBindingStartUrl,
     buildBindingStatusUrl,
     buildBrowserBindingRevokeUrl,
+    buildListenBindThreadUrl,
     buildListenBindUrl,
     buildListenStopUrl,
     buildListenStatusUrl,
+    buildThreadTargetsUrl,
     buildTranscribeUrl,
     readJsonSafely,
     readBindingFromStatusPayload,
