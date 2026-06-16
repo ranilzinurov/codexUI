@@ -158,6 +158,7 @@
     selectedBox.hidden = true;
     const panel = createPanel();
     const floatingPanel = createFloatingPanel();
+    floatingPanel.container.append(panel.noteWrap);
     shadow.append(style, hoverBox, dragBox, selectedBox, panel.container, floatingPanel.container);
 
     host.__codexBrowserAnnotationOverlay = {
@@ -473,6 +474,9 @@
       overlay.floatingNoteButton.setAttribute("aria-expanded", String(!nextHidden));
     }
     overlay.panel.classList.toggle("has-note", !nextHidden);
+    if (overlay.floatingPanel) {
+      overlay.floatingPanel.classList.toggle("has-note", !nextHidden);
+    }
     updateFloatingPanel();
     updateSelectedOverlay();
     if (!nextHidden) {
@@ -964,7 +968,7 @@
     if (!overlay) {
       return;
     }
-    overlay.panel.hidden = false;
+    overlay.panel.hidden = true;
     overlay.panel.classList.add("is-idle");
     overlay.panel.classList.remove("is-selection", "has-note");
     overlay.panelLabel.textContent = label;
@@ -982,7 +986,7 @@
     if (!overlay) {
       return;
     }
-    overlay.panel.hidden = false;
+    overlay.panel.hidden = true;
     overlay.panel.classList.remove("is-idle");
     overlay.panel.classList.add("is-selection");
     overlay.panel.classList.toggle("has-note", !overlay.noteWrap.hidden);
@@ -1118,11 +1122,11 @@
         gap: 8px;
         width: min(260px, calc(100vw - 32px));
         box-sizing: border-box;
-        color: #f8fafc;
-        background: #111827;
-        border: 1px solid rgba(148, 163, 184, 0.45);
+        color: #172033;
+        background: #ffffff;
+        border: 1px solid rgba(148, 163, 184, 0.5);
         border-radius: 8px;
-        box-shadow: 0 18px 45px rgba(15, 23, 42, 0.35);
+        box-shadow: 0 12px 30px rgba(15, 23, 42, 0.18);
         padding: 10px;
         pointer-events: auto;
       }
@@ -1140,9 +1144,9 @@
 
       .floating-status {
         overflow: hidden;
-        color: #f8fafc;
+        color: #172033;
         font-size: 12px;
-        font-weight: 700;
+        font-weight: 600;
         line-height: 1.2;
         margin: 0;
         text-overflow: ellipsis;
@@ -1151,8 +1155,9 @@
 
       .floating-pick-state,
       .floating-queue-count {
-        color: #cbd5e1;
+        color: #64748b;
         font-size: 11px;
+        font-weight: 500;
         line-height: 1.25;
         margin: 2px 0 0;
       }
@@ -1165,7 +1170,7 @@
       }
 
       .floating-draft-actions {
-        border-top: 1px solid rgba(148, 163, 184, 0.22);
+        border-top: 1px solid rgba(148, 163, 184, 0.28);
         padding-top: 8px;
       }
 
@@ -1251,12 +1256,12 @@
         place-items: center;
         min-width: 30px;
         height: 30px;
-        color: #f8fafc;
-        background: #1f2937;
-        border: 1px solid rgba(248, 250, 252, 0.18);
+        color: #172033;
+        background: #f8fafc;
+        border: 1px solid rgba(148, 163, 184, 0.45);
         border-radius: 6px;
         cursor: pointer;
-        font: 700 12px/1 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font: 600 12px/1 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         padding: 0 8px;
       }
 
@@ -1279,7 +1284,7 @@
       }
 
       .action:hover:not(:disabled) {
-        background: #374151;
+        background: #eef2f7;
       }
 
       .panel.is-selection .action:hover:not(:disabled) {
@@ -1287,11 +1292,12 @@
       }
 
       .floating-panel .action:hover:not(:disabled) {
-        background: #374151;
+        background: #eef2f7;
       }
 
       .action:disabled {
         color: #94a3b8;
+        background: #f1f5f9;
         cursor: not-allowed;
         opacity: 0.65;
       }
@@ -1337,6 +1343,15 @@
 
       .panel.is-selection .note-input {
         width: min(280px, calc(100vw - 32px));
+      }
+
+      .floating-panel.has-note {
+        width: min(320px, calc(100vw - 32px));
+      }
+
+      .floating-panel .note-input {
+        width: 100%;
+        font-weight: 400;
       }
 
       .box {

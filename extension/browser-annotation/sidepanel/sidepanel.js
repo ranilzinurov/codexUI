@@ -147,10 +147,32 @@
           : "Overlay request completed, but no content-script response was received.",
         response.injected ? "ok" : "error"
       );
+      if (response.injected && elements.panelMode.value === "floating") {
+        await closeSidePanelForFloatingMode();
+      }
     } catch (error) {
       setMessage(error.message, "error");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function closeSidePanelForFloatingMode() {
+    if (!chrome.sidePanel || typeof chrome.sidePanel.close !== "function") {
+      return;
+    }
+    try {
+      const tabs = chrome.tabs && chrome.tabs.query
+        ? await chrome.tabs.query({ active: true, currentWindow: true })
+        : [];
+      const activeTab = tabs[0] || null;
+      if (activeTab && typeof activeTab.windowId === "number") {
+        await chrome.sidePanel.close({ windowId: activeTab.windowId });
+        return;
+      }
+      await chrome.sidePanel.close({});
+    } catch (error) {
+      console.warn("Unable to close side panel after starting floating annotation mode.", error);
     }
   }
 

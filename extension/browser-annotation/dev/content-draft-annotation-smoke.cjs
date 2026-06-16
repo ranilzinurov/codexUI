@@ -66,10 +66,11 @@ async function main() {
 
     let overlayState = await readOverlayState(page)
     assert.equal(overlayState.selectedHidden, false)
-    assert.equal(overlayState.hasSelectionToolbar, true)
+    assert.equal(overlayState.legacyPanelHidden, true)
+    assert.equal(overlayState.hasFloatingDraftToolbar, true)
     assert.equal(overlayState.saveVisible, true)
     assert.equal(overlayState.screenshotToggleVisible, true)
-    assert.match(overlayState.meta, /Draft/i)
+    assert.match(overlayState.pickState, /Draft/i)
     assert.equal(await countMessages(page, 'browserAnnotation.contentElementSelected'), 0)
     assert.equal(await countMessages(page, 'browserAnnotation.contentSaveDraftAnnotation'), 0)
 
@@ -78,7 +79,7 @@ async function main() {
       const input = shadow.querySelector('.note-input')
       input.value = 'Check this CTA copy.'
       input.dispatchEvent(new Event('input', { bubbles: true }))
-      shadow.querySelector('[aria-label="Save to Queue"]').click()
+      shadow.querySelector('[aria-label="Floating save to Queue"]').click()
     }, rootId)
     await waitForMessageCount(page, 'browserAnnotation.contentSaveDraftAnnotation', 1)
     const saveMessage = await lastMessage(page, 'browserAnnotation.contentSaveDraftAnnotation')
@@ -87,7 +88,7 @@ async function main() {
     assert.equal(saveMessage.context.text, 'Pricing CTA')
 
     overlayState = await readOverlayState(page)
-    assert.match(overlayState.meta, /Saved/i)
+    assert.match(overlayState.pickState, /saved/i)
   } finally {
     await browser.close()
   }
@@ -137,10 +138,11 @@ async function readOverlayState(page) {
     const shadow = host.shadowRoot
     return {
       selectedHidden: shadow.querySelector('.box-selected').hidden,
-      hasSelectionToolbar: shadow.querySelector('.panel').classList.contains('is-selection'),
-      meta: shadow.querySelector('.meta').textContent,
-      saveVisible: Boolean(shadow.querySelector('[aria-label="Save to Queue"]')),
-      screenshotToggleVisible: Boolean(shadow.querySelector('[aria-label="Toggle screenshot"]')),
+      legacyPanelHidden: shadow.querySelector('.panel').hidden,
+      hasFloatingDraftToolbar: !shadow.querySelector('.floating-draft-actions').hidden,
+      pickState: shadow.querySelector('.floating-pick-state').textContent,
+      saveVisible: !shadow.querySelector('[aria-label="Floating save to Queue"]').hidden,
+      screenshotToggleVisible: Boolean(shadow.querySelector('[aria-label="Floating toggle screenshot"]')),
     }
   }, rootId)
 }

@@ -8848,3 +8848,45 @@ Composer `Skills` dropdown prioritizes the most recently selected skills, plugin
 - Clear `codex-composer-recent-skill-options` from browser `localStorage` to reset the recent order.
 - Delete any temporary saved prompts created during verification.
 - Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
+
+---
+
+### Browser Annotation Floating Panel Deduplication
+
+#### Feature/Change Name
+Floating Pick on Page uses one light page-side annotation panel and closes the Chrome side panel when supported.
+
+#### Prerequisites/Setup
+1. Load `extension/browser-annotation` as an unpacked Chrome extension.
+2. Start Codex UI with `pnpm run dev --host 127.0.0.1 --port 4173` if a local server is needed.
+3. Pair Browser Binding if destination/thread behavior will be checked.
+4. Run focused static/smoke checks from the repository root:
+   - `node --check extension/browser-annotation/content/content-script.js`
+   - `node --check extension/browser-annotation/sidepanel/sidepanel.js`
+   - `node extension/browser-annotation/dev/content-floating-panel-smoke.cjs`
+   - `node extension/browser-annotation/dev/content-draft-annotation-smoke.cjs`
+   - `node extension/browser-annotation/dev/sidepanel-host-permission-smoke.cjs`
+
+#### Steps
+1. In light theme, open the extension side panel.
+2. Set `Page panel` to `Float over page`.
+3. Click `Pick on Page`.
+4. Confirm Chrome closes the extension side panel when `chrome.sidePanel.close` is available; if not available, confirm the page overlay still starts.
+5. Confirm the page shows exactly one annotation panel, with a light background, calmer font weight, and the text `Pick on Page active`.
+6. Select an element or drag an area.
+7. Confirm only one annotation menu remains visible: the page-side floating panel with comment, mic, screenshot, and Save controls.
+8. Click the comment control and confirm the textarea opens inside the same floating panel.
+9. Save the draft and confirm the floating panel shows saved/queue state without showing a second bottom pill menu.
+10. Switch to dark browser/page context and repeat steps 1-9, confirming the floating panel stays light and readable by design.
+
+#### Expected Results
+- The old bottom `Click an element or drag an area` panel is not visible in floating mode.
+- Selecting a target does not create a duplicate annotation menu.
+- The comment textarea is part of the floating panel, not a separate second panel.
+- `Float over page` starts the page overlay and attempts to close the Chrome side panel using `chrome.sidePanel.close`.
+- Light and dark page contexts both keep the floating annotation panel readable.
+
+#### Rollback/Cleanup
+- Remove the unpacked extension from `chrome://extensions` if loaded only for this test.
+- Clear extension storage for `browserAnnotation.annotationQueue`, `browserAnnotation.threadTarget`, `browserAnnotation.binding`, and `browserAnnotation.panelMode` if manual state should be removed.
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.

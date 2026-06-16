@@ -68,6 +68,7 @@ async function main() {
     assert.equal(floating.draftActionsHidden, true)
     assert.equal(floating.pauseVisible, true)
     assert.equal(floating.isPageSide, true)
+    assert.equal(floating.legacyPanelHidden, true)
 
     await page.click('#target')
     await page.waitForTimeout(250)
@@ -77,6 +78,7 @@ async function main() {
     assert.equal(floating.draftActionsHidden, false)
     assert.equal(floating.saveHidden, false)
     assert.equal(floating.isPageSide, true)
+    assert.equal(floating.legacyPanelHidden, true)
 
     const positionAfterSelection = floating.rect
     await page.evaluate((id) => {
@@ -88,6 +90,7 @@ async function main() {
     assert.equal(floating.pickState, 'Pick on Page active')
     assert.equal(floating.draftActionsHidden, true)
     assert.equal(floating.isPageSide, true)
+    assert.equal(floating.legacyPanelHidden, true)
     assert.deepEqual(floating.rect, positionAfterSelection)
 
     await page.click('#target')
@@ -102,6 +105,7 @@ async function main() {
     assert.equal(floating.queueCount, '1 queued')
     assert.equal(floating.saveHidden, true)
     assert.equal(floating.isPageSide, true)
+    assert.equal(floating.legacyPanelHidden, true)
 
     await page.evaluate((id) => {
       document.getElementById(id).shadowRoot.querySelector('[aria-label="Pause annotation mode"]').click()
@@ -160,6 +164,7 @@ async function readFloatingPanelState(page) {
       draftActionsHidden: shadow.querySelector('.floating-draft-actions').hidden,
       pauseVisible: !shadow.querySelector('[aria-label="Pause annotation mode"]').hidden,
       saveHidden: shadow.querySelector('[aria-label="Floating save to Queue"]').hidden,
+      legacyPanelHidden: shadow.querySelector('.panel').hidden,
     }
   }, rootId)
 }
