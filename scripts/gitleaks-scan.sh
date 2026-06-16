@@ -8,8 +8,15 @@ REPORT_DIR="${GITLEAKS_REPORT_DIR:-${REPO_ROOT}/output/gitleaks}"
 REPORT_PATH="${REPORT_DIR}/findings.json"
 
 if ! command -v gitleaks >/dev/null 2>&1; then
-  echo "gitleaks is not installed. Install it or run scripts/install-gitleaks.sh first." >&2
-  exit 127
+  fallback_gitleaks="${GITLEAKS_INSTALL_DIR:-${HOME}/.local/bin}/gitleaks"
+  if [[ -x "${fallback_gitleaks}" ]]; then
+    GITLEAKS_BIN="${fallback_gitleaks}"
+  else
+    echo "gitleaks is not installed. Install it or run scripts/install-gitleaks.sh first." >&2
+    exit 127
+  fi
+else
+  GITLEAKS_BIN="gitleaks"
 fi
 
 mkdir -p "${REPORT_DIR}"
@@ -29,4 +36,4 @@ fi
 
 args+=("${REPO_ROOT}")
 
-gitleaks "${args[@]}"
+"${GITLEAKS_BIN}" "${args[@]}"

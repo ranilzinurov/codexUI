@@ -8267,8 +8267,9 @@ Gitleaks-backed secret scanning for local checks and GitHub Actions.
 #### Prerequisites/Setup
 1. Use the git checkout at `/Users/rnl1/prog/codexUI`.
 2. Install Gitleaks locally with `scripts/install-gitleaks.sh` or through a package manager.
-3. Confirm `.gitleaks.toml` and `.gitleaks-baseline.json` are present.
-4. Confirm Firebase GitHub OAuth frontend settings are supplied through ignored `VITE_FIREBASE_*` environment values when that login path is needed.
+3. If installed with the repo script, confirm `${HOME}/.local/bin/gitleaks` exists; `pnpm run secret:scan` can use that fallback even when `${HOME}/.local/bin` is not in `PATH`.
+4. Confirm `.gitleaks.toml` and `.gitleaks-baseline.json` are present.
+5. Confirm Firebase GitHub OAuth frontend settings are supplied through ignored `VITE_FIREBASE_*` environment values when that login path is needed.
 
 #### Steps
 1. Run the local secret scan:
@@ -8282,6 +8283,7 @@ Gitleaks-backed secret scanning for local checks and GitHub Actions.
 
 #### Expected Results
 - `pnpm run secret:scan` exits successfully with the existing redacted baseline.
+- A Gitleaks binary installed by `scripts/install-gitleaks.sh` is found through the fallback path when it is not available in `PATH`.
 - New committed secrets produce new fingerprints and fail the scan.
 - GitHub Actions use Node 24-compatible checkout/setup actions and do not show the old Node 20 action deprecation warning.
 - The Firebase web config is no longer hardcoded in `src/`, and `.env.example` documents the required `VITE_FIREBASE_*` keys.

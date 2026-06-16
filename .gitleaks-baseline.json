@@ -98,5 +98,25 @@
     "EndLine": 2,
     "StartColumn": 2,
     "EndColumn": 68
+  },
+  {
+    "RuleID": "gcp-api-key",
+    "Description": "Uncovered a GCP API key, which could lead to unauthorized access to Google Cloud services and data breaches.",
+    "File": "src/composables/useGithubSkillsSync.ts",
+    "SymlinkFile": "",
+    "Commit": "023322d1db13cd0c2d32b72542625c8db04c0c4c",
+    "Entropy": 4.7338696,
+    "Author": "Igor",
+    "Email": "igor.levochkin@xrtc.io",
+    "Date": "2026-05-06T02:12:57Z",
+    "Message": "Add generic GitHub skills sync",
+    "Tags": [],
+    "Fingerprint": "023322d1db13cd0c2d32b72542625c8db04c0c4c:src/composables/useGithubSkillsSync.ts:gcp-api-key:30",
+    "Secret": "REDACTED",
+    "Match": "REDACTED'",
+    "StartLine": 30,
+    "EndLine": 30,
+    "StartColumn": 13,
+    "EndColumn": 52
   }
 ]
