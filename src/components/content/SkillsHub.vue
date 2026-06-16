@@ -150,6 +150,19 @@
             >
               <IconTablerFolder class="skills-installed-browse-icon" />
             </button>
+            <button
+              v-if="skill.path"
+              class="skills-installed-switch"
+              type="button"
+              role="switch"
+              :aria-checked="skill.enabled !== false"
+              :aria-label="`${skill.displayName || skill.name} ${skill.enabled === false ? t('disabled') : t('enabled')}`"
+              :class="{ 'is-on': skill.enabled !== false }"
+              :disabled="isSkillToggleBusy(skill)"
+              @click.stop="handleToggleEnabled(skill, skill.enabled === false)"
+            >
+              <span class="skills-installed-switch-knob" aria-hidden="true"></span>
+            </button>
           </div>
 
           <div v-if="hasChildSkills(skill) && expandedSkillGroups.has(skillGroupKey(skill))" class="skills-installed-children">
@@ -173,6 +186,18 @@
                 @click="browseSkillFiles(childSkillToHubSkill(skill, child))"
               >
                 <IconTablerFolder class="skills-installed-browse-icon" />
+              </button>
+              <button
+                class="skills-installed-switch"
+                type="button"
+                role="switch"
+                :aria-checked="child.enabled !== false"
+                :aria-label="`${child.displayName || child.name} ${child.enabled === false ? t('disabled') : t('enabled')}`"
+                :class="{ 'is-on': child.enabled !== false }"
+                :disabled="isSkillToggleBusy(child)"
+                @click.stop="handleToggleEnabled(childSkillToHubSkill(skill, child), child.enabled === false)"
+              >
+                <span class="skills-installed-switch-knob" aria-hidden="true"></span>
               </button>
             </div>
           </div>
@@ -214,6 +239,7 @@ import { useGithubSkillsSync } from '../../composables/useGithubSkillsSync'
 import { useFeedbackDiagnostics } from '../../composables/useFeedbackDiagnostics'
 import { useUiLanguage } from '../../composables/useUiLanguage'
 import { resolveBackendHttpUrl } from '../../backendUrl'
+import { buildSkillEnabledRpcBody, type SkillToggleRow } from './skillsHubUtils'
 
 const EMPTY_SKILL: HubSkill = { name: '', owner: '', description: '', url: '', installed: false }
 type SkillsHubPayload = { installed?: HubSkill[] }
@@ -234,6 +260,7 @@ const detailSkill = ref<HubSkill>(EMPTY_SKILL)
 const expandedSkillGroups = ref<Set<string>>(new Set())
 const toast = ref<{ text: string; type: 'success' | 'error' } | null>(null)
 const actionSkillKey = ref('')
+const togglingSkillPath = ref('')
 const isInstallActionInFlight = ref(false)
 const isUninstallActionInFlight = ref(false)
 let toastTimer: ReturnType<typeof setTimeout> | null = null
@@ -314,6 +341,10 @@ function browseSkillFiles(skill: Pick<HubSkill, 'path'>): void {
   const dir = skillDirPath(skill)
   if (!dir) return
   window.open(resolveBackendHttpUrl(`/codex-local-browse${encodeURI(dir)}`), '_blank', 'noopener,noreferrer')
+}
+
+function isSkillToggleBusy(skill: SkillToggleRow): boolean {
+  return !!skill.path && togglingSkillPath.value === skill.path
 }
 
 function showToast(text: string, type: 'success' | 'error' = 'success'): void {
@@ -457,11 +488,12 @@ async function handleUninstall(skill: HubSkill): Promise<void> {
 }
 
 async function handleToggleEnabled(skill: HubSkill, enabled: boolean): Promise<void> {
+  togglingSkillPath.value = skill.path || ''
   try {
     const resp = await fetch('/codex-api/rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ method: 'skills/config/write', params: { path: skill.path, enabled } }),
+      body: JSON.stringify(buildSkillEnabledRpcBody(skill, enabled)),
     })
     if (!resp.ok) throw new Error('Failed to update skill')
     await fetch('/codex-api/skills-sync/push', { method: 'POST' })
@@ -469,6 +501,8 @@ async function handleToggleEnabled(skill: HubSkill, enabled: boolean): Promise<v
     await fetchSkills()
   } catch (e) {
     showToast(e instanceof Error ? e.message : 'Failed to update skill', 'error')
+  } finally {
+    togglingSkillPath.value = ''
   }
 }
 
@@ -728,6 +762,22 @@ watch(visibleSkillErrors, (values, oldValues) => {
 
 .skills-installed-browse {
   @apply flex h-9 w-9 shrink-0 items-center justify-center self-center rounded-lg border-0 bg-transparent text-zinc-300 transition hover:bg-zinc-100 hover:text-zinc-600 cursor-pointer;
+}
+
+.skills-installed-switch {
+  @apply relative flex h-6 w-10 shrink-0 items-center self-center rounded-full border border-zinc-200 bg-zinc-200 p-0.5 transition hover:border-zinc-300 hover:bg-zinc-300 focus:outline-none focus:ring-2 focus:ring-emerald-200 disabled:cursor-wait disabled:opacity-60;
+}
+
+.skills-installed-switch.is-on {
+  @apply border-emerald-500 bg-emerald-500 hover:border-emerald-600 hover:bg-emerald-600;
+}
+
+.skills-installed-switch-knob {
+  @apply h-[18px] w-[18px] rounded-full bg-white shadow-sm transition-transform;
+}
+
+.skills-installed-switch.is-on .skills-installed-switch-knob {
+  @apply translate-x-4;
 }
 
 .skills-installed-children {

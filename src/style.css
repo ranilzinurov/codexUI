@@ -1842,6 +1842,14 @@ html::after {
   @apply text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200;
 }
 
+:root.dark .skills-installed-switch {
+  @apply border-zinc-700 bg-zinc-700 hover:border-zinc-600 hover:bg-zinc-600 focus:ring-emerald-800;
+}
+
+:root.dark .skills-installed-switch.is-on {
+  @apply border-emerald-500 bg-emerald-500 hover:border-emerald-400 hover:bg-emerald-400;
+}
+
 :root.dark .skills-installed-children {
   @apply border-zinc-800 bg-zinc-950/50;
 }

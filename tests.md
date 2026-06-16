@@ -8773,3 +8773,39 @@ Automation editor small-viewport scrolling, sticky actions, app dropdown control
 - Delete any disposable automation created during manual testing.
 - Remove temporary TestChat threads if mocked data was not used.
 - Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
+
+---
+
+### Skills Hub Inline Switches
+
+#### Feature/Change Name
+Installed Skills Hub folder and child-skill enable/disable switches.
+
+#### Prerequisites/Setup
+1. Start the app with `pnpm run dev --host 127.0.0.1 --port 4173`.
+2. Open `#/skills?tab=skills`.
+3. Ensure at least one installed skill folder is visible, preferably a folder with child skills.
+4. Note the current enabled/disabled state of any row you plan to toggle.
+
+#### Steps
+1. In light theme, expand an installed skill folder.
+2. Click the switch on the far right of the top-level folder row.
+3. Confirm the row changes enabled/disabled styling without opening the detail modal or collapsing/expanding the folder.
+4. Click the switch again to restore the folder to its original state.
+5. Click the switch on the far right of one child skill row.
+6. Confirm only that child row changes enabled/disabled styling and the parent folder remains expanded.
+7. Click the child switch again to restore its original state.
+8. Use the folder icon button on both a folder row and a child row and confirm file browsing still opens.
+9. Switch to dark theme and repeat steps 1-8.
+
+#### Expected Results
+- Folder rows and child skill rows that have a local path show a right-aligned switch.
+- A folder switch writes the folder path; a child switch writes that child's `SKILL.md` path.
+- Switch clicks do not open the detail modal, trigger browse, or toggle folder expansion.
+- The active switch is disabled while its own update request is in flight.
+- Light and dark themes both render enabled and disabled switch states with readable contrast.
+- Existing modal enable/disable behavior still works.
+
+#### Rollback/Cleanup
+- Restore any toggled folders or child skills to their original enabled/disabled state.
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.

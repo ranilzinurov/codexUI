@@ -113,3 +113,10 @@
 - Created wiki pages: `concepts/manual-test-domain-docs.md` and `concepts/provider-auth-models.md`.
 - Updated `overview.md`, `entities/codex-web-local.md`, and `index.md`.
 - Preserved this fork's `tests.md` canonical manual-test policy and `llm-wiki/wiki/log.md` append-only convention.
+
+## 2026-06-16
+
+- Added source notes for Skills Hub inline enable/disable switches.
+- Updated wiki page: `concepts/skills-route-ui.md`.
+- Documents folder-level and child-skill-level switch behavior, row click propagation handling, path-scoped busy state, and dark-theme override placement.
+- Updated `index.md`.
