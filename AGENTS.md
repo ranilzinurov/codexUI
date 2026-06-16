@@ -1,5 +1,19 @@
 # AGENTS.md
 
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in GitHub Issues for `ranilzinurov/codexUI`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The repo uses GitHub labels for the canonical triage states. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repo with `CONTEXT.md` at the root and optional ADRs under `docs/adr/`. See `docs/agents/domain.md`.
+
 ## Git Workflow (Compact)
 
 - Keep both worktrees clean before merge/rebase:
