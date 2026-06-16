@@ -347,5 +347,9 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
 
 function isBrowserAnnotationBearerRoute(req: express.Request): boolean {
   if (!req.path.startsWith('/codex-api/extension/')) return false
-  return !(req.method === 'POST' && req.path === '/codex-api/extension/listen/start')
+  return !(
+    req.method === 'POST'
+    && (req.path === '/codex-api/extension/listen/start'
+      || req.path === '/codex-api/extension/binding/start')
+  )
 }

@@ -24,12 +24,14 @@ const {
 } = globalThis.BrowserAnnotationUrlUtils;
 const {
   buildAnnotationBatchUrl,
-  buildBindingRevokeUrl,
-  buildListenBindUrl,
+  buildBindingCompleteUrl,
+  buildBindingStatusUrl,
+  buildBrowserBindingRevokeUrl,
   buildListenStatusUrl,
   buildListenStopUrl,
   buildTranscribeUrl,
   readJsonSafely,
+  readBindingFromStatusPayload,
   readStatusError,
   readSessionFromStatusPayload
 } = globalThis.BrowserAnnotationPairingClient;
@@ -370,22 +372,38 @@ function sanitizeBinding(value) {
     return null;
   }
   const token = String(value.token || value.extensionToken || "").trim();
+  const bindingId = String(value.bindingId || (value.binding && value.binding.bindingId) || "").trim();
   const sessionId = String(value.sessionId || (value.session && value.session.sessionId) || "").trim();
   const threadId = String(value.threadId || (value.session && value.session.threadId) || "").trim();
-  if (!token || !sessionId || !threadId) {
+  if (!token) {
     return null;
   }
+  const tokenType = String(value.tokenType || "").trim();
   let serverUrl = "";
   try {
     serverUrl = value.serverUrl ? normalizeServerUrl(value.serverUrl) : "";
   } catch (_error) {
     serverUrl = "";
   }
+  if (!bindingId || tokenType === "extension" || sessionId || threadId) {
+    return {
+      token,
+      sessionId,
+      threadId,
+      tokenType: "legacy-listen",
+      legacy: true,
+      reconnectRequired: true,
+      serverUrl,
+      serverPath: String(value.serverPath || "").trim(),
+      createdAtIso: String(value.createdAtIso || "").trim(),
+      expiresAtIso: String(value.expiresAtIso || "").trim(),
+      lastUsedAtIso: String(value.lastUsedAtIso || "").trim()
+    };
+  }
   return {
     token,
-    sessionId,
-    threadId,
-    tokenType: "extension",
+    bindingId,
+    tokenType: "browser-binding",
     serverUrl,
     serverPath: String(value.serverPath || "").trim(),
     createdAtIso: String(value.createdAtIso || "").trim(),
@@ -428,7 +446,7 @@ function sanitizeSettings(settings) {
 async function bindPairingToken(settings) {
   let bindUrl;
   try {
-    bindUrl = buildListenBindUrl(settings.serverUrl);
+    bindUrl = buildBindingCompleteUrl(settings.serverUrl);
   } catch (error) {
     throw new Error(error instanceof Error ? error.message : "Invalid server URL.");
   }
@@ -448,21 +466,20 @@ async function bindPairingToken(settings) {
     throw new Error(readStatusError(payload, `Persistent binding failed (${response.status}).`));
   }
 
-  const session = readSessionFromStatusPayload(payload);
-  if (!session || !session.extensionToken) {
-    throw new Error("Persistent binding response did not include a valid extension token.");
+  const binding = readBindingFromStatusPayload(payload);
+  if (!binding || !binding.bindingToken) {
+    throw new Error("Browser binding response did not include a valid binding token.");
   }
 
   await writeBinding({
-    token: session.extensionToken,
-    sessionId: session.sessionId,
-    threadId: session.threadId,
-    tokenType: "extension",
+    token: binding.bindingToken,
+    bindingId: binding.bindingId,
+    tokenType: "browser-binding",
     serverUrl: settings.serverUrl,
-    serverPath: session.serverPath || "",
-    createdAtIso: session.createdAtIso || "",
-    expiresAtIso: session.expiresAtIso || "",
-    lastUsedAtIso: session.lastUsedAtIso || ""
+    serverPath: binding.serverPath || "",
+    createdAtIso: binding.createdAtIso || "",
+    expiresAtIso: binding.expiresAtIso || "",
+    lastUsedAtIso: binding.lastUsedAtIso || ""
   });
   await clearPairingToken();
 }
@@ -482,7 +499,9 @@ async function validateConnection(settings, options = {}) {
       status: "disconnected",
       checkedAtIso: null,
       session: null,
-      detail: "Paste a pairing token from Codex UI to connect.",
+      detail: binding && binding.reconnectRequired
+        ? "Reconnect required. Paste a browser binding pairing code from Codex UI."
+        : "Paste a browser binding pairing code from Codex UI to connect.",
       persistentBinding: binding ? buildPersistentBindingState(binding, null) : null
     };
   }
@@ -497,12 +516,15 @@ function buildBindingAuth(settings, binding) {
   if (!binding || !binding.token) {
     return null;
   }
+  if (binding.reconnectRequired || binding.legacy) {
+    return null;
+  }
   if (binding.serverUrl && binding.serverUrl !== settings.serverUrl) {
     return null;
   }
   return {
     token: binding.token,
-    tokenType: "extension",
+    tokenType: "browser-binding",
     binding
   };
 }
@@ -511,7 +533,9 @@ async function validateAuthToken(settings, auth, options = {}) {
   const checkedAtIso = new Date().toISOString();
   let statusUrl;
   try {
-    statusUrl = buildListenStatusUrl(settings.serverUrl);
+    statusUrl = auth.tokenType === "browser-binding"
+      ? buildBindingStatusUrl(settings.serverUrl)
+      : buildListenStatusUrl(settings.serverUrl);
   } catch (error) {
     return {
       status: "error",
@@ -537,13 +561,15 @@ async function validateAuthToken(settings, auth, options = {}) {
       );
     }
 
-    const session = readSessionFromStatusPayload(payload);
-    if (!session) {
-      throw new Error("Connection status response did not include a valid session.");
+    const credential = auth.tokenType === "browser-binding"
+      ? readBindingFromStatusPayload(payload)
+      : readSessionFromStatusPayload(payload);
+    if (!credential) {
+      throw new Error("Connection status response did not include a valid credential.");
     }
 
-    if (session.status !== "active") {
-      if (auth.tokenType === "extension") {
+    if (credential.status !== "active") {
+      if (auth.tokenType === "browser-binding") {
         await clearBinding();
       } else {
         await clearPairingToken();
@@ -551,10 +577,11 @@ async function validateAuthToken(settings, auth, options = {}) {
       return {
         status: "disconnected",
         checkedAtIso,
-        session,
+        session: auth.tokenType === "browser-binding" ? null : credential,
+        binding: auth.tokenType === "browser-binding" ? credential : null,
         ...(auth.tokenType === "pairing" ? { clearPairingToken: true } : {}),
         tokenType: auth.tokenType,
-        detail: session.status === "revoked"
+        detail: credential.status === "revoked"
           ? "Listener stopped in Codex UI. Create a fresh binding to connect again."
           : "Listener expired. Create a fresh binding to connect again."
       };
@@ -563,22 +590,23 @@ async function validateAuthToken(settings, auth, options = {}) {
     return {
       status: "connected",
       checkedAtIso,
-      session,
+      session: auth.tokenType === "browser-binding" ? null : credential,
+      binding: auth.tokenType === "browser-binding" ? credential : null,
       tokenType: auth.tokenType,
       ...(options.includeAuth ? { authToken: auth.token } : {}),
-      detail: auth.tokenType === "extension"
-        ? `Connected to thread ${session.threadId} with persistent binding.`
-        : `Connected to thread ${session.threadId}.`
+      detail: auth.tokenType === "browser-binding"
+        ? "Browser binding connected. Choose a destination thread before sending annotations."
+        : `Connected to thread ${credential.threadId}.`
     };
   } catch (error) {
-    if (auth.tokenType === "extension" && isInvalidTokenError(error)) {
+    if (auth.tokenType === "browser-binding" && isInvalidTokenError(error)) {
       await clearBinding();
       return {
         status: "disconnected",
         checkedAtIso,
         session: null,
         tokenType: auth.tokenType,
-        detail: "Persistent binding is no longer valid. Paste a fresh pairing token to bind again."
+        detail: "Browser binding is no longer valid. Paste a fresh pairing code to bind again."
       };
     }
     return {
@@ -608,20 +636,27 @@ function buildPersistentBindingState(binding, connection) {
   if (!binding) {
     return null;
   }
-  const session = connection && connection.session && connection.session.tokenType === "extension"
-    ? connection.session
+  if (binding.reconnectRequired) {
+    return {
+      status: "error",
+      revocable: false,
+      reconnectRequired: true,
+      detail: "Reconnect required. This saved binding came from the old thread listener flow."
+    };
+  }
+  const browserBinding = connection && connection.binding && connection.binding.tokenType === "browser-binding"
+    ? connection.binding
     : null;
-  const status = session ? session.status : "configured";
+  const status = browserBinding ? browserBinding.status : "configured";
   return {
     status,
     revocable: true,
-    sessionId: binding.sessionId,
-    threadId: binding.threadId,
-    expiresAtIso: session && session.expiresAtIso ? session.expiresAtIso : binding.expiresAtIso,
-    lastUsedAtIso: session && session.lastUsedAtIso ? session.lastUsedAtIso : binding.lastUsedAtIso,
+    bindingId: binding.bindingId,
+    expiresAtIso: browserBinding && browserBinding.expiresAtIso ? browserBinding.expiresAtIso : binding.expiresAtIso,
+    lastUsedAtIso: browserBinding && browserBinding.lastUsedAtIso ? browserBinding.lastUsedAtIso : binding.lastUsedAtIso,
     detail: status === "active"
-      ? `Thread ${binding.threadId}. Persistent token remains available after sending.`
-      : `Thread ${binding.threadId}.`
+      ? "Browser binding is connected."
+      : "Browser binding is configured."
   };
 }
 
@@ -956,19 +991,16 @@ async function revokeListenSessionAfterSuccessfulSend(settings, session, token) 
 async function disconnectBinding() {
   const settings = await readSettings();
   const binding = await readBinding();
-  if (binding && binding.token) {
+  if (binding && binding.token && !binding.reconnectRequired) {
     try {
-      await fetchWithTimeout(buildBindingRevokeUrl(binding.serverUrl || settings.serverUrl), {
+      await fetchWithTimeout(buildBrowserBindingRevokeUrl(binding.serverUrl || settings.serverUrl), {
         method: "POST",
         headers: {
           Accept: "application/json",
           Authorization: `Bearer ${binding.token}`,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({
-          sessionId: binding.sessionId,
-          threadId: binding.threadId
-        }),
+        body: JSON.stringify({}),
         cache: "no-store"
       }, REVOKE_FETCH_TIMEOUT_MS);
     } catch (error) {

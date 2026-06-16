@@ -4,6 +4,26 @@
   const constants = globalScope.BrowserAnnotationConstants;
   const urlUtils = globalScope.BrowserAnnotationUrlUtils;
 
+  function buildBindingStartUrl(serverUrl) {
+    const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
+    return new URL(constants.BINDING_START_PATH, `${normalizedServerUrl}/`).toString();
+  }
+
+  function buildBindingCompleteUrl(serverUrl) {
+    const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
+    return new URL(constants.BINDING_COMPLETE_PATH, `${normalizedServerUrl}/`).toString();
+  }
+
+  function buildBindingStatusUrl(serverUrl) {
+    const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
+    return new URL(constants.BINDING_STATUS_PATH, `${normalizedServerUrl}/`).toString();
+  }
+
+  function buildBrowserBindingRevokeUrl(serverUrl) {
+    const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
+    return new URL(constants.BINDING_REVOKE_PATH, `${normalizedServerUrl}/`).toString();
+  }
+
   function buildListenStatusUrl(serverUrl) {
     const normalizedServerUrl = urlUtils.normalizeServerUrl(serverUrl);
     return new URL(constants.LISTEN_STATUS_PATH, `${normalizedServerUrl}/`).toString();
@@ -112,6 +132,39 @@
     return parsed;
   }
 
+  function readBindingFromStatusPayload(payload) {
+    if (!isRecord(payload) || payload.ok !== true || !isRecord(payload.binding)) {
+      return null;
+    }
+
+    const binding = payload.binding;
+    const bindingId = readString(binding.bindingId);
+    const status = readString(binding.status);
+    if (!bindingId || !status) {
+      return null;
+    }
+
+    const parsed = {
+      bindingId,
+      status,
+      tokenType: readString(binding.tokenType) || "browser-binding",
+      serverUrl: readNullableString(binding.serverUrl),
+      serverPath: readString(binding.serverPath),
+      expiresAtIso: readString(binding.expiresAtIso),
+      createdAtIso: readString(binding.createdAtIso)
+    };
+
+    const lastUsedAtIso = readString(binding.lastUsedAtIso);
+    const bindingToken = readString(binding.bindingToken);
+    if (lastUsedAtIso) {
+      parsed.lastUsedAtIso = lastUsedAtIso;
+    }
+    if (bindingToken) {
+      parsed.bindingToken = bindingToken;
+    }
+    return parsed;
+  }
+
   function readString(value) {
     return typeof value === "string" ? value : "";
   }
@@ -127,12 +180,17 @@
   globalScope.BrowserAnnotationPairingClient = {
     buildAnnotationBatchUrl,
     buildAssetUploadUrl,
+    buildBindingCompleteUrl,
     buildBindingRevokeUrl,
+    buildBindingStartUrl,
+    buildBindingStatusUrl,
+    buildBrowserBindingRevokeUrl,
     buildListenBindUrl,
     buildListenStopUrl,
     buildListenStatusUrl,
     buildTranscribeUrl,
     readJsonSafely,
+    readBindingFromStatusPayload,
     readStatusError,
     readSessionFromStatusPayload
   };

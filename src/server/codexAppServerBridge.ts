@@ -54,6 +54,7 @@ import {
 import { ThreadTerminalManager } from './terminalManager.js'
 import { WebPushNotifications } from './webPushNotifications.js'
 import { ThreadAutoTitleManager } from './threadAutoTitle.js'
+import { handleBrowserAnnotationBindingRoutes } from './browserAnnotationBinding.js'
 import { handleBrowserAnnotationListenRoutes } from './browserAnnotationListen.js'
 import { handleBrowserAnnotationAssetUploadRoute } from './browserAnnotationAssets.js'
 import { handleBrowserAnnotationTranscribeRoute } from './browserAnnotationTranscribe.js'
@@ -8609,6 +8610,10 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
       }
 
       const url = new URL(req.url, 'http://localhost')
+
+      if (await handleBrowserAnnotationBindingRoutes(req, res, url)) {
+        return
+      }
 
       if (await handleBrowserAnnotationListenRoutes(req, res, url)) {
         return

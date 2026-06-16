@@ -321,78 +321,42 @@ assert.equal(revokedState.settings.pairingToken, "");
 assert.equal(storage.has(BrowserAnnotationConstants.STORAGE_KEYS.pairingToken), false);
 
 const persistentFetchCalls = [];
-const transcribeRequests = [];
 context.fetch = async (input, init = {}) => {
   const url = String(input);
   const authorization = init.headers && init.headers.Authorization;
   persistentFetchCalls.push({ url, method: init.method || "GET", authorization });
-  if (url.includes("/listen/binding/revoke")) {
-    assert.equal(authorization, "Bearer extension-token-smoke");
+  if (url.includes("/binding/revoke")) {
+    assert.equal(authorization, "Bearer binding-token-smoke");
     return jsonResponse({
       ok: true,
-      session: {
-        ...persistentSessionPayload(),
+      binding: {
+        ...persistentBindingPayload(),
         status: "revoked"
       }
     });
   }
-  if (url.includes("/listen/bind")) {
+  if (url.includes("/binding/complete")) {
     assert.equal(authorization, "Bearer pairing-token-smoke");
     return jsonResponse({
       ok: true,
-      session: {
-        sessionId: "persistent-session",
-        threadId: "thread-persistent",
+      binding: {
+        bindingId: "browser-binding-smoke",
         status: "active",
-        tokenType: "extension",
+        tokenType: "browser-binding",
         serverUrl: "https://codex-ui.todo-tg-app.ru",
-        serverPath: "/codex-api/extension/listen",
-        expiresAtIso: "2026-06-29T12:00:00.000Z",
+        serverPath: "/codex-api/extension/binding",
+        expiresAtIso: "2027-05-30T12:00:00.000Z",
         createdAtIso: "2026-05-30T12:00:00.000Z",
         lastUsedAtIso: "2026-05-30T12:00:00.000Z",
-        extensionToken: "extension-token-smoke"
+        bindingToken: "binding-token-smoke"
       }
     });
   }
-  if (url.includes("/listen/status")) {
-    assert.equal(authorization, "Bearer extension-token-smoke");
+  if (url.includes("/binding/status")) {
+    assert.equal(authorization, "Bearer binding-token-smoke");
     return jsonResponse({
       ok: true,
-      session: persistentSessionPayload()
-    });
-  }
-  if (url.includes("/annotation-batch")) {
-    assert.equal(authorization, "Bearer extension-token-smoke");
-    assert.equal(url.includes("sessionId=persistent-session"), true);
-    return jsonResponse({
-      ok: true,
-      result: {
-        status: "queued",
-        threadId: "thread-persistent",
-        batchId: "batch-smoke",
-        annotationCount: 1
-      }
-    });
-  }
-  if (url.includes("/transcribe")) {
-    assert.equal(authorization, "Bearer extension-token-smoke");
-    assert.equal(url.includes("sessionId=persistent-session"), true);
-    const file = init.body.get("file");
-    assert(file, "transcribe request must include file");
-    assert.equal(file.type, "audio/webm");
-    assert.equal(file.name, "voice.webm");
-    assert.equal(init.body.get("durationMs"), "1234");
-    assert.equal(init.body.get("itemId"), "annotation-voice");
-    transcribeRequests.push({
-      fileType: file.type,
-      fileName: file.name,
-      fileText: Buffer.from(await file.arrayBuffer()).toString("utf8")
-    });
-    return jsonResponse({
-      ok: true,
-      text: "Русский голосовой комментарий",
-      language: "ru",
-      model: "gpt-4o-mini-transcribe"
+      binding: persistentBindingPayload()
     });
   }
   throw new Error(`Unexpected persistent smoke fetch: ${url}`);
@@ -406,12 +370,19 @@ const savedPersistentState = await context.handleMessage({
   }
 });
 const binding = storage.get(BrowserAnnotationConstants.STORAGE_KEYS.binding);
-assert.equal(binding.token, "extension-token-smoke");
-assert.equal(binding.sessionId, "persistent-session");
+assert.equal(binding.token, "binding-token-smoke");
+assert.equal(binding.bindingId, "browser-binding-smoke");
+assert.equal(binding.tokenType, "browser-binding");
+assert.equal(binding.threadId, undefined);
+assert.equal(binding.sessionId, undefined);
 assert.equal(storage.has(BrowserAnnotationConstants.STORAGE_KEYS.pairingToken), false);
 assert.equal(savedPersistentState.state.connection.status, "connected");
-assert.equal(savedPersistentState.state.connection.session.tokenType, "extension");
+assert.equal(savedPersistentState.state.connection.binding.tokenType, "browser-binding");
+assert.equal(savedPersistentState.state.connection.authToken, undefined);
 assert.equal(savedPersistentState.state.persistentBinding.status, "active");
+assert.equal(savedPersistentState.state.persistentBinding.bindingId, "browser-binding-smoke");
+assert.equal(savedPersistentState.state.persistentBinding.token, undefined);
+assert.equal(JSON.stringify(savedPersistentState.state).includes("binding-token-smoke"), false);
 
 activeTabs.splice(0, activeTabs.length, {
   id: 101,
@@ -440,33 +411,8 @@ const pageStateQueue = storage.get(annotationQueueKey);
 assert.equal(pageStateQueue.length, 1);
 assert.equal(pageStateQueue[0].kind, "devtools/page-state");
 assert.equal(pageStateQueue[0].noteText, "Capture current page behavior");
-
-const sentPersistent = await context.handleMessage({
-  type: BrowserAnnotationConstants.MESSAGE_TYPES.SEND_ANNOTATION_BATCH
-});
-assert.equal(sentPersistent.ok, true);
-assert.equal(storage.get(annotationQueueKey).length, 0);
-assert.equal(storage.get(BrowserAnnotationConstants.STORAGE_KEYS.binding).token, "extension-token-smoke");
+assert.equal(storage.get(BrowserAnnotationConstants.STORAGE_KEYS.binding).token, "binding-token-smoke");
 assert.equal(persistentFetchCalls.some((call) => call.url.includes("/listen/stop")), false);
-
-const transcript = await context.handleMessage({
-  type: BrowserAnnotationConstants.MESSAGE_TYPES.CONTENT_TRANSCRIBE_AUDIO,
-  itemId: "annotation-voice",
-  recordingToken: "recording-token-smoke",
-  mimeType: "audio/webm;codecs=opus",
-  durationMs: 1234,
-  audioDataUrl: `data:audio/webm;codecs=opus;base64,${Buffer.from("voice").toString("base64")}`
-});
-assert.equal(transcript.transcriptText, "Русский голосовой комментарий");
-assert.equal(transcript.itemId, "annotation-voice");
-assert.equal(transcript.recordingToken, "recording-token-smoke");
-assert.deepEqual(transcribeRequests, [
-  {
-    fileType: "audio/webm",
-    fileName: "voice.webm",
-    fileText: "voice"
-  }
-]);
 
 const disconnectedPersistent = await context.handleMessage({
   type: BrowserAnnotationConstants.MESSAGE_TYPES.DISCONNECT_BINDING
@@ -477,15 +423,14 @@ assert.equal(disconnectedPersistent.state.connection.status, "disconnected");
 
 console.log("Extension DevTools service worker persistence smoke passed.");
 
-function persistentSessionPayload() {
+function persistentBindingPayload() {
   return {
-    sessionId: "persistent-session",
-    threadId: "thread-persistent",
+    bindingId: "browser-binding-smoke",
     status: "active",
-    tokenType: "extension",
+    tokenType: "browser-binding",
     serverUrl: "https://codex-ui.todo-tg-app.ru",
-    serverPath: "/codex-api/extension/listen",
-    expiresAtIso: "2026-06-29T12:00:00.000Z",
+    serverPath: "/codex-api/extension/binding",
+    expiresAtIso: "2027-05-30T12:00:01.000Z",
     createdAtIso: "2026-05-30T12:00:00.000Z",
     lastUsedAtIso: "2026-05-30T12:00:01.000Z"
   };

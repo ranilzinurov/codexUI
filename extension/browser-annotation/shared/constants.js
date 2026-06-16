@@ -6,8 +6,8 @@
    *
    * @typedef {Object} BrowserAnnotationSettings
    * @property {string} serverUrl Pairing server base URL.
-   * @property {string} pairingToken Ephemeral thread listener token pasted from Codex UI.
-   * @property {string=} extensionToken Long-lived scoped token issued after pairing.
+   * @property {string} pairingToken Ephemeral browser binding pairing code pasted from Codex UI.
+   * @property {string=} extensionToken Legacy long-lived scoped token issued after thread-level pairing.
    *
    * @typedef {Object} BrowserAnnotationRuntimeMessage
    * @property {string} type One of MESSAGE_TYPES.
@@ -39,6 +39,10 @@
       serverUrl: "https://codex-ui.todo-tg-app.ru",
       pairingToken: ""
     }),
+    BINDING_START_PATH: "/codex-api/extension/binding/start",
+    BINDING_COMPLETE_PATH: "/codex-api/extension/binding/complete",
+    BINDING_STATUS_PATH: "/codex-api/extension/binding/status",
+    BINDING_REVOKE_PATH: "/codex-api/extension/binding/revoke",
     LISTEN_BIND_PATH: "/codex-api/extension/listen/bind",
     LISTEN_STATUS_PATH: "/codex-api/extension/listen/status",
     LISTEN_STOP_PATH: "/codex-api/extension/listen/stop",
