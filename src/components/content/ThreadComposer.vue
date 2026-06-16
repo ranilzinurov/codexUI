@@ -642,6 +642,11 @@ import ComposerDropdown from './ComposerDropdown.vue'
 import ComposerSearchDropdown from './ComposerSearchDropdown.vue'
 import ComposerSkillPicker from './ComposerSkillPicker.vue'
 import ComposerSlashCommandPicker from './ComposerSlashCommandPicker.vue'
+import {
+  markComposerOptionRecent,
+  normalizeRecentComposerValues,
+  orderComposerOptionsByRecent,
+} from './composerRecentOptions'
 import { resolveBackendHttpUrl } from '../../backendUrl'
 import {
   CODEX_SLASH_COMMANDS,
@@ -896,12 +901,15 @@ const SLASH_COMMAND_TRIGGER_PREFIX = '/'
 const COMPOSER_MAX_VIEWPORT_RATIO = 2 / 3
 const COMPOSER_INPUT_MIN_MAX_HEIGHT = 112
 const PROMPT_OPTION_PREFIX = 'prompt:'
+const RECENT_COMPOSER_OPTIONS_STORAGE_KEY = 'codex-composer-recent-skill-options'
+const RECENT_COMPOSER_OPTIONS_LIMIT = 8
 
 const draft = ref('')
 const selectedImages = ref<SelectedImage[]>([])
 const selectedSkills = ref<SkillItem[]>([])
 const composerPlugins = ref<SkillItem[]>([])
 const savedPrompts = ref<ComposerPromptInfo[]>([])
+const recentComposerOptionValues = ref<string[]>([])
 const fileAttachments = ref<FileAttachment[]>([])
 const folderUploadGroups = ref<FolderUploadGroup[]>([])
 
@@ -1095,8 +1103,8 @@ const filteredSlashCommandOptions = computed(() => {
   return rows.slice(0, 12)
 })
 const selectedSkillPaths = computed(() => selectedSkills.value.map((s) => s.path))
-const skillDropdownOptions = computed(() =>
-  [
+const skillDropdownOptions = computed(() => {
+  const options = [
     ...(props.skills ?? []).map((s) => {
       const source = skillSourceBadge(s)
       return {
@@ -1127,8 +1135,9 @@ const skillDropdownOptions = computed(() =>
       badgeTone: 'prompt' as const,
       removable: true,
     })),
-  ],
-)
+  ]
+  return orderComposerOptionsByRecent(options, recentComposerOptionValues.value)
+})
 
 const canSubmit = computed(() => {
   if (props.disabled) return false
@@ -2420,6 +2429,40 @@ function promptPathFromOptionValue(value: string): string | null {
   return value.startsWith(PROMPT_OPTION_PREFIX) ? value.slice(PROMPT_OPTION_PREFIX.length) : null
 }
 
+function loadRecentComposerOptions(): void {
+  if (typeof window === 'undefined') return
+  try {
+    const raw = window.localStorage.getItem(RECENT_COMPOSER_OPTIONS_STORAGE_KEY)
+    const parsed = raw ? JSON.parse(raw) : []
+    recentComposerOptionValues.value = Array.isArray(parsed)
+      ? normalizeRecentComposerValues(parsed.filter((value): value is string => typeof value === 'string'), RECENT_COMPOSER_OPTIONS_LIMIT)
+      : []
+  } catch {
+    recentComposerOptionValues.value = []
+  }
+}
+
+function persistRecentComposerOptions(): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(
+      RECENT_COMPOSER_OPTIONS_STORAGE_KEY,
+      JSON.stringify(recentComposerOptionValues.value),
+    )
+  } catch {
+    // Recents are a convenience only; storage failures should not block selection.
+  }
+}
+
+function markRecentComposerOption(value: string): void {
+  recentComposerOptionValues.value = markComposerOptionRecent(
+    recentComposerOptionValues.value,
+    value,
+    RECENT_COMPOSER_OPTIONS_LIMIT,
+  )
+  persistRecentComposerOptions()
+}
+
 async function onCreatePrompt(): Promise<void> {
   const name = window.prompt(t('Prompt name'))?.trim() ?? ''
   if (!name) return
@@ -2444,6 +2487,7 @@ async function onRemovePrompt(path: string): Promise<void> {
 function onPromptDropdownToggle(path: string): void {
   const prompt = savedPrompts.value.find((entry) => entry.path === path)
   if (!prompt) return
+  markRecentComposerOption(promptOptionValue(prompt.path))
   appendTextToDraft(prompt.content)
 }
 
@@ -2490,6 +2534,7 @@ function isMarkdownFile(path: string): boolean {
 }
 
 function onSkillPickerSelect(skill: SkillItem): void {
+  markRecentComposerOption(skill.path)
   if (!selectedSkills.value.some((s) => s.path === skill.path)) {
     selectedSkills.value = [...selectedSkills.value, skill]
   }
@@ -2529,6 +2574,7 @@ function onSkillDropdownToggle(path: string, checked: boolean): void {
   if (checked) {
     const skill = skillOptions.value.find((s) => s.path === path)
     if (skill && !selectedSkills.value.some((s) => s.path === path)) {
+      markRecentComposerOption(path)
       selectedSkills.value = [...selectedSkills.value, skill]
     }
   } else {
@@ -2546,6 +2592,7 @@ function onDocumentClick(event: MouseEvent): void {
 }
 
 onMounted(() => {
+  loadRecentComposerOptions()
   document.addEventListener('click', onDocumentClick)
   window.addEventListener('drop', onWindowDragCleanup)
   window.addEventListener('dragend', onWindowDragCleanup)

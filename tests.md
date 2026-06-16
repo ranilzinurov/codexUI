@@ -8809,3 +8809,40 @@ Installed Skills Hub folder and child-skill enable/disable switches.
 #### Rollback/Cleanup
 - Restore any toggled folders or child skills to their original enabled/disabled state.
 - Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
+
+---
+
+### Composer Skills Dropdown Recent Selections
+
+#### Feature/Change Name
+Composer `Skills` dropdown prioritizes the most recently selected skills, plugins, and saved prompts.
+
+#### Prerequisites/Setup
+1. Start the app with `pnpm run dev --host 127.0.0.1 --port 4173`.
+2. Open any existing thread so the composer controls are enabled.
+3. Ensure at least two skills/plugins or saved prompts are visible in the composer `Skills` dropdown.
+4. Light theme and dark theme are both available from the appearance switcher.
+
+#### Steps
+1. In light theme, open the composer `Skills` dropdown and note the initial order.
+2. Select a skill, plugin, or saved prompt that is not already at the top.
+3. Reopen the `Skills` dropdown.
+4. Confirm the selected item now appears above non-recent rows.
+5. Select a different skill, plugin, or saved prompt.
+6. Reopen the dropdown and confirm the second selected item is first and the previous selected item remains near the top.
+7. Refresh the page and reopen the dropdown.
+8. Confirm the recent order persists after refresh.
+9. Type in the dropdown search field and confirm matching recent rows still appear before other matching rows.
+10. Switch to dark theme and repeat the visibility checks for the recent rows, badges, selected state, and hover state.
+
+#### Expected Results
+- The composer `Skills` dropdown moves the most recently selected rows to the top.
+- Recent ordering applies consistently to skills, installed plugin references, and saved prompts.
+- The dropdown stores up to the latest recent selections locally and ignores stale values that are no longer in the option list.
+- Existing selection toggling, saved prompt insertion, prompt removal, and search behavior continue to work.
+- Light theme and dark theme both keep recent rows, badges, selected state, search input, and hover state readable.
+
+#### Rollback/Cleanup
+- Clear `codex-composer-recent-skill-options` from browser `localStorage` to reset the recent order.
+- Delete any temporary saved prompts created during verification.
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.

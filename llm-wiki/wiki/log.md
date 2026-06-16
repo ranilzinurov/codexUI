@@ -120,3 +120,10 @@
 - Updated wiki page: `concepts/skills-route-ui.md`.
 - Documents folder-level and child-skill-level switch behavior, row click propagation handling, path-scoped busy state, and dark-theme override placement.
 - Updated `index.md`.
+
+## 2026-06-16
+
+- Added source notes for composer Skills dropdown recent ordering.
+- Updated wiki page: `concepts/composer-plugin-mentions.md`.
+- Documents local recent storage, eight-item cap, stable option ordering, and shared behavior across the combined Skills dropdown and `$` picker.
+- Updated `index.md`.
