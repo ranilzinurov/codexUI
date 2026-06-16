@@ -413,6 +413,21 @@ async function writeThreadTargetSelection(threadId) {
   return next;
 }
 
+async function readThreadTargetCatalogCache() {
+  const stored = await chrome.storage.local.get(STORAGE_KEYS.threadTargetCatalog);
+  return sanitizeThreadTargetCatalogCache(stored[STORAGE_KEYS.threadTargetCatalog]);
+}
+
+async function writeThreadTargetCatalogCache(groups, settings) {
+  const next = sanitizeThreadTargetCatalogCache({
+    groups,
+    serverUrl: settings && settings.serverUrl ? settings.serverUrl : "",
+    fetchedAtIso: new Date().toISOString()
+  });
+  await chrome.storage.local.set({ [STORAGE_KEYS.threadTargetCatalog]: next });
+  return next;
+}
+
 async function readThreadTargetsState(settings, connection, binding) {
   const selection = await readThreadTargetSelection();
   if (!binding || !binding.token || binding.reconnectRequired) {
@@ -449,6 +464,7 @@ async function readThreadTargetsState(settings, connection, binding) {
       throw new Error(readStatusError(payload, `Thread targets request failed (${response.status}).`));
     }
     const groups = sanitizeThreadTargetGroups(payload && payload.groups);
+    const catalogCache = await writeThreadTargetCatalogCache(groups, settings);
     const selectedThread = findThreadTarget(groups, selection.selectedThreadId);
     return {
       status: "ready",
@@ -457,9 +473,25 @@ async function readThreadTargetsState(settings, connection, binding) {
         : "No Codex threads are available yet.",
       groups,
       selectedThreadId: selection.selectedThreadId,
-      selectedThread
+      selectedThread,
+      catalogFetchedAtIso: catalogCache.fetchedAtIso,
+      catalogStale: false
     };
   } catch (error) {
+    const cached = await readThreadTargetCatalogCache();
+    if (cached && cached.groups.length > 0) {
+      const selectedThread = findThreadTarget(cached.groups, selection.selectedThreadId);
+      const detail = error instanceof Error ? error.message : "Unable to load destination threads.";
+      return {
+        status: "stale",
+        detail: `Showing saved destination catalog. Refresh failed: ${detail}`,
+        groups: cached.groups,
+        selectedThreadId: selection.selectedThreadId,
+        selectedThread,
+        catalogFetchedAtIso: cached.fetchedAtIso,
+        catalogStale: true
+      };
+    }
     return {
       status: "error",
       detail: error instanceof Error ? error.message : "Unable to load destination threads.",
@@ -476,7 +508,24 @@ function emptyThreadTargetsState(detail, selectedThreadId = "") {
     detail,
     groups: [],
     selectedThreadId,
-    selectedThread: null
+    selectedThread: null,
+    catalogFetchedAtIso: "",
+    catalogStale: false
+  };
+}
+
+function sanitizeThreadTargetCatalogCache(value) {
+  if (!value || typeof value !== "object") {
+    return {
+      groups: [],
+      serverUrl: "",
+      fetchedAtIso: ""
+    };
+  }
+  return {
+    groups: sanitizeThreadTargetGroups(value.groups),
+    serverUrl: String(value.serverUrl || "").trim(),
+    fetchedAtIso: String(value.fetchedAtIso || "").trim()
   };
 }
 

@@ -327,6 +327,7 @@ assert.equal(revokedState.settings.pairingToken, "");
 assert.equal(storage.has(BrowserAnnotationConstants.STORAGE_KEYS.pairingToken), false);
 
 const persistentFetchCalls = [];
+let failThreadTargetsRefresh = false;
 context.fetch = async (input, init = {}) => {
   const url = String(input);
   const authorization = init.headers && init.headers.Authorization;
@@ -367,6 +368,9 @@ context.fetch = async (input, init = {}) => {
   }
   if (url.includes("/extension/threads")) {
     assert.equal(authorization, "Bearer binding-token-smoke");
+    if (failThreadTargetsRefresh) {
+      throw new Error("catalog refresh temporarily unavailable");
+    }
     return jsonResponse({
       ok: true,
       groups: [
@@ -462,6 +466,22 @@ assert.equal(selectedTargetState.ok, true);
 assert.equal(storage.get(BrowserAnnotationConstants.STORAGE_KEYS.threadTarget).selectedThreadId, "thread-selector-1");
 assert.equal(selectedTargetState.state.threadTargets.selectedThreadId, "thread-selector-1");
 assert.equal(selectedTargetState.state.threadTargets.selectedThread.title, "Ресерч browser remote extension");
+assert.equal(storage.get(BrowserAnnotationConstants.STORAGE_KEYS.threadTargetCatalog).groups[0].threads[0].id, "thread-selector-1");
+
+failThreadTargetsRefresh = true;
+const staleCatalogState = await context.handleMessage({
+  type: BrowserAnnotationConstants.MESSAGE_TYPES.GET_STATE
+});
+assert.equal(staleCatalogState.ok, true);
+assert.equal(staleCatalogState.state.threadTargets.status, "stale");
+assert.equal(staleCatalogState.state.threadTargets.catalogStale, true);
+assert.match(staleCatalogState.state.threadTargets.detail, /Refresh failed/);
+assert.equal(staleCatalogState.state.threadTargets.groups[0].projectName, "codexUI");
+assert.equal(staleCatalogState.state.threadTargets.groups[0].threads[0].id, "thread-selector-1");
+assert.equal(staleCatalogState.state.threadTargets.selectedThreadId, "thread-selector-1");
+assert.equal(staleCatalogState.state.threadTargets.selectedThread.title, "Ресерч browser remote extension");
+assert.equal(storage.get(BrowserAnnotationConstants.STORAGE_KEYS.threadTarget).selectedThreadId, "thread-selector-1");
+failThreadTargetsRefresh = false;
 
 activeTabs.splice(0, activeTabs.length, {
   id: 101,

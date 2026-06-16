@@ -68,6 +68,7 @@
       pairingToken: "browserAnnotation.pairingToken",
       binding: "browserAnnotation.binding",
       threadTarget: "browserAnnotation.threadTarget",
+      threadTargetCatalog: "browserAnnotation.threadTargetCatalog",
       annotationQueue: "browserAnnotation.annotationQueue",
       devtoolsCapture: "browserAnnotation.devtoolsCapture"
     }),

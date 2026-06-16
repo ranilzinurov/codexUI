@@ -46,6 +46,7 @@
   let voiceRecordingSequence = 0;
   let activeTranscription = null;
   let noteUpdateQueue = Promise.resolve();
+  let lastKnownQueueCount = null;
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!message) {
@@ -74,6 +75,8 @@
   function startAnnotationMode() {
     overlay = ensureOverlayRoot();
     overlay.host.hidden = false;
+    const wasActive = active;
+    active = true;
     if (selectedSelection) {
       updateSelectedOverlay();
       showSelectionPanel(selectedSelection.label || "Selection", selectedQueueItemId ? "Saved" : "Saving...");
@@ -81,11 +84,10 @@
       setIdlePanel("Click an element or drag an area");
     }
 
-    if (active) {
+    if (wasActive) {
       return;
     }
 
-    active = true;
     document.addEventListener("mousedown", handleMouseDown, true);
     document.addEventListener("mousemove", handleMouseMove, true);
     document.addEventListener("mouseup", handleMouseUp, true);
@@ -123,6 +125,7 @@
     overlay.dragBox.hidden = true;
     overlay.selectedBox.hidden = true;
     overlay.panel.hidden = true;
+    overlay.floatingPanel.hidden = true;
     overlay.noteWrap.hidden = true;
     overlay.noteButton.setAttribute("aria-expanded", "false");
     overlay.panel.classList.remove("has-note", "is-selection");
@@ -154,7 +157,8 @@
     selectedBox.className = "box box-selected";
     selectedBox.hidden = true;
     const panel = createPanel();
-    shadow.append(style, hoverBox, dragBox, selectedBox, panel.container);
+    const floatingPanel = createFloatingPanel();
+    shadow.append(style, hoverBox, dragBox, selectedBox, panel.container, floatingPanel.container);
 
     host.__codexBrowserAnnotationOverlay = {
       host,
@@ -171,7 +175,17 @@
       screenshotButton: panel.screenshotButton,
       saveButton: panel.saveButton,
       noteWrap: panel.noteWrap,
-      noteInput: panel.noteInput
+      noteInput: panel.noteInput,
+      floatingPanel: floatingPanel.container,
+      floatingStatus: floatingPanel.status,
+      floatingPickState: floatingPanel.pickState,
+      floatingQueueCount: floatingPanel.queueCount,
+      floatingDraftActions: floatingPanel.draftActions,
+      floatingNoteButton: floatingPanel.noteButton,
+      floatingMicButton: floatingPanel.micButton,
+      floatingScreenshotButton: floatingPanel.screenshotButton,
+      floatingSaveButton: floatingPanel.saveButton,
+      floatingPauseButton: floatingPanel.pauseButton
     };
     document.documentElement.append(host);
     return host.__codexBrowserAnnotationOverlay;
@@ -385,14 +399,17 @@
 
   async function deleteQueuedAnnotation(id) {
     try {
-      await chrome.runtime.sendMessage({
+      const response = await chrome.runtime.sendMessage({
         type: MESSAGE_TYPES.DELETE_ANNOTATION_QUEUE_ITEM,
         id
       });
+      rememberQueueCount(response);
+      updateFloatingPanel();
     } catch (error) {
       console.warn("Unable to delete selected annotation.", error);
       if (overlay) {
         overlay.panelMeta.textContent = "Could not close";
+        updateFloatingPanel();
       }
     }
   }
@@ -434,6 +451,8 @@
       }
       if (updateId === noteUpdateSequence && queueItemId === selectedQueueItemId) {
         overlay.panelMeta.textContent = noteText ? "Note saved" : "Saved";
+        rememberQueueCount(response);
+        updateFloatingPanel();
       }
     } catch (error) {
       console.warn("Unable to save annotation note.", error);
@@ -450,7 +469,11 @@
     const nextHidden = !overlay.noteWrap.hidden;
     overlay.noteWrap.hidden = nextHidden;
     overlay.noteButton.setAttribute("aria-expanded", String(!nextHidden));
+    if (overlay.floatingNoteButton) {
+      overlay.floatingNoteButton.setAttribute("aria-expanded", String(!nextHidden));
+    }
     overlay.panel.classList.toggle("has-note", !nextHidden);
+    updateFloatingPanel();
     updateSelectedOverlay();
     if (!nextHidden) {
       window.setTimeout(() => overlay.noteInput.focus(), 0);
@@ -554,7 +577,14 @@
     overlay.micButton.classList.add("is-recording");
     overlay.micButton.setAttribute("aria-label", "Stop voice recording");
     overlay.micButton.title = "Stop voice recording";
+    if (overlay.floatingMicButton) {
+      overlay.floatingMicButton.textContent = "■";
+      overlay.floatingMicButton.classList.add("is-recording");
+      overlay.floatingMicButton.setAttribute("aria-label", "Stop voice recording");
+      overlay.floatingMicButton.title = "Stop voice recording";
+    }
     overlay.panelMeta.textContent = "Recording...";
+    updateFloatingPanel();
   }
 
   function stopVoiceInput(options = {}) {
@@ -740,6 +770,7 @@
     const noteText = overlay.noteInput.value.trim();
     overlay.panelMeta.textContent = selectedDraftScreenshotEnabled ? "Saving screenshot..." : "Saving...";
     overlay.saveButton.disabled = true;
+    updateFloatingPanel();
     try {
       const response = await chrome.runtime.sendMessage({
         type: MESSAGE_TYPES.CONTENT_SAVE_DRAFT_ANNOTATION,
@@ -765,13 +796,16 @@
       selectedQueueItemId = response.item && response.item.id ? String(response.item.id) : "";
       selectedDraftContext = null;
       selectedDraftId = "";
+      rememberQueueCount(response);
       overlay.panelMeta.textContent = "Saved";
       overlay.saveButton.hidden = true;
       overlay.screenshotButton.disabled = true;
+      updateFloatingPanel();
     } catch (error) {
       console.warn("Unable to save draft annotation.", error);
       overlay.panelMeta.textContent = "Could not save";
       overlay.saveButton.disabled = false;
+      updateFloatingPanel();
     }
   }
 
@@ -790,6 +824,11 @@
     overlay.screenshotButton.textContent = selectedDraftScreenshotEnabled ? "▣" : "□";
     overlay.screenshotButton.title = selectedDraftScreenshotEnabled ? "Screenshot on" : "Screenshot off";
     overlay.screenshotButton.setAttribute("aria-pressed", String(selectedDraftScreenshotEnabled));
+    if (overlay.floatingScreenshotButton) {
+      overlay.floatingScreenshotButton.textContent = selectedDraftScreenshotEnabled ? "▣" : "□";
+      overlay.floatingScreenshotButton.title = selectedDraftScreenshotEnabled ? "Screenshot on" : "Screenshot off";
+      overlay.floatingScreenshotButton.setAttribute("aria-pressed", String(selectedDraftScreenshotEnabled));
+    }
   }
 
   function resetVoiceButton() {
@@ -800,6 +839,12 @@
     overlay.micButton.classList.remove("is-recording");
     overlay.micButton.setAttribute("aria-label", "Start voice recording");
     overlay.micButton.title = "Record voice comment";
+    if (overlay.floatingMicButton) {
+      overlay.floatingMicButton.textContent = "●";
+      overlay.floatingMicButton.classList.remove("is-recording");
+      overlay.floatingMicButton.setAttribute("aria-label", "Start voice recording");
+      overlay.floatingMicButton.title = "Record voice comment";
+    }
   }
 
   function readVoiceErrorMessage(errorName) {
@@ -930,6 +975,7 @@
     overlay.panel.style.top = "";
     overlay.panel.style.right = "16px";
     overlay.panel.style.bottom = "16px";
+    updateFloatingPanel();
   }
 
   function showSelectionPanel(label, meta) {
@@ -948,10 +994,48 @@
     overlay.screenshotButton.hidden = false;
     overlay.screenshotButton.disabled = Boolean(selectedQueueItemId);
     updateScreenshotButton();
+    updateFloatingPanel();
     const rect = readSelectedRect(selectedSelection);
     if (rect) {
       positionPanelForRect(rect);
     }
+  }
+
+  function rememberQueueCount(response) {
+    if (response && Number.isFinite(response.queueCount)) {
+      lastKnownQueueCount = Math.max(0, Math.round(response.queueCount));
+    }
+  }
+
+  function updateFloatingPanel() {
+    if (!overlay || !overlay.floatingPanel) {
+      return;
+    }
+    overlay.floatingPanel.hidden = !active;
+    if (!active) {
+      return;
+    }
+    const hasSelection = Boolean(selectedSelection);
+    const hasSavedDraft = Boolean(selectedQueueItemId);
+    const hasUnsavedDraft = Boolean(selectedDraftContext || selectedDraftId);
+    overlay.floatingStatus.textContent = "Codex annotation";
+    overlay.floatingPickState.textContent = hasSelection
+      ? hasSavedDraft
+        ? "Pick saved"
+        : "Draft selected"
+      : "Pick on Page active";
+    overlay.floatingQueueCount.textContent = lastKnownQueueCount === null
+      ? ""
+      : `${lastKnownQueueCount} queued`;
+    overlay.floatingQueueCount.hidden = lastKnownQueueCount === null;
+    overlay.floatingDraftActions.hidden = !hasSelection;
+    overlay.floatingNoteButton.disabled = !hasSelection;
+    overlay.floatingMicButton.disabled = !hasSelection;
+    overlay.floatingScreenshotButton.disabled = !hasUnsavedDraft;
+    overlay.floatingSaveButton.hidden = !hasUnsavedDraft;
+    overlay.floatingSaveButton.disabled = !hasUnsavedDraft || overlay.saveButton.disabled;
+    overlay.floatingNoteButton.setAttribute("aria-expanded", overlay.noteButton.getAttribute("aria-expanded") || "false");
+    updateScreenshotButton();
   }
 
   function positionPanelForRect(rect) {
@@ -1024,6 +1108,65 @@
         z-index: 2147483647;
         font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         pointer-events: none;
+      }
+
+      .floating-panel {
+        position: fixed;
+        top: 16px;
+        right: 16px;
+        display: grid;
+        gap: 8px;
+        width: min(260px, calc(100vw - 32px));
+        box-sizing: border-box;
+        color: #f8fafc;
+        background: #111827;
+        border: 1px solid rgba(148, 163, 184, 0.45);
+        border-radius: 8px;
+        box-shadow: 0 18px 45px rgba(15, 23, 42, 0.35);
+        padding: 10px;
+        pointer-events: auto;
+      }
+
+      .floating-header {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: start;
+        gap: 8px;
+      }
+
+      .floating-copy {
+        min-width: 0;
+      }
+
+      .floating-status {
+        overflow: hidden;
+        color: #f8fafc;
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 1.2;
+        margin: 0;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .floating-pick-state,
+      .floating-queue-count {
+        color: #cbd5e1;
+        font-size: 11px;
+        line-height: 1.25;
+        margin: 2px 0 0;
+      }
+
+      .floating-actions,
+      .floating-draft-actions {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .floating-draft-actions {
+        border-top: 1px solid rgba(148, 163, 184, 0.22);
+        padding-top: 8px;
       }
 
       .panel {
@@ -1141,6 +1284,10 @@
 
       .panel.is-selection .action:hover:not(:disabled) {
         background: #e2e8f0;
+      }
+
+      .floating-panel .action:hover:not(:disabled) {
+        background: #374151;
       }
 
       .action:disabled {
@@ -1333,6 +1480,119 @@
       saveButton,
       noteWrap,
       noteInput
+    };
+  }
+
+  function createFloatingPanel() {
+    const panel = document.createElement("div");
+    panel.className = "floating-panel";
+    panel.hidden = true;
+    panel.setAttribute("aria-label", "Codex annotation floating panel");
+
+    const header = document.createElement("div");
+    header.className = "floating-header";
+
+    const copy = document.createElement("div");
+    copy.className = "floating-copy";
+
+    const status = document.createElement("p");
+    status.className = "floating-status";
+    status.textContent = "Codex annotation";
+
+    const pickState = document.createElement("p");
+    pickState.className = "floating-pick-state";
+    pickState.textContent = "Pick on Page active";
+
+    const queueCount = document.createElement("p");
+    queueCount.className = "floating-queue-count";
+    queueCount.hidden = true;
+
+    const floatingActions = document.createElement("div");
+    floatingActions.className = "floating-actions";
+
+    const pauseButton = document.createElement("button");
+    pauseButton.className = "action";
+    pauseButton.type = "button";
+    pauseButton.title = "Pause annotation mode";
+    pauseButton.setAttribute("aria-label", "Pause annotation mode");
+    pauseButton.textContent = "Pause";
+    pauseButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      stopAnnotationMode();
+    });
+
+    const draftActions = document.createElement("div");
+    draftActions.className = "floating-draft-actions";
+    draftActions.hidden = true;
+
+    const noteButton = document.createElement("button");
+    noteButton.className = "action";
+    noteButton.type = "button";
+    noteButton.title = "Add comment";
+    noteButton.setAttribute("aria-label", "Floating add comment");
+    noteButton.setAttribute("aria-expanded", "false");
+    noteButton.textContent = "✎";
+    noteButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleNoteInput();
+    });
+
+    const micButton = document.createElement("button");
+    micButton.className = "action";
+    micButton.type = "button";
+    micButton.title = "Record voice comment";
+    micButton.setAttribute("aria-label", "Start voice recording");
+    micButton.textContent = "●";
+    micButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleVoiceInput();
+    });
+
+    const screenshotButton = document.createElement("button");
+    screenshotButton.className = "action";
+    screenshotButton.type = "button";
+    screenshotButton.title = "Screenshot on";
+    screenshotButton.setAttribute("aria-label", "Floating toggle screenshot");
+    screenshotButton.setAttribute("aria-pressed", "true");
+    screenshotButton.textContent = "▣";
+    screenshotButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleScreenshotCapture();
+    });
+
+    const saveButton = document.createElement("button");
+    saveButton.className = "action action-save";
+    saveButton.type = "button";
+    saveButton.title = "Save to Queue";
+    saveButton.setAttribute("aria-label", "Floating save to Queue");
+    saveButton.textContent = "Save";
+    saveButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void saveDraftAnnotation();
+    });
+
+    copy.append(status, pickState, queueCount);
+    floatingActions.append(pauseButton);
+    header.append(copy, floatingActions);
+    draftActions.append(noteButton, micButton, screenshotButton, saveButton);
+    panel.append(header, draftActions);
+
+    return {
+      container: panel,
+      status,
+      pickState,
+      queueCount,
+      draftActions,
+      noteButton,
+      micButton,
+      screenshotButton,
+      saveButton,
+      pauseButton
     };
   }
 

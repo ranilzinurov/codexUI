@@ -515,6 +515,9 @@
     if (threadTargets.status === "ready") {
       return "Updated now";
     }
+    if (threadTargets.status === "stale" || threadTargets.catalogStale === true) {
+      return threadTargets.catalogFetchedAtIso ? "Using saved catalog" : "Refresh stale";
+    }
     if (threadTargets.status === "error") {
       return "Refresh failed";
     }

@@ -8978,3 +8978,72 @@ Browser annotation Pick on Page, Draft Annotation save flow, screenshot states, 
 #### Rollback/Cleanup
 - Remove the unpacked extension from `chrome://extensions` if loaded only for this test.
 - Clear extension storage for `browserAnnotation.annotationQueue`, `browserAnnotation.threadTarget`, `browserAnnotation.binding`, and `browserAnnotation.panelMode` if manual test state should be removed.
+
+---
+
+### Browser Annotation Page-Side Floating Panel
+
+#### Feature/Change Name
+Page-side floating mini panel for active browser annotation mode.
+
+#### Prerequisites/Setup
+1. Use a branch containing the floating panel content-script change.
+2. Run the focused checks from the repository root:
+   - `node --check extension/browser-annotation/content/content-script.js`
+   - `node --check extension/browser-annotation/dev/content-floating-panel-smoke.cjs`
+   - `node extension/browser-annotation/dev/content-floating-panel-smoke.cjs`
+3. For manual UI verification, load `extension/browser-annotation` as an unpacked Chrome extension.
+4. Open a normal `http(s)` page and connect Browser Binding if queue save behavior will be tested.
+
+#### Steps
+1. In light theme, open the Annotation Panel and click `Pick on Page`.
+2. Confirm a compact `Codex annotation` floating panel appears at the page side while annotation mode is active.
+3. Confirm the panel shows Pick on Page state and a Pause control before selecting anything.
+4. Select an element and confirm the page-side panel stays fixed while exposing draft controls for comment, voice, screenshot, and save.
+5. Cancel the draft from the inline annotation controls and confirm the page-side panel remains visible with Pick on Page active state.
+6. Save a draft to the queue and confirm the panel shows the saved state and queue count when the content script already receives that count.
+7. Click Pause and confirm annotation mode exits and the page-side panel hides.
+8. Switch the browser/page to a dark background or dark theme test page and repeat steps 1-5.
+
+#### Expected Results
+- The floating panel is created inside the content-script Shadow DOM and does not require the Chrome side panel to remain open.
+- The panel does not poll storage or background state; queue count appears only after local draft/queue responses include it.
+- Existing inline draft controls and save behavior continue to work.
+- Light and dark theme page states keep the floating panel readable.
+
+#### Rollback/Cleanup
+- Remove the unpacked extension from `chrome://extensions` if loaded only for this test.
+- Clear extension storage for `browserAnnotation.annotationQueue` if manual queue saves should be removed.
+
+---
+
+### Browser Annotation Destination Catalog Cache
+
+#### Feature/Change Name
+Saved Destination and stale Destination Refresh catalog cache.
+
+#### Prerequisites/Setup
+1. Use a branch containing the service-worker destination catalog cache change.
+2. Run the focused checks from the repository root:
+   - `node --check extension/browser-annotation/shared/constants.js`
+   - `node --check extension/browser-annotation/service-worker/service-worker.js`
+   - `node --check extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.mjs`
+   - `node extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.mjs`
+3. For manual UI verification, load `extension/browser-annotation` as an unpacked Chrome extension and connect Browser Binding to a Codex UI server with at least one available destination thread.
+
+#### Steps
+1. In light theme, open the Annotation Panel, refresh Destination Catalog, and select a destination thread.
+2. Close and reopen the panel and confirm the selected destination is still shown.
+3. Temporarily make the destination catalog endpoint fail, such as by stopping the backing server or blocking `/codex-api/extension/threads`.
+4. Reopen the panel or trigger the existing refresh path and confirm the prior project/thread catalog still appears with the saved destination selected.
+5. Switch to dark theme and repeat steps 1-4, confirming Destination and Catalog text remains readable.
+
+#### Expected Results
+- A successful catalog refresh persists sanitized destination groups under `browserAnnotation.threadTargetCatalog`.
+- A transient thread catalog refresh failure does not clear `browserAnnotation.threadTarget`.
+- The panel state returns the cached groups and selected thread with stale catalog metadata instead of an empty hard-unavailable catalog.
+- Light and dark theme Destination/Catalog surfaces remain readable.
+
+#### Rollback/Cleanup
+- Remove the unpacked extension from `chrome://extensions` if loaded only for this test.
+- Clear extension storage for `browserAnnotation.threadTargetCatalog`, `browserAnnotation.threadTarget`, and `browserAnnotation.binding` if manual test state should be removed.

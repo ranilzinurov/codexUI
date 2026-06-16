@@ -46,6 +46,7 @@ node --check extension/browser-annotation/dev/devtools-fixture-smoke.mjs
 node --check extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.mjs
 node --check extension/browser-annotation/dev/sidepanel-host-permission-smoke.cjs
 node --check extension/browser-annotation/dev/content-draft-annotation-smoke.cjs
+node --check extension/browser-annotation/dev/content-floating-panel-smoke.cjs
 node --check extension/browser-annotation/dev/content-overlay-cancel-smoke.cjs
 node extension/browser-annotation/dev/validate-extension.mjs
 node extension/browser-annotation/dev/pairing-client-smoke.mjs
@@ -57,6 +58,7 @@ node extension/browser-annotation/dev/devtools-fixture-smoke.mjs
 node extension/browser-annotation/dev/devtools-service-worker-persistence-smoke.mjs
 node extension/browser-annotation/dev/sidepanel-host-permission-smoke.cjs
 node extension/browser-annotation/dev/content-draft-annotation-smoke.cjs
+node extension/browser-annotation/dev/content-floating-panel-smoke.cjs
 node extension/browser-annotation/dev/content-overlay-cancel-smoke.cjs
 ```
 
