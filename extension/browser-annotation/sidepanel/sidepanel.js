@@ -23,6 +23,11 @@
     targetProject: document.getElementById("targetProject"),
     targetThread: document.getElementById("targetThread"),
     refreshThreadTargets: document.getElementById("refreshThreadTargets"),
+    proControlStatus: document.getElementById("proControlStatus"),
+    proControlDetail: document.getElementById("proControlDetail"),
+    proControlTask: document.getElementById("proControlTask"),
+    enableProControl: document.getElementById("enableProControl"),
+    disableProControl: document.getElementById("disableProControl"),
     tabStatus: document.getElementById("tabStatus"),
     tabDetail: document.getElementById("tabDetail"),
     devtoolsStatus: document.getElementById("devtoolsStatus"),
@@ -60,6 +65,8 @@
   elements.targetProject.addEventListener("change", handleTargetProjectChange);
   elements.targetThread.addEventListener("change", selectThreadTarget);
   elements.refreshThreadTargets.addEventListener("click", refreshState);
+  elements.enableProControl.addEventListener("click", enableProControl);
+  elements.disableProControl.addEventListener("click", disableProControl);
   elements.enableDevtools.addEventListener("click", enableDevtoolsCapture);
   elements.disableDevtools.addEventListener("click", disableDevtoolsCapture);
   elements.pageStateNote.addEventListener("input", () => updatePageStateButton(false));
@@ -255,6 +262,32 @@
     }
   }
 
+  async function enableProControl() {
+    setBusy(true);
+    try {
+      const response = await sendRuntimeMessage({ type: MESSAGE_TYPES.ENABLE_PRO_CONTROL });
+      renderState(response.state);
+      setMessage(proControlMessage(response.state.proControl), response.state.proControl.status === "permission_missing" ? "error" : "ok");
+    } catch (error) {
+      setMessage(error.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function disableProControl() {
+    setBusy(true);
+    try {
+      const response = await sendRuntimeMessage({ type: MESSAGE_TYPES.DISABLE_PRO_CONTROL });
+      renderState(response.state);
+      setMessage("Pro-control worker disabled.", "ok");
+    } catch (error) {
+      setMessage(error.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function sendRuntimeMessage(message) {
     const response = await chrome.runtime.sendMessage(message);
     if (!response || response.ok !== true) {
@@ -282,6 +315,7 @@
     elements.connectionDetail.textContent = connectionDetail(state.connection);
     renderPersistentBinding(state);
     renderThreadTargets(state.threadTargets);
+    renderProControl(state.proControl);
     renderQueue(state.queue);
     renderDevtoolsStatus(state.devtoolsCapture || lastDevtoolsStatus);
     updateSendButton(false);
@@ -389,6 +423,8 @@
     elements.targetProject.disabled = isBusy || !canUseThreadTargets(lastState && lastState.threadTargets);
     elements.targetThread.disabled = isBusy || !canUseThreadTargets(lastState && lastState.threadTargets) || !elements.targetProject.value;
     elements.refreshThreadTargets.disabled = isBusy || !hasBrowserBindingConnection(lastState);
+    elements.enableProControl.disabled = isBusy || !hasBrowserBindingConnection(lastState) || Boolean(lastState && lastState.proControl && lastState.proControl.enabled);
+    elements.disableProControl.disabled = isBusy || !(lastState && lastState.proControl && lastState.proControl.enabled);
     if (!elements.disconnectPersistentBinding.hidden) {
       elements.disconnectPersistentBinding.disabled = isBusy;
     }
@@ -450,6 +486,39 @@
       return connection.detail || "Browser binding code could not be validated.";
     }
     return "Settings saved locally in the extension.";
+  }
+
+  function renderProControl(proControl) {
+    const state = proControl || {};
+    const status = String(state.status || (state.enabled ? "online" : "disabled"));
+    elements.proControlStatus.textContent = proControlStatusLabel(status);
+    elements.proControlStatus.classList.toggle("status-active", state.enabled === true && status !== "error" && status !== "permission_missing");
+    elements.proControlStatus.classList.toggle("status-error", status === "error" || status === "permission_missing");
+    elements.proControlDetail.textContent = state.detail || "Connect browser binding, then enable Pro-control.";
+    const parts = [];
+    if (state.currentTaskId) parts.push(`Task ${state.currentTaskId}`);
+    if (state.lastTaskStatus) parts.push(`Last ${state.lastTaskStatus}`);
+    if (state.lastErrorCode) parts.push(`Error ${state.lastErrorCode}`);
+    if (state.lastUpdatedIso) parts.push(formatDateTime(state.lastUpdatedIso));
+    elements.proControlTask.textContent = parts.filter(Boolean).join(" · ");
+    elements.enableProControl.disabled = !hasBrowserBindingConnection(lastState) || state.enabled === true;
+    elements.disableProControl.disabled = state.enabled !== true;
+  }
+
+  function proControlStatusLabel(status) {
+    if (status === "idle") return "Online/idle";
+    if (status === "online") return "Online";
+    if (status === "running") return "Running";
+    if (status === "permission_missing") return "Permission missing";
+    if (status === "error") return "Error";
+    return "Disabled";
+  }
+
+  function proControlMessage(proControl) {
+    if (!proControl) return "Pro-control state unavailable.";
+    if (proControl.status === "permission_missing") return proControl.detail || "ChatGPT permission missing.";
+    if (proControl.enabled) return "Pro-control worker enabled.";
+    return proControl.detail || "Pro-control worker disabled.";
   }
 
   function renderPersistentBinding(state) {

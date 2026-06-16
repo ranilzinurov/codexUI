@@ -106,6 +106,10 @@ h1 {
   background: var(--surface-soft);
 }
 
+.pro-control-section {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+}
+
 .tab-panel {
   display: grid;
   gap: 10px;

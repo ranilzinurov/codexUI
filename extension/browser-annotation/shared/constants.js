@@ -30,6 +30,8 @@
       START_DEVTOOLS_CAPTURE: "browserAnnotation.devtools.enable",
       STOP_DEVTOOLS_CAPTURE: "browserAnnotation.devtools.disable",
       GET_DEVTOOLS_CAPTURE_STATUS: "browserAnnotation.devtools.getStatus",
+      ENABLE_PRO_CONTROL: "browserAnnotation.proControl.enable",
+      DISABLE_PRO_CONTROL: "browserAnnotation.proControl.disable",
       CONTENT_PING: "browserAnnotation.contentPing",
       CONTENT_START_OVERLAY: "browserAnnotation.contentStartOverlay",
       CONTENT_ELEMENT_SELECTED: "browserAnnotation.contentElementSelected",
@@ -54,6 +56,10 @@
     ANNOTATION_BATCH_PATH: "/codex-api/extension/annotation-batch",
     ASSET_UPLOAD_PATH: "/codex-api/extension/assets/upload",
     TRANSCRIBE_PATH: "/codex-api/extension/transcribe",
+    PRO_CONTROL_POLL_PATH: "/codex-api/extension/pro-control/poll",
+    PRO_CONTROL_TASK_STATUS_PATH: "/codex-api/extension/pro-control/tasks",
+    PRO_CONTROL_RESULT_FILES_PATH: "/codex-api/extension/pro-control/result-files",
+    PRO_CONTROL_CHATGPT_ORIGIN: "https://chatgpt.com/*",
     TARGET_HOST_PATTERN: "https://codex-ui.todo-tg-app.ru/*",
     OPTIONAL_HOST_PERMISSION_PATTERNS: Object.freeze([
       "http://*/*",
@@ -70,7 +76,8 @@
       threadTarget: "browserAnnotation.threadTarget",
       threadTargetCatalog: "browserAnnotation.threadTargetCatalog",
       annotationQueue: "browserAnnotation.annotationQueue",
-      devtoolsCapture: "browserAnnotation.devtoolsCapture"
+      devtoolsCapture: "browserAnnotation.devtoolsCapture",
+      proControl: "browserAnnotation.proControl"
     }),
     MAX_ANNOTATION_QUEUE_ITEMS: 25,
     MAX_SCREENSHOT_PREVIEW_EDGE_PX: 640,

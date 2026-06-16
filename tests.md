@@ -9087,3 +9087,53 @@ Upload ready annotation screenshots as server assets before sending the queue.
 - Remove the unpacked extension from `chrome://extensions` if loaded only for this test.
 - Clear extension storage for `browserAnnotation.annotationQueue`, `browserAnnotation.threadTarget`, and `browserAnnotation.binding` if manual test state should be removed.
 - Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.
+
+---
+
+### ChatGPT Pro-Control Consultation Workflow
+
+#### Feature/Change Name
+ChatGPT Pro-control worker, task queue, repo bundle helper, requested-files follow-up, attachments, audit log, and failure surfacing.
+
+#### Prerequisites/Setup
+1. Use a branch containing the Pro-control backend, extension, and helper changes.
+2. For automated contract checks, run from the repository root:
+   - `pnpm exec vitest run src/server/proControl.test.ts`
+   - `node --check extension/browser-annotation/service-worker/service-worker.js`
+   - `node --check extension/browser-annotation/sidepanel/sidepanel.js`
+   - `node extension/browser-annotation/dev/validate-extension.mjs`
+   - `node extension/browser-annotation/dev/pairing-client-smoke.mjs`
+   - `pnpm run pro:bundle -- "bundle smoke"`
+   - `pnpm run pack:browser-annotation`
+3. For manual UI verification, start Codex UI with `pnpm run dev --host 127.0.0.1 --port 4173`.
+4. Load the browser annotation extension in a Chrome profile that is logged into ChatGPT Pro.
+5. Pair Browser Binding from Codex UI.
+
+#### Steps
+1. In light theme, open the extension sidepanel and confirm the `ChatGPT Pro` section is visible.
+2. Click `Enable`, approve `https://chatgpt.com/*`, and confirm the Pro-control state becomes online or idle.
+3. Disable Pro-control, enable it again, deny the permission prompt if Chrome offers it, and confirm `Permission missing` is shown without starting polling.
+4. Re-enable with permission granted.
+5. Run `pnpm run pro:consult -- "Проверь текущую задачу и верни короткий ответ"`.
+6. Confirm the extension opens or focuses `chatgpt.com`, sends a prompt with `[Codex Pro task: <taskId>]`, waits for a final answer, and returns copied text or DOM fallback text.
+7. Confirm `.codex/pro-control/consultations/<timestamp>/` contains `prompt.md`, `raw-pro-answer.md`, `codex-assessment.md`, `metadata.json`, `bundle/`, and attachment folders when ChatGPT produced files.
+8. If ChatGPT requests additional files using a final `requestedFiles` JSON block, confirm the helper uploads allowed files, blocks denied paths, and stops after at most three follow-ups.
+9. If ChatGPT returns downloadable attachments, confirm allowed files are saved under audit attachments and patches are applied only after `git apply --check`.
+10. Switch the extension sidepanel and ChatGPT/Codex browser environment to dark theme and repeat steps 1-4.
+
+#### Expected Results
+- Internal Pro-control task creation requires the server token; browser binding tokens cannot create tasks.
+- Extension polling requires a browser binding token; the internal token cannot poll as a worker.
+- A worker claims one task at a time, posts running heartbeats, and returns completed or failed states.
+- Per-thread session keys use `projectId:codexThreadId`, and follow-up tasks reuse saved conversation URLs.
+- Repo bundles exclude `.git/`, `node_modules/`, generated artifacts, `.env*`, credentials, browser profiles, and over-limit files.
+- Over-limit full bundles fall back to reduced bundles with warnings in prompt and metadata.
+- Audit metadata records task id, session key, bundle mode, warnings, read method, execution mode, attachments, and failure details.
+- Light and dark theme Pro-control status surfaces remain readable.
+
+#### Rollback/Cleanup
+- Disable Pro-control in the sidepanel.
+- Remove the unpacked extension from `chrome://extensions` if loaded only for this test.
+- Clear extension storage keys `browserAnnotation.proControl` and `browserAnnotation.binding` if manual test state should be removed.
+- Remove `.codex/pro-control/consultations/` and `.codex/pro-control/bundles/` if local audit artifacts are no longer needed.
+- Stop only the disposable dev server on port `4173`; do not stop any persistent `5173` tmux server.

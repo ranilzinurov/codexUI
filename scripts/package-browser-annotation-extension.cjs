@@ -27,7 +27,7 @@ const runtimeFiles = [
 
 const manifest = JSON.parse(readFileSync(join(extensionRoot, 'manifest.json'), 'utf8'))
 manifest.host_permissions = ['https://codex-ui.todo-tg-app.ru/*', 'https://annotate.todo-tg-app.ru/*']
-manifest.optional_host_permissions = ['http://*/*', 'https://*/*']
+manifest.optional_host_permissions = ['https://chatgpt.com/*', 'http://*/*', 'https://*/*']
 delete manifest.content_security_policy
 
 rmSync(outputRoot, { recursive: true, force: true })

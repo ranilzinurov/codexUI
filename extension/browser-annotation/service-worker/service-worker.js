@@ -14,7 +14,8 @@ const {
   DEVTOOLS_CAPTURE_TIMEOUT_MS,
   MAX_SCREENSHOT_PREVIEW_EDGE_PX,
   MAX_SCREENSHOT_PREVIEW_DATA_URL_CHARS,
-  MAX_ANNOTATION_BATCH_BYTES
+  MAX_ANNOTATION_BATCH_BYTES,
+  PRO_CONTROL_CHATGPT_ORIGIN
 } = globalThis.BrowserAnnotationConstants;
 const {
   normalizeServerUrl,
@@ -31,6 +32,10 @@ const {
   buildListenBindThreadUrl,
   buildListenStatusUrl,
   buildListenStopUrl,
+  buildProControlPollUrl,
+  buildProControlResultFilesUrl,
+  buildProControlTaskResultUrl,
+  buildProControlTaskStatusUrl,
   buildThreadTargetsUrl,
   buildTranscribeUrl,
   readJsonSafely,
@@ -80,11 +85,17 @@ const BATCH_SEND_TIMEOUT_MS = 30000;
 const ASSET_UPLOAD_TIMEOUT_MS = 30000;
 const REVOKE_FETCH_TIMEOUT_MS = 8000;
 const TRANSCRIBE_FETCH_TIMEOUT_MS = 60000;
+const PRO_CONTROL_POLL_TIMEOUT_MS = 65000;
+const PRO_CONTROL_POLL_INTERVAL_MS = 2000;
+const PRO_CONTROL_HEARTBEAT_MS = 15000;
+const PRO_CONTROL_COPY_WAIT_MS = 90 * 60 * 1000;
 
 let devtoolsCaptureTimer = null;
 let devtoolsCaptureTabId = null;
 let devtoolsCapturePersistenceQueue = Promise.resolve();
 let annotationQueueMutationQueue = Promise.resolve();
+let proControlPollTimer = null;
+let proControlRunningTaskId = "";
 const DEVTOOLS_CAPTURE_NO_WRITE = Symbol("devtoolsCaptureNoWrite");
 
 enableActionSidePanelBehavior();
@@ -137,6 +148,14 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     console.warn("Unable to stop DevTools capture after tab close.", error);
   });
 });
+
+readProControlState()
+  .then((state) => {
+    if (state.enabled) scheduleProControlPoll(0);
+  })
+  .catch((error) => {
+    console.warn("Unable to restore Pro-control polling state.", error);
+  });
 
 if (chrome.tabs.onUpdated) {
   chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
@@ -246,6 +265,14 @@ async function handleMessage(message, sender) {
     return getDevtoolsCaptureStatus();
   }
 
+  if (message.type === MESSAGE_TYPES.ENABLE_PRO_CONTROL) {
+    return enableProControl();
+  }
+
+  if (message.type === MESSAGE_TYPES.DISABLE_PRO_CONTROL) {
+    return disableProControl();
+  }
+
   if (message.type === MESSAGE_TYPES.CONTENT_PING) {
     return { ok: true };
   }
@@ -273,15 +300,16 @@ async function getPanelState() {
     readDevtoolsCaptureState()
   ]);
   const binding = await readBinding();
+  const proControl = await readProControlState();
 
   const visibleSettings = connection.clearPairingToken
     ? { ...settings, pairingToken: "" }
     : settings;
   const threadTargets = await readThreadTargetsState(settings, connection, binding);
-  return buildPanelState(visibleSettings, toPublicConnection(connection), activeTab, queue, devtoolsCapture, binding, threadTargets);
+  return buildPanelState(visibleSettings, toPublicConnection(connection), activeTab, queue, devtoolsCapture, binding, threadTargets, proControl);
 }
 
-async function buildPanelState(settings, connection, activeTab, queue, devtoolsCapture, binding = null, threadTargets = null) {
+async function buildPanelState(settings, connection, activeTab, queue, devtoolsCapture, binding = null, threadTargets = null, proControl = null) {
   const tabUrl = activeTab && activeTab.url ? activeTab.url : "";
   const restricted = isRestrictedTabUrl(tabUrl);
   const hostPermissionPattern = restricted ? "" : getTabOriginPattern(tabUrl);
@@ -295,6 +323,7 @@ async function buildPanelState(settings, connection, activeTab, queue, devtoolsC
     connection,
     persistentBinding: buildPersistentBindingState(binding, connection),
     threadTargets: threadTargets || emptyThreadTargetsState("Connect browser binding to choose a destination thread."),
+    proControl: normalizeProControlState(proControl),
     queue,
     devtoolsCapture: buildDevtoolsCaptureStatus(captureState),
     activeTab: activeTab
@@ -323,6 +352,611 @@ function enableActionSidePanelBehavior() {
     .catch((error) => {
       console.warn("Unable to enable action-click side panel behavior.", error);
     });
+}
+
+async function enableProControl() {
+  const settings = await readSettings();
+  const binding = await readBinding();
+  if (!binding || !binding.token || binding.reconnectRequired) {
+    const state = normalizeProControlState({
+      enabled: false,
+      status: "error",
+      detail: "Connect browser binding before enabling Pro-control.",
+      permission: "unknown"
+    });
+    await writeProControlState(state);
+    return { ok: true, state: await getPanelState() };
+  }
+
+  const granted = await requestProControlChatGptPermission();
+  if (!granted) {
+    const state = normalizeProControlState({
+      enabled: false,
+      status: "permission_missing",
+      detail: "ChatGPT host permission was denied.",
+      permission: "missing"
+    });
+    await writeProControlState(state);
+    return { ok: true, state: await getPanelState() };
+  }
+
+  await writeProControlState({
+    enabled: true,
+    status: "online",
+    detail: "Pro-control worker enabled.",
+    permission: "granted",
+    serverUrl: settings.serverUrl,
+    lastUpdatedIso: new Date().toISOString()
+  });
+  scheduleProControlPoll(0);
+  return { ok: true, state: await getPanelState() };
+}
+
+async function disableProControl() {
+  clearProControlPollTimer();
+  proControlRunningTaskId = "";
+  await writeProControlState({
+    enabled: false,
+    status: "disabled",
+    detail: "Pro-control worker disabled.",
+    permission: await hasProControlChatGptPermission() ? "granted" : "missing",
+    lastUpdatedIso: new Date().toISOString()
+  });
+  return { ok: true, state: await getPanelState() };
+}
+
+async function readProControlState() {
+  const stored = await chrome.storage.local.get(STORAGE_KEYS.proControl);
+  return normalizeProControlState(stored[STORAGE_KEYS.proControl]);
+}
+
+async function writeProControlState(state) {
+  const normalized = normalizeProControlState(state);
+  await chrome.storage.local.set({ [STORAGE_KEYS.proControl]: normalized });
+  return normalized;
+}
+
+function normalizeProControlState(value) {
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    enabled: source.enabled === true,
+    status: String(source.status || (source.enabled ? "online" : "disabled")),
+    detail: String(source.detail || (source.enabled ? "Pro-control worker is enabled." : "Pro-control worker is disabled.")),
+    permission: String(source.permission || "unknown"),
+    serverUrl: String(source.serverUrl || ""),
+    currentTaskId: String(source.currentTaskId || ""),
+    lastTaskStatus: String(source.lastTaskStatus || ""),
+    lastErrorCode: String(source.lastErrorCode || ""),
+    lastUpdatedIso: String(source.lastUpdatedIso || "")
+  };
+}
+
+async function requestProControlChatGptPermission() {
+  if (!chrome.permissions || !chrome.permissions.request) {
+    return false;
+  }
+  if (await hasProControlChatGptPermission()) {
+    return true;
+  }
+  return chrome.permissions.request({ origins: [PRO_CONTROL_CHATGPT_ORIGIN] });
+}
+
+async function hasProControlChatGptPermission() {
+  if (!chrome.permissions || !chrome.permissions.contains) {
+    return false;
+  }
+  return chrome.permissions.contains({ origins: [PRO_CONTROL_CHATGPT_ORIGIN] });
+}
+
+function scheduleProControlPoll(delayMs = PRO_CONTROL_POLL_INTERVAL_MS) {
+  clearProControlPollTimer();
+  proControlPollTimer = setTimeout(() => {
+    proControlPollTimer = null;
+    pollProControlOnce().catch((error) => {
+      console.warn("Pro-control poll failed.", error);
+      writeProControlState({
+        enabled: true,
+        status: "error",
+        detail: error instanceof Error ? error.message : String(error),
+        permission: "granted",
+        lastUpdatedIso: new Date().toISOString()
+      }).finally(() => scheduleProControlPoll(PRO_CONTROL_POLL_INTERVAL_MS * 2));
+    });
+  }, delayMs);
+}
+
+function clearProControlPollTimer() {
+  if (proControlPollTimer) {
+    clearTimeout(proControlPollTimer);
+    proControlPollTimer = null;
+  }
+}
+
+async function pollProControlOnce() {
+  const state = await readProControlState();
+  if (!state.enabled) {
+    return;
+  }
+  const settings = await readSettings();
+  const binding = await readBinding();
+  if (!binding || !binding.token || binding.reconnectRequired) {
+    await writeProControlState({
+      ...state,
+      enabled: false,
+      status: "error",
+      detail: "Browser binding is not connected.",
+      lastErrorCode: "pro_worker_offline",
+      lastUpdatedIso: new Date().toISOString()
+    });
+    return;
+  }
+  if (!(await hasProControlChatGptPermission())) {
+    await writeProControlState({
+      ...state,
+      enabled: false,
+      status: "permission_missing",
+      detail: "ChatGPT host permission is missing.",
+      permission: "missing",
+      lastErrorCode: "chatgpt_permission_missing",
+      lastUpdatedIso: new Date().toISOString()
+    });
+    return;
+  }
+
+  const response = await fetchWithTimeout(buildProControlPollUrl(settings.serverUrl), {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${binding.token}`
+    },
+    cache: "no-store"
+  }, PRO_CONTROL_POLL_TIMEOUT_MS);
+  const payload = await readJsonSafely(response);
+  if (!response.ok) {
+    throw new Error(readStatusError(payload, `Pro-control poll failed (${response.status}).`));
+  }
+
+  const task = payload && payload.task && typeof payload.task === "object" ? payload.task : null;
+  if (!task) {
+    await writeProControlState({
+      ...state,
+      status: "idle",
+      detail: "Online and idle.",
+      currentTaskId: "",
+      lastUpdatedIso: new Date().toISOString()
+    });
+    scheduleProControlPoll(PRO_CONTROL_POLL_INTERVAL_MS);
+    return;
+  }
+
+  if (proControlRunningTaskId && proControlRunningTaskId !== task.id) {
+    scheduleProControlPoll(PRO_CONTROL_POLL_INTERVAL_MS);
+    return;
+  }
+  proControlRunningTaskId = task.id;
+  await writeProControlState({
+    ...state,
+    status: "running",
+    detail: `Running ${task.id}.`,
+    currentTaskId: task.id,
+    lastTaskStatus: task.status || "claimed",
+    lastUpdatedIso: new Date().toISOString()
+  });
+  handleProControlTask(settings, binding, task).finally(() => {
+    proControlRunningTaskId = "";
+    scheduleProControlPoll(PRO_CONTROL_POLL_INTERVAL_MS);
+  });
+}
+
+async function handleProControlTask(settings, binding, task) {
+  const heartbeatTimer = setInterval(() => {
+    postProControlTaskStatus(settings, binding, task.id, {
+      status: "running",
+      statusDetail: "ChatGPT Pro task is still running."
+    }).catch((error) => console.warn("Unable to post Pro-control heartbeat.", error));
+  }, PRO_CONTROL_HEARTBEAT_MS);
+
+  try {
+    await postProControlTaskStatus(settings, binding, task.id, {
+      status: "running",
+      statusDetail: "Opening ChatGPT Pro."
+    });
+    const result = await executeChatGptProTask(task);
+    const uploadedAttachments = await uploadProControlResultAttachments(settings, binding, task.id, result.downloadCandidates || []);
+    result.attachmentFileIds = uploadedAttachments.fileIds;
+    result.warnings = [...(result.warnings || []), ...uploadedAttachments.warnings];
+    delete result.downloadCandidates;
+    await postProControlTaskResult(settings, binding, task.id, result);
+    await writeProControlState({
+      enabled: true,
+      status: "idle",
+      detail: "Last Pro-control task completed.",
+      permission: "granted",
+      currentTaskId: "",
+      lastTaskStatus: "completed",
+      lastUpdatedIso: new Date().toISOString()
+    });
+  } catch (error) {
+    const failure = normalizeProControlFailure(error);
+    await postProControlTaskStatus(settings, binding, task.id, {
+      status: "failed",
+      statusDetail: failure.detail,
+      failureCode: failure.code
+    }).catch((postError) => console.warn("Unable to post Pro-control failure.", postError));
+    await writeProControlState({
+      enabled: true,
+      status: "error",
+      detail: failure.detail,
+      permission: failure.code === "chatgpt_permission_missing" ? "missing" : "granted",
+      currentTaskId: "",
+      lastTaskStatus: "failed",
+      lastErrorCode: failure.code,
+      lastUpdatedIso: new Date().toISOString()
+    });
+  } finally {
+    clearInterval(heartbeatTimer);
+  }
+}
+
+async function postProControlTaskStatus(settings, binding, taskId, body) {
+  const response = await fetchWithTimeout(buildProControlTaskStatusUrl(settings.serverUrl, taskId), {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${binding.token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(body),
+    cache: "no-store"
+  }, STATUS_FETCH_TIMEOUT_MS);
+  const payload = await readJsonSafely(response);
+  if (!response.ok) {
+    throw new Error(readStatusError(payload, `Pro-control status update failed (${response.status}).`));
+  }
+  return payload;
+}
+
+async function postProControlTaskResult(settings, binding, taskId, result) {
+  const response = await fetchWithTimeout(buildProControlTaskResultUrl(settings.serverUrl, taskId), {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${binding.token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(result),
+    cache: "no-store"
+  }, STATUS_FETCH_TIMEOUT_MS);
+  const payload = await readJsonSafely(response);
+  if (!response.ok) {
+    throw new Error(readStatusError(payload, `Pro-control result upload failed (${response.status}).`));
+  }
+  return payload;
+}
+
+async function uploadProControlResultAttachments(settings, binding, taskId, candidates) {
+  const warnings = [];
+  const fileIds = [];
+  for (const candidate of candidates.slice(0, 5)) {
+    const url = String(candidate.url || "");
+    const name = sanitizeDownloadName(candidate.name || url.split("/").pop() || "chatgpt-attachment");
+    if (!/^https:\/\//u.test(url)) {
+      warnings.push(`Attachment ${name} was blocked because only https downloads are supported.`);
+      continue;
+    }
+    if (!isAllowedProControlAttachmentName(name)) {
+      warnings.push(`Attachment ${name} was blocked by extension policy.`);
+      continue;
+    }
+    try {
+      if (chrome.downloads && chrome.downloads.download) {
+        chrome.downloads.download({ url, filename: `codex-pro-control/${name}`, conflictAction: "uniquify", saveAs: false }, () => {
+          const lastError = chrome.runtime.lastError;
+          if (lastError) console.warn("Unable to save ChatGPT attachment through downloads API.", lastError.message);
+        });
+      }
+      const response = await fetchWithTimeout(url, { cache: "no-store" }, ASSET_UPLOAD_TIMEOUT_MS);
+      if (!response.ok) {
+        warnings.push(`Attachment ${name} download failed (${response.status}).`);
+        continue;
+      }
+      const buffer = await response.arrayBuffer();
+      if (buffer.byteLength > 50 * 1024 * 1024) {
+        warnings.push(`Attachment ${name} was blocked because it is over 50 MB.`);
+        continue;
+      }
+      const uploaded = await uploadProControlResultFile(settings, binding, {
+        taskId,
+        name,
+        mime: response.headers.get("content-type") || "application/octet-stream",
+        contentBase64: arrayBufferToBase64(buffer)
+      });
+      if (uploaded && uploaded.fileId) {
+        fileIds.push(uploaded.fileId);
+      }
+    } catch (error) {
+      warnings.push(`Attachment ${name} could not be returned: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return { fileIds, warnings };
+}
+
+async function uploadProControlResultFile(settings, binding, body) {
+  const response = await fetchWithTimeout(buildProControlResultFilesUrl(settings.serverUrl), {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${binding.token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(body),
+    cache: "no-store"
+  }, ASSET_UPLOAD_TIMEOUT_MS);
+  const payload = await readJsonSafely(response);
+  if (!response.ok) {
+    throw new Error(readStatusError(payload, `Pro-control attachment upload failed (${response.status}).`));
+  }
+  return payload && payload.file;
+}
+
+function sanitizeDownloadName(value) {
+  const name = String(value || "chatgpt-attachment").split(/[\\/]/u).pop().replace(/[^\w .@()+,=-]/gu, "-").trim();
+  return name || "chatgpt-attachment";
+}
+
+function isAllowedProControlAttachmentName(name) {
+  return /\.(zip|txt|md|json|patch|diff|png|jpe?g|pdf)$/iu.test(name) &&
+    !/(cookie|credential|secret|token|session|\.env)/iu.test(name);
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+async function executeChatGptProTask(task) {
+  const prompt = String(task.prompt || "");
+  const stubMatch = prompt.match(/__codexProControlStubResponse:\s*([\s\S]+)/u);
+  if (task.mode === "question-only" && stubMatch) {
+    return {
+      answerText: stubMatch[1].trim(),
+      readMethod: "stub",
+      clipboardRestored: null,
+      executionModeRequested: "foreground",
+      executionModeUsed: "foreground",
+      warnings: [],
+      attachments: []
+    };
+  }
+
+  const tab = await openChatGptTab(task);
+  const automationResult = await runChatGptAutomationInTab(tab.id, task);
+  return {
+    answerText: automationResult.answerText,
+    readMethod: automationResult.readMethod,
+    clipboardRestored: automationResult.clipboardRestored,
+    executionModeRequested: "foreground",
+    executionModeUsed: "foreground",
+    conversationUrl: automationResult.conversationUrl || tab.url || "",
+    warnings: automationResult.warnings || [],
+    attachments: []
+  };
+}
+
+async function openChatGptTab(task) {
+  if (!chrome.tabs || !chrome.tabs.create || !chrome.tabs.update) {
+    throw proControlError("chatgpt_tab_interrupted", "Chrome tabs API is unavailable.");
+  }
+  const savedUrl = String(task.conversationUrl || "").trim();
+  const targetUrl = savedUrl && savedUrl.startsWith("https://chatgpt.com/")
+    ? savedUrl
+    : "https://chatgpt.com/";
+  const tabs = chrome.tabs.query
+    ? await chrome.tabs.query({ url: "https://chatgpt.com/*" })
+    : [];
+  const reusable = tabs.find((tab) => tab.id && (!savedUrl || tab.url === savedUrl));
+  const tab = reusable
+    ? await chrome.tabs.update(reusable.id, { active: true, url: targetUrl })
+    : await chrome.tabs.create({ url: targetUrl, active: true });
+  await waitForTabComplete(tab.id);
+  return tab;
+}
+
+async function waitForTabComplete(tabId) {
+  if (!chrome.tabs || !chrome.tabs.get) return;
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 30000) {
+    const tab = await chrome.tabs.get(tabId);
+    if (tab.status === "complete") return;
+    await delay(500);
+  }
+}
+
+async function runChatGptAutomationInTab(tabId, task) {
+  if (!chrome.scripting || !chrome.scripting.executeScript) {
+    throw proControlError("chatgpt_tab_interrupted", "Chrome scripting API is unavailable.");
+  }
+  const [result] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: chatGptProPageAutomation,
+    args: [task, PRO_CONTROL_COPY_WAIT_MS]
+  });
+  const value = result && result.result;
+  if (!value || value.ok !== true) {
+    const code = value && value.failureCode ? value.failureCode : "chatgpt_tab_interrupted";
+    const detail = value && value.error ? value.error : "ChatGPT automation did not return a result.";
+    throw proControlError(code, detail);
+  }
+  return value;
+}
+
+function chatGptProPageAutomation(task, maxWaitMs) {
+  const selectors = {
+    composer: ['#prompt-textarea', '[contenteditable="true"][data-id]', 'textarea'],
+    send: ['[data-testid="send-button"]', 'button[aria-label*="Send"]', 'button[aria-label*="Отправ"]'],
+    newChat: ['[data-testid="create-new-chat-button"]', 'a[aria-label*="New chat"]', 'a[aria-label*="Новый чат"]'],
+    copy: ['button[aria-label*="Copy response"]', 'button[aria-label*="Копировать ответ"]', '[data-testid="copy-turn-action-button"]'],
+    login: ['button[data-testid="login-button"]', 'a[href*="/auth/login"]']
+  };
+  const warnings = [];
+
+  function findOne(list, root = document) {
+    for (const selector of list) {
+      const node = root.querySelector(selector);
+      if (node) return node;
+    }
+    return null;
+  }
+
+  function visible(node) {
+    const rect = node.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  async function waitFor(predicate, timeoutMs, intervalMs = 500) {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      const value = predicate();
+      if (value) return value;
+      await sleep(intervalMs);
+    }
+    return null;
+  }
+
+  async function run() {
+    if (findOne(selectors.login)) {
+      return { ok: false, failureCode: "login_required", error: "ChatGPT login is required." };
+    }
+    if (!task.conversationUrl) {
+      const newChat = findOne(selectors.newChat);
+      if (newChat && visible(newChat)) {
+        newChat.click();
+        await sleep(800);
+      }
+    }
+
+    if (Array.isArray(task.files) && task.files.length > 0) {
+      warnings.push("File attachment automation is unavailable in this browser context; the prompt references attached file metadata.");
+    }
+
+    const composer = await waitFor(() => findOne(selectors.composer), 30000);
+    if (!composer) {
+      return { ok: false, failureCode: "chatgpt_tab_interrupted", error: "ChatGPT composer was not found." };
+    }
+    composer.focus();
+    if (composer.isContentEditable) {
+      composer.textContent = task.prompt;
+      composer.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: task.prompt }));
+    } else {
+      composer.value = task.prompt;
+      composer.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+
+    const send = await waitFor(() => findOne(selectors.send), 10000);
+    if (!send) {
+      return { ok: false, failureCode: "chatgpt_tab_interrupted", error: "ChatGPT send button was not found." };
+    }
+    send.click();
+
+    const copyButton = await waitFor(() => {
+      const buttons = Array.from(document.querySelectorAll(selectors.copy.join(",")));
+      return buttons.filter(visible).at(-1) || null;
+    }, maxWaitMs, 1000);
+    if (!copyButton) {
+      return { ok: false, failureCode: "copy_response_unavailable", error: "Copy response button did not appear before timeout." };
+    }
+
+    let previousClipboard = "";
+    let clipboardRestored = null;
+    try {
+      previousClipboard = await navigator.clipboard.readText();
+    } catch (_error) {
+      previousClipboard = "";
+    }
+
+    copyButton.click();
+    await sleep(500);
+    try {
+      const answerText = await navigator.clipboard.readText();
+      if (previousClipboard) {
+        try {
+          await navigator.clipboard.writeText(previousClipboard);
+          clipboardRestored = true;
+        } catch (_restoreError) {
+          clipboardRestored = false;
+          warnings.push("Clipboard could not be restored.");
+        }
+      }
+      if (answerText && answerText.trim()) {
+        const turns = Array.from(document.querySelectorAll('[data-message-author-role="assistant"], article, .markdown'));
+        const finalTurn = turns.at(-1);
+        return {
+          ok: true,
+          answerText,
+          readMethod: "copy-response",
+          clipboardRestored,
+          conversationUrl: location.href,
+          warnings,
+          downloadCandidates: collectDownloadCandidates(finalTurn)
+        };
+      }
+    } catch (_error) {
+      warnings.push("Clipboard read failed; used DOM fallback.");
+    }
+
+    const turns = Array.from(document.querySelectorAll('[data-message-author-role="assistant"], article, .markdown'));
+    const finalTurn = turns.at(-1);
+    const answerText = (finalTurn?.innerText || "").trim();
+    if (!answerText) {
+      return { ok: false, failureCode: "clipboard_read_failed", error: "Final response could not be copied or read from DOM." };
+    }
+    return {
+      ok: true,
+      answerText,
+      readMethod: "dom-fallback",
+      clipboardRestored,
+      conversationUrl: location.href,
+      warnings,
+      downloadCandidates: collectDownloadCandidates(finalTurn)
+    };
+  }
+
+  function collectDownloadCandidates(root) {
+    if (!root) return [];
+    return Array.from(root.querySelectorAll('a[download], a[href]')).map((link) => ({
+      url: link.href || "",
+      name: link.getAttribute("download") || link.textContent.trim() || link.href.split("/").pop() || "chatgpt-attachment"
+    })).filter((item) => item.url && /(\.zip|\.txt|\.md|\.json|\.patch|\.diff|\.png|\.jpe?g|\.pdf)(\?|#|$)/iu.test(item.url));
+  }
+
+  return run();
+}
+
+function normalizeProControlFailure(error) {
+  if (error && error.proControlFailureCode) {
+    return {
+      code: error.proControlFailureCode,
+      detail: error.message || String(error.proControlFailureCode)
+    };
+  }
+  const detail = error instanceof Error ? error.message : String(error);
+  return { code: "chatgpt_tab_interrupted", detail };
+}
+
+function proControlError(code, detail) {
+  const error = new Error(detail);
+  error.proControlFailureCode = code;
+  return error;
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function saveSettings(rawSettings) {
